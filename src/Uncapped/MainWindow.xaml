@@ -153,6 +153,9 @@
                                 Content="Create an account" Visibility="Collapsed" Click="OnRegister" />
                         <TextBlock x:Name="LinkSeparator" Text="  ·  " Foreground="#5A5060" FontSize="11"
                                    Visibility="Collapsed" />
+                        <Button x:Name="LoginLink" Style="{StaticResource QuietLink}"
+                                Content="Saved login" Click="OnSavedLogin" />
+                        <TextBlock Text="  ·  " Foreground="#5A5060" FontSize="11" />
                         <Button Style="{StaticResource QuietLink}"
                                 Content="Change game folder" Click="OnChangeFolder" />
                     </StackPanel>

@@ -15,6 +15,7 @@ public partial class MainWindow : Window
     private readonly LauncherState _state;
     private readonly CancellationTokenSource _cts = new();
 
+    private Credentials _credentials = Credentials.Load();
     private Manifest? _manifest;
     private string? _manifestHash;
     private string? _installPath;
@@ -29,7 +30,7 @@ public partial class MainWindow : Window
 
         InitializeComponent();
 
-        Loaded += async (_, _) => await RunStartupAsync();
+        Loaded += async (_, _) => { RefreshLoginLink(); await RunStartupAsync(); };
         Closing += (_, _) => { _closing = true; _cts.Cancel(); };
     }
 
@@ -396,7 +397,14 @@ public partial class MainWindow : Window
             }
 
             GameProcess.Launch(_installPath);
-            SetStatus("Launched. Have fun.");
+
+            // Copied after launch so it lands on the clipboard while the player is heading
+            // for the login screen, rather than sitting there through a long update.
+            if (_credentials.HasPassword && ClipboardHelper.CopyTemporarily(_credentials.Password))
+                SetStatus($"Password copied — paste it with Ctrl+V " +
+                          $"(cleared in {ClipboardHelper.ClearAfter.TotalSeconds:0}s).");
+            else
+                SetStatus("Launched. Have fun.");
 
             // Stay open behind the game, then re-arm so a player who logs out can relaunch
             // without restarting the launcher.
@@ -416,6 +424,30 @@ public partial class MainWindow : Window
     }
 
     private void OnRegister(object sender, RoutedEventArgs e) => OpenUrl(_manifest?.Realm.RegisterUrl);
+
+    private void OnSavedLogin(object sender, RoutedEventArgs e)
+    {
+        var dialog = new LoginWindow(_credentials) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        _credentials = dialog.Result;
+        RefreshLoginLink();
+
+        // The client pre-fills the account name from Config.wtf, so writing it there saves
+        // the player typing the half we can actually fill in for them.
+        if (_installPath is not null && _credentials.HasAccountName)
+        {
+            try
+            {
+                ConfigWtf.Update(_installPath,
+                    new Dictionary<string, string> { ["accountName"] = _credentials.AccountName });
+            }
+            catch (Exception ex) { Log.Write($"accountName: {ex.Message}"); }
+        }
+    }
+
+    private void RefreshLoginLink() =>
+        LoginLink.Content = _credentials.HasPassword ? "Saved login ✓" : "Saved login";
 
     // ---------- helpers ----------
 

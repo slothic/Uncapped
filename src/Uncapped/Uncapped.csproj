@@ -11,7 +11,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Uncapped</RootNamespace>
     <AssemblyName>Uncapped</AssemblyName>
-    <Version>1.2.2</Version>
+    <Version>1.3.0</Version>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <!-- Framework-dependent: ~2 MB instead of ~109 MB self-contained. The cost is that
          players need the .NET 9 Desktop Runtime installed. We cannot detect that ourselves -
@@ -46,6 +46,7 @@
          ambiguous. Alias them to the WPF ones once, here, rather than in every file. -->
     <Using Include="System.Windows.Application" Alias="Application" />
     <Using Include="System.Windows.MessageBox" Alias="MessageBox" />
+    <Using Include="System.Windows.Clipboard" Alias="Clipboard" />
   </ItemGroup>
 
   <!--
