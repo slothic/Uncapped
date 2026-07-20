@@ -98,7 +98,11 @@ $manifest = [ordered]@{
 }
 
 $json = $manifest | ConvertTo-Json -Depth 8
-Set-Content -Path $OutFile -Value $json -Encoding utf8
+
+# UTF-8 *without* BOM. Windows PowerShell's `-Encoding utf8` emits a BOM, which several JSON
+# parsers choke on. .NET's HttpClient happens to strip it, so the launcher copes either way,
+# but there is no reason to ship a manifest that only some readers can parse.
+[IO.File]::WriteAllText($OutFile, $json, (New-Object Text.UTF8Encoding($false)))
 
 # $files holds ordered hashtables, whose keys are not properties Measure-Object can see.
 $totalMb = [math]::Round((($files | ForEach-Object { $_.size } | Measure-Object -Sum).Sum) / 1MB, 2)
