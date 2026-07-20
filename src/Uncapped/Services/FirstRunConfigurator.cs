@@ -66,8 +66,8 @@ public static class FirstRunConfigurator
     private static async Task<bool> GenerateConfigAsync(
         string installPath, IProgress<string> log, CancellationToken ct)
     {
-        var exe = Path.Combine(installPath, "Wow.exe");
-        if (!File.Exists(exe)) return false;
+        var exe = ClientExecutable.Find(installPath);
+        if (exe is null) return false;
 
         Process? process = null;
         try
@@ -76,7 +76,8 @@ public static class FirstRunConfigurator
             {
                 FileName = exe,
                 WorkingDirectory = installPath,
-                UseShellExecute = true,
+                // False so this works whether or not the client has been renamed yet.
+                UseShellExecute = false,
             });
 
             if (process is null) return false;
@@ -133,11 +134,7 @@ public static class FirstRunConfigurator
     {
         for (var i = 0; i < 20 && GameProcess.IsRunning(installPath); i++)
         {
-            foreach (var p in Process.GetProcessesByName("Wow"))
-            {
-                try { p.Kill(); } catch { /* not ours, or already exiting */ }
-                finally { p.Dispose(); }
-            }
+            GameProcess.KillAll(installPath);
             await Task.Delay(500);
         }
     }

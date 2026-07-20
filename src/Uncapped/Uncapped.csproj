@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -8,11 +8,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Uncapped</RootNamespace>
     <AssemblyName>Uncapped</AssemblyName>
-    <Version>1.0.1</Version>
+    <Version>1.1.0</Version>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <!-- Framework-dependent: ~2 MB instead of ~109 MB self-contained. The cost is that
-         players need the .NET 9 Desktop Runtime installed. We cannot detect that ourselves —
-         without the runtime our code never runs — but the .NET apphost shows its own dialog
+         players need the .NET 9 Desktop Runtime installed. We cannot detect that ourselves -
+         without the runtime our code never runs - but the .NET apphost shows its own dialog
          naming the missing runtime with a download link. Document it for players anyway. -->
     <SelfContained>false</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>

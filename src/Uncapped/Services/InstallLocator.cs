@@ -19,10 +19,14 @@ public static class InstallLocator
 
     private static readonly string[] RegistryValues = { "InstallPath", "GamePath" };
 
+    /// <summary>
+    /// Accepts either the stock Wow.exe or the renamed client, so an install stays
+    /// recognisable after hardening.
+    /// </summary>
     public static bool IsValidInstall(string? path)
     {
         if (string.IsNullOrWhiteSpace(path)) return false;
-        return File.Exists(Path.Combine(path, "Wow.exe"))
+        return ClientExecutable.Exists(path)
             && Directory.Exists(Path.Combine(path, "Data"));
     }
 

@@ -1,0 +1,12 @@
+[
+  {
+    "_comment": "WDM dungeon-map patches. Hosted from Trimitor's own releases rather than copied into this repo: 66 MB of binaries would bloat git history permanently, and upstream is the legitimate distribution point. Tags are pinned so a new upstream release cannot change what players get without us deciding to move.",
+    "path": "Data/enUS/patch-enUS-M.MPQ",
+    "url": "https://github.com/Trimitor/WDM-patch/releases/download/2.4.5-stable/patch-enUS-M.MPQ"
+  },
+  {
+    "_comment": "The -N archive only ships in beta tags upstream; it is the optional Caverns and Mines (microdungeons) expansion.",
+    "path": "Data/enUS/patch-enUS-N.MPQ",
+    "url": "https://github.com/Trimitor/WDM-patch/releases/download/2.4.5-beta/patch-enUS-N.MPQ"
+  }
+]
