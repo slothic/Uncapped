@@ -384,7 +384,7 @@ public sealed class MainForm : Form
 
         foreach (var failure in realm.Failed) Log($"realmlist: {failure}");
 
-        AddOnsTxtEnforcer.ForceEnable(_installPath, _manifest.ForceEnableAddOns);
+        AddOnsTxtEnforcer.Apply(_installPath, _manifest.ForceEnableAddOns, _manifest.ForceDisableAddOns);
 
         if (_manifest.HardenClient)
         {

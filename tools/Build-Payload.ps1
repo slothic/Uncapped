@@ -47,8 +47,22 @@ $licenceExcluded = @{
     'ArkInventoryRules' = 'ArkInventoryRules.lua:1: "(c) 2009-2010, all rights reserved."'
 }
 
+# Addons pulled temporarily because they are broken, not for licence reasons. These are also
+# listed in forceDisableAddOns in the manifest, which switches them off in AddOns.txt on
+# clients that already have them - dropping an addon from the payload does not remove it,
+# since the launcher never deletes third-party addons.
+# To re-enable: remove from here AND from -ForceDisableAddOns in New-Manifest.ps1.
+$temporarilyDisabled = @{
+    'QuestHelper' = 'throws Lua errors in-game (2026-07-20); may be fixed upstream later'
+}
+
 function Add-AddonFolder {
     param([string]$Name, [string]$SourceLabel)
+
+    if ($temporarilyDisabled.ContainsKey($Name)) {
+        Write-Host "  - $Name (disabled: $($temporarilyDisabled[$Name]))" -ForegroundColor Yellow
+        return $false
+    }
 
     # Blizzard's stock UI addons ship with every client and are Blizzard's property. They
     # must never end up in the payload. Nothing currently feeds them in, but this keeps that
