@@ -6,23 +6,19 @@
 -- WHY QUIT AT ALL: the launcher can only replace addon and patch files while
 -- WoW is closed. A player who sits on the "disconnected" dialog through a
 -- restart comes back on stale files and reports working features as broken.
+-- Quitting is therefore mandatory -- there is deliberately no way to opt out.
 --
 -- WHY A COUNTDOWN, AND NOT "QUIT WHEN DISCONNECTED":
 --
--- Quitting on the disconnect itself sounds better and does not work. WotLK has
--- no "you were disconnected" event; the nearest signal, PLAYER_LEAVING_WORLD,
--- also fires on every zoning loading screen, so telling the two apart means
--- waiting several seconds to see whether PLAYER_ENTERING_WORLD follows. On a
--- real disconnect the client tears the in-game UI down almost immediately --
--- this addon is unloaded long before that wait elapses, so the quit never
--- runs. The delay that makes the detection correct is what stops it firing.
---
--- So the quit happens BEFORE the server goes down, while the UI is alive and
--- the code is guaranteed to execute. The countdown is visible and cancellable.
+-- WotLK has no "you were disconnected" event. On a real disconnect the client
+-- tears the in-game UI down almost immediately, so an addon waiting to confirm
+-- the drop is unloaded before it can act. The quit therefore has to happen
+-- BEFORE the server goes down, while the UI is alive and code is guaranteed to
+-- run. The countdown is the visible warning; the quit at the end is not
+-- optional.
 --
 --   /alerts            show settings
 --   /alerts sound      toggle the warning sound
---   /alerts quit       toggle auto-quit
 --   /alerts time <s>   set the countdown length
 --   /alerts testsound  play the alert sound
 --   /alerts testquit   quit right now, to check it works on your client
@@ -62,34 +58,27 @@ local function QuitGame()
     return nil
 end
 
--- Optional custom alert, shipped alongside the addon.
+-- The custom alert, shipped alongside the addon as alert.mp3.
 --
 -- 3.3.5 plays .mp3 and .ogg from an addon folder, but only if the file is
 -- present when the client STARTS -- there is no runtime loading. The launcher
--- ships whatever sits in the addon directory, so dropping a file in and
--- publishing is all that is required.
---
--- The built-in RaidWarning always plays first. There is no way to ask the
--- client whether a sound file exists, and a missing file fails silently, so
--- the guaranteed-audible sound goes first and the custom one layers on top.
+-- ships whatever sits in the addon directory, so the file simply being here is
+-- enough.
 local CUSTOM_ALERT = "Interface\\AddOns\\UncappedAlerts\\alert.mp3"
 
 local function PlayAlertSound()
-    PlaySound("RaidWarning")
     PlaySoundFile(CUSTOM_ALERT)
 end
 
+-- Warning popup. One button only -- "Quit now" to skip the wait. There is no
+-- cancel: closing the game is mandatory, so the dialog cannot be dismissed and
+-- the countdown quits regardless of what happens to the popup.
 StaticPopupDialogs["UNCAPPED_RESTART_WARNING"] = {
-    text = "Server restart incoming.\n\nClosing the game lets the launcher update you.\n\nQuitting in %d seconds...",
+    text = "Server restart incoming.\n\nThe game will close so the launcher can update you.\n\nClosing in %d seconds...",
     button1 = "Quit now",
-    button2 = "Stay logged in",
     OnAccept = function()
         countdown = nil
         QuitGame()
-    end,
-    OnCancel = function()
-        countdown = nil
-        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Auto-quit cancelled. Restart via the launcher so your files update.")
     end,
     timeout = 0,
     whileDead = 1,
@@ -103,14 +92,6 @@ local function Warn()
         PlayAlertSound()
     end
 
-    if not Setting("autoQuit", true) then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Server restart announced. Close the game and relaunch to get updates.")
-        return
-    end
-
-    -- A local countdown still runs as a visible warning and a fallback, but the
-    -- server's RBQUIT signal is what actually closes the game -- it fires on the
-    -- real shutdown timer rather than on a guess made from an announcement.
     countdown = Setting("countdown", DEFAULT_COUNTDOWN)
     elapsed = 0
 
@@ -126,7 +107,6 @@ frame:RegisterEvent("CHAT_MSG_SYSTEM")
 frame:SetScript("OnEvent", function(self, event, msg)
     if event == "PLAYER_LOGIN" then
         Setting("sound", true)
-        Setting("autoQuit", true)
         Setting("countdown", DEFAULT_COUNTDOWN)
         return
     end
@@ -136,14 +116,13 @@ frame:SetScript("OnEvent", function(self, event, msg)
     end
 
     -- Matches the server's restart announcements. Broad on purpose: a missed
-    -- warning is worse than a false positive, and the popup is easily
-    -- cancelled. Repeats are ignored while a countdown is already running, so
-    -- the announcement spam does not restart the timer over and over.
-    local lowered = msg:lower()
+    -- warning is worse than a false positive. Repeats are ignored while a
+    -- countdown is already running.
     if countdown then
         return
     end
 
+    local lowered = msg:lower()
     if lowered:find("restart") or lowered:find("shutdown") or lowered:find("shutting down") then
         Warn()
     end
@@ -162,20 +141,19 @@ frame:SetScript("OnUpdate", function(self, delta)
 
     countdown = countdown - 1
 
-    local popup = StaticPopup_FindVisible("UNCAPPED_RESTART_WARNING")
-    if not popup then
-        -- Dismissed some other way; treat that as "leave me alone".
-        countdown = nil
-        return
-    end
-
     if countdown <= 0 then
         countdown = nil
         QuitGame()
         return
     end
 
-    popup.text:SetFormattedText(StaticPopupDialogs["UNCAPPED_RESTART_WARNING"].text, countdown)
+    -- Keep the visible countdown current if the popup is up. If it is not
+    -- (dismissed, replaced, whatever), the quit still lands above -- there is
+    -- no path that cancels it.
+    local popup = StaticPopup_FindVisible("UNCAPPED_RESTART_WARNING")
+    if popup then
+        popup.text:SetFormattedText(StaticPopupDialogs["UNCAPPED_RESTART_WARNING"].text, countdown)
+    end
 end)
 
 -- The server sends RBQUIT:<seconds> on the addon channel a few seconds before
@@ -198,13 +176,7 @@ quitListener:SetScript("OnEvent", function(self, event, text, sender)
         return
     end
 
-    local seconds = text:match("^RBQUIT:(%d+)$")
-    if not seconds then
-        return
-    end
-
-    if not Setting("autoQuit", true) then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Server going down in " .. seconds .. "s. Close the game and relaunch to get updates.")
+    if not text:match("^RBQUIT:(%d+)$") then
         return
     end
 
@@ -227,10 +199,6 @@ SlashCmdList["UNCAPPEDALERTS"] = function(arg)
         UncappedAlertsDB.sound = not Setting("sound", true)
         DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Warning sound: " .. (UncappedAlertsDB.sound and "ON" or "OFF"))
 
-    elseif cmd == "quit" then
-        UncappedAlertsDB.autoQuit = not Setting("autoQuit", true)
-        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Auto-quit on restart: " .. (UncappedAlertsDB.autoQuit and "ON" or "OFF"))
-
     elseif cmd == "time" then
         local seconds = tonumber(rest)
         if seconds and seconds >= 5 and seconds <= 600 then
@@ -242,11 +210,11 @@ SlashCmdList["UNCAPPEDALERTS"] = function(arg)
 
     elseif cmd == "testsound" then
         PlayAlertSound()
-        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Played the alert. If you only heard the default warning, alert.mp3 is missing from the addon folder.")
+        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Played the alert. If you heard nothing, alert.mp3 is missing from the addon folder.")
 
     elseif cmd == "testquit" then
-        -- Deliberately immediate and undocumented in the tooltip: the only way
-        -- to find out whether this client will actually close is to try it.
+        -- Immediate: the only way to know whether this client will actually
+        -- close is to try it.
         local used = QuitGame()
         if not used then
             DEFAULT_CHAT_FRAME:AddMessage("|cffff5555[Uncapped]|r No quit function available on this client -- auto-quit cannot work here.")
@@ -257,8 +225,7 @@ SlashCmdList["UNCAPPEDALERTS"] = function(arg)
     else
         DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped Alerts]|r sound: "
             .. (Setting("sound", true) and "ON" or "OFF")
-            .. ", auto-quit: " .. (Setting("autoQuit", true) and "ON" or "OFF")
-            .. " (" .. Setting("countdown", DEFAULT_COUNTDOWN) .. "s)")
-        DEFAULT_CHAT_FRAME:AddMessage("|cff888888/alerts sound|r, |cff888888/alerts quit|r, |cff888888/alerts time <seconds>|r, |cff888888/alerts testsound|r, |cff888888/alerts testquit|r")
+            .. ", countdown " .. Setting("countdown", DEFAULT_COUNTDOWN) .. "s. The game always closes on a restart.")
+        DEFAULT_CHAT_FRAME:AddMessage("|cff888888/alerts sound|r, |cff888888/alerts time <seconds>|r, |cff888888/alerts testsound|r, |cff888888/alerts testquit|r")
     end
 end
