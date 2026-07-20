@@ -139,15 +139,24 @@ public static class FirstRunConfigurator
         }
     }
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int index);
+
+    private const int SM_CXSCREEN = 0;
+    private const int SM_CYSCREEN = 1;
+
     /// <summary>
-    /// Primary monitor size in physical pixels. The app manifest declares PerMonitorV2 DPI
-    /// awareness, so these are real pixels rather than scaled ones — which is what the client
-    /// expects in gxResolution.
+    /// Primary monitor size in physical pixels.
+    ///
+    /// Deliberately Win32 rather than WPF's SystemParameters, which reports device-independent
+    /// units — on a scaled display those are smaller than the real resolution and would set
+    /// gxResolution wrong. With the manifest declaring per-monitor DPI awareness these are
+    /// true pixels.
     /// </summary>
     private static (int Width, int Height) DesktopResolution()
     {
-        var bounds = Screen.PrimaryScreen?.Bounds;
-        if (bounds is null or { Width: <= 0 } or { Height: <= 0 }) return (1280, 720);
-        return (bounds.Value.Width, bounds.Value.Height);
+        var w = GetSystemMetrics(SM_CXSCREEN);
+        var h = GetSystemMetrics(SM_CYSCREEN);
+        return w > 0 && h > 0 ? (w, h) : (1280, 720);
     }
 }

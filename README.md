@@ -11,7 +11,7 @@ the bottom for what was settled and why.
 
 | Path | What it is |
 |---|---|
-| `src\Uncapped\` | The C# / .NET 9 WinForms launcher. |
+| `src\Uncapped\` | The C# / .NET 9 WPF launcher. |
 | `tools\Build-Payload.ps1` | Stages addons + MPQs into `payload\`, normalising zips to folders. |
 | `tools\New-Manifest.ps1` | Hashes `payload\` and writes `manifest.json`. |
 | `payload\` | Generated. Mirrors the WoW install root. Commit this. |
@@ -38,11 +38,31 @@ hand and regenerate freely.
 
 ### Adding news
 
+News is **not** in the manifest any more. It comes from a standalone file on the realm box:
+
+```
+C:\Wotlk\Server\azerothcore-wotlk\webregistration\news.json
+  -> http://91.100.105.22:8080/news.json
+```
+
+`webregistration` is bind-mounted as Apache's document root
+(`./webregistration:/var/www/html` in `docker-compose.override.yml`), so **editing that file
+updates the news immediately** — no rebuild, no container restart, no launcher release.
+
 ```json
-"news": [
-  { "date": "2026-07-20", "title": "StatFeed 1.2", "body": "Stat gains now show in chat." }
+[
+  { "date": "2026-07-20", "title": "StatFeed is live", "body": "Stat gains now show in chat." }
 ]
 ```
+
+Newest first. The launcher shows every entry in a scrollable list; clicking one shows its
+`body` in full. Bounds: 40 items, 90-char titles, 1200-char bodies.
+
+The manifest's `newsUrl` points at that file, and its `news` array is the fallback used if the
+realm box is unreachable — so a downed server shows stale news rather than an empty panel.
+
+Note the file is currently **untracked** in the server repo. It serves fine, but `git clean`
+would delete it; commit it there if you want it to survive.
 
 ### Releasing a new launcher build
 

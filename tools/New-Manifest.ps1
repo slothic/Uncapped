@@ -20,6 +20,10 @@ param(
     [string]$RealmName       = 'Uncapped',
     [int]   $AuthPort        = 3724,
     [string]$RegisterUrl     = 'http://91.100.105.22:8080',
+    # Served straight from the registration site's document root, which is a live bind mount
+    # (./webregistration:/var/www/html). Editing that file updates the news for everyone with
+    # no rebuild, no restart and no release. Empty falls back to the manifest's news array.
+    [string]$NewsUrl         = 'http://91.100.105.22:8080/news.json',
     # Discord webhook that client crash dumps get posted to. Kept in the manifest, not the
     # binary, so it can be rotated without cutting a release - which matters because a
     # webhook shipped in a public client can be extracted by anyone who looks.
@@ -142,6 +146,9 @@ if ($launcherHash) { $launcherHashValue = $launcherHash }
 $crashWebhookValue = $null
 if ($CrashReportWebhook) { $crashWebhookValue = $CrashReportWebhook }
 
+$newsUrlValue = $null
+if ($NewsUrl) { $newsUrlValue = $NewsUrl }
+
 $manifest = [ordered]@{
     manifestVersion = 1
     launcherVersion = $LauncherVersion
@@ -164,8 +171,9 @@ $manifest = [ordered]@{
     crashReportWebhook = $crashWebhookValue
     hardenClient       = $HardenClient
 
-    news  = $news
-    files = @($files)
+    newsUrl = $newsUrlValue
+    news    = $news
+    files   = @($files)
 
     # Force-ticked in AddOns.txt on every launch. StatFeed is the reason the launcher exists;
     # without it players see no stat-gain messages at all.
