@@ -208,7 +208,7 @@ ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", ReagentBankChatFilter)
 -- (RBSRCEND), so lines accumulate into ReagentBankCraft_SourceBuffer and the
 -- window only redraws once the terminator lands. Redrawing per line would
 -- flicker and, worse, show a half-populated list as if it were complete.
-local SOURCE_KIND = { [1] = "Drops from", [2] = "Gathered from", [3] = "Fished in", [4] = "Skinned from" }
+local SOURCE_KIND = { [1] = "Drops from", [2] = "Gathered from", [3] = "Fished in", [4] = "Skinned from", [5] = "Crafted from" }
 
 ReagentBankCraft_SourceBuffer = {}
 
@@ -255,13 +255,24 @@ function ReagentBankCraft_ShowSources(itemName)
     else
         for i, src in ipairs(buf) do
             if i > 8 then break end
-            -- Chance arrives in tenths of a percent; 0 means genuinely unknown
-            -- (an equal-chance loot group), so show "?" rather than "0%".
-            local chanceText = (src.chance > 0) and string.format("%.1f%%", src.chance / 10) or "?"
-            local where = (src.zone ~= "" and src.zone) or "unknown area"
-            local spawns = (src.spawns > 0) and (" (" .. src.spawns .. " spawns)") or ""
-            sourceFrame.lines[i]:SetText(string.format("|cffffd100%s|r %s - |cff00ff00%s|r in %s%s",
-                SOURCE_KIND[src.kind] or "From", src.name, chanceText, where, spawns))
+
+            if src.kind == 5 then
+                -- Crafted: there is no drop chance or location to show, just
+                -- what it is made from and which profession makes it.
+                local prof = (src.zone ~= "") and (" (" .. src.zone .. ")") or ""
+                sourceFrame.lines[i]:SetText(string.format("|cffffd100Crafted from|r %s%s", src.name, prof))
+            else
+                -- Chance arrives in tenths of a percent; 0 means genuinely unknown
+                -- (an equal-chance loot group), so show "?" rather than "0%".
+                local chanceText = (src.chance > 0) and string.format("%.1f%%", src.chance / 10) or "?"
+                local where = (src.zone ~= "" and src.zone) or "unknown area"
+                local spawns = (src.spawns > 0) and (" (" .. src.spawns .. " spawns)") or ""
+                -- `via` marks a source reached through a reagent, e.g. the ore
+                -- that a bar is smelted from.
+                local via = (src.via ~= "") and ("|cff888888 [" .. src.via .. "]|r") or ""
+                sourceFrame.lines[i]:SetText(string.format("|cffffd100%s|r %s - |cff00ff00%s|r in %s%s%s",
+                    SOURCE_KIND[src.kind] or "From", src.name, chanceText, where, spawns, via))
+            end
         end
     end
 
@@ -406,13 +417,14 @@ local function OnEvent(self, event, ...)
         if text:find("^RBSRC:") then
             local kind, chance, spawns, rest = text:match("^RBSRC:%d+:(%d+):(%d+):(%d+):(.*)$")
             if rest then
-                local name, zone = rest:match("^(.-)|(.*)$")
+                local name, zone, via = rest:match("^(.-)|(.-)|(.*)$")
                 table.insert(ReagentBankCraft_SourceBuffer, {
                     kind = tonumber(kind) or 1,
                     chance = tonumber(chance) or 0,
                     spawns = tonumber(spawns) or 0,
                     name = name or rest,
                     zone = zone or "",
+                    via = via or "",
                 })
             end
             return

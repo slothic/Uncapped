@@ -1454,8 +1454,8 @@
                   {
                       "path":  "Interface/AddOns/ReagentBankCraft/ReagentBankCraft.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/ReagentBankCraft/ReagentBankCraft.lua",
-                      "sha256":  "104ec1d7af4b5f08ecf726fd711fc60dc6dccae75e8ec6f14bd9ca8a28ea844b",
-                      "size":  20499
+                      "sha256":  "03e7647e0514a556345b49fa500df5540de8416f2216ceda19d2a9c5ef74f6d4",
+                      "size":  21241
                   },
                   {
                       "path":  "Interface/AddOns/ReagentBankCraft/ReagentBankCraft.toc",
