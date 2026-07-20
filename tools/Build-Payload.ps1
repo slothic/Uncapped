@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Stages everything the launcher ships into a flat payload tree.
 
@@ -12,7 +12,7 @@
     - Addons\*.zip and extracted folders          -> Interface\AddOns\*   (third-party)
     - Client\...\Data\enUS\patch-enUS-*.mpq       -> Data\enUS\*          (custom patches)
 
-  Collisions are reported rather than silently overwritten — several of the addon zips are
+  Collisions are reported rather than silently overwritten - several of the addon zips are
   duplicates of each other.
 #>
 [CmdletBinding()]
