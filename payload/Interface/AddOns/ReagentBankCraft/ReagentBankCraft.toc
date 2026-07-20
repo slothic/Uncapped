@@ -4,3 +4,4 @@
 ## Author: Uncapped
 
 ReagentBankCraft.lua
+Wishlist.lua

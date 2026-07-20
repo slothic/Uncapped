@@ -1454,14 +1454,20 @@
                   {
                       "path":  "Interface/AddOns/ReagentBankCraft/ReagentBankCraft.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/ReagentBankCraft/ReagentBankCraft.lua",
-                      "sha256":  "bed14c4a8173853e46eb014aaa6cb574ccc5e13dbfb2c3138a206d761b88495c",
-                      "size":  12038
+                      "sha256":  "104ec1d7af4b5f08ecf726fd711fc60dc6dccae75e8ec6f14bd9ca8a28ea844b",
+                      "size":  20499
                   },
                   {
                       "path":  "Interface/AddOns/ReagentBankCraft/ReagentBankCraft.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/ReagentBankCraft/ReagentBankCraft.toc",
-                      "sha256":  "a0a5a671bc370f7dc62b76c4dff954a6e084a0436076f2c073fccf33c37c4480",
-                      "size":  339
+                      "sha256":  "ab674f665f7b49d2ee67237a3bbc1cb72a4b0a0c9431cfea4f14c34864553c0e",
+                      "size":  353
+                  },
+                  {
+                      "path":  "Interface/AddOns/ReagentBankCraft/Wishlist.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/ReagentBankCraft/Wishlist.lua",
+                      "sha256":  "c00f563b094a9fdf6174d3ccf8217d2746eb82d0061607d11db2ae4fc7c42175",
+                      "size":  4876
                   },
                   {
                       "path":  "Interface/AddOns/Recount/Bindings.xml",
