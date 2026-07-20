@@ -1,0 +1,7 @@
+## Interface: 30300
+## Title: Uncapped Rewards
+## Notes: Shiny treasure-chest popup for Mythic+ keystone crafting-mat bonuses.
+## Author: Uncapped
+## Version: 1.0
+
+UncappedRewards.lua

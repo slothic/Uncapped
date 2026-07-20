@@ -2485,6 +2485,18 @@
                       "size":  337
                   },
                   {
+                      "path":  "Interface/AddOns/UncappedRewards/UncappedRewards.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedRewards/UncappedRewards.lua",
+                      "sha256":  "9f3c712718eafa615a27c959856732b85de7d50df49ce324f5a74cf2ea0fbba2",
+                      "size":  4813
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedRewards/UncappedRewards.toc",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedRewards/UncappedRewards.toc",
+                      "sha256":  "6bfab7c3d759676220230dd4ffcccf9d710fe48903b5f5ffc0159ad4563fa848",
+                      "size":  184
+                  },
+                  {
                       "path":  "Interface/AddOns/WDM/atlaspoi.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/WDM/atlaspoi.lua",
                       "sha256":  "9ba64d9fe495f86e26369430556ed51180848b14577ef3e21de965722f59ed99",
@@ -3161,6 +3173,7 @@
     "ownedPaths":  [
                        "Interface/AddOns/StatFeed",
                        "Interface/AddOns/ReagentBankCraft",
-                       "Interface/AddOns/UncappedAlerts"
+                       "Interface/AddOns/UncappedAlerts",
+                       "Interface/AddOns/UncappedRewards"
                    ]
 }
