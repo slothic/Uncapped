@@ -19,6 +19,9 @@ the bottom for what was settled and why.
 
 ---
 
+> **Changing an addon?** See [`PUBLISHING-ADDONS.md`](PUBLISHING-ADDONS.md) — a self-contained
+> guide for a session that only needs to ship an addon change. No release, no version bump.
+
 ## Publishing an update
 
 ```powershell
