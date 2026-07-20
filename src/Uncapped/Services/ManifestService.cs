@@ -1,7 +1,16 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Uncapped.Model;
 
 namespace Uncapped.Services;
+
+/// <summary>
+/// The parsed manifest plus a hash of the exact bytes it came from. The hash lets the
+/// re-check on PLAY skip the whole sync when nothing upstream has moved, so pressing PLAY
+/// costs one HTTP request rather than a pass over every file on disk.
+/// </summary>
+public sealed record ManifestFetch(Manifest Manifest, string Hash);
 
 public sealed class ManifestService
 {
@@ -9,7 +18,7 @@ public sealed class ManifestService
 
     public ManifestService(HttpClient http) => _http = http;
 
-    public async Task<Manifest> FetchAsync(string url, CancellationToken ct)
+    public async Task<ManifestFetch> FetchAsync(string url, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(url))
             throw new InvalidOperationException(
@@ -29,6 +38,7 @@ public sealed class ManifestService
             throw new InvalidDataException(
                 $"This manifest needs a newer launcher (format v{manifest.ManifestVersion}). Please update.");
 
-        return manifest;
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
+        return new ManifestFetch(manifest, hash);
     }
 }

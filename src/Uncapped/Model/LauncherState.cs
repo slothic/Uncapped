@@ -20,6 +20,13 @@ public sealed class LauncherState
     [JsonPropertyName("lastSyncedManifestVersion")] public string? LastSyncedManifestVersion { get; set; }
 
     /// <summary>
+    /// Hash of the manifest bytes we last synced against. Pressing PLAY re-fetches the
+    /// manifest and compares this: identical means nothing upstream moved, so the sync can be
+    /// skipped entirely and the game starts immediately.
+    /// </summary>
+    [JsonPropertyName("lastManifestHash")] public string? LastManifestHash { get; set; }
+
+    /// <summary>
     /// Crash dump filenames already uploaded, so the same crash is not re-sent on every
     /// launch. Trimmed periodically.
     /// </summary>
