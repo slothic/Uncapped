@@ -46,17 +46,44 @@ frame.close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
 frame.close:SetPoint("TOPRIGHT", -8, -8)
 
 frame.rows = {}
+frame.rowButtons = {}
 for i = 1, MAX_ROWS do
     local fs = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     fs:SetPoint("TOPLEFT", 22, -40 - (i - 1) * 16)
     fs:SetWidth(295)
     fs:SetJustifyH("LEFT")
     frame.rows[i] = fs
+
+    -- Invisible hit area over each row. FontStrings cannot take clicks, so
+    -- removal needs a real frame on top; only rows that are a wishlist HEADER
+    -- get wired up, and the rest stay inert.
+    local hit = CreateFrame("Button", nil, frame)
+    hit:SetPoint("TOPLEFT", 20, -40 - (i - 1) * 16)
+    hit:SetSize(300, 16)
+    hit:RegisterForClicks("RightButtonUp")
+    hit:Hide()
+    frame.rowButtons[i] = hit
 end
+
+StaticPopupDialogs["REAGENTBANK_WISHLIST_REMOVE"] = {
+    text = "Stop tracking %s?",
+    button1 = YES,
+    button2 = NO,
+    OnAccept = function(self, itemId)
+        if itemId then
+            ReagentBankCraft_Send("RBWISHDEL:" .. itemId)
+        end
+    end,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+}
 
 local function Render()
     for i = 1, MAX_ROWS do
         frame.rows[i]:SetText("")
+        frame.rowButtons[i]:Hide()
+        frame.rowButtons[i]:SetScript("OnClick", nil)
     end
 
     local row = 1
@@ -71,7 +98,17 @@ local function Render()
     for _, entry in ipairs(ReagentBankWishlist_Entries) do
         if row > MAX_ROWS then break end
 
-        frame.rows[row]:SetText(string.format("|cffffd100%s x%d|r", entry.name, entry.quantity))
+        frame.rows[row]:SetText(string.format("|cffffd100%s x%d|r  |cff666666(right-click to remove)|r", entry.name, entry.quantity))
+
+        local hit = frame.rowButtons[row]
+        hit:SetScript("OnClick", function()
+            local popup = StaticPopup_Show("REAGENTBANK_WISHLIST_REMOVE", entry.name)
+            if popup then
+                popup.data = entry.itemId
+            end
+        end)
+        hit:Show()
+
         row = row + 1
 
         for _, mat in ipairs(entry.materials) do

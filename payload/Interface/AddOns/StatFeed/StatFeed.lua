@@ -6,7 +6,8 @@
     routes them through SendAddonMessage with the prefix below.
 
     Written for the 3.3.5a client: no BackdropTemplate, no C_ namespace, and
-    event handlers read the global arg1..argN rather than taking parameters.
+    event handlers can read either the arg1..argN globals or handler
+--    parameters; 3.3.5 provides both.
 
     /statfeed         toggle the window
     /statfeed clear   clear the log
@@ -132,18 +133,30 @@ end
 local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("CHAT_MSG_ADDON")
-events:SetScript("OnEvent", function()
-    if event == "ADDON_LOADED" then
-        if arg1 == "StatFeed" then
+-- Reads the event and its arguments from PARAMETERS, falling back to the
+-- globals.
+--
+-- Both conventions work on 3.3.5: handlers set via SetScript receive
+-- (self, event, ...), and the older `event` / `arg1` / `argN` globals are also
+-- still populated -- those were not dropped until Cataclysm. The original
+-- global-only form was fine; the `or` fallbacks simply mean this keeps working
+-- if the file is ever reused on a client where only one convention holds.
+events:SetScript("OnEvent", function(self, evt, a1, a2)
+    local e = evt or event
+    local p1 = a1 or arg1
+    local p2 = a2 or arg2
+
+    if e == "ADDON_LOADED" then
+        if p1 == "StatFeed" then
             BuildWindow()
         end
         return
     end
 
-    if event == "CHAT_MSG_ADDON" then
-        -- arg1 = prefix, arg2 = message
-        if arg1 == ADDON_PREFIX then
-            AddLine(arg2)
+    if e == "CHAT_MSG_ADDON" then
+        -- p1 = prefix, p2 = message
+        if p1 == ADDON_PREFIX then
+            AddLine(p2)
         end
     end
 end)

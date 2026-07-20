@@ -1,40 +1,32 @@
 -- UncappedAlerts
 --
--- Warns when the server announces a restart, then closes the game when the
--- server actually drops you -- so pressing Play in the launcher picks up
--- whatever changed.
+-- Warns when the server announces a restart and closes the game so the
+-- launcher can patch you on the way back in.
 --
 -- WHY QUIT AT ALL: the launcher can only replace addon and patch files while
 -- WoW is closed. A player who sits on the "disconnected" dialog through a
 -- restart comes back on stale files and reports working features as broken.
 --
--- HOW THE DISCONNECT IS DETECTED, and why it is not simpler:
+-- WHY A COUNTDOWN, AND NOT "QUIT WHEN DISCONNECTED":
 --
--- WotLK has no "you were disconnected" event. The nearest signal is
--- PLAYER_LEAVING_WORLD, which also fires every time you zone into a dungeon,
--- take a portal, or change continent. Quitting on that alone would boot people
--- out of the game for walking into an instance. Watching a hidden frame's
--- OnHide has exactly the same problem -- the UI is torn down on zoning too, so
--- it cannot tell the two apart either.
+-- Quitting on the disconnect itself sounds better and does not work. WotLK has
+-- no "you were disconnected" event; the nearest signal, PLAYER_LEAVING_WORLD,
+-- also fires on every zoning loading screen, so telling the two apart means
+-- waiting several seconds to see whether PLAYER_ENTERING_WORLD follows. On a
+-- real disconnect the client tears the in-game UI down almost immediately --
+-- this addon is unloaded long before that wait elapses, so the quit never
+-- runs. The delay that makes the detection correct is what stops it firing.
 --
--- So TWO conditions must both hold:
---   1. A restart was announced recently (within ARM_WINDOW).
---   2. We leave the world and do NOT come back within GRACE seconds.
+-- So the quit happens BEFORE the server goes down, while the UI is alive and
+-- the code is guaranteed to execute. The countdown is visible and cancellable.
 --
--- Zoning satisfies (1) only by coincidence and never satisfies (2), because
--- PLAYER_ENTERING_WORLD follows within a second or two and cancels the quit.
--- A real disconnect never fires it.
---
---   /alerts          show current settings
---   /alerts sound    toggle the warning sound
---   /alerts quit     toggle auto-close on disconnect
+--   /alerts            show settings
+--   /alerts sound      toggle the warning sound
+--   /alerts quit       toggle auto-quit
+--   /alerts time <s>   set the countdown length
+--   /alerts testquit   quit right now, to check it works on your client
 
--- How long after an announcement a disconnect is still treated as "the restart".
-local ARM_WINDOW = 30 * 60
--- How long to wait for PLAYER_ENTERING_WORLD before deciding this was a real
--- disconnect rather than a loading screen. Long enough for a slow instance
--- load, short enough that nobody is left staring at a dead client.
-local GRACE = 8
+local DEFAULT_COUNTDOWN = 45
 
 UncappedAlertsDB = UncappedAlertsDB or {}
 
@@ -45,24 +37,48 @@ local function Setting(key, fallback)
     return UncappedAlertsDB[key]
 end
 
-local armedUntil = 0
-local leavingAt = nil
+local countdown = nil
+local elapsed = 0
 
 local frame = CreateFrame("Frame")
-frame:RegisterEvent("PLAYER_LOGIN")
-frame:RegisterEvent("CHAT_MSG_SYSTEM")
-frame:RegisterEvent("PLAYER_LEAVING_WORLD")
-frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
--- ForceQuit skips the logout timer, which is what we want -- the connection is
--- already gone. Quit is the graceful fallback if this client build lacks it.
+-- Every way this client might be persuaded to exit, in order of preference.
+-- ForceQuit skips the logout timer. Quit is the ordinary exit. Logout at least
+-- gets the player to the character screen, which still releases the addon files
+-- the launcher wants to replace.
 local function QuitGame()
     if type(ForceQuit) == "function" then
         ForceQuit()
+        return "ForceQuit"
     elseif type(Quit) == "function" then
         Quit()
+        return "Quit"
+    elseif type(Logout) == "function" then
+        Logout()
+        return "Logout"
     end
+
+    return nil
 end
+
+StaticPopupDialogs["UNCAPPED_RESTART_WARNING"] = {
+    text = "Server restart incoming.\n\nClosing the game lets the launcher update you.\n\nQuitting in %d seconds...",
+    button1 = "Quit now",
+    button2 = "Stay logged in",
+    OnAccept = function()
+        countdown = nil
+        QuitGame()
+    end,
+    OnCancel = function()
+        countdown = nil
+        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Auto-quit cancelled. Restart via the launcher so your files update.")
+    end,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 0,
+    showAlert = 1,
+    preferredIndex = 3,
+}
 
 local function Warn()
     if Setting("sound", true) then
@@ -72,30 +88,31 @@ local function Warn()
         PlaySoundFile("Sound\\Interface\\LevelUp.wav")
     end
 
-    if Setting("autoQuit", true) then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Server restart announced. The game will close itself when the server goes down, so the launcher can update you.")
-    else
+    if not Setting("autoQuit", true) then
         DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Server restart announced. Close the game and relaunch to get updates.")
+        return
+    end
+
+    -- A local countdown still runs as a visible warning and a fallback, but the
+    -- server's RBQUIT signal is what actually closes the game -- it fires on the
+    -- real shutdown timer rather than on a guess made from an announcement.
+    countdown = Setting("countdown", DEFAULT_COUNTDOWN)
+    elapsed = 0
+
+    local popup = StaticPopup_Show("UNCAPPED_RESTART_WARNING", countdown)
+    if popup then
+        popup.text:SetFormattedText(StaticPopupDialogs["UNCAPPED_RESTART_WARNING"].text, countdown)
     end
 end
+
+frame:RegisterEvent("PLAYER_LOGIN")
+frame:RegisterEvent("CHAT_MSG_SYSTEM")
 
 frame:SetScript("OnEvent", function(self, event, msg)
     if event == "PLAYER_LOGIN" then
         Setting("sound", true)
         Setting("autoQuit", true)
-        return
-    end
-
-    if event == "PLAYER_ENTERING_WORLD" then
-        -- Came back: this was a loading screen, not a disconnect.
-        leavingAt = nil
-        return
-    end
-
-    if event == "PLAYER_LEAVING_WORLD" then
-        if Setting("autoQuit", true) and GetTime() < armedUntil then
-            leavingAt = GetTime()
-        end
+        Setting("countdown", DEFAULT_COUNTDOWN)
         return
     end
 
@@ -104,40 +121,125 @@ frame:SetScript("OnEvent", function(self, event, msg)
     end
 
     -- Matches the server's restart announcements. Broad on purpose: a missed
-    -- warning is worse than a false positive, since arming alone does nothing
-    -- visible and still requires a real disconnect to act.
+    -- warning is worse than a false positive, and the popup is easily
+    -- cancelled. Repeats are ignored while a countdown is already running, so
+    -- the announcement spam does not restart the timer over and over.
     local lowered = msg:lower()
+    if countdown then
+        return
+    end
+
     if lowered:find("restart") or lowered:find("shutdown") or lowered:find("shutting down") then
-        armedUntil = GetTime() + ARM_WINDOW
         Warn()
     end
 end)
 
-frame:SetScript("OnUpdate", function()
-    if not leavingAt then
+frame:SetScript("OnUpdate", function(self, delta)
+    if not countdown then
         return
     end
 
-    if GetTime() - leavingAt >= GRACE then
-        leavingAt = nil
-        QuitGame()
+    elapsed = elapsed + delta
+    if elapsed < 1 then
+        return
     end
+    elapsed = 0
+
+    countdown = countdown - 1
+
+    local popup = StaticPopup_FindVisible("UNCAPPED_RESTART_WARNING")
+    if not popup then
+        -- Dismissed some other way; treat that as "leave me alone".
+        countdown = nil
+        return
+    end
+
+    if countdown <= 0 then
+        countdown = nil
+        QuitGame()
+        return
+    end
+
+    popup.text:SetFormattedText(StaticPopupDialogs["UNCAPPED_RESTART_WARNING"].text, countdown)
+end)
+
+-- The server sends RBQUIT:<seconds> on the addon channel a few seconds before
+-- the world goes down. This is the authoritative trigger -- it carries the real
+-- remaining time and needs no text parsing, unlike the built-in countdown which
+-- the client renders itself from a localised string.
+--
+-- Filtered out of chat so "RBQUIT:5" is never visible.
+ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
+    if msg and msg:find("^RBQUIT:") then
+        return true
+    end
+    return false
+end)
+
+local quitListener = CreateFrame("Frame")
+quitListener:RegisterEvent("CHAT_MSG_CHANNEL")
+quitListener:SetScript("OnEvent", function(self, event, text, sender)
+    if sender ~= UnitName("player") or not text then
+        return
+    end
+
+    local seconds = text:match("^RBQUIT:(%d+)$")
+    if not seconds then
+        return
+    end
+
+    if not Setting("autoQuit", true) then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Server going down in " .. seconds .. "s. Close the game and relaunch to get updates.")
+        return
+    end
+
+    countdown = nil
+    StaticPopup_Hide("UNCAPPED_RESTART_WARNING")
+
+    if Setting("sound", true) then
+        PlaySound("RaidWarning")
+    end
+
+    QuitGame()
 end)
 
 SLASH_UNCAPPEDALERTS1 = "/alerts"
 SlashCmdList["UNCAPPEDALERTS"] = function(arg)
-    arg = (arg or ""):lower():match("^%s*(%S*)")
+    arg = (arg or ""):lower()
+    local cmd, rest = arg:match("^%s*(%S*)%s*(.*)$")
 
-    if arg == "sound" then
+    if cmd == "sound" then
         UncappedAlertsDB.sound = not Setting("sound", true)
         DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Warning sound: " .. (UncappedAlertsDB.sound and "ON" or "OFF"))
-    elseif arg == "quit" then
+
+    elseif cmd == "quit" then
         UncappedAlertsDB.autoQuit = not Setting("autoQuit", true)
-        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Close game on restart-disconnect: " .. (UncappedAlertsDB.autoQuit and "ON" or "OFF"))
+        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Auto-quit on restart: " .. (UncappedAlertsDB.autoQuit and "ON" or "OFF"))
+
+    elseif cmd == "time" then
+        local seconds = tonumber(rest)
+        if seconds and seconds >= 5 and seconds <= 600 then
+            UncappedAlertsDB.countdown = math.floor(seconds)
+            DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Countdown set to " .. UncappedAlertsDB.countdown .. "s.")
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff5555[Uncapped]|r Give a number of seconds between 5 and 600.")
+        end
+
+    elseif cmd == "testquit" then
+        -- Deliberately immediate and undocumented in the tooltip: the only way
+        -- to find out whether this client will actually close is to try it.
+        local used = QuitGame()
+        if not used then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff5555[Uncapped]|r No quit function available on this client -- auto-quit cannot work here.")
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Called " .. used .. "(). If you are reading this, it did nothing.")
+        end
+
     else
         DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped Alerts]|r sound: "
             .. (Setting("sound", true) and "ON" or "OFF")
-            .. ", close on restart-disconnect: " .. (Setting("autoQuit", true) and "ON" or "OFF"))
-        DEFAULT_CHAT_FRAME:AddMessage("|cff888888/alerts sound|r or |cff888888/alerts quit|r to toggle.")
+            .. ", auto-quit: " .. (Setting("autoQuit", true) and "ON" or "OFF")
+            .. " (" .. Setting("countdown", DEFAULT_COUNTDOWN) .. "s)")
+        DEFAULT_CHAT_FRAME:AddMessage("|cff888888/alerts sound|r, |cff888888/alerts quit|r, |cff888888/alerts time <seconds>|r, |cff888888/alerts testquit|r")
     end
 end
