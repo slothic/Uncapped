@@ -348,9 +348,8 @@ public sealed class MainForm : Form
             var sync = new SyncService(_http);
             var reporter = new Progress<SyncProgress>(p =>
             {
-                SetStatus($"{p.Status}  ({p.Current}/{p.Total})");
-                var overall = p.Total == 0 ? 1 : (p.Current - 1 + p.FileFraction) / p.Total;
-                SetProgress(overall);
+                SetStatus($"{p.Status}  ({p.Completed}/{p.Total})");
+                SetProgress(p.Total == 0 ? 1 : (double)p.Completed / p.Total);
             });
 
             outcome = await sync.SyncAsync(_installPath, _manifest, _state, reporter, _cts.Token);
