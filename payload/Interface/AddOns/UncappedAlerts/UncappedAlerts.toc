@@ -1,8 +1,9 @@
 ## Interface: 30300
 ## Title: Uncapped Alerts
-## Notes: Warns you when the server announces a restart, and offers to close the game so the launcher can update your files.
+## Notes: Client extras for Uncapped: restart warnings with auto-close so the launcher can update you, and a Land Here button to cancel a flight path in progress.
 ## Author: Uncapped
 ## Version: 1.0
 ## SavedVariablesPerCharacter: UncappedAlertsDB
 
 UncappedAlerts.lua
+TaxiCancel.lua

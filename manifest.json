@@ -1467,8 +1467,8 @@
                   {
                       "path":  "Interface/AddOns/ReagentBankCraft/Wishlist.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/ReagentBankCraft/Wishlist.lua",
-                      "sha256":  "c00f563b094a9fdf6174d3ccf8217d2746eb82d0061607d11db2ae4fc7c42175",
-                      "size":  4876
+                      "sha256":  "4b5c16dae48efca8d5bfcf608ee74ca38f6464536bce091b76550bf7f2a13f20",
+                      "size":  6241
                   },
                   {
                       "path":  "Interface/AddOns/Recount/Bindings.xml",
@@ -2445,8 +2445,8 @@
                   {
                       "path":  "Interface/AddOns/StatFeed/StatFeed.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/StatFeed/StatFeed.lua",
-                      "sha256":  "2657f781a4f0cca7fc9d8bd9d8a261f9fe3053bf37bb21c7930c006a3fe0c47d",
-                      "size":  5322
+                      "sha256":  "f962e3f0df7b5eb8e0ce81c0bc9cf40ecfa11576a34698aeb4fbcfccfbc94368",
+                      "size":  6096
                   },
                   {
                       "path":  "Interface/AddOns/StatFeed/StatFeed.toc",
@@ -2455,16 +2455,22 @@
                       "size":  222
                   },
                   {
+                      "path":  "Interface/AddOns/UncappedAlerts/TaxiCancel.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedAlerts/TaxiCancel.lua",
+                      "sha256":  "184fcb8f1f96cc24449d842f3af3e3bbe49bafe394bf597d89b1adeb80ef5ce6",
+                      "size":  4170
+                  },
+                  {
                       "path":  "Interface/AddOns/UncappedAlerts/UncappedAlerts.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedAlerts/UncappedAlerts.lua",
-                      "sha256":  "bebc907963f8abbe5f4079b5aceb0e7de562bb5709250ce40894d727f99e7839",
-                      "size":  5361
+                      "sha256":  "794969e6b96dec0c4c7b760f2d37487aa0ce2d8079e234fb9e8f354411baa17a",
+                      "size":  8970
                   },
                   {
                       "path":  "Interface/AddOns/UncappedAlerts/UncappedAlerts.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedAlerts/UncappedAlerts.toc",
-                      "sha256":  "e5e14d766885deccfe3511d3171008369091605541a2ca687b4592240b1742c8",
-                      "size":  275
+                      "sha256":  "16cc242a20b47d92428017f5709f88f525def102b1a2caf20dab502e46c4b093",
+                      "size":  337
                   },
                   {
                       "path":  "Interface/AddOns/WDM/atlaspoi.lua",
