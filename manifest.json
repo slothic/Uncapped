@@ -2455,6 +2455,12 @@
                       "size":  222
                   },
                   {
+                      "path":  "Interface/AddOns/UncappedAlerts/alert.mp3",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedAlerts/alert.mp3",
+                      "sha256":  "ab026103862d990069221b3564cf55c9223be777fe14dd995cafdd14d47749b6",
+                      "size":  32737
+                  },
+                  {
                       "path":  "Interface/AddOns/UncappedAlerts/TaxiCancel.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedAlerts/TaxiCancel.lua",
                       "sha256":  "184fcb8f1f96cc24449d842f3af3e3bbe49bafe394bf597d89b1adeb80ef5ce6",
@@ -2463,8 +2469,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedAlerts/UncappedAlerts.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedAlerts/UncappedAlerts.lua",
-                      "sha256":  "794969e6b96dec0c4c7b760f2d37487aa0ce2d8079e234fb9e8f354411baa17a",
-                      "size":  8970
+                      "sha256":  "22a8d5bdf562842852a51d39a045ceeb8ae7863de45ddb27a436a2a7d16766fb",
+                      "size":  9807
                   },
                   {
                       "path":  "Interface/AddOns/UncappedAlerts/UncappedAlerts.toc",
