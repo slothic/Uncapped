@@ -288,6 +288,12 @@ public partial class MainWindow : Window
             foreach (var note in hardened.Notes) Log.Write($"hardening: {note}");
         }
 
+        if (_manifest.LargeAddressAware)
+        {
+            var laa = Services.LargeAddressAware.Apply(_installPath);
+            if (laa.Changed) Log.Write($"large address aware: {laa.Detail}");
+        }
+
         // Only worth clearing when something actually changed — it costs the player a slower
         // first login while the client refetches.
         if (outcome.ChangedAnything) WdbCleaner.Clear(_installPath);

@@ -32,6 +32,9 @@ param(
     # Rename the client executable and delete Repair.exe, so players cannot start an unsynced
     # client by double-clicking it.
     [bool]  $HardenClient    = $true,
+    # Sets IMAGE_FILE_LARGE_ADDRESS_AWARE on the client: two bytes of the PE header, lifting
+    # its address space from 2 GB to 4 GB on 64-bit Windows. No code is modified.
+    [bool]  $LargeAddressAware = $true,
     # Addons to switch off on clients that already have them, for ones we shipped and then
     # pulled. Keep in step with $temporarilyDisabled in Build-Payload.ps1.
     [string[]]$ForceDisableAddOns = @('QuestHelper'),
@@ -170,6 +173,7 @@ $manifest = [ordered]@{
     }
     crashReportWebhook = $crashWebhookValue
     hardenClient       = $HardenClient
+    largeAddressAware  = $LargeAddressAware
 
     newsUrl = $newsUrlValue
     news    = $news
@@ -189,7 +193,8 @@ $manifest = [ordered]@{
     # install-only and never deleted - we do not remove addons we did not write.
     ownedPaths = @(
         'Interface/AddOns/StatFeed',
-        'Interface/AddOns/ReagentBankCraft'
+        'Interface/AddOns/ReagentBankCraft',
+        'Interface/AddOns/UncappedAlerts'
     )
 }
 
