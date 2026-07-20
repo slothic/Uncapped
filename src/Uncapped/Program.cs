@@ -27,7 +27,13 @@ internal static class Program
                 "Uncapped Launcher", MessageBoxButtons.OK, MessageBoxIcon.Error);
         };
 
-        using var handler = new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All };
+        using var handler = new HttpClientHandler
+        {
+            AutomaticDecompression = DecompressionMethods.All,
+            // The sync downloads several files at once; without headroom here they would
+            // queue behind a smaller default connection pool and undo the parallelism.
+            MaxConnectionsPerServer = 12,
+        };
         using var http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(30) };
         http.DefaultRequestHeaders.UserAgent.ParseAdd($"UncappedLauncher/{AppPaths.CurrentVersion}");
 

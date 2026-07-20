@@ -1,8 +1,9 @@
+using System.Collections.Concurrent;
 using Uncapped.Model;
 
 namespace Uncapped.Services;
 
-public sealed record SyncProgress(string Status, int Current, int Total, double FileFraction);
+public sealed record SyncProgress(string Status, int Completed, int Total);
 
 public sealed record SyncOutcome(
     int Downloaded, int UpToDate, int Removed, List<string> Errors)
@@ -17,6 +18,17 @@ public sealed record SyncOutcome(
 /// </summary>
 public sealed class SyncService
 {
+    /// <summary>
+    /// Files in flight at once. The payload is ~720 small files, so wall-clock time is
+    /// dominated by per-request round-trips to GitHub rather than bandwidth — downloading
+    /// sequentially took over five minutes for 19 MB. Six is well within what raw
+    /// .githubusercontent.com serves happily and keeps the first run under a minute.
+    /// </summary>
+    private const int DownloadConcurrency = 6;
+
+    /// <summary>Hashing is disk-bound; a little more parallelism helps and costs nothing.</summary>
+    private const int HashConcurrency = 8;
+
     private readonly HttpClient _http;
 
     public SyncService(HttpClient http) => _http = http;
@@ -28,60 +40,89 @@ public sealed class SyncService
         IProgress<SyncProgress> progress,
         CancellationToken ct)
     {
-        var errors = new List<string>();
-        int downloaded = 0, upToDate = 0;
+        var errors = new ConcurrentBag<string>();
+        var installed = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in state.InstalledFiles) installed.TryAdd(f, 0);
 
+        // ---- Phase 1: work out what actually needs fetching. ----
         var total = manifest.Files.Count;
-        var index = 0;
+        var checkedCount = 0;
+        var upToDate = 0;
+        var needed = new ConcurrentBag<(ManifestFile File, string Relative)>();
 
-        foreach (var file in manifest.Files)
+        await Parallel.ForEachAsync(
+            manifest.Files,
+            new ParallelOptions { MaxDegreeOfParallelism = HashConcurrency, CancellationToken = ct },
+            async (file, token) =>
+            {
+                var relative = NormalizeRelative(file.Path);
+                if (relative is null)
+                {
+                    // Guards against a manifest entry escaping the install root via .. or an
+                    // absolute path. The manifest is ours, but it is also the one input
+                    // fetched over the network, so it does not get to write anywhere it likes.
+                    errors.Add($"Rejected unsafe path in manifest: {file.Path}");
+                    return;
+                }
+
+                var destination = Path.Combine(installPath, relative);
+
+                if (await IsCurrentAsync(destination, file, token))
+                {
+                    Interlocked.Increment(ref upToDate);
+                    installed.TryAdd(relative, 0);
+                }
+                else
+                {
+                    needed.Add((file, relative));
+                }
+
+                var done = Interlocked.Increment(ref checkedCount);
+                progress.Report(new SyncProgress("Checking your files", done, total));
+            });
+
+        // ---- Phase 2: download what is missing or changed, several at a time. ----
+        var work = needed.ToArray();
+        var downloaded = 0;
+
+        if (work.Length > 0)
         {
-            ct.ThrowIfCancellationRequested();
-            index++;
+            var completed = 0;
 
-            var relative = NormalizeRelative(file.Path);
-            if (relative is null)
-            {
-                // Guards against a manifest entry escaping the install root via .. or an
-                // absolute path. The manifest is ours, but it is also the one input fetched
-                // over the network, so it does not get to write anywhere it likes.
-                errors.Add($"Rejected unsafe path in manifest: {file.Path}");
-                continue;
-            }
+            await Parallel.ForEachAsync(
+                work,
+                new ParallelOptions { MaxDegreeOfParallelism = DownloadConcurrency, CancellationToken = ct },
+                async (item, token) =>
+                {
+                    var destination = Path.Combine(installPath, item.Relative);
 
-            var destination = Path.Combine(installPath, relative);
-            var name = Path.GetFileName(relative);
+                    try
+                    {
+                        await DownloadAsync(item.File, destination, token);
+                        Interlocked.Increment(ref downloaded);
+                        installed.TryAdd(item.Relative, 0);
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {
+                        errors.Add($"{item.Relative}: {ex.Message}");
+                    }
 
-            progress.Report(new SyncProgress($"Checking {name}", index, total, 0));
-
-            if (await IsCurrentAsync(destination, file, ct))
-            {
-                upToDate++;
-                Remember(state, relative);
-                continue;
-            }
-
-            progress.Report(new SyncProgress($"Downloading {name}", index, total, 0));
-
-            try
-            {
-                await DownloadAsync(file, destination, name, index, total, progress, ct);
-                downloaded++;
-                Remember(state, relative);
-            }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
-            {
-                errors.Add($"{relative}: {ex.Message}");
-            }
+                    var done = Interlocked.Increment(ref completed);
+                    progress.Report(new SyncProgress(
+                        $"Downloading {Path.GetFileName(item.Relative)}", done, work.Length));
+                });
         }
 
-        var removed = PruneOrphans(installPath, manifest, state, errors);
+        // ---- Phase 3: prune, single-threaded. ----
+        state.InstalledFiles = installed.Keys.ToList();
+        var errorList = errors.ToList();
+        var removed = PruneOrphans(installPath, manifest, state, errorList);
 
         state.LastSyncedManifestVersion = manifest.LauncherVersion;
         state.Save();
 
-        return new SyncOutcome(downloaded, upToDate, removed, errors);
+        return new SyncOutcome(downloaded, upToDate, removed, errorList);
     }
 
     private static async Task<bool> IsCurrentAsync(string destination, ManifestFile file, CancellationToken ct)
@@ -96,42 +137,25 @@ public sealed class SyncService
         catch { return false; }
     }
 
-    private async Task DownloadAsync(
-        ManifestFile file, string destination, string name,
-        int index, int total, IProgress<SyncProgress> progress, CancellationToken ct)
+    private async Task DownloadAsync(ManifestFile file, string destination, CancellationToken ct)
     {
         var dir = Path.GetDirectoryName(destination);
         if (dir is not null) Directory.CreateDirectory(dir);
 
-        // Download to a temp file beside the destination and move into place only after the
-        // hash checks out. A half-written MPQ in Data\ is a broken client; a leftover .tmp is
-        // not.
-        var temp = destination + ".uncapped-tmp";
+        // Download to a unique temp file beside the destination and move into place only
+        // after the hash checks out. A half-written MPQ in Data\ is a broken client; a
+        // leftover .tmp is not. The GUID keeps concurrent workers from colliding.
+        var temp = $"{destination}.{Guid.NewGuid():N}.uncapped-tmp";
 
         try
         {
             using var response = await _http.GetAsync(file.Url, HttpCompletionOption.ResponseHeadersRead, ct);
             response.EnsureSuccessStatusCode();
 
-            var expected = response.Content.Headers.ContentLength ?? file.Size;
-
             await using (var source = await response.Content.ReadAsStreamAsync(ct))
             await using (var target = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None,
-                                                     1024 * 128, useAsync: true))
-            {
-                var buffer = new byte[1024 * 128];
-                long copied = 0;
-                int read;
-
-                while ((read = await source.ReadAsync(buffer, ct)) > 0)
-                {
-                    await target.WriteAsync(buffer.AsMemory(0, read), ct);
-                    copied += read;
-
-                    var fraction = expected > 0 ? Math.Min(1.0, (double)copied / expected) : 0;
-                    progress.Report(new SyncProgress($"Downloading {name}", index, total, fraction));
-                }
-            }
+                                                     1024 * 64, useAsync: true))
+                await source.CopyToAsync(target, ct);
 
             if (!string.IsNullOrEmpty(file.Sha256))
             {
@@ -208,12 +232,6 @@ public sealed class SyncService
             try { Directory.Delete(full); } catch { return; }
             dir = Path.GetDirectoryName(full);
         }
-    }
-
-    private static void Remember(LauncherState state, string relative)
-    {
-        if (!state.InstalledFiles.Contains(relative, StringComparer.OrdinalIgnoreCase))
-            state.InstalledFiles.Add(relative);
     }
 
     /// <summary>
