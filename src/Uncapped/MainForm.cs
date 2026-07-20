@@ -45,6 +45,12 @@ public sealed class MainForm : Form
     private void BuildUi()
     {
         Text = "Uncapped Launcher";
+
+        // The window and taskbar do not inherit the exe's icon automatically; pull it back
+        // off our own binary so all three match.
+        try { Icon = Icon.ExtractAssociatedIcon(AppPaths.ExePath); }
+        catch { /* keep the WinForms default if it cannot be read */ }
+
         ClientSize = new Size(760, 440);
         MinimumSize = new Size(680, 400);
         StartPosition = FormStartPosition.CenterScreen;
