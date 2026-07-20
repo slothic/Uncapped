@@ -63,7 +63,9 @@ end
 -- receives and processes it.
 local function ReagentBankChatFilter(self, event, msg, ...)
     if msg:find("^RBWITHDRAWN:") or msg:find("^RBREDEPOSITED:") or msg:find("^RBMAX:")
-        or msg:find("^RBQUOTE:") or msg:find("^RBBOUGHT:") or msg:find("^RBBUYFAIL:") then
+        or msg:find("^RBQUOTE:") or msg:find("^RBBOUGHT:") or msg:find("^RBBUYFAIL:")
+        or msg:find("^RBSRC:") or msg:find("^RBSRCEND:")
+        or msg:find("^RBWL:") or msg:find("^RBWLM:") or msg:find("^RBWLEND:") then
         return true
     end
     return false
@@ -140,7 +142,137 @@ StaticPopupDialogs["REAGENTBANK_BUY_CONFIRM"] = {
     whileDead = 1,
     hideOnEscape = 1,
 }
+
+-- The wishlist tracks the ITEM a recipe produces, not the recipe spell, so this
+-- deliberately uses GetTradeSkillItemLink -- GetTradeSkillRecipeLink would give
+-- the enchant/spell link instead, which is the wrong id entirely.
+function ReagentBankCraft_GetSelectedProducedItem()
+    if not TradeSkillFrame or not TradeSkillFrame.selectedSkill then
+        return nil, nil
+    end
+    local link = GetTradeSkillItemLink(TradeSkillFrame.selectedSkill)
+    if not link then
+        return nil, nil
+    end
+    local id = link:match("item:(%d+)")
+    local name = link:match("%[(.-)%]")
+    return id and tonumber(id) or nil, name
+end
+
+-- Asks how many of the item you want before tracking it.
+StaticPopupDialogs["REAGENTBANK_TRACK_COUNT"] = {
+    text = "How many do you want to make?",
+    button1 = ACCEPT,
+    button2 = CANCEL,
+    hasEditBox = 1,
+    maxLetters = 5,
+    OnShow = function(self)
+        local box = self.editBox or getglobal(self:GetName() .. "EditBox")
+        if box then
+            box:SetText("1")
+            box:HighlightText()
+            box:SetFocus()
+        end
+    end,
+    OnAccept = function(self)
+        local box = self.editBox or getglobal(self:GetName() .. "EditBox")
+        local count = tonumber(box and box:GetText() or "")
+        if not count or count < 1 then
+            return
+        end
+        local itemId = ReagentBankCraft_GetSelectedProducedItem()
+        if itemId then
+            ReagentBankWishlist_Track(itemId, count)
+        end
+    end,
+    EditBoxOnEnterPressed = function(self)
+        local parent = self:GetParent()
+        StaticPopupDialogs["REAGENTBANK_TRACK_COUNT"].OnAccept(parent)
+        parent:Hide()
+    end,
+    EditBoxOnEscapePressed = function(self)
+        self:GetParent():Hide()
+    end,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+}
+
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", ReagentBankChatFilter)
+
+
+-- ---------------------------------------------------------------------------
+-- "Where do I farm this?" panel.
+--
+-- Sources arrive one line at a time (RBSRC) followed by a terminator
+-- (RBSRCEND), so lines accumulate into ReagentBankCraft_SourceBuffer and the
+-- window only redraws once the terminator lands. Redrawing per line would
+-- flicker and, worse, show a half-populated list as if it were complete.
+local SOURCE_KIND = { [1] = "Drops from", [2] = "Gathered from", [3] = "Fished in", [4] = "Skinned from" }
+
+ReagentBankCraft_SourceBuffer = {}
+
+local sourceFrame = CreateFrame("Frame", "ReagentBankSourceFrame", UIParent)
+sourceFrame:SetSize(360, 220)
+sourceFrame:SetPoint("CENTER", UIParent, "CENTER", 260, 0)
+sourceFrame:SetBackdrop({
+    bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+    tile = true, tileSize = 32, edgeSize = 32,
+    insets = { left = 11, right = 12, top = 12, bottom = 11 },
+})
+sourceFrame:SetMovable(true)
+sourceFrame:EnableMouse(true)
+sourceFrame:RegisterForDrag("LeftButton")
+sourceFrame:SetScript("OnDragStart", sourceFrame.StartMoving)
+sourceFrame:SetScript("OnDragStop", sourceFrame.StopMovingOrSizing)
+sourceFrame:Hide()
+
+sourceFrame.title = sourceFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+sourceFrame.title:SetPoint("TOPLEFT", 20, -18)
+sourceFrame.title:SetText("Where to farm")
+
+sourceFrame.close = CreateFrame("Button", nil, sourceFrame, "UIPanelCloseButton")
+sourceFrame.close:SetPoint("TOPRIGHT", -8, -8)
+
+sourceFrame.lines = {}
+for i = 1, 8 do
+    local fs = sourceFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    fs:SetPoint("TOPLEFT", 22, -38 - (i - 1) * 20)
+    fs:SetWidth(310)
+    fs:SetJustifyH("LEFT")
+    sourceFrame.lines[i] = fs
+end
+
+function ReagentBankCraft_ShowSources(itemName)
+    local buf = ReagentBankCraft_SourceBuffer
+    sourceFrame.title:SetText("Where to farm: " .. (itemName or "item"))
+
+    for i = 1, 8 do sourceFrame.lines[i]:SetText("") end
+
+    if #buf == 0 then
+        sourceFrame.lines[1]:SetText("|cffff8800No known source -- it may come from a quest, a nested loot table, or crafting.|r")
+    else
+        for i, src in ipairs(buf) do
+            if i > 8 then break end
+            -- Chance arrives in tenths of a percent; 0 means genuinely unknown
+            -- (an equal-chance loot group), so show "?" rather than "0%".
+            local chanceText = (src.chance > 0) and string.format("%.1f%%", src.chance / 10) or "?"
+            local where = (src.zone ~= "" and src.zone) or "unknown area"
+            local spawns = (src.spawns > 0) and (" (" .. src.spawns .. " spawns)") or ""
+            sourceFrame.lines[i]:SetText(string.format("|cffffd100%s|r %s - |cff00ff00%s|r in %s%s",
+                SOURCE_KIND[src.kind] or "From", src.name, chanceText, where, spawns))
+        end
+    end
+
+    sourceFrame:Show()
+end
+
+function ReagentBankCraft_QuerySources(itemId, itemName)
+    ReagentBankCraft_SourceBuffer = {}
+    ReagentBankCraft_PendingSourceName = itemName
+    ReagentBankCraft_Send("RBSOURCE:" .. itemId)
+end
 
 local function OnEvent(self, event, ...)
     if event == "ADDON_LOADED" then
@@ -201,6 +333,54 @@ local function OnEvent(self, event, ...)
             GameTooltip:Hide()
         end)
 
+        local trackButton = CreateFrame("Button", "ReagentBankTrackButton", TradeSkillCreateButton, "UIPanelButtonTemplate")
+        trackButton:SetSize(150, 22)
+        trackButton:SetPoint("TOP", buyButton, "BOTTOM", 0, -3)
+        trackButton:SetText("Track")
+
+        trackButton:SetScript("OnClick", function()
+            if ReagentBankCraft_GetSelectedRecipeSpellId() then
+                StaticPopup_Show("REAGENTBANK_TRACK_COUNT")
+            end
+        end)
+
+        trackButton:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+            GameTooltip:SetText("Track this recipe")
+            GameTooltip:AddLine("Adds it to your wishlist for a chosen quantity. The wishlist window shows every material you still need, counting bags, bank and reagent bank, and updates itself as you farm. Open it any time with /wishlist.", 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        trackButton:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+
+        -- Click any reagent in the recipe to ask where it comes from.
+        -- The reagent buttons are Blizzard's own (TradeSkillReagent1..8) and
+        -- already exist by the time Blizzard_TradeSkillUI has loaded, so they
+        -- can be hooked directly rather than recreated.
+        for i = 1, 8 do
+            local reagentButton = getglobal("TradeSkillReagent" .. i)
+            if reagentButton then
+                reagentButton:HookScript("OnClick", function()
+                    local skillIndex = TradeSkillFrame and TradeSkillFrame.selectedSkill
+                    if not skillIndex then
+                        return
+                    end
+
+                    local link = GetTradeSkillReagentItemLink(skillIndex, i)
+                    if not link then
+                        return
+                    end
+
+                    local itemId = link:match("item:(%d+)")
+                    local itemName = link:match("%[(.-)%]")
+                    if itemId then
+                        ReagentBankCraft_QuerySources(tonumber(itemId), itemName)
+                    end
+                end)
+            end
+        end
+
         -- Auto-redeposit leftovers when the window closes, regardless of
         -- how it was closed (Exit button, Escape, clicking away, etc --
         -- OnHide fires for all of these).
@@ -214,6 +394,32 @@ local function OnEvent(self, event, ...)
     elseif event == "CHAT_MSG_CHANNEL" then
         local text, sender = ...
         if sender ~= UnitName("player") then
+            return
+        end
+
+        -- Wishlist traffic lives in Wishlist.lua; hand it straight over.
+        if ReagentBankWishlist_OnMessage and ReagentBankWishlist_OnMessage(text) then
+            return
+        end
+
+        -- RBSRC:<itemId>:<kind>:<chanceTenths>:<spawns>:<name>|<zone>
+        if text:find("^RBSRC:") then
+            local kind, chance, spawns, rest = text:match("^RBSRC:%d+:(%d+):(%d+):(%d+):(.*)$")
+            if rest then
+                local name, zone = rest:match("^(.-)|(.*)$")
+                table.insert(ReagentBankCraft_SourceBuffer, {
+                    kind = tonumber(kind) or 1,
+                    chance = tonumber(chance) or 0,
+                    spawns = tonumber(spawns) or 0,
+                    name = name or rest,
+                    zone = zone or "",
+                })
+            end
+            return
+        end
+
+        if text:find("^RBSRCEND:") then
+            ReagentBankCraft_ShowSources(ReagentBankCraft_PendingSourceName)
             return
         end
 
