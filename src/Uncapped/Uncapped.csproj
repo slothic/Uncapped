@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Uncapped</RootNamespace>
     <AssemblyName>Uncapped</AssemblyName>
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <!-- Framework-dependent: ~2 MB instead of ~109 MB self-contained. The cost is that
          players need the .NET 9 Desktop Runtime installed. We cannot detect that ourselves -
@@ -28,5 +28,37 @@
   <ItemGroup>
     <PackageReference Include="MonoTorrent" Version="3.0.2" />
   </ItemGroup>
+
+  <!--
+    Bakes the crash-report webhook into the binary from a gitignored file, so the secret
+    never lands in this public repo. Builds fine without the file - crash reporting is
+    simply disabled unless the manifest supplies a webhook instead.
+  -->
+  <Target Name="GenerateBuildSecrets" BeforeTargets="BeforeCompile">
+    <PropertyGroup>
+      <WebhookFile>$(MSBuildProjectDirectory)\webhook.local.txt</WebhookFile>
+      <WebhookValue></WebhookValue>
+      <WebhookValue Condition="Exists('$(WebhookFile)')">$([System.IO.File]::ReadAllText('$(WebhookFile)').Trim())</WebhookValue>
+      <GeneratedSecrets>$(IntermediateOutputPath)BuildSecrets.g.cs</GeneratedSecrets>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <SecretLine Include="// Generated at build time from webhook.local.txt. Do not edit or commit." />
+      <SecretLine Include="namespace Uncapped%3B" />
+      <SecretLine Include="internal static class BuildSecrets" />
+      <SecretLine Include="{" />
+      <SecretLine Include="    public const string CrashWebhook = &quot;$(WebhookValue)&quot;%3B" />
+      <SecretLine Include="}" />
+    </ItemGroup>
+
+    <WriteLinesToFile File="$(GeneratedSecrets)" Lines="@(SecretLine)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+
+    <ItemGroup>
+      <Compile Include="$(GeneratedSecrets)" />
+      <FileWrites Include="$(GeneratedSecrets)" />
+    </ItemGroup>
+
+    <Message Importance="high" Text="Crash webhook: $([System.String]::Copy('$(WebhookValue)').Length) chars baked in" />
+  </Target>
 
 </Project>
