@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace Uncapped.Services;
 
@@ -36,48 +35,13 @@ public static class ClientConfigWriter
 
         try
         {
-            if (UpdateConfigWtf(installPath, address, realmName)) written.Add(@"WTF\Config.wtf");
+            var values = new Dictionary<string, string> { ["realmList"] = address };
+            if (!string.IsNullOrWhiteSpace(realmName)) values["realmName"] = realmName!;
+
+            if (ConfigWtf.Update(installPath, values)) written.Add(@"WTF\Config.wtf");
         }
         catch (Exception ex) { failed.Add($@"WTF\Config.wtf: {ex.Message}"); }
 
         return new Result(written, failed);
-    }
-
-    /// <summary>
-    /// Rewrites only the realmList (and realmName) lines, preserving every other setting —
-    /// resolution, volumes, account name. Clobbering the whole file would reset the player's
-    /// graphics settings on every launch.
-    /// </summary>
-    private static bool UpdateConfigWtf(string installPath, string address, string? realmName)
-    {
-        var path = Path.Combine(installPath, "WTF", "Config.wtf");
-        if (!File.Exists(path)) return false; // client writes it on first run; nothing to fix yet
-
-        var lines = File.ReadAllLines(path).ToList();
-        var changed = false;
-
-        changed |= SetLine(lines, "realmList", address);
-        if (!string.IsNullOrWhiteSpace(realmName))
-            changed |= SetLine(lines, "realmName", realmName!);
-
-        if (changed) File.WriteAllLines(path, lines, new UTF8Encoding(false));
-        return changed;
-    }
-
-    private static bool SetLine(List<string> lines, string key, string value)
-    {
-        var wanted = $"SET {key} \"{value}\"";
-        var rx = new Regex($@"^\s*SET\s+{Regex.Escape(key)}\s+", RegexOptions.IgnoreCase);
-
-        for (var i = 0; i < lines.Count; i++)
-        {
-            if (!rx.IsMatch(lines[i])) continue;
-            if (lines[i].Trim() == wanted) return false;
-            lines[i] = wanted;
-            return true;
-        }
-
-        lines.Add(wanted);
-        return true;
     }
 }

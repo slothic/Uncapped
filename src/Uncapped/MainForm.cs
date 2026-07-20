@@ -299,6 +299,20 @@ public sealed class MainForm : Form
 
         _state.InstallPath = root;
         _state.Save();
+
+        // First install only: give the client windowed mode at the desktop resolution, so a
+        // new player is not dropped into a fullscreen mode their monitor may not like.
+        try
+        {
+            await FirstRunConfigurator.ConfigureAsync(root, new Progress<string>(SetStatus), _cts.Token);
+        }
+        catch (OperationCanceledException) { return null; }
+        catch (Exception ex)
+        {
+            // Display defaults are a convenience, not a requirement. Never block the install.
+            Log($"first-run display config: {ex}");
+        }
+
         return root;
     }
 
