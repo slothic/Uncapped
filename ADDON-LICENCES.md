@@ -75,9 +75,17 @@ permission; it is an unresolved question that has been recorded rather than answ
 
 ## Ours
 
-`StatFeed` and `ReagentBankCraft` carry no licence text either — authors read "Server" and
-"Grandmaster Server". If these were written in-house, add a licence header; it costs nothing
-and removes them from the unresolved column.
+`StatFeed` and `ReagentBankCraft` are **first-party** — written for this project, alongside
+their server-side counterparts (`ReagentBankCrafting.cpp`, `lua_scripts\dungeonstats.lua`).
+The "Server" and "Grandmaster Server" author fields in their `.toc` files are placeholders,
+not third-party attribution.
+
+Redistribution is therefore not in question: they belong to the realm owner. They carry no
+licence header, which is worth adding at some point purely so anyone reading the repo knows
+where they stand — but it blocks nothing.
+
+These two are also the only addons the launcher will ever delete (`ownedPaths` in the
+manifest), which is correct precisely because they are ours.
 
 ---
 
