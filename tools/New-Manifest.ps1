@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Generates manifest.json by hashing everything in the payload tree.
 
@@ -22,6 +22,9 @@ param(
     [string]$RegisterUrl     = 'http://91.100.105.22:8080',
     [string]$LauncherVersion = '1.0.0',
     [string]$LauncherUrl     = '',
+    # Leave empty to have it computed from -LauncherExe, if that file exists.
+    [string]$LauncherSha256  = '',
+    [string]$LauncherExe     = 'C:\Wotlk\Launcher\src\Uncapped\bin\Release\net9.0-windows\win-x64\publish\Uncapped.exe',
     [string]$Magnet          = 'magnet:?xt=urn:btih:2ba2833baf733ce0a16040d43ed09491f2bf2ab2&dn=ChromieCraft_3.3.5a.zip&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.uw0.xyz%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.zerobytes.xyz%3A1337%2Fannounce',
     [string]$DirectDownloadUrl = $null
 )
@@ -49,6 +52,17 @@ $files = foreach ($f in Get-ChildItem $payloadRoot -Recurse -File) {
     }
 }
 
+# Resolve the launcher hash. Self-update verifies the downloaded exe against this before
+# swapping it in, so publishing a URL without a hash would skip that check entirely.
+$launcherHash = $LauncherSha256
+if (-not $launcherHash -and $LauncherUrl -and (Test-Path $LauncherExe)) {
+    $launcherHash = (Get-FileHash $LauncherExe -Algorithm SHA256).Hash.ToLower()
+    Write-Host "  launcher hash from $LauncherExe" -ForegroundColor DarkGray
+}
+if ($LauncherUrl -and -not $launcherHash) {
+    Write-Warning "launcherUrl is set but no hash could be determined - self-update will not verify the download."
+}
+
 # Preserve any news already written by hand.
 $news = @()
 if (Test-Path $OutFile) {
@@ -63,11 +77,21 @@ if (Test-Path $OutFile) {
 $archiveBytes   = 18GB
 $installedBytes = 18GB
 
+# Resolve these BEFORE the hashtable literal. Windows PowerShell 5.1 mis-parses an `if`
+# expression used as a value inside a multi-line hashtable literal: the entire literal
+# evaluates to $null, ConvertTo-Json happily serialises that to nothing, and the script goes
+# on to report success while writing a 0-byte manifest. Keep statements out of the literal.
+$launcherUrlValue = $null
+if ($LauncherUrl) { $launcherUrlValue = $LauncherUrl }
+
+$launcherHashValue = $null
+if ($launcherHash) { $launcherHashValue = $launcherHash }
+
 $manifest = [ordered]@{
     manifestVersion = 1
     launcherVersion = $LauncherVersion
-    launcherUrl     = if ($LauncherUrl) { $LauncherUrl } else { $null }
-    launcherSha256  = $null
+    launcherUrl     = $launcherUrlValue
+    launcherSha256  = $launcherHashValue
     realm = [ordered]@{
         name        = $RealmName
         address     = $RealmAddress
@@ -90,7 +114,7 @@ $manifest = [ordered]@{
     forceEnableAddOns = @('StatFeed', 'ReagentBankCraft')
 
     # Only paths under here are pruned when they leave the manifest. Third-party addons are
-    # install-only and never deleted — we do not remove addons we did not write.
+    # install-only and never deleted - we do not remove addons we did not write.
     ownedPaths = @(
         'Interface/AddOns/StatFeed',
         'Interface/AddOns/ReagentBankCraft'
@@ -99,10 +123,23 @@ $manifest = [ordered]@{
 
 $json = $manifest | ConvertTo-Json -Depth 8
 
+# Never write a manifest we cannot vouch for. A silently empty or truncated file here becomes
+# a broken launcher for every player, and the failure is invisible at generation time.
+if (-not $json) { throw "Serialisation produced no output - refusing to write $OutFile." }
+
 # UTF-8 *without* BOM. Windows PowerShell's `-Encoding utf8` emits a BOM, which several JSON
 # parsers choke on. .NET's HttpClient happens to strip it, so the launcher copes either way,
 # but there is no reason to ship a manifest that only some readers can parse.
 [IO.File]::WriteAllText($OutFile, $json, (New-Object Text.UTF8Encoding($false)))
+
+# Read it back and parse it. Cheap, and it is the only check that proves what landed on disk
+# is what the launcher will actually be able to consume.
+$written = Get-Content $OutFile -Raw
+$check = $null
+try { $check = $written | ConvertFrom-Json } catch { throw "Wrote $OutFile but it does not parse as JSON: $_" }
+if (-not $check.files -or $check.files.Count -ne $files.Count) {
+    throw "Wrote $OutFile but it contains $($check.files.Count) file entries, expected $($files.Count)."
+}
 
 # $files holds ordered hashtables, whose keys are not properties Measure-Object can see.
 $totalMb = [math]::Round((($files | ForEach-Object { $_.size } | Measure-Object -Sum).Sum) / 1MB, 2)
