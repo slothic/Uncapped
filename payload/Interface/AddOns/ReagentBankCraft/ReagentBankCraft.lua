@@ -213,7 +213,7 @@ local SOURCE_KIND = { [1] = "Drops from", [2] = "Gathered from", [3] = "Fished i
 ReagentBankCraft_SourceBuffer = {}
 
 local sourceFrame = CreateFrame("Frame", "ReagentBankSourceFrame", UIParent)
-sourceFrame:SetSize(360, 220)
+sourceFrame:SetSize(430, 340)
 sourceFrame:SetPoint("CENTER", UIParent, "CENTER", 260, 0)
 sourceFrame:SetBackdrop({
     bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -235,47 +235,76 @@ sourceFrame.title:SetText("Where to farm")
 sourceFrame.close = CreateFrame("Button", nil, sourceFrame, "UIPanelCloseButton")
 sourceFrame.close:SetPoint("TOPRIGHT", -8, -8)
 
+-- Visible rows. The full result set lives in the buffer and this window
+-- scrolls through it -- common materials have dozens of sources and a fixed
+-- 8-line panel simply hid most of them.
+local SOURCE_VISIBLE_ROWS = 14
+local SOURCE_ROW_HEIGHT = 20
+
 sourceFrame.lines = {}
-for i = 1, 8 do
+for i = 1, SOURCE_VISIBLE_ROWS do
     local fs = sourceFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    fs:SetPoint("TOPLEFT", 22, -38 - (i - 1) * 20)
-    fs:SetWidth(310)
+    fs:SetPoint("TOPLEFT", 22, -38 - (i - 1) * SOURCE_ROW_HEIGHT)
+    fs:SetWidth(365)
     fs:SetJustifyH("LEFT")
     sourceFrame.lines[i] = fs
 end
 
-function ReagentBankCraft_ShowSources(itemName)
-    local buf = ReagentBankCraft_SourceBuffer
-    sourceFrame.title:SetText("Where to farm: " .. (itemName or "item"))
+-- FauxScrollFrame is the 3.3.5 way to scroll a fixed set of rows over a longer
+-- list: the rows never move, the offset into the data changes.
+sourceFrame.scroll = CreateFrame("ScrollFrame", "ReagentBankSourceScroll", sourceFrame, "FauxScrollFrameTemplate")
+sourceFrame.scroll:SetPoint("TOPLEFT", 16, -34)
+sourceFrame.scroll:SetPoint("BOTTOMRIGHT", -34, 14)
 
-    for i = 1, 8 do sourceFrame.lines[i]:SetText("") end
+local function RenderSources()
+    local buf = ReagentBankCraft_SourceBuffer
+    local offset = FauxScrollFrame_GetOffset(sourceFrame.scroll) or 0
+
+    for i = 1, SOURCE_VISIBLE_ROWS do
+        sourceFrame.lines[i]:SetText("")
+    end
 
     if #buf == 0 then
         sourceFrame.lines[1]:SetText("|cffff8800No known source -- it may come from a quest, a nested loot table, or crafting.|r")
-    else
-        for i, src in ipairs(buf) do
-            if i > 8 then break end
+        FauxScrollFrame_Update(sourceFrame.scroll, 0, SOURCE_VISIBLE_ROWS, SOURCE_ROW_HEIGHT)
+        return
+    end
 
+    for row = 1, SOURCE_VISIBLE_ROWS do
+        local src = buf[row + offset]
+        if src then
             if src.kind == 5 then
-                -- Crafted: there is no drop chance or location to show, just
-                -- what it is made from and which profession makes it.
+                -- Crafted: no drop chance or location, just what it is made
+                -- from and which profession makes it.
                 local prof = (src.zone ~= "") and (" (" .. src.zone .. ")") or ""
-                sourceFrame.lines[i]:SetText(string.format("|cffffd100Crafted from|r %s%s", src.name, prof))
+                sourceFrame.lines[row]:SetText(string.format("|cffffd100Crafted from|r %s%s", src.name, prof))
             else
-                -- Chance arrives in tenths of a percent; 0 means genuinely unknown
-                -- (an equal-chance loot group), so show "?" rather than "0%".
+                -- Chance arrives in tenths of a percent; 0 means genuinely
+                -- unknown (an equal-chance loot group), so show "?" not "0%".
                 local chanceText = (src.chance > 0) and string.format("%.1f%%", src.chance / 10) or "?"
                 local where = (src.zone ~= "" and src.zone) or "unknown area"
-                local spawns = (src.spawns > 0) and (" (" .. src.spawns .. " spawns)") or ""
-                -- `via` marks a source reached through a reagent, e.g. the ore
-                -- that a bar is smelted from.
+                local spawns = (src.spawns > 0) and (" x" .. src.spawns) or ""
                 local via = (src.via ~= "") and ("|cff888888 [" .. src.via .. "]|r") or ""
-                sourceFrame.lines[i]:SetText(string.format("|cffffd100%s|r %s - |cff00ff00%s|r in %s%s%s",
-                    SOURCE_KIND[src.kind] or "From", src.name, chanceText, where, spawns, via))
+                -- Dungeon sources are marked and sorted to the top.
+                local tag = src.dungeon and "|cff66bbff[Dungeon]|r " or ""
+                sourceFrame.lines[row]:SetText(string.format("%s|cffffd100%s|r %s - |cff00ff00%s|r in %s%s%s",
+                    tag, SOURCE_KIND[src.kind] or "From", src.name, chanceText, where, spawns, via))
             end
         end
     end
 
+    FauxScrollFrame_Update(sourceFrame.scroll, #buf, SOURCE_VISIBLE_ROWS, SOURCE_ROW_HEIGHT)
+end
+
+sourceFrame.scroll:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, SOURCE_ROW_HEIGHT, RenderSources)
+end)
+
+function ReagentBankCraft_ShowSources(itemName)
+    sourceFrame.title:SetText("Where to farm: " .. (itemName or "item"))
+    FauxScrollFrame_SetOffset(sourceFrame.scroll, 0)
+    sourceFrame.scroll:SetVerticalScroll(0)
+    RenderSources()
     sourceFrame:Show()
 end
 
@@ -415,13 +444,14 @@ local function OnEvent(self, event, ...)
 
         -- RBSRC:<itemId>:<kind>:<chanceTenths>:<spawns>:<name>|<zone>
         if text:find("^RBSRC:") then
-            local kind, chance, spawns, rest = text:match("^RBSRC:%d+:(%d+):(%d+):(%d+):(.*)$")
+            local kind, chance, spawns, dungeon, rest = text:match("^RBSRC:%d+:(%d+):(%d+):(%d+):(%d+):(.*)$")
             if rest then
                 local name, zone, via = rest:match("^(.-)|(.-)|(.*)$")
                 table.insert(ReagentBankCraft_SourceBuffer, {
                     kind = tonumber(kind) or 1,
                     chance = tonumber(chance) or 0,
                     spawns = tonumber(spawns) or 0,
+                    dungeon = (dungeon == "1"),
                     name = name or rest,
                     zone = zone or "",
                     via = via or "",
