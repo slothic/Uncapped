@@ -20,11 +20,23 @@ param(
     [string]$RealmName       = 'Uncapped',
     [int]   $AuthPort        = 3724,
     [string]$RegisterUrl     = 'http://91.100.105.22:8080',
+    # Discord webhook that client crash dumps get posted to. Kept in the manifest, not the
+    # binary, so it can be rotated without cutting a release - which matters because a
+    # webhook shipped in a public client can be extracted by anyone who looks.
+    # Empty disables crash reporting entirely.
+    [string]$CrashReportWebhook = '',
+    # Rename the client executable and delete Repair.exe, so players cannot start an unsynced
+    # client by double-clicking it.
+    [bool]  $HardenClient    = $true,
     [string]$LauncherVersion = '1.0.0',
     [string]$LauncherUrl     = '',
     # Leave empty to have it computed from -LauncherExe, if that file exists.
     [string]$LauncherSha256  = '',
     [string]$LauncherExe     = 'C:\Wotlk\Launcher\src\Uncapped\bin\Release\net9.0-windows\win-x64\publish\Uncapped.exe',
+    # Files served from somewhere other than this repo (the WDM MPQ patches, which live in
+    # Trimitor's releases). Downloaded once to a cache purely so we can hash them.
+    [string]$ExternalFiles = 'C:\Wotlk\Launcher\tools\external-files.json',
+    [string]$ExternalCache = 'C:\Wotlk\Launcher\.external-cache',
     [string]$Magnet          = 'magnet:?xt=urn:btih:2ba2833baf733ce0a16040d43ed09491f2bf2ab2&dn=ChromieCraft_3.3.5a.zip&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.uw0.xyz%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.zerobytes.xyz%3A1337%2Fannounce',
     [string]$DirectDownloadUrl = $null
 )
@@ -49,6 +61,43 @@ $files = foreach ($f in Get-ChildItem $payloadRoot -Recurse -File) {
         url    = "$BaseUrl/$encoded"
         sha256 = $hash
         size   = $f.Length
+    }
+}
+
+# --- Externally hosted files -------------------------------------------------------------
+# These are not in payload\ and are never committed here. We download each once to hash it,
+# then publish the upstream URL. Players fetch them straight from the source.
+if (Test-Path $ExternalFiles) {
+    $external = Get-Content $ExternalFiles -Raw | ConvertFrom-Json
+    if ($external) {
+        New-Item -ItemType Directory -Force $ExternalCache | Out-Null
+        $wc = New-Object Net.WebClient
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+        Write-Host "`nExternally hosted files:" -ForegroundColor Cyan
+        foreach ($e in $external) {
+            if (-not $e.path -or -not $e.url) { continue }
+
+            $cached = Join-Path $ExternalCache ($e.path -replace '[\\/]', '_')
+
+            # Re-download only when absent. These are pinned to release tags, so the bytes
+            # behind a given URL do not change; delete the cache to force a refresh.
+            if (-not (Test-Path $cached)) {
+                Write-Host "  downloading $($e.path)..." -ForegroundColor DarkGray
+                $wc.DownloadFile($e.url, $cached)
+            }
+
+            $item = Get-Item $cached
+            if ($item.Length -eq 0) { throw "External file $($e.path) downloaded as 0 bytes." }
+
+            $files += [ordered]@{
+                path   = $e.path
+                url    = $e.url
+                sha256 = (Get-FileHash $cached -Algorithm SHA256).Hash.ToLower()
+                size   = $item.Length
+            }
+            Write-Host ("  + {0,-32} {1,6} MB" -f $e.path, [math]::Round($item.Length / 1MB, 1)) -ForegroundColor Green
+        }
     }
 }
 
@@ -87,6 +136,9 @@ if ($LauncherUrl) { $launcherUrlValue = $LauncherUrl }
 $launcherHashValue = $null
 if ($launcherHash) { $launcherHashValue = $launcherHash }
 
+$crashWebhookValue = $null
+if ($CrashReportWebhook) { $crashWebhookValue = $CrashReportWebhook }
+
 $manifest = [ordered]@{
     manifestVersion = 1
     launcherVersion = $LauncherVersion
@@ -106,6 +158,9 @@ $manifest = [ordered]@{
         archiveBytes      = $archiveBytes
         installedBytes    = $installedBytes
     }
+    crashReportWebhook = $crashWebhookValue
+    hardenClient       = $HardenClient
+
     news  = $news
     files = @($files)
 

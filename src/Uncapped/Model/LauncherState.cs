@@ -19,6 +19,12 @@ public sealed class LauncherState
 
     [JsonPropertyName("lastSyncedManifestVersion")] public string? LastSyncedManifestVersion { get; set; }
 
+    /// <summary>
+    /// Crash dump filenames already uploaded, so the same crash is not re-sent on every
+    /// launch. Trimmed periodically.
+    /// </summary>
+    [JsonPropertyName("reportedCrashes")] public List<string> ReportedCrashes { get; set; } = new();
+
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
     public static LauncherState Load()

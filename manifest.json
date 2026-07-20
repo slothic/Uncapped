@@ -1,8 +1,8 @@
 {
     "manifestVersion":  1,
-    "launcherVersion":  "1.0.1",
-    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.0.1/Uncapped.exe",
-    "launcherSha256":  "225d2639c93ef0861390769c1aea109e045ee4c4e765fbadc893409d44ffd717",
+    "launcherVersion":  "1.1.0",
+    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.1.0/Uncapped.exe",
+    "launcherSha256":  "89bcd92109054028b3db5b43577b1ec9cb6c1d0d48f54d133acbd89dea1e178e",
     "realm":  {
                   "name":  "Uncapped",
                   "address":  "91.100.105.22",
@@ -16,6 +16,8 @@
                    "archiveBytes":  19327352832,
                    "installedBytes":  19327352832
                },
+    "crashReportWebhook":  null,
+    "hardenClient":  true,
     "news":  [
 
              ],
@@ -2183,8 +2185,8 @@
                   {
                       "path":  "Interface/AddOns/QuestHelper/libs/AstrolabeQH/Astrolabe.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/QuestHelper/libs/AstrolabeQH/Astrolabe.lua",
-                      "sha256":  "6f5e9258aaa9f260e558e902fafce4943307d6e84a8087572643caadc267d59f",
-                      "size":  56529
+                      "sha256":  "8528fbd7913890450219722dca8a548002c3749665d92df245deebd91b3641f2",
+                      "size":  79109
                   },
                   {
                       "path":  "Interface/AddOns/QuestHelper/libs/AstrolabeQH/AstrolabeMapMonitor.lua",
@@ -2699,8 +2701,8 @@
                   {
                       "path":  "Interface/AddOns/ReagentBankCraft/ReagentBankCraft.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/ReagentBankCraft/ReagentBankCraft.toc",
-                      "sha256":  "1f0d88385f20de02271f5cdf288344e459d2b94274a699667d9f1f3aa42ecf4f",
-                      "size":  343
+                      "sha256":  "a0a5a671bc370f7dc62b76c4dff954a6e084a0436076f2c073fccf33c37c4480",
+                      "size":  339
                   },
                   {
                       "path":  "Interface/AddOns/Recount/Bindings.xml",
@@ -3683,8 +3685,8 @@
                   {
                       "path":  "Interface/AddOns/StatFeed/StatFeed.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/StatFeed/StatFeed.toc",
-                      "sha256":  "5f21dfb00c257b7c44ae598a233f29f8ca518b12c7b6406aeb8b622bfebed841",
-                      "size":  212
+                      "sha256":  "7db42975f315c3334949869472386080dfb8072dacab0ddc2e90f61bc53215d8",
+                      "size":  222
                   },
                   {
                       "path":  "Interface/AddOns/WDM/atlaspoi.lua",
@@ -4339,6 +4341,18 @@
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/WDM/textures/ui-minimap-worldmapsquare.blp",
                       "sha256":  "e8e3376007fff3e743481412cd775593b2664cefa9a69ffec941614e81a50865",
                       "size":  3940
+                  },
+                  {
+                      "path":  "Data/enUS/patch-enUS-M.MPQ",
+                      "url":  "https://github.com/Trimitor/WDM-patch/releases/download/2.4.5-stable/patch-enUS-M.MPQ",
+                      "sha256":  "b69713077e19498d20efa5eeaefdba98850764db6bdc99e292bfbdf7b1c858d6",
+                      "size":  48767934
+                  },
+                  {
+                      "path":  "Data/enUS/patch-enUS-N.MPQ",
+                      "url":  "https://github.com/Trimitor/WDM-patch/releases/download/2.4.5-beta/patch-enUS-N.MPQ",
+                      "sha256":  "ebb6543ae32c392e1d52d6927d3a059517fb413ec6b152db4f0beaad9a0bbf29",
+                      "size":  20494466
                   }
               ],
     "forceEnableAddOns":  [

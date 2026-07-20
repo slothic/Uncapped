@@ -2,6 +2,10 @@
 src/**/bin/
 src/**/obj/
 
+# Download cache for externally hosted files (the WDM MPQ patches). Only ever used to
+# compute hashes at manifest time - players fetch these from upstream, not from here.
+.external-cache/
+
 # Local launcher config — each install writes its own next to the exe
 uncapped.config.json
 

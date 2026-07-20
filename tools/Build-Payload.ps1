@@ -84,11 +84,41 @@ if (Test-Path $customSrc) {
     Write-Warning "client_addons not found at $customSrc"
 }
 
+# --- 1b. Upstream WDM addons. Staged before the loose copies in Addons\ so the versions
+#         that match the WDM dungeon-map patches win. Refresh with Update-Upstream.ps1. ---
+$upstream = Join-Path $Root 'Addons\upstream'
+if (Test-Path $upstream) {
+    Write-Host "`nUpstream addons (Trimitor/WDM-addons):" -ForegroundColor Cyan
+    foreach ($zip in Get-ChildItem $upstream -Filter '*.zip' -File) {
+        $archive = [IO.Compression.ZipFile]::OpenRead($zip.FullName)
+        try {
+            $roots = $archive.Entries |
+                     ForEach-Object { ($_.FullName -split '/')[0] } |
+                     Where-Object { $_ } | Select-Object -Unique
+        } finally { $archive.Dispose() }
+
+        $wanted = $roots | Where-Object { Add-AddonFolder -Name $_ -SourceLabel "upstream/$($zip.Name)" }
+        if (-not $wanted) { continue }
+
+        $temp = Join-Path ([IO.Path]::GetTempPath()) ("uncapped-" + [Guid]::NewGuid().ToString('N'))
+        try {
+            [IO.Compression.ZipFile]::ExtractToDirectory($zip.FullName, $temp)
+            foreach ($name in $wanted) {
+                $src = Join-Path $temp $name
+                if (Test-Path $src) {
+                    Copy-Item $src -Destination $addonsOut -Recurse -Force
+                    Write-Host "  + $name" -ForegroundColor Green
+                }
+            }
+        } finally { Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 # --- 2. Third-party addons: extracted folders first, then zips. ---
 $thirdParty = Join-Path $Root 'Addons'
 if (Test-Path $thirdParty) {
     Write-Host "`nThird-party addons (already extracted):" -ForegroundColor Cyan
-    foreach ($dir in Get-ChildItem $thirdParty -Directory) {
+    foreach ($dir in Get-ChildItem $thirdParty -Directory | Where-Object { $_.Name -ne 'upstream' }) {
         # felbite folders wrap the real addon one level down; find the folder with a .toc.
         $tocDirs = Get-ChildItem $dir.FullName -Recurse -Filter '*.toc' -File |
                    Select-Object -ExpandProperty Directory -Unique

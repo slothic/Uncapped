@@ -386,6 +386,23 @@ public sealed class MainForm : Form
 
         AddOnsTxtEnforcer.ForceEnable(_installPath, _manifest.ForceEnableAddOns);
 
+        if (_manifest.HardenClient)
+        {
+            var hardened = ClientHardening.Apply(_installPath);
+            foreach (var note in hardened.Notes) Log($"hardening: {note}");
+        }
+
+        // Crash uploads run after the sync so a broken install gets fixed first, and are
+        // never allowed to stop the player launching.
+        try
+        {
+            var reporter = new CrashReporter(_http);
+            var sent = await reporter.ReportNewCrashesAsync(_installPath, _manifest, _state, _cts.Token);
+            if (sent > 0) Log($"uploaded {sent} crash report(s)");
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { Log($"crash reporting: {ex.Message}"); }
+
         // Only worth clearing when something actually changed — it costs the player a slower
         // first login while the client refetches.
         if (outcome.ChangedAnything) WdbCleaner.Clear(_installPath);
@@ -497,13 +514,5 @@ public sealed class MainForm : Form
         catch { /* no browser association; nothing sensible to do */ }
     }
 
-    internal static void Log(string message)
-    {
-        try
-        {
-            Directory.CreateDirectory(AppPaths.DataDir);
-            File.AppendAllText(AppPaths.LogFile, $"{DateTime.Now:u}  {message}{Environment.NewLine}");
-        }
-        catch { /* logging must never throw */ }
-    }
+    internal static void Log(string message) => Uncapped.Log.Write(message);
 }

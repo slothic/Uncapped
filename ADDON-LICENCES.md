@@ -2,6 +2,17 @@
 
 Audited 2026-07-20 against the files actually present in `payload\Interface\AddOns\`.
 
+> **Updated 2026-07-20 (later):** `!Astrolabe`, `WDM` and `QuestHelper` now come from
+> [Trimitor/WDM-addons](https://github.com/Trimitor/WDM-addons) `1.0.9-stable` instead of the
+> older loose copies in `Addons\`, because those are the versions that match the WDM
+> dungeon-map patches. Their licence evidence was re-checked after the swap and is materially
+> unchanged: Astrolabe is still LGPL, QuestHelper still has no addon-wide grant (see below),
+> and WDM's own `.toc` still carries no licence while its bundled libraries declare MIT.
+>
+> The two `patch-enUS-M/N.MPQ` archives are **not redistributed by us at all** — the manifest
+> points players at Trimitor's own release assets, so they are downloaded from the upstream
+> author's distribution point.
+
 **Method**: read every `LICENSE`/`COPYING`/`README`, every `.toc` (`## X-License`, `## Author`,
 `## Notes`), and grepped all `.lua` for copyright and licence headers. Verdicts come only from
 text found in the files — not from general knowledge of the addon. "No statement found" means

@@ -21,6 +21,20 @@ public sealed class Manifest
     [JsonPropertyName("realm")] public RealmInfo Realm { get; set; } = new();
     [JsonPropertyName("client")] public ClientSource Client { get; set; } = new();
 
+    /// <summary>
+    /// Discord webhook that client crash dumps are posted to. Lives here rather than in the
+    /// binary so it can be rotated without a release — which matters, because a webhook
+    /// shipped in a public client can be extracted by anyone who looks.
+    /// Leave null to disable crash reporting entirely.
+    /// </summary>
+    [JsonPropertyName("crashReportWebhook")] public string? CrashReportWebhook { get; set; }
+
+    /// <summary>
+    /// Rename the client executable and remove Repair.exe, so players cannot start an
+    /// unsynced client by double-clicking it.
+    /// </summary>
+    [JsonPropertyName("hardenClient")] public bool HardenClient { get; set; }
+
     [JsonPropertyName("news")] public List<NewsItem> News { get; set; } = new();
     [JsonPropertyName("files")] public List<ManifestFile> Files { get; set; } = new();
 
