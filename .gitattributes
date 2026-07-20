@@ -1,0 +1,14 @@
+# Disable ALL line-ending normalisation. This is not a style preference — it is required
+# for correctness.
+#
+# The launcher verifies every payload file against a SHA-256 in manifest.json. If Git
+# normalises LF<->CRLF, a file checked out on one machine differs byte-for-byte from the same
+# file on another, so New-Manifest.ps1 would record hashes that do not match what
+# raw.githubusercontent.com actually serves — and every player's sync would fail its
+# checksum, repeatedly, with no obvious cause.
+#
+# Treating everything as binary keeps working copy, stored blob, and served bytes identical.
+* -text
+
+# Belt and braces for the payload specifically.
+payload/** -text -diff

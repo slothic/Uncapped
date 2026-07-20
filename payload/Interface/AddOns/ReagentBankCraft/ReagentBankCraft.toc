@@ -1,0 +1,6 @@
+## Interface: 30300
+## Title: Reagent Bank Craft
+## Notes: Withdraws reagent bank materials for the selected recipe into your bags so the normal Create button works, and can buy missing vendor-sold reagents for a chosen number of crafts. Auto-redeposits leftovers when you close the window.
+## Author: Grandmaster Server
+
+ReagentBankCraft.lua

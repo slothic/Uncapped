@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Uncapped</RootNamespace>
+    <AssemblyName>Uncapped</AssemblyName>
+    <Version>1.0.0</Version>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- Framework-dependent: ~2 MB instead of ~109 MB self-contained. The cost is that
+         players need the .NET 9 Desktop Runtime installed. We cannot detect that ourselves —
+         without the runtime our code never runs — but the .NET apphost shows its own dialog
+         naming the missing runtime with a download link. Document it for players anyway. -->
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <!-- Trimming is unsupported for WinForms and breaks JSON reflection. Keep it off. -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <AssemblyTitle>Uncapped Launcher</AssemblyTitle>
+    <Product>Uncapped Launcher</Product>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MonoTorrent" Version="3.0.2" />
+  </ItemGroup>
+
+</Project>

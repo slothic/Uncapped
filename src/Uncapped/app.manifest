@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <assemblyIdentity version="1.0.0.0" name="Uncapped.Launcher" />
+
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+    <security>
+      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+        <!-- asInvoker on purpose. The launcher lives in %LOCALAPPDATA% and writes to a
+             game folder the player already owns; requesting admin would add a UAC prompt
+             on every run for the common case. Program Files installs are detected and
+             reported instead. -->
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" /><!-- Win 10/11 -->
+      <supportedOS Id="{1f676c76-80e1-4239-95bb-83d0f6d0da78}" /><!-- Win 8.1 -->
+    </application>
+  </compatibility>
+
+  <!-- High-DPI is configured via the ApplicationHighDpiMode project property instead;
+       WinForms warns (WFO0003) if it is also declared here. -->
+</assembly>
