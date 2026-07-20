@@ -36,6 +36,12 @@ public sealed class Manifest
     [JsonPropertyName("hardenClient")] public bool HardenClient { get; set; }
 
     /// <summary>
+    /// Set IMAGE_FILE_LARGE_ADDRESS_AWARE on the client, lifting its address space from 2 GB
+    /// to 4 GB on 64-bit Windows. Two bytes of the PE header; no code is modified.
+    /// </summary>
+    [JsonPropertyName("largeAddressAware")] public bool LargeAddressAware { get; set; }
+
+    /// <summary>
     /// Optional URL for a standalone news file. When set it takes precedence over
     /// <see cref="News"/>, letting news be updated by editing one file on the realm box
     /// rather than pushing a manifest. Falls back to <see cref="News"/> if unreachable.
