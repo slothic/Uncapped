@@ -35,6 +35,14 @@ public sealed class Manifest
     /// </summary>
     [JsonPropertyName("hardenClient")] public bool HardenClient { get; set; }
 
+    /// <summary>
+    /// Optional URL for a standalone news file. When set it takes precedence over
+    /// <see cref="News"/>, letting news be updated by editing one file on the realm box
+    /// rather than pushing a manifest. Falls back to <see cref="News"/> if unreachable.
+    /// </summary>
+    [JsonPropertyName("newsUrl")] public string? NewsUrl { get; set; }
+
+    /// <summary>Fallback news, used when no newsUrl is set or the fetch fails.</summary>
     [JsonPropertyName("news")] public List<NewsItem> News { get; set; } = new();
     [JsonPropertyName("files")] public List<ManifestFile> Files { get; set; } = new();
 

@@ -1,0 +1,188 @@
+<Application x:Class="Uncapped.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+
+        <!-- Palette sampled from the background: coral off the sunlit peaks, purples from
+             the sky and water. Keeping the UI inside the image's own range is what makes it
+             look designed around the art rather than dropped on top of it. -->
+        <Color x:Key="AccentColor">#E87A55</Color>
+        <SolidColorBrush x:Key="Accent" Color="#E87A55" />
+        <SolidColorBrush x:Key="AccentHover" Color="#F2916D" />
+
+        <SolidColorBrush x:Key="Ink" Color="#F4F0F2" />
+        <SolidColorBrush x:Key="Muted" Color="#A79CAC" />
+        <SolidColorBrush x:Key="Online" Color="#6FCF8B" />
+        <SolidColorBrush x:Key="Offline" Color="#D2695F" />
+
+        <!-- PLAY: the one solid, saturated element on screen, so the eye lands on it. -->
+        <Style x:Key="PlayButton" TargetType="Button">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontSize" Value="19" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Border x:Name="Glow" CornerRadius="8" Background="{StaticResource Accent}" Opacity="0">
+                                <Border.Effect>
+                                    <BlurEffect Radius="18" />
+                                </Border.Effect>
+                            </Border>
+                            <Border x:Name="Face" CornerRadius="8" Background="{StaticResource Accent}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Face" Property="Background" Value="{StaticResource AccentHover}" />
+                                <Setter TargetName="Glow" Property="Opacity" Value="0.75" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Face" Property="Background" Value="#C9603F" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Face" Property="Background" Value="#4A4048" />
+                                <Setter TargetName="Glow" Property="Opacity" Value="0" />
+                                <Setter Property="Foreground" Value="#8A8189" />
+                                <Setter Property="Cursor" Value="Arrow" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Window controls: invisible until hovered, so they never compete with the art. -->
+        <Style x:Key="ChromeButton" TargetType="Button">
+            <Setter Property="Width" Value="34" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Foreground" Value="#CFC6D2" />
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="B" Background="Transparent" CornerRadius="5">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="B" Property="Background" Value="#33FFFFFF" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="QuietLink" TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource Muted}" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <TextBlock x:Name="T" Text="{TemplateBinding Content}"
+                                   Foreground="{TemplateBinding Foreground}"
+                                   FontSize="{TemplateBinding FontSize}" />
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="T" Property="Foreground" Value="{StaticResource Accent}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Slim scrollbar. The stock one is wide, light, and has arrow buttons that look
+             badly out of place on a dark translucent panel. -->
+        <Style x:Key="SlimScrollBar" TargetType="ScrollBar">
+            <Setter Property="Width" Value="5" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                            <Track.Thumb>
+                                <Thumb>
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Border CornerRadius="2.5" Background="#59FFFFFF" />
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageDownCommand" Opacity="0" Focusable="False" />
+                            </Track.IncreaseRepeatButton>
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageUpCommand" Opacity="0" Focusable="False" />
+                            </Track.DecreaseRepeatButton>
+                        </Track>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- News rows: flat until hovered, with an accent marker on the selected one. The
+             default ListBox selection is a solid blue block, which would be jarring here. -->
+        <Style x:Key="NewsItem" TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Row" Background="Transparent" CornerRadius="6"
+                                Padding="10,7,8,7" Margin="0,0,6,3">
+                            <Grid>
+                                <Border x:Name="Marker" Width="2" HorizontalAlignment="Left"
+                                        CornerRadius="1" Background="{StaticResource Accent}"
+                                        Opacity="0" Margin="-6,1,0,1" />
+                                <ContentPresenter />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Row" Property="Background" Value="#14FFFFFF" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Row" Property="Background" Value="#22FFFFFF" />
+                                <Setter TargetName="Marker" Property="Opacity" Value="1" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Thin, flat progress bar. The default chunky one looks like a dialog from 2005. -->
+        <Style x:Key="SlimProgress" TargetType="ProgressBar">
+            <Setter Property="Height" Value="4" />
+            <Setter Property="Foreground" Value="{StaticResource Accent}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <!-- ProgressBar's own logic measures PART_Track and sizes
+                             PART_Indicator against it; both must exist by name. -->
+                        <Border CornerRadius="2" Background="#33FFFFFF" ClipToBounds="True">
+                            <Grid>
+                                <Rectangle x:Name="PART_Track" />
+                                <Rectangle x:Name="PART_Indicator"
+                                           HorizontalAlignment="Left"
+                                           Fill="{TemplateBinding Foreground}" />
+                            </Grid>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+    </Application.Resources>
+</Application>

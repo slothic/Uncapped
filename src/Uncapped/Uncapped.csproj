@@ -1,14 +1,17 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net9.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <!-- WinForms is still referenced for FolderBrowserDialog, which WPF has no equivalent
+         of. On .NET 5+ that dialog already renders as the modern Vista-style picker. -->
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Uncapped</RootNamespace>
     <AssemblyName>Uncapped</AssemblyName>
-    <Version>1.1.3</Version>
+    <Version>1.2.0</Version>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <!-- Framework-dependent: ~2 MB instead of ~109 MB self-contained. The cost is that
          players need the .NET 9 Desktop Runtime installed. We cannot detect that ourselves -
@@ -16,20 +19,33 @@
          naming the missing runtime with a download link. Document it for players anyway. -->
     <SelfContained>false</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
-    <!-- Trimming is unsupported for WinForms and breaks JSON reflection. Keep it off. -->
+    <!-- Trimming is unsupported for WPF/WinForms and breaks JSON reflection. Keep it off. -->
     <PublishTrimmed>false</PublishTrimmed>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Extracted from the game client's RT_GROUP_ICON resource (all 4 sizes, 16-48px), so
          the launcher looks like the thing it launches. -->
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <AssemblyTitle>Uncapped Launcher</AssemblyTitle>
     <Product>Uncapped Launcher</Product>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="MonoTorrent" Version="3.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\background.jpg" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The WPF implicit-usings set does not carry these, and the services rely on them. -->
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
+    <!-- Referencing WinForms for the folder picker makes Application and MessageBox
+         ambiguous. Alias them to the WPF ones once, here, rather than in every file. -->
+    <Using Include="System.Windows.Application" Alias="Application" />
+    <Using Include="System.Windows.MessageBox" Alias="MessageBox" />
   </ItemGroup>
 
   <!--
