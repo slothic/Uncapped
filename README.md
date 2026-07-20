@@ -99,7 +99,11 @@ To switch back to a no-prerequisite build, set `<SelfContained>true</SelfContain
    play offline on whatever they last synced.
 3. Self-updates if the manifest advertises a newer version.
 4. Finds the install: remembered path → registry → common locations → folder picker. If none,
-   offers to torrent the client.
+   offers to torrent the client. On a freshly downloaded client it then starts the game once
+   to make it write `Config.wtf`, kills it, and sets **windowed mode at the desktop
+   resolution** (plus `hwDetect 0`, so the client does not re-detect and undo it). The player
+   sees the game window flash once, on first install only. If the client never writes a
+   config, a minimal one is written instead rather than giving up.
 5. Refuses to sync if `Wow.exe` is running, or if the folder needs elevation.
 6. Hashes manifest files on disk, downloads only what differs, verifies each download's
    SHA-256 before moving it into place.

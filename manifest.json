@@ -1,8 +1,8 @@
 {
     "manifestVersion":  1,
-    "launcherVersion":  "1.0.0",
-    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.0.0/Uncapped.exe",
-    "launcherSha256":  "04105786091eb2a21e0105d34e20205e679e76d9f21f4f9e99a7636675c13d75",
+    "launcherVersion":  "1.0.1",
+    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.0.1/Uncapped.exe",
+    "launcherSha256":  "225d2639c93ef0861390769c1aea109e045ee4c4e765fbadc893409d44ffd717",
     "realm":  {
                   "name":  "Uncapped",
                   "address":  "91.100.105.22",
