@@ -1,0 +1,14 @@
+# Build output
+src/**/bin/
+src/**/obj/
+
+# Local launcher config — each install writes its own next to the exe
+uncapped.config.json
+
+# payload/ and manifest.json are generated but MUST be committed:
+# they are what the launcher actually downloads.
+
+# Internal planning notes. This repo is public: the handoff contains server-side detail and
+# a written record of the client-distribution decision, neither of which needs publishing.
+# Delete this line if you want it in the repo.
+HANDOFF_LAUNCHER.md
