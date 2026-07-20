@@ -24,6 +24,7 @@
 --   /alerts sound      toggle the warning sound
 --   /alerts quit       toggle auto-quit
 --   /alerts time <s>   set the countdown length
+--   /alerts testsound  play the alert sound
 --   /alerts testquit   quit right now, to check it works on your client
 
 local DEFAULT_COUNTDOWN = 45
@@ -61,6 +62,23 @@ local function QuitGame()
     return nil
 end
 
+-- Optional custom alert, shipped alongside the addon.
+--
+-- 3.3.5 plays .mp3 and .ogg from an addon folder, but only if the file is
+-- present when the client STARTS -- there is no runtime loading. The launcher
+-- ships whatever sits in the addon directory, so dropping a file in and
+-- publishing is all that is required.
+--
+-- The built-in RaidWarning always plays first. There is no way to ask the
+-- client whether a sound file exists, and a missing file fails silently, so
+-- the guaranteed-audible sound goes first and the custom one layers on top.
+local CUSTOM_ALERT = "Interface\\AddOns\\UncappedAlerts\\alert.mp3"
+
+local function PlayAlertSound()
+    PlaySound("RaidWarning")
+    PlaySoundFile(CUSTOM_ALERT)
+end
+
 StaticPopupDialogs["UNCAPPED_RESTART_WARNING"] = {
     text = "Server restart incoming.\n\nClosing the game lets the launcher update you.\n\nQuitting in %d seconds...",
     button1 = "Quit now",
@@ -82,10 +100,7 @@ StaticPopupDialogs["UNCAPPED_RESTART_WARNING"] = {
 
 local function Warn()
     if Setting("sound", true) then
-        -- RaidWarning cuts through combat noise; the second is a backup for
-        -- anyone who has raid warning sounds turned down.
-        PlaySound("RaidWarning")
-        PlaySoundFile("Sound\\Interface\\LevelUp.wav")
+        PlayAlertSound()
     end
 
     if not Setting("autoQuit", true) then
@@ -197,7 +212,7 @@ quitListener:SetScript("OnEvent", function(self, event, text, sender)
     StaticPopup_Hide("UNCAPPED_RESTART_WARNING")
 
     if Setting("sound", true) then
-        PlaySound("RaidWarning")
+        PlayAlertSound()
     end
 
     QuitGame()
@@ -225,6 +240,10 @@ SlashCmdList["UNCAPPEDALERTS"] = function(arg)
             DEFAULT_CHAT_FRAME:AddMessage("|cffff5555[Uncapped]|r Give a number of seconds between 5 and 600.")
         end
 
+    elseif cmd == "testsound" then
+        PlayAlertSound()
+        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Played the alert. If you only heard the default warning, alert.mp3 is missing from the addon folder.")
+
     elseif cmd == "testquit" then
         -- Deliberately immediate and undocumented in the tooltip: the only way
         -- to find out whether this client will actually close is to try it.
@@ -240,6 +259,6 @@ SlashCmdList["UNCAPPEDALERTS"] = function(arg)
             .. (Setting("sound", true) and "ON" or "OFF")
             .. ", auto-quit: " .. (Setting("autoQuit", true) and "ON" or "OFF")
             .. " (" .. Setting("countdown", DEFAULT_COUNTDOWN) .. "s)")
-        DEFAULT_CHAT_FRAME:AddMessage("|cff888888/alerts sound|r, |cff888888/alerts quit|r, |cff888888/alerts time <seconds>|r, |cff888888/alerts testquit|r")
+        DEFAULT_CHAT_FRAME:AddMessage("|cff888888/alerts sound|r, |cff888888/alerts quit|r, |cff888888/alerts time <seconds>|r, |cff888888/alerts testsound|r, |cff888888/alerts testquit|r")
     end
 end
