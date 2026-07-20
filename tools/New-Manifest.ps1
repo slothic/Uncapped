@@ -28,6 +28,9 @@ param(
     # Rename the client executable and delete Repair.exe, so players cannot start an unsynced
     # client by double-clicking it.
     [bool]  $HardenClient    = $true,
+    # Addons to switch off on clients that already have them, for ones we shipped and then
+    # pulled. Keep in step with $temporarilyDisabled in Build-Payload.ps1.
+    [string[]]$ForceDisableAddOns = @('QuestHelper'),
     [string]$LauncherVersion = '1.0.0',
     [string]$LauncherUrl     = '',
     # Leave empty to have it computed from -LauncherExe, if that file exists.
@@ -167,6 +170,12 @@ $manifest = [ordered]@{
     # Force-ticked in AddOns.txt on every launch. StatFeed is the reason the launcher exists;
     # without it players see no stat-gain messages at all.
     forceEnableAddOns = @('StatFeed', 'ReagentBankCraft')
+
+    # Switched off in AddOns.txt on clients that already have them. Needed because dropping
+    # an addon from the payload does not uninstall it - the launcher never deletes
+    # third-party addons, so a broken one would keep loading and keep throwing errors.
+    # Keep in step with $temporarilyDisabled in Build-Payload.ps1.
+    forceDisableAddOns = @($ForceDisableAddOns)
 
     # Only paths under here are pruned when they leave the manifest. Third-party addons are
     # install-only and never deleted - we do not remove addons we did not write.

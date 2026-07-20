@@ -46,6 +46,16 @@ public sealed class Manifest
     [JsonPropertyName("forceEnableAddOns")] public List<string> ForceEnableAddOns { get; set; } = new();
 
     /// <summary>
+    /// Addons switched off in AddOns.txt on every launch — for ones we have shipped in the
+    /// past that turned out to be broken.
+    ///
+    /// Needed because dropping an addon from the manifest does not uninstall it: the launcher
+    /// never deletes third-party addons, so a broken one would keep loading. This turns it off
+    /// without touching anyone's files, and is reversible by removing the entry.
+    /// </summary>
+    [JsonPropertyName("forceDisableAddOns")] public List<string> ForceDisableAddOns { get; set; } = new();
+
+    /// <summary>
     /// Path prefixes (install-root-relative) the launcher owns outright. Only files under
     /// these prefixes are pruned when they drop out of the manifest. Anything else we
     /// install — the third-party addons — is install-only and never deleted, per the
