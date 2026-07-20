@@ -16,6 +16,7 @@ public partial class MainWindow : Window
     private readonly CancellationTokenSource _cts = new();
 
     private Manifest? _manifest;
+    private string? _manifestHash;
     private string? _installPath;
     private bool _readyToPlay;
     private bool _closing;
@@ -53,7 +54,9 @@ public partial class MainWindow : Window
         try
         {
             SetStatus("Checking for updates…");
-            _manifest = await new ManifestService(_http).FetchAsync(_config.ManifestUrl, _cts.Token);
+            var fetched = await new ManifestService(_http).FetchAsync(_config.ManifestUrl, _cts.Token);
+            _manifest = fetched.Manifest;
+            _manifestHash = fetched.Hash;
         }
         catch (Exception ex)
         {
@@ -301,16 +304,62 @@ public partial class MainWindow : Window
         if (outcome.Errors.Count > 0)
         {
             foreach (var e in outcome.Errors) Log.Write($"sync: {e}");
+            // Deliberately not recorded as synced: a partial sync must be retried on the next
+            // PLAY rather than skipped because the manifest hash happens to match.
             EnablePlay($"Ready, but {outcome.Errors.Count} file(s) failed to update. See launcher.log.");
-        }
-        else if (outcome.ChangedAnything)
-        {
-            EnablePlay($"Updated {outcome.Downloaded} file(s). Ready to play.");
         }
         else
         {
-            EnablePlay("Up to date.");
+            _state.LastManifestHash = _manifestHash;
+            _state.Save();
+
+            EnablePlay(outcome.ChangedAnything
+                ? $"Updated {outcome.Downloaded} file(s). Ready to play."
+                : "Up to date.");
         }
+    }
+
+    /// <summary>
+    /// Re-checks for updates when PLAY is pressed, so a launcher left open all day does not
+    /// start a stale client.
+    ///
+    /// Compares the manifest's hash against the last one we synced: unchanged means nothing
+    /// upstream moved, so this costs one HTTP request instead of a pass over every file, and
+    /// PLAY stays effectively instant in the common case.
+    ///
+    /// Best-effort by design. If the update server is unreachable the player still gets to
+    /// play on what they already have — being offline should not stop you launching a game.
+    /// Launcher self-updates are deliberately left to startup; swapping the exe out from under
+    /// someone who just pressed PLAY would be a poor trade.
+    /// </summary>
+    private async Task RefreshBeforeLaunchAsync()
+    {
+        if (_installPath is null) return;
+
+        ManifestFetch fetched;
+        try
+        {
+            SetStatus("Checking for updates…");
+            fetched = await new ManifestService(_http).FetchAsync(_config.ManifestUrl, _cts.Token);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            Log.Write($"pre-launch check failed: {ex.Message}");
+            SetStatus("Could not check for updates — starting anyway.");
+            return;
+        }
+
+        if (string.Equals(fetched.Hash, _state.LastManifestHash, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        _manifest = fetched.Manifest;
+        _manifestHash = fetched.Hash;
+
+        SetStatus("Updates found — applying…");
+        await SyncAndPrepareAsync();
+
+        _ = LoadNewsAsync(_manifest);
     }
 
     // ---------- play ----------
@@ -328,9 +377,20 @@ public partial class MainWindow : Window
 
         try
         {
+            PlayButton.IsEnabled = false;
+            await RefreshBeforeLaunchAsync();
+
+            // The sync refuses while the game is up, and it may have taken a while, so
+            // re-check rather than trusting the state from before the update.
+            if (_closing) return;
+            if (GameProcess.IsRunning(_installPath))
+            {
+                PlayButton.IsEnabled = true;
+                return;
+            }
+
             GameProcess.Launch(_installPath);
             SetStatus("Launched. Have fun.");
-            PlayButton.IsEnabled = false;
 
             // Stay open behind the game, then re-arm so a player who logs out can relaunch
             // without restarting the launcher.
@@ -345,6 +405,7 @@ public partial class MainWindow : Window
             Log.Write(ex.ToString());
             MessageBox.Show($"Could not start the game.\n\n{ex.Message}", "Launch failed",
                 MessageBoxButton.OK, MessageBoxImage.Error);
+            if (!_closing) PlayButton.IsEnabled = true;
         }
     }
 
