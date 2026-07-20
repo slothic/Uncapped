@@ -38,11 +38,32 @@ public sealed class CrashReporter
 
     public CrashReporter(HttpClient http) => _http = http;
 
+    /// <summary>
+    /// The manifest wins if it carries a usable URL, so the endpoint can be repointed without
+    /// a release. Otherwise we fall back to the URL baked in at build time.
+    ///
+    /// A manifest value that is present but not an http(s) URL is treated as a deliberate
+    /// kill switch: it disables reporting without publishing a replacement webhook into a
+    /// public repo.
+    /// </summary>
+    private static string? ResolveWebhook(Manifest manifest)
+    {
+        var fromManifest = manifest.CrashReportWebhook?.Trim();
+
+        if (!string.IsNullOrEmpty(fromManifest))
+            return fromManifest.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                ? fromManifest
+                : null;
+
+        var baked = BuildSecrets.CrashWebhook;
+        return string.IsNullOrWhiteSpace(baked) ? null : baked;
+    }
+
     public async Task<int> ReportNewCrashesAsync(
         string installPath, Manifest manifest, LauncherState state, CancellationToken ct)
     {
-        var webhook = manifest.CrashReportWebhook;
-        if (string.IsNullOrWhiteSpace(webhook)) return 0;
+        var webhook = ResolveWebhook(manifest);
+        if (webhook is null) return 0;
 
         var errors = Path.Combine(installPath, "Errors");
         if (!Directory.Exists(errors)) return 0;

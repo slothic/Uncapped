@@ -6,8 +6,18 @@ src/**/obj/
 # compute hashes at manifest time - players fetch these from upstream, not from here.
 .external-cache/
 
-# Local launcher config — each install writes its own next to the exe
+# Local launcher config - each install writes its own next to the exe
 uncapped.config.json
+
+# The crash-report Discord webhook, baked into the binary at build time.
+# Deliberately NOT committed: this repo is public, and a webhook URL sitting in
+# public source is findable through GitHub code search in seconds and is actively
+# scraped. In the shipped binary it still costs someone a deliberate look with
+# `strings`, which is a materially different bar.
+# Rotating it means editing this file and cutting a release. To kill it without a
+# release, set "crashReportWebhook" in manifest.json to any non-empty value that
+# is not a URL, or empty to fall back to this baked-in one.
+src/Uncapped/webhook.local.txt
 
 # payload/ and manifest.json are generated but MUST be committed:
 # they are what the launcher actually downloads.
