@@ -2487,8 +2487,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedRewards/UncappedRewards.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedRewards/UncappedRewards.lua",
-                      "sha256":  "9f3c712718eafa615a27c959856732b85de7d50df49ce324f5a74cf2ea0fbba2",
-                      "size":  4813
+                      "sha256":  "ba1a0308f2b2f26919a124e00e84caed334c587805a0d0b8f66505cb7cede045",
+                      "size":  5948
                   },
                   {
                       "path":  "Interface/AddOns/UncappedRewards/UncappedRewards.toc",
