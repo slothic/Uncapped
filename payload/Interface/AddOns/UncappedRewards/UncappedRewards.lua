@@ -2,10 +2,12 @@
 --
 -- The dopamine window. When you beat a Mythic+ timer, the server sends the
 -- crafting-mat bonus it just banked for you (RBCHEST) and this pops a shiny
--- treasure-chest reward frame listing what you won. Pure feel-good.
+-- reward frame plus a screen-wide gold flash, listing what you won.
 --
 -- Rides the player's personal channel like the other addons, and filters the
 -- RBCHEST line out of chat so only the window shows it.
+
+local AUTO_CLOSE = 10  -- seconds the window stays up
 
 local frame = CreateFrame("Frame", "UncappedRewardFrame", UIParent)
 frame:SetSize(340, 300)
@@ -24,7 +26,7 @@ frame:SetScript("OnDragStart", frame.StartMoving)
 frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
 frame:Hide()
 
--- Golden glow behind everything, alpha-pulsed in OnUpdate for the "shiny".
+-- Golden glow behind the window contents, alpha-pulsed for the "shiny".
 frame.glow = frame:CreateTexture(nil, "BACKGROUND")
 frame.glow:SetTexture("Interface\\Cooldown\\star4")
 frame.glow:SetBlendMode("ADD")
@@ -32,12 +34,11 @@ frame.glow:SetPoint("CENTER", frame, "CENTER", 0, 20)
 frame.glow:SetSize(260, 260)
 frame.glow:SetVertexColor(1.0, 0.9, 0.4)
 
--- The chest.
+-- The chest icon (owner's pick).
 frame.chest = frame:CreateTexture(nil, "ARTWORK")
-frame.chest:SetTexture("Interface\\Icons\\INV_Box_01")
+frame.chest:SetTexture("Interface\\Icons\\INV_Misc_Ticket_Tarot_Stack_01")
 frame.chest:SetSize(64, 64)
 frame.chest:SetPoint("TOP", frame, "TOP", 0, -26)
--- A gold ring around the icon so it reads as treasure, not a bag.
 frame.chestBorder = frame:CreateTexture(nil, "OVERLAY")
 frame.chestBorder:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 frame.chestBorder:SetSize(86, 86)
@@ -58,23 +59,59 @@ end
 frame.close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
 frame.close:SetPoint("TOPRIGHT", -6, -6)
 
--- Auto-fade after a while so it does not sit forever.
 local shownAt = 0
 local pulse = 0
 
 frame:SetScript("OnUpdate", function(self, delta)
     pulse = pulse + delta * 2.2
-    -- Oscillate the glow between soft and bright.
     self.glow:SetAlpha(0.35 + 0.30 * (math.sin(pulse) * 0.5 + 0.5))
-    -- Slow rotate-ish shimmer by nudging size.
     local s = 250 + 20 * (math.sin(pulse * 0.7) * 0.5 + 0.5)
     self.glow:SetSize(s, s)
 
-    if shownAt > 0 and (GetTime() - shownAt) > 18 then
+    if shownAt > 0 and (GetTime() - shownAt) > AUTO_CLOSE then
         self:Hide()
         shownAt = 0
     end
 end)
+
+-- Screen-wide gold flash. Two white-based star glows (so gold tinting works,
+-- unlike a red vignette) that burst bright on show and ease out.
+local screenGlow = CreateFrame("Frame", "UncappedRewardScreenGlow", UIParent)
+screenGlow:SetAllPoints(UIParent)
+screenGlow:SetFrameStrata("MEDIUM") -- above the world, below the reward window
+screenGlow:Hide()
+
+screenGlow.core = screenGlow:CreateTexture(nil, "ARTWORK")
+screenGlow.core:SetAllPoints(screenGlow)
+screenGlow.core:SetTexture("Interface\\Cooldown\\star4")
+screenGlow.core:SetBlendMode("ADD")
+screenGlow.core:SetVertexColor(1.0, 0.85, 0.35)
+
+screenGlow.halo = screenGlow:CreateTexture(nil, "ARTWORK")
+screenGlow.halo:SetPoint("CENTER", screenGlow, "CENTER")
+screenGlow.halo:SetSize(UIParent:GetWidth() * 1.6, UIParent:GetHeight() * 1.6)
+screenGlow.halo:SetTexture("Interface\\Cooldown\\star4")
+screenGlow.halo:SetBlendMode("ADD")
+screenGlow.halo:SetVertexColor(1.0, 0.78, 0.25)
+
+local flash = 0
+screenGlow:SetScript("OnUpdate", function(self, delta)
+    flash = flash - delta
+    if flash <= 0 then
+        self:Hide()
+        return
+    end
+    local a = flash / 1.5
+    self.core:SetAlpha(0.55 * a)
+    self.halo:SetAlpha(0.40 * a)
+end)
+
+local function ScreenFlash()
+    flash = 1.5
+    screenGlow.core:SetAlpha(0.55)
+    screenGlow.halo:SetAlpha(0.40)
+    screenGlow:Show()
+end
 
 local function Show(level, entries)
     frame.title:SetText("Keystone +" .. level .. "!")
@@ -89,10 +126,10 @@ local function Show(level, entries)
     end
 
     frame:Show()
+    ScreenFlash()
     shownAt = GetTime()
     pulse = 0
 
-    -- Reward fanfare.
     PlaySound("LevelUp")
     PlaySoundFile("Sound\\Interface\\LevelUp2.wav")
 end
@@ -112,12 +149,11 @@ listener:RegisterEvent("ADDON_LOADED")
 listener:SetScript("OnEvent", function(self, event, a1, a2)
     if event == "ADDON_LOADED" then
         if a1 == "UncappedRewards" then
-            JoinChannelByName(UnitName("player")) -- personal data channel
+            JoinChannelByName(UnitName("player"))
         end
         return
     end
 
-    -- CHAT_MSG_CHANNEL: a1 = message, a2 = sender
     if a2 ~= UnitName("player") or not a1 then
         return
     end
