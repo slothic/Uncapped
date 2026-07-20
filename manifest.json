@@ -1455,8 +1455,8 @@
                   {
                       "path":  "Interface/AddOns/ReagentBankCraft/ReagentBankCraft.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/ReagentBankCraft/ReagentBankCraft.lua",
-                      "sha256":  "03e7647e0514a556345b49fa500df5540de8416f2216ceda19d2a9c5ef74f6d4",
-                      "size":  21241
+                      "sha256":  "9098e4570a568af420054459b0897840ec6e640e73400ad0e10c3299cfac1271",
+                      "size":  22610
                   },
                   {
                       "path":  "Interface/AddOns/ReagentBankCraft/ReagentBankCraft.toc",
@@ -2453,6 +2453,18 @@
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/StatFeed/StatFeed.toc",
                       "sha256":  "7db42975f315c3334949869472386080dfb8072dacab0ddc2e90f61bc53215d8",
                       "size":  222
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedAlerts/UncappedAlerts.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedAlerts/UncappedAlerts.lua",
+                      "sha256":  "bebc907963f8abbe5f4079b5aceb0e7de562bb5709250ce40894d727f99e7839",
+                      "size":  5361
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedAlerts/UncappedAlerts.toc",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedAlerts/UncappedAlerts.toc",
+                      "sha256":  "e5e14d766885deccfe3511d3171008369091605541a2ca687b4592240b1742c8",
+                      "size":  275
                   },
                   {
                       "path":  "Interface/AddOns/WDM/atlaspoi.lua",
