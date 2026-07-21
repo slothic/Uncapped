@@ -1,0 +1,7 @@
+## Interface: 30300
+## Title: Uncapped GCD
+## Notes: Draws your personal global cooldown (the native one is removed server-wide) and shows your Time Manipulation / Cooldown Reduction values. /ugcd to toggle.
+## Author: Uncapped
+## SavedVariables: UncappedGCDDB
+
+UncappedGCD.lua
