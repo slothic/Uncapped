@@ -1,0 +1,6 @@
+## Interface: 30300
+## Title: Uncapped Version
+## Notes: Confirms your client matches the current server payload. Required -- do not disable.
+## Author: Uncapped
+
+UncappedVersion.lua

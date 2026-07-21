@@ -2509,6 +2509,18 @@
                       "size":  184
                   },
                   {
+                      "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
+                      "sha256":  "bde4de3a5b20c970d4681db3fa4e03cce29027de6547d09f441d78d4e10c2975",
+                      "size":  3592
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.toc",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.toc",
+                      "sha256":  "910238fe58662895200564319d57155dd016dd0b2ec9136532930def04122a89",
+                      "size":  183
+                  },
+                  {
                       "path":  "Interface/AddOns/WDM/atlaspoi.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/WDM/atlaspoi.lua",
                       "sha256":  "9ba64d9fe495f86e26369430556ed51180848b14577ef3e21de965722f59ed99",
@@ -3180,7 +3192,8 @@
                               "ReagentBankCraft",
                               "UncappedMythic",
                               "UncappedRewards",
-                              "UncappedAlerts"
+                              "UncappedAlerts",
+                              "UncappedVersion"
                           ],
     "forceDisableAddOns":  [
                                "QuestHelper"
@@ -3190,6 +3203,7 @@
                        "Interface/AddOns/ReagentBankCraft",
                        "Interface/AddOns/UncappedAlerts",
                        "Interface/AddOns/UncappedRewards",
-                       "Interface/AddOns/UncappedMythic"
+                       "Interface/AddOns/UncappedMythic",
+                       "Interface/AddOns/UncappedVersion"
                    ]
 }
