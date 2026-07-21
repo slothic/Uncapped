@@ -1,11 +1,10 @@
 --[[
     Uncapped stat display -- shows Time Manipulation and Cooldown Reduction
-    inside the AllStats character-sheet panel.
+    inside the AllStats character-sheet panel, styled like the other rows.
 
-    The values come from the server (lua_scripts/time_stats_feed) over the "UTS"
-    addon channel. We post-hook AllStats' PrintStats so the two lines render
-    alongside the rest of the stats and refresh with them -- no edits to the
-    third-party AllStats addon itself.
+    Values come from the server (lua_scripts/time_stats_feed) over the "UTS"
+    addon channel. We anchor a small "Uncapped" section below Resilience (the
+    last AllStats row) and post-hook PrintStats so it refreshes with the panel.
 
     3.3.5a client: hooksecurefunc, arg1.. globals available.
 ]]
@@ -13,23 +12,49 @@
 local PREFIX = "UTS"
 
 local tmPct, cdrPct = 0, 0
-local line1, line2
+local built  = false
 local hooked = false
+local tmVal, cdrVal
 
 local function RequestStats()
     SendAddonMessage(PREFIX, "REQ", "WHISPER", UnitName("player"))
 end
 
+-- One label(left, yellow) + value(right, green) row, matching AllStats' rows.
+local function MakeRow(anchorFrame, yoff)
+    local row = CreateFrame("Frame", nil, AllStatsFrame)
+    row:SetPoint("TOPLEFT", anchorFrame, "BOTTOMLEFT", 0, yoff)
+    row:SetPoint("RIGHT", AllStatsFrameStatResil, "RIGHT", 0, 0)
+    row:SetHeight(13)
+    local lbl = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")   -- yellow label
+    lbl:SetPoint("LEFT", 2, 0)
+    local val = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    val:SetPoint("RIGHT", -2, 0)
+    val:SetTextColor(0.3, 1.0, 0.3)                                            -- green value
+    return row, lbl, val
+end
+
+local function Build()
+    if built then return end
+    if not (AllStatsFrame and AllStatsFrameStatResil) then return end
+    built = true
+
+    local row1, lbl1, v1 = MakeRow(AllStatsFrameStatResil, -13)  -- gap for the header
+    local hdr = AllStatsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hdr:SetPoint("BOTTOM", row1, "TOP", 0, -2)
+    hdr:SetText("Uncapped")
+    lbl1:SetText("Time Manip:")
+    tmVal = v1
+
+    local _, lbl2, v2 = MakeRow(row1, 1)
+    lbl2:SetText("Cooldown:")
+    cdrVal = v2
+end
+
 local function Refresh()
-    if not AllStatsFrame then return end
-    if not line1 then
-        line1 = AllStatsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        line1:SetPoint("BOTTOMLEFT", AllStatsFrame, "BOTTOMLEFT", 14, 26)
-        line2 = AllStatsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        line2:SetPoint("BOTTOMLEFT", AllStatsFrame, "BOTTOMLEFT", 14, 12)
-    end
-    line1:SetText(string.format("|cff66ccffTime Manipulation:|r %d%%", math.floor(tmPct * 100 + 0.5)))
-    line2:SetText(string.format("|cff66ccffCooldown Reduction:|r %d%%", math.floor(cdrPct * 100 + 0.5)))
+    Build()
+    if tmVal  then tmVal:SetText(string.format("%d%%",  math.floor(tmPct  * 100 + 0.5))) end
+    if cdrVal then cdrVal:SetText(string.format("%d%%", math.floor(cdrPct * 100 + 0.5))) end
 end
 
 local function TryHook()
