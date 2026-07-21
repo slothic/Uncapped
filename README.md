@@ -2,9 +2,6 @@
 
 Client launcher and auto-updater for the Uncapped realm (WotLK 3.3.5a, AzerothCore).
 
-Built against the decisions in `HANDOFF_LAUNCHER.md`. See "Answers to the open questions" at
-the bottom for what was settled and why.
-
 ---
 
 ## Layout
@@ -181,7 +178,6 @@ No `Blizzard_*` addons are shipped, and `Build-Payload.ps1` rejects them by name
 | 7 | Manage `Config.wtf`? | **Yes** — see below. |
 | 8 | Integrity checking | Manifest files only. The 17 GB base client is never hashed. |
 | 9 | Rollback | Fix forward. No backup-on-replace, no manifest pinning. |
-| 10 | `ChromieCraft_3.3.5a - Copy` | A pre-modification backup, not a ship candidate. Excluded. |
 
 ### On making addons undisableable (question 4 follow-up)
 
