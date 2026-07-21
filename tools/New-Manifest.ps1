@@ -181,7 +181,7 @@ $manifest = [ordered]@{
 
     # Force-ticked in AddOns.txt on every launch. StatFeed is the reason the launcher exists;
     # without it players see no stat-gain messages at all.
-    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts')
+    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion')
 
     # Switched off in AddOns.txt on clients that already have them. Needed because dropping
     # an addon from the payload does not uninstall it - the launcher never deletes
@@ -196,7 +196,8 @@ $manifest = [ordered]@{
         'Interface/AddOns/ReagentBankCraft',
         'Interface/AddOns/UncappedAlerts',
         'Interface/AddOns/UncappedRewards',
-        'Interface/AddOns/UncappedMythic'
+        'Interface/AddOns/UncappedMythic',
+        'Interface/AddOns/UncappedVersion'
     )
 }
 
