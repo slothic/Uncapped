@@ -3177,7 +3177,10 @@
               ],
     "forceEnableAddOns":  [
                               "StatFeed",
-                              "ReagentBankCraft"
+                              "ReagentBankCraft",
+                              "UncappedMythic",
+                              "UncappedRewards",
+                              "UncappedAlerts"
                           ],
     "forceDisableAddOns":  [
                                "QuestHelper"
