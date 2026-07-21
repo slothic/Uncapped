@@ -2491,6 +2491,18 @@
                       "size":  337
                   },
                   {
+                      "path":  "Interface/AddOns/UncappedGCD/UncappedGCD.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedGCD/UncappedGCD.lua",
+                      "sha256":  "83f22c978f0916e1ae72d2107ab180a8ae5f8ff87101c01102c8b351cd59f5c5",
+                      "size":  4142
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedGCD/UncappedGCD.toc",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedGCD/UncappedGCD.toc",
+                      "sha256":  "59058a3a77492fc23114c137968ae92d7953ea1967ec90c2872b6521a7aa4acb",
+                      "size":  278
+                  },
+                  {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/UncappedMythic.lua",
                       "sha256":  "552f73102a07c6bc3b5f94b201e8ae512a0c868acfd4fbdb3f782d4ae57b79b4",
@@ -3199,7 +3211,8 @@
                               "UncappedMythic",
                               "UncappedRewards",
                               "UncappedAlerts",
-                              "UncappedVersion"
+                              "UncappedVersion",
+                              "UncappedGCD"
                           ],
     "forceDisableAddOns":  [
                                "QuestHelper"
@@ -3210,6 +3223,7 @@
                        "Interface/AddOns/UncappedAlerts",
                        "Interface/AddOns/UncappedRewards",
                        "Interface/AddOns/UncappedMythic",
-                       "Interface/AddOns/UncappedVersion"
+                       "Interface/AddOns/UncappedVersion",
+                       "Interface/AddOns/UncappedGCD"
                    ]
 }
