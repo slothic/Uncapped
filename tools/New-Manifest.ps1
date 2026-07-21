@@ -194,7 +194,9 @@ $manifest = [ordered]@{
     ownedPaths = @(
         'Interface/AddOns/StatFeed',
         'Interface/AddOns/ReagentBankCraft',
-        'Interface/AddOns/UncappedAlerts'
+        'Interface/AddOns/UncappedAlerts',
+        'Interface/AddOns/UncappedRewards',
+        'Interface/AddOns/UncappedMythic'
     )
 }
 

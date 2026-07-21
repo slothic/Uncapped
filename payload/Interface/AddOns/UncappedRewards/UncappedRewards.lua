@@ -7,8 +7,6 @@
 -- Rides the player's personal channel like the other addons, and filters the
 -- RBCHEST line out of chat so only the window shows it.
 
-local AUTO_CLOSE = 10  -- seconds the window stays up
-
 local frame = CreateFrame("Frame", "UncappedRewardFrame", UIParent)
 frame:SetSize(340, 300)
 frame:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
@@ -68,10 +66,7 @@ frame:SetScript("OnUpdate", function(self, delta)
     local s = 250 + 20 * (math.sin(pulse * 0.7) * 0.5 + 0.5)
     self.glow:SetSize(s, s)
 
-    if shownAt > 0 and (GetTime() - shownAt) > AUTO_CLOSE then
-        self:Hide()
-        shownAt = 0
-    end
+    -- No auto-close: the window stays until the player closes it (X button).
 end)
 
 -- Screen-wide gold flash. Two white-based star glows (so gold tinting works,
