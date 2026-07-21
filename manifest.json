@@ -2493,14 +2493,14 @@
                   {
                       "path":  "Interface/AddOns/UncappedGCD/UncappedGCD.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedGCD/UncappedGCD.lua",
-                      "sha256":  "83f22c978f0916e1ae72d2107ab180a8ae5f8ff87101c01102c8b351cd59f5c5",
-                      "size":  4142
+                      "sha256":  "06d2c4af76a22c244a80be654b067a0ff5e8325df2e4666b7423edaaf5268717",
+                      "size":  2190
                   },
                   {
                       "path":  "Interface/AddOns/UncappedGCD/UncappedGCD.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedGCD/UncappedGCD.toc",
-                      "sha256":  "59058a3a77492fc23114c137968ae92d7953ea1967ec90c2872b6521a7aa4acb",
-                      "size":  278
+                      "sha256":  "98b05d088cfc0e97705c81caa32e81085c71245432d4e93a7e0003ed54b82a66",
+                      "size":  214
                   },
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.lua",
