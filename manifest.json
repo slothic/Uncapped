@@ -2493,8 +2493,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedGCD/UncappedGCD.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedGCD/UncappedGCD.lua",
-                      "sha256":  "4f7a733f003ba8b9d6d23063cc0d2beb2aeeb40a6b3b53f3d3bf83f3ab425d5f",
-                      "size":  3015
+                      "sha256":  "1d5a5180d5123da91b423255c90be603cfabf9e3bafca9207b7a6c85c9103a12",
+                      "size":  3991
                   },
                   {
                       "path":  "Interface/AddOns/UncappedGCD/UncappedGCD.toc",
