@@ -121,6 +121,18 @@
                       "size":  371
                   },
                   {
+                      "path":  "Interface/AddOns/devUncapped64/devUncapped64.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/devUncapped64/devUncapped64.lua",
+                      "sha256":  "d203c420cc4e2ba1499112532eb9959cdbf44581971982f3df4525f023274e76",
+                      "size":  23023
+                  },
+                  {
+                      "path":  "Interface/AddOns/devUncapped64/devUncapped64.toc",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/devUncapped64/devUncapped64.toc",
+                      "sha256":  "f1c5a90419570503c1d01281360b20c9e1402b0184b42b26b01b2c3d7f9c1c3f",
+                      "size":  296
+                  },
+                  {
                       "path":  "Interface/AddOns/Dominos/actionBar.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Dominos/actionBar.lua",
                       "sha256":  "a588dff899cfa323d47f3fa681189d46bf12d118d42f936f7bdd4fc468d56dde",

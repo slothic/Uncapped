@@ -1,0 +1,7 @@
+## Interface: 30300
+## Title: |cff40ff40[DEV]|r Uncapped 64-bit Numbers
+## Notes: DEV-ONLY. Shows the server's REAL health numbers (past the 32-bit client wall) on the player and target frames. Renamed to Uncapped* before launcher push.
+## Author: Uncapped
+## Version: 0.1-dev
+
+devUncapped64.lua
