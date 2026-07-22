@@ -1,8 +1,8 @@
 {
     "manifestVersion":  1,
     "launcherVersion":  "1.0.0",
-    "launcherUrl":  null,
-    "launcherSha256":  null,
+    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.0.0/Uncapped.exe",
+    "launcherSha256":  "de93b7f9c6e0c8883d64a7cb6fa4e1b592a6aaf5a0fa83a146e493775474caf8",
     "realm":  {
                   "name":  "Uncapped",
                   "address":  "91.100.105.22",
@@ -2503,6 +2503,18 @@
                       "size":  214
                   },
                   {
+                      "path":  "Interface/AddOns/UncappedHotzones/UncappedHotzones.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedHotzones/UncappedHotzones.lua",
+                      "sha256":  "5adc738561cbee075c7143bde8224b8eb22ec36da31301f546865933acbcf984",
+                      "size":  4391
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedHotzones/UncappedHotzones.toc",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedHotzones/UncappedHotzones.toc",
+                      "sha256":  "0951375aca54a989b3323aec7fe6951f2a7af2aaf769204e3b20fd1447bd8fb0",
+                      "size":  236
+                  },
+                  {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/UncappedMythic.lua",
                       "sha256":  "552f73102a07c6bc3b5f94b201e8ae512a0c868acfd4fbdb3f782d4ae57b79b4",
@@ -2517,8 +2529,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedRewards/UncappedRewards.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedRewards/UncappedRewards.lua",
-                      "sha256":  "e1cb36cb878fe45ebb76a2dbb2bcea63b2e17ce0c958238df35e4f28092d70e7",
-                      "size":  6035
+                      "sha256":  "37fa183bd9c8e7926afa6edf3f713379ddaab421e95321a19deae2ba4c5ec870",
+                      "size":  8350
                   },
                   {
                       "path":  "Interface/AddOns/UncappedRewards/UncappedRewards.toc",
@@ -2529,7 +2541,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "d680e40951b5617c4f946ee64e5cdbea32fff83e1cedd6c59a93379bf0caec1f",
+                      "sha256":  "2b4a99f70469e15217a0b7c5d1c470bf36c20feb5e23d43d74e57be306b303f1",
                       "size":  3592
                   },
                   {

@@ -1,0 +1,7 @@
+## Interface: 30300
+## Title: Uncapped Hotzones
+## Notes: A scrolling top-screen bar of the current Mythic+ hotzones -- red for raids, cyan for dungeons -- with live countdowns.
+## Author: Uncapped
+## Version: 1.0
+
+UncappedHotzones.lua
