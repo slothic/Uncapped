@@ -50,6 +50,8 @@ end
 local zones = {}
 local offset = ScreenWidth()
 local rebuildAcc = 1
+local started = false      -- has the first data arrived (start the scroll once)?
+local scrollWidth = 1500   -- reset distance; refreshed to the real text width each rebuild
 
 local function fmtRemaining(sec)
     sec = math.max(0, math.floor(sec))
@@ -76,6 +78,13 @@ local function BuildText()
     end
     bar.text:SetText(table.concat(parts))
     bar:Show()
+
+    -- Cache the real rendered width for the scroll-reset. Ignore a bogus 0 (can
+    -- happen if measured before layout) and keep the last good value.
+    local w = bar.text:GetStringWidth()
+    if w and w > 10 then
+        scrollWidth = w
+    end
 end
 
 bar:SetScript("OnUpdate", function(self, delta)
@@ -91,8 +100,7 @@ bar:SetScript("OnUpdate", function(self, delta)
     -- Scroll left across the WHOLE screen; when the string has fully passed the
     -- left edge, wrap back to the right edge.
     offset = offset - SPEED * delta
-    local tw = self.text:GetStringWidth()
-    if offset < -tw then
+    if offset < -scrollWidth then
         offset = ScreenWidth()
     end
     self.text:SetPoint("LEFT", textLayer, "LEFT", offset, 0)
@@ -114,7 +122,13 @@ local function OnData(payload)
         return
     end
 
-    offset = ScreenWidth()  -- always (re)start from the right edge
+    -- Start the scroll from the right edge only ONCE. The server re-pushes the
+    -- hotzone list every ~15s; resetting offset on every push was restarting the
+    -- scroll before it could reach the left edge -- the "only scrolls halfway" bug.
+    if not started then
+        started = true
+        offset = ScreenWidth()
+    end
     rebuildAcc = 1
     BuildText()
 end
