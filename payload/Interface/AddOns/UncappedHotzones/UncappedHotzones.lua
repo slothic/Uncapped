@@ -11,13 +11,17 @@
 local SPEED = 55  -- scroll speed, pixels/second
 
 -- ---------------------------------------------------------------------------
--- Bar frame: full screen width so the text simply scrolls off the screen edges
--- (WotLK 3.3.5 has no child-clipping, so we let the viewport do the clipping).
+-- Bar frame: full screen width so the text scrolls off the screen edges (WotLK
+-- 3.3.5 has no child-clipping, so the viewport does the clipping).
+--
+-- The dark background sits at LOW strata (tucked BEHIND the minimap, as before),
+-- but the scrolling text lives in a child frame one strata HIGHER, so it draws
+-- cleanly OVER the player's buff icons rather than being hidden behind them.
 -- ---------------------------------------------------------------------------
 local bar = CreateFrame("Frame", "UncappedHotzoneBar", UIParent)
-bar:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, -1)
-bar:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", 0, -1)
-bar:SetHeight(18)
+bar:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
+bar:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", 0, 0)
+bar:SetHeight(16)
 bar:SetFrameStrata("LOW")
 bar:Hide()
 
@@ -26,13 +30,25 @@ bar.bg:SetAllPoints(bar)
 bar.bg:SetTexture(0, 0, 0)
 bar.bg:SetAlpha(0.55)
 
-bar.text = bar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-bar.text:SetPoint("LEFT", bar, "LEFT", 0, 0)
+-- Text layer, raised above the buffs so the text is never clipped by them.
+local textLayer = CreateFrame("Frame", nil, bar)
+textLayer:SetAllPoints(bar)
+textLayer:SetFrameStrata("HIGH")
+
+bar.text = textLayer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 bar.text:SetJustifyH("LEFT")
+bar.text:SetPoint("LEFT", textLayer, "LEFT", 0, 0)
+
+-- Screen width straight from UIParent -- always resolved, even while `bar` is
+-- hidden (bar:GetWidth() could read stale/zero at first data, which made the
+-- text reset early and only crawl part-way across).
+local function ScreenWidth()
+    return UIParent:GetWidth()
+end
 
 -- Data: list of { name, kind, expiry } (expiry = GetTime() + secondsRemaining).
 local zones = {}
-local offset = 0
+local offset = ScreenWidth()
 local rebuildAcc = 1
 
 local function fmtRemaining(sec)
@@ -72,13 +88,14 @@ bar:SetScript("OnUpdate", function(self, delta)
         BuildText()
     end
 
-    -- Scroll left; when the whole string has passed, wrap to the right edge.
+    -- Scroll left across the WHOLE screen; when the string has fully passed the
+    -- left edge, wrap back to the right edge.
     offset = offset - SPEED * delta
     local tw = self.text:GetStringWidth()
     if offset < -tw then
-        offset = self:GetWidth()
+        offset = ScreenWidth()
     end
-    self.text:SetPoint("LEFT", self, "LEFT", offset, 0)
+    self.text:SetPoint("LEFT", textLayer, "LEFT", offset, 0)
 end)
 
 -- RBHOT:<name>~<kind>~<remaining>|<name>~<kind>~<remaining>   (payload may be empty)
@@ -97,9 +114,7 @@ local function OnData(payload)
         return
     end
 
-    if offset >= 0 then
-        offset = bar:GetWidth()  -- start off the right edge
-    end
+    offset = ScreenWidth()  -- always (re)start from the right edge
     rebuildAcc = 1
     BuildText()
 end
