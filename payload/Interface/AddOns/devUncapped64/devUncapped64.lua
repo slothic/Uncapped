@@ -606,17 +606,29 @@ local function StripStatTooltips()
     end
 end
 
--- AllStats' repaint entry point. Post-hook, so it runs after the SetScript
--- calls that re-attach the handlers.
-if type(NewPaperDollFrame_UpdateStats) == "function" then
-    hooksecurefunc("NewPaperDollFrame_UpdateStats", StripStatTooltips)
-else
+-- Hook PrintStats, NOT NewPaperDollFrame_UpdateStats.
+--
+-- AllStats_OnLoad does `PaperDollFrame_UpdateStats = NewPaperDollFrame_UpdateStats`,
+-- which copies the function VALUE. Hooking the NewPaperDollFrame_UpdateStats global
+-- afterwards therefore does nothing: every real call goes through the reference
+-- captured at load and never sees the wrapper. AllStats.xml also calls PrintStats()
+-- directly, a second path that would bypass it.
+--
+-- PrintStats is looked up globally at call time from both paths, so hooking it
+-- catches every repaint.
+local function InstallStatTooltipStripper()
+    if type(PrintStats) ~= "function" then return false end
+    hooksecurefunc("PrintStats", StripStatTooltips)
+    return true
+end
+
+if not InstallStatTooltipStripper() then
     -- Load-order fallback: wait until AllStats is in, then hook.
     local waiter = CreateFrame("Frame")
     waiter:RegisterEvent("ADDON_LOADED")
+    waiter:RegisterEvent("PLAYER_LOGIN")
     waiter:SetScript("OnEvent", function(self)
-        if type(NewPaperDollFrame_UpdateStats) == "function" then
-            hooksecurefunc("NewPaperDollFrame_UpdateStats", StripStatTooltips)
+        if InstallStatTooltipStripper() then
             self:UnregisterAllEvents()
         end
     end)
