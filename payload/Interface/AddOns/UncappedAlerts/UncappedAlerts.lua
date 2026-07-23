@@ -1,12 +1,24 @@
 -- UncappedAlerts
 --
--- Warns when the server announces a restart and closes the game so the
--- launcher can patch you on the way back in.
+-- Warns when the server announces a restart, and closes the game when -- and
+-- only when -- the restart ships a new client payload.
 --
--- WHY QUIT AT ALL: the launcher can only replace addon and patch files while
--- WoW is closed. A player who sits on the "disconnected" dialog through a
--- restart comes back on stale files and reports working features as broken.
--- Quitting is therefore mandatory -- there is deliberately no way to opt out.
+-- TWO MODES. The server tells us which one applies (RBMODE:U / RBMODE:N):
+--
+--   update    The launcher can only replace addon and patch files while WoW is
+--             closed. A player who sits on the "disconnected" dialog through
+--             this kind of restart comes back on stale files and then reports
+--             working features as broken. Quitting is mandatory here -- there is
+--             deliberately no way to opt out.
+--
+--   noupdate  A plain restart with nothing new to download. Warn them so they
+--             are not caught mid-fight, then get out of the way: there is no
+--             reason to close a client that has nothing to update, and making
+--             people relaunch for no benefit is exactly the frustration this
+--             mode exists to remove.
+--
+-- Defaults to `update` when the server has said nothing. Coming back on stale
+-- files is the bad failure; an unnecessary relaunch is merely annoying.
 --
 -- WHY A COUNTDOWN, AND NOT "QUIT WHEN DISCONNECTED":
 --
@@ -14,8 +26,8 @@
 -- tears the in-game UI down almost immediately, so an addon waiting to confirm
 -- the drop is unloaded before it can act. The quit therefore has to happen
 -- BEFORE the server goes down, while the UI is alive and code is guaranteed to
--- run. The countdown is the visible warning; the quit at the end is not
--- optional.
+-- run. The countdown is the visible warning; in `update` mode the quit at the
+-- end is not optional.
 --
 --   /alerts            show settings
 --   /alerts sound      toggle the warning sound
@@ -36,6 +48,11 @@ end
 
 local countdown = nil
 local elapsed = 0
+
+-- Set from the server's RBMODE line. Not saved between sessions: it describes
+-- one specific restart, and a stale value from last week is worse than the
+-- default.
+local restartNeedsUpdate = true
 
 local frame = CreateFrame("Frame")
 
@@ -70,15 +87,27 @@ local function PlayAlertSound()
     PlaySoundFile(CUSTOM_ALERT)
 end
 
--- Warning popup. One button only -- "Quit now" to skip the wait. There is no
--- cancel: closing the game is mandatory, so the dialog cannot be dismissed and
--- the countdown quits regardless of what happens to the popup.
+local TEXT_UPDATE   = "Server restart incoming.\n\nThe game will close so the launcher can update you.\n\nClosing in %d seconds..."
+local TEXT_NOUPDATE = "Server restart incoming.\n\nNo update needed -- you can log straight back in once it is up.\n\nRestarting in %d seconds..."
+
+local function RestartText()
+    if restartNeedsUpdate then
+        return TEXT_UPDATE
+    end
+    return TEXT_NOUPDATE
+end
+
+-- Warning popup. In `update` mode the single button is "Quit now" to skip the
+-- wait and there is no cancel, because closing is mandatory. In `noupdate` mode
+-- it is an ordinary dismissible notice.
 StaticPopupDialogs["UNCAPPED_RESTART_WARNING"] = {
-    text = "Server restart incoming.\n\nThe game will close so the launcher can update you.\n\nClosing in %d seconds...",
+    text = TEXT_UPDATE,
     button1 = "Quit now",
     OnAccept = function()
-        countdown = nil
-        QuitGame()
+        if restartNeedsUpdate then
+            countdown = nil
+            QuitGame()
+        end
     end,
     timeout = 0,
     whileDead = 1,
@@ -86,6 +115,25 @@ StaticPopupDialogs["UNCAPPED_RESTART_WARNING"] = {
     showAlert = 1,
     preferredIndex = 3,
 }
+
+local function ApplyPopupMode()
+    local dialog = StaticPopupDialogs["UNCAPPED_RESTART_WARNING"]
+    dialog.text = RestartText()
+    if restartNeedsUpdate then
+        dialog.button1 = "Quit now"
+        dialog.hideOnEscape = 0
+    else
+        dialog.button1 = "Dismiss"
+        dialog.hideOnEscape = 1
+    end
+end
+
+local function RefreshPopup()
+    local popup = StaticPopup_FindVisible("UNCAPPED_RESTART_WARNING")
+    if popup and countdown then
+        popup.text:SetFormattedText(RestartText(), countdown)
+    end
+end
 
 local function Warn()
     if Setting("sound", true) then
@@ -95,9 +143,11 @@ local function Warn()
     countdown = Setting("countdown", DEFAULT_COUNTDOWN)
     elapsed = 0
 
+    ApplyPopupMode()
+
     local popup = StaticPopup_Show("UNCAPPED_RESTART_WARNING", countdown)
     if popup then
-        popup.text:SetFormattedText(StaticPopupDialogs["UNCAPPED_RESTART_WARNING"].text, countdown)
+        popup.text:SetFormattedText(RestartText(), countdown)
     end
 end
 
@@ -143,27 +193,33 @@ frame:SetScript("OnUpdate", function(self, delta)
 
     if countdown <= 0 then
         countdown = nil
-        QuitGame()
+        if restartNeedsUpdate then
+            QuitGame()
+        else
+            StaticPopup_Hide("UNCAPPED_RESTART_WARNING")
+            DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Restarting now -- no update needed, so log back in when the realm is up.")
+        end
         return
     end
 
     -- Keep the visible countdown current if the popup is up. If it is not
-    -- (dismissed, replaced, whatever), the quit still lands above -- there is
-    -- no path that cancels it.
-    local popup = StaticPopup_FindVisible("UNCAPPED_RESTART_WARNING")
-    if popup then
-        popup.text:SetFormattedText(StaticPopupDialogs["UNCAPPED_RESTART_WARNING"].text, countdown)
-    end
+    -- (dismissed, replaced, whatever), the update-mode quit still lands above --
+    -- there is no path that cancels it.
+    RefreshPopup()
 end)
 
--- The server sends RBQUIT:<seconds> on the addon channel a few seconds before
--- the world goes down. This is the authoritative trigger -- it carries the real
--- remaining time and needs no text parsing, unlike the built-in countdown which
--- the client renders itself from a localised string.
+-- Server -> client lines on the addon channel:
+--   RBMODE:U / RBMODE:N   sent when a countdown starts; says whether this
+--                         restart ships a new payload.
+--   RBQUIT:<seconds>      sent a few seconds before the world goes down, in
+--                         update mode only. Authoritative: it carries the real
+--                         remaining time and needs no text parsing, unlike the
+--                         built-in countdown which the client renders itself
+--                         from a localised string.
 --
--- Filtered out of chat so "RBQUIT:5" is never visible.
+-- Filtered out of chat so they are never visible.
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and msg:find("^RBQUIT:") then
+    if msg and (msg:find("^RBQUIT:") or msg:find("^RBMODE:")) then
         return true
     end
     return false
@@ -173,6 +229,16 @@ local quitListener = CreateFrame("Frame")
 quitListener:RegisterEvent("CHAT_MSG_CHANNEL")
 quitListener:SetScript("OnEvent", function(self, event, text, sender)
     if sender ~= UnitName("player") or not text then
+        return
+    end
+
+    local mode = text:match("^RBMODE:(%a)$")
+    if mode then
+        restartNeedsUpdate = (mode == "U")
+        -- A countdown may already be running off the chat announcement, so
+        -- repaint it rather than leaving the wrong wording on screen.
+        ApplyPopupMode()
+        RefreshPopup()
         return
     end
 
@@ -225,7 +291,8 @@ SlashCmdList["UNCAPPEDALERTS"] = function(arg)
     else
         DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped Alerts]|r sound: "
             .. (Setting("sound", true) and "ON" or "OFF")
-            .. ", countdown " .. Setting("countdown", DEFAULT_COUNTDOWN) .. "s. The game always closes on a restart.")
+            .. ", countdown " .. Setting("countdown", DEFAULT_COUNTDOWN) .. "s.")
+        DEFAULT_CHAT_FRAME:AddMessage("|cff888888The game only closes on a restart that ships a client update; the server says which.|r")
         DEFAULT_CHAT_FRAME:AddMessage("|cff888888/alerts sound|r, |cff888888/alerts time <seconds>|r, |cff888888/alerts testsound|r, |cff888888/alerts testquit|r")
     end
 end
