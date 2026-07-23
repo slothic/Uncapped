@@ -1,4 +1,4 @@
--- devUncapped64  (DEV-ONLY -- rename to Uncapped* before the launcher push)
+-- Uncapped64bitUI -- shows the server's REAL 64-bit numbers past the 32-bit client wall.
 --
 -- Shows the server's REAL health numbers (past the 32-bit client wall) on the
 -- default unit frames, plus the power (mana/rage/energy/runic) numbers, with
@@ -14,7 +14,7 @@
 -- otherwise real = (nativeCur/nativeMax) * realMax. Power is NOT proxied (it still
 -- fits 32-bit), so those numbers are read straight from the client.
 
-local ADDON_NAME = "devUncapped64"
+local ADDON_NAME = "Uncapped64bitUI"
 
 -- ---------------------------------------------------------------------------
 -- Dev-realm gate.

@@ -121,18 +121,6 @@
                       "size":  371
                   },
                   {
-                      "path":  "Interface/AddOns/devUncapped64/devUncapped64.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/devUncapped64/devUncapped64.lua",
-                      "sha256":  "5ae4797e251dccc103af9a138acca9230f2da52a321a487f6da9332d06f8b826",
-                      "size":  30911
-                  },
-                  {
-                      "path":  "Interface/AddOns/devUncapped64/devUncapped64.toc",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/devUncapped64/devUncapped64.toc",
-                      "sha256":  "f1c5a90419570503c1d01281360b20c9e1402b0184b42b26b01b2c3d7f9c1c3f",
-                      "size":  296
-                  },
-                  {
                       "path":  "Interface/AddOns/Dominos/actionBar.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Dominos/actionBar.lua",
                       "sha256":  "a588dff899cfa323d47f3fa681189d46bf12d118d42f936f7bdd4fc468d56dde",
@@ -2479,6 +2467,18 @@
                       "size":  222
                   },
                   {
+                      "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
+                      "sha256":  "8a7393a01cac2e00e35a366e92acb2625e61b5a28ae5dbeece6cde1c3ce4095a",
+                      "size":  30926
+                  },
+                  {
+                      "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.toc",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.toc",
+                      "sha256":  "cc435aa5bf00b54562992c28437ed7614939af953fa3e9686fce9b8b6ebd115d",
+                      "size":  279
+                  },
+                  {
                       "path":  "Interface/AddOns/UncappedAlerts/alert.mp3",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedAlerts/alert.mp3",
                       "sha256":  "ab026103862d990069221b3564cf55c9223be777fe14dd995cafdd14d47749b6",
@@ -3248,6 +3248,9 @@
                        "Interface/AddOns/UncappedRewards",
                        "Interface/AddOns/UncappedMythic",
                        "Interface/AddOns/UncappedVersion",
-                       "Interface/AddOns/UncappedGCD"
+                       "Interface/AddOns/UncappedGCD",
+                       "Interface/AddOns/UncappedHotzones",
+                       "Interface/AddOns/Uncapped64bitUI",
+                       "Interface/AddOns/devUncapped64"
                    ]
 }

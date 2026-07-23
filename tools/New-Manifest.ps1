@@ -198,7 +198,13 @@ $manifest = [ordered]@{
         'Interface/AddOns/UncappedRewards',
         'Interface/AddOns/UncappedMythic',
         'Interface/AddOns/UncappedVersion',
-        'Interface/AddOns/UncappedGCD'
+        'Interface/AddOns/UncappedGCD',
+        'Interface/AddOns/UncappedHotzones',
+        'Interface/AddOns/Uncapped64bitUI',
+        # devUncapped64 was renamed to Uncapped64bitUI. It has to stay listed so the
+        # old folder is actually deleted from players' clients -- otherwise both copies
+        # load side by side and every overlay, filter and hook runs twice.
+        'Interface/AddOns/devUncapped64'
     )
 }
 
