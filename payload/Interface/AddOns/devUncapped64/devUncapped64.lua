@@ -38,10 +38,10 @@ end
 -- Truncated/abbreviated: 1234 -> 1.2k, 2.8m, 4.53b, 9.99t. Shared by HP,
 -- damage, and stat displays so everything reads the same way.
 local function Abbrev(n)
-    if n >= 1e12 then return string.format("%.2ft", n / 1e12) end
-    if n >= 1e9  then return string.format("%.2fb", n / 1e9)  end
-    if n >= 1e6  then return string.format("%.2fm", n / 1e6)  end
-    if n >= 1e3  then return string.format("%.1fk", n / 1e3)  end
+    if n >= 1e12 then return string.format("%.2fT", n / 1e12) end
+    if n >= 1e9  then return string.format("%.2fB", n / 1e9)  end
+    if n >= 1e6  then return string.format("%.2fM", n / 1e6)  end
+    if n >= 1e3  then return string.format("%.1fK", n / 1e3)  end
     return string.format("%d", math.floor(n + 0.5))
 end
 
