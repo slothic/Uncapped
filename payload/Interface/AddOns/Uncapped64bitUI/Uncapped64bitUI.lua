@@ -16,21 +16,18 @@
 
 local ADDON_NAME = "Uncapped64bitUI"
 
--- ---------------------------------------------------------------------------
--- Dev-realm gate.
--- ---------------------------------------------------------------------------
--- This addon drives the DEV realm's experimental 64-bit systems (real HP / stat /
--- damage / heal feeds that only the dev worldserver sends). The launcher ships it
--- to everyone, but on the live realm there is no such feed and its combat-text
--- replacement + frame overlays must stay dormant so live players are unaffected.
--- So unless we're on the dev realm ("Uncapped-DEV"), bail out before doing anything.
--- GetRealmName() is reliably populated by the time an addon's file executes on 3.3.5.
-do
-    local realm = GetRealmName()
-    if not realm or not string.find(string.lower(realm), "dev", 1, true) then
-        return
-    end
-end
+-- The dev-realm gate that used to sit here has been REMOVED (2026-07-23).
+--
+-- It bailed out of this entire file unless GetRealmName() contained "dev", because
+-- at the time only the dev worldserver sent the RB* feeds and the overlays had to
+-- stay dormant for live players. Both halves of that reasoning are now obsolete:
+-- the 64-bit pipeline shipped to the live realm, so live sends the same feeds, and
+-- this addon is the only thing filtering the RB* protocol out of chat. With the gate
+-- in place, live players got the raw protocol spammed into chat several times a
+-- second and no real numbers -- while the addon still showed as enabled, loaded
+-- without error, and registered no slash commands, because execution stopped here.
+--
+-- If a realm ever needs it dormant again, gate the individual feeds, not the file.
 
 -- ---------------------------------------------------------------------------
 -- Number formatting
