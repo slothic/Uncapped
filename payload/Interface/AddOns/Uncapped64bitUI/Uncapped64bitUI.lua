@@ -57,7 +57,14 @@ local ShowRealHeal
 local function MakeLabel(anchor)
     if not anchor then return nil end
     local f = CreateFrame("Frame", nil, anchor)
-    f:SetFrameStrata("HIGH")
+    -- Stay in the anchor's strata (a unit-frame bar, normally MEDIUM) rather than
+    -- forcing HIGH. Forcing a strata lifted the label out of the unit-frame layer,
+    -- so the HP text kept drawing on top of the world map, static-popup dialogs and
+    -- other higher-strata UI. Matching the anchor's strata and only bumping the
+    -- frame level keeps the text above the bar's own art while still being covered
+    -- by the map and dialogs exactly like the unit frame it annotates.
+    f:SetFrameStrata(anchor:GetFrameStrata())
+    f:SetFrameLevel(anchor:GetFrameLevel() + 5)
     f:SetAllPoints(anchor)
     local fs = f:CreateFontString(nil, "OVERLAY")
     fs:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
