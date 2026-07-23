@@ -2469,8 +2469,8 @@
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
-                      "sha256":  "3f998cc85489c2832958eca532ab60480cbba2787e32f811e21077e27cc850a7",
-                      "size":  31888
+                      "sha256":  "95521c2631508fa25c86ebe1da0d0f1ae7bffbba60ca640b024904dc5c0ebe87",
+                      "size":  35842
                   },
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.toc",
