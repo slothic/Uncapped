@@ -123,8 +123,8 @@
                   {
                       "path":  "Interface/AddOns/devUncapped64/devUncapped64.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/devUncapped64/devUncapped64.lua",
-                      "sha256":  "bcdde35dd1f2dfaefd145869f1a6358f8642607fd33edc3e026d33755a6859d4",
-                      "size":  23023
+                      "sha256":  "c9bbebf923a9f15be30dd0cfc442531894e5d018e8ca62f203f476e533370d71",
+                      "size":  30447
                   },
                   {
                       "path":  "Interface/AddOns/devUncapped64/devUncapped64.toc",

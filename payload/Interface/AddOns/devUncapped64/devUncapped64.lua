@@ -566,3 +566,174 @@ SlashCmdList["DEV64DMG"] = function()
     FctSpawnText("Parry", false, 0.85, 0.95, 1.0, fctIn)
     FctSpawnText("+" .. Abbrev(math.random(5000000, 80000000)), false, 0.4, 1.0, 0.4, fctIn)       -- heal
 end
+
+-- ---------------------------------------------------------------------------
+-- Stat panel hover removal.
+--
+-- AllStats paints its rows with the stock PaperDollFrame_Set* helpers, which
+-- also install Blizzard's tooltip handlers. Those recompute from the 32-bit
+-- client fields, so on a scaled character the hover flatly contradicts the row
+-- it is attached to: Strength shows 3.45B in the panel while its tooltip claims
+-- "Increases Attack Power by -294967316" -- a plain int32 wrap of ~4.0e9.
+--
+-- The panel itself is already correct (ApplyAllStatsReal repaints it from the
+-- RBALL feed), so there is nothing worth salvaging in the tooltip. Remove it
+-- rather than maintain a second source of the same numbers that we would have
+-- to keep in sync and that can only ever be wrong past 2^31.
+--
+-- AllStats re-installs these handlers on every repaint, so this has to run
+-- after each one, not just once at load.
+-- ---------------------------------------------------------------------------
+local STAT_ROWS = {
+    "1", "2", "3", "4", "5",
+    "MeleeDamage", "MeleeSpeed", "MeleePower", "MeleeHit", "MeleeCrit", "MeleeExpert",
+    "RangeDamage", "RangeSpeed", "RangePower", "RangeHit", "RangeCrit",
+    "SpellDamage", "SpellHeal", "SpellHit", "SpellCrit", "SpellHaste", "SpellRegen",
+    "Armor", "Defense", "Dodge", "Parry", "Block", "Resil",
+}
+
+local function StripStatTooltips()
+    for _, suffix in ipairs(STAT_ROWS) do
+        local f = _G["AllStatsFrameStat" .. suffix]
+        if f then
+            f:SetScript("OnEnter", nil)
+            f:SetScript("OnLeave", nil)
+            -- PaperDollFrame_Set* stash the strings on the frame itself; clear
+            -- them too so nothing can resurrect the tooltip from stale fields.
+            f.tooltip = nil
+            f.tooltip2 = nil
+        end
+    end
+end
+
+-- AllStats' repaint entry point. Post-hook, so it runs after the SetScript
+-- calls that re-attach the handlers.
+if type(NewPaperDollFrame_UpdateStats) == "function" then
+    hooksecurefunc("NewPaperDollFrame_UpdateStats", StripStatTooltips)
+else
+    -- Load-order fallback: wait until AllStats is in, then hook.
+    local waiter = CreateFrame("Frame")
+    waiter:RegisterEvent("ADDON_LOADED")
+    waiter:SetScript("OnEvent", function(self)
+        if type(NewPaperDollFrame_UpdateStats) == "function" then
+            hooksecurefunc("NewPaperDollFrame_UpdateStats", StripStatTooltips)
+            self:UnregisterAllEvents()
+        end
+    end)
+end
+
+-- ---------------------------------------------------------------------------
+-- Spell tooltip: strip the computed damage / healing figures.
+--
+-- The client builds these itself from Spell.dbc tokens and its OWN capped stat
+-- fields, so the number is wrong before it ever reaches us -- Exorcism advertises
+-- "Causes 576761472 to 576761600 Holy damage" while actually hitting for 450
+-- billion. There is no value we could substitute that the client would keep, and
+-- no server field that feeds it, so the honest fix is to remove the figure and
+-- say what the spell scales with instead.
+--
+-- Only lines that actually talk about damage or healing are touched; cast time,
+-- range, cooldown and mana cost live on their own lines and are still correct.
+-- ---------------------------------------------------------------------------
+
+-- Which stat governs a school. Physical abilities scale from attack power,
+-- everything else from spell power. Per-spell exceptions (WotLK has plenty of
+-- magic-school abilities that scale off attack power) go in SPELL_SCALING_OVERRIDE
+-- below, keyed by spell name.
+local SCHOOL_STAT = {
+    ["Physical"] = "attack power",
+    ["Holy"]     = "spell power",
+    ["Fire"]     = "spell power",
+    ["Frost"]    = "spell power",
+    ["Arcane"]   = "spell power",
+    ["Nature"]   = "spell power",
+    ["Shadow"]   = "spell power",
+}
+
+-- Magic-school abilities that actually scale from attack power. Extend as they
+-- turn up; the school heuristic handles everything not listed.
+local SPELL_SCALING_OVERRIDE = {
+    ["Seal of Righteousness"]  = "attack power",
+    ["Seal of Vengeance"]      = "attack power",
+    ["Seal of Corruption"]     = "attack power",
+    ["Hammer of the Righteous"] = "attack power",
+    ["Divine Storm"]           = "attack power",
+    ["Crusader Strike"]        = "attack power",
+}
+
+-- Remove figures that came from the client's own arithmetic. Ranges go first,
+-- then any remaining number of four or more digits -- that threshold keeps the
+-- genuinely useful small ones ("for 3 sec", "within 8 yards") intact.
+local function StripComputedFigures(text)
+    text = text:gsub("(%d[%d%.,]*)%s+to%s+(%d[%d%.,]*)%s*", "")
+    text = text:gsub("%d[%d%.,]*", function(n)
+        local digits = n:gsub("[^%d]", "")
+        if #digits >= 4 then return "" end
+        return n
+    end)
+    -- Tidy the gaps the removals leave behind.
+    text = text:gsub("%s%s+", " ")
+    text = text:gsub("%s+([%.,])", "%1")
+    text = text:gsub("^%s+", "")
+    return text
+end
+
+local function RewriteSpellTooltip(tooltip)
+    -- 3.3.5 has no GetSpellName() on tooltips; the name is simply the first
+    -- left-hand line, which is also what the override table is keyed on.
+    local nameFS = _G[tooltip:GetName() .. "TextLeft1"]
+    local spellName = nameFS and nameFS:GetText() or nil
+    local governing = spellName and SPELL_SCALING_OVERRIDE[spellName] or nil
+    local annotated = false
+
+    for i = 2, tooltip:NumLines() do
+        local fs = _G[tooltip:GetName() .. "TextLeft" .. i]
+        if fs then
+            local text = fs:GetText()
+            if text and (text:find("damage") or text:find("healing") or text:find("Heals")
+                         or text:find("heals")) then
+                local stripped = StripComputedFigures(text)
+
+                if not annotated then
+                    -- Work out what to credit the scaling to: an explicit
+                    -- override, else the school named in the line itself.
+                    local stat = governing
+                    if not stat then
+                        for school, mapped in pairs(SCHOOL_STAT) do
+                            if text:find(school) then
+                                stat = mapped
+                                break
+                            end
+                        end
+                    end
+                    stat = stat or "spell power"
+
+                    -- Insert before the trailing full stop of the first sentence
+                    -- so it reads naturally rather than being bolted on the end.
+                    local head, tail = stripped:match("^(.-%S)%.%s*(.*)$")
+                    if head then
+                        stripped = head .. ", based on your " .. stat .. "."
+                        if tail and tail ~= "" then
+                            stripped = stripped .. " " .. tail
+                        end
+                    else
+                        stripped = stripped .. " (based on your " .. stat .. ")"
+                    end
+                    annotated = true
+                end
+
+                if stripped ~= text then
+                    fs:SetText(stripped)
+                end
+            end
+        end
+    end
+
+    tooltip:Show()   -- re-fit: our text is shorter than what it measured
+end
+
+for _, tt in ipairs({ GameTooltip, ItemRefTooltip }) do
+    if tt then
+        tt:HookScript("OnTooltipSetSpell", RewriteSpellTooltip)
+    end
+end
