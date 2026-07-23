@@ -2493,8 +2493,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedAlerts/UncappedAlerts.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedAlerts/UncappedAlerts.lua",
-                      "sha256":  "ef84878fa18ce070da40b1aca359e9bdb487f87132a72cf74bf5b79a225ed330",
-                      "size":  7899
+                      "sha256":  "ceb9a59c6e7113dd41a02ee21738b95ec8fdf12e689d1d4cc289908a89ddb3d8",
+                      "size":  10421
                   },
                   {
                       "path":  "Interface/AddOns/UncappedAlerts/UncappedAlerts.toc",
@@ -2553,7 +2553,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "a82e2f3c4f3c10ddd77a98404bbdcc7ee43c7a76d9e0f7ff2e2c855cab705a3b",
+                      "sha256":  "19089a94f2c7ed4f550b6f0d0e9dd3fa3c1351dd166c1264bd79db07af292604",
                       "size":  3592
                   },
                   {
