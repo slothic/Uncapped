@@ -749,3 +749,22 @@ for _, tt in ipairs({ GameTooltip, ItemRefTooltip }) do
         tt:HookScript("OnTooltipSetSpell", RewriteSpellTooltip)
     end
 end
+
+-- ---------------------------------------------------------------------------
+-- Load banner.
+--
+-- This addon is the only thing filtering the RB* protocol out of chat and the
+-- only thing rendering real numbers past the 32-bit wall, so "is it actually
+-- running on this realm?" needs a definite answer rather than an inference from
+-- whether chat looks wrong. Addon state is per character per realm, so it can
+-- differ between realms on the same client with nothing else to show for it.
+-- ---------------------------------------------------------------------------
+local banner = CreateFrame("Frame")
+banner:RegisterEvent("PLAYER_LOGIN")
+banner:SetScript("OnEvent", function(self)
+    local realm = GetRealmName and GetRealmName() or "?"
+    DEFAULT_CHAT_FRAME:AddMessage(
+        "|cff40ff40Uncapped 64-bit UI|r loaded on |cffffd100" .. realm ..
+        "|r - RB* protocol filtered, real numbers active.")
+    self:UnregisterAllEvents()
+end)
