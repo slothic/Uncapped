@@ -28,9 +28,13 @@
 -- display entirely (see the ChatFrame_AddMessageEventFilter call below) --
 -- purely a data channel, nothing for the player to see.
 
+-- Prefix for the whole server->client pipe (see the transport note at OnEvent).
+local ADDON_PIPE_PREFIX = "UNC"
+
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("CHAT_MSG_CHANNEL")
+frame:RegisterEvent("CHAT_MSG_ADDON")
 
 local myChannelName = nil
 local lastWithdrawnSpellId = nil
@@ -431,9 +435,29 @@ local function OnEvent(self, event, ...)
             end
         end)
 
-    elseif event == "CHAT_MSG_CHANNEL" then
-        local text, sender = ...
-        if sender ~= UnitName("player") then
+    elseif event == "CHAT_MSG_CHANNEL" or event == "CHAT_MSG_ADDON" then
+        -- Two transports, on purpose.
+        --
+        -- CHAT_MSG_ADDON is where the pipe is moving: the client never renders
+        -- it, so the protocol can no longer leak into chat when an addon fails
+        -- to load. CHAT_MSG_CHANNEL is the old transport, kept because one
+        -- payload serves both realms and a realm still running the previous
+        -- worldserver would go silent otherwise. Drop the channel branch once
+        -- every realm is converted.
+        --
+        --   CHAT_MSG_ADDON   : a1 = prefix, a2 = body
+        --   CHAT_MSG_CHANNEL : a1 = body,   a2 = author (our own name)
+        local a1, a2 = ...
+        local text
+        if event == "CHAT_MSG_ADDON" then
+            -- Also catches our own outgoing REAGENTBANK messages echoing back.
+            if a1 ~= ADDON_PIPE_PREFIX then return end
+            text = a2
+        else
+            if a2 ~= UnitName("player") then return end
+            text = a1
+        end
+        if not text then
             return
         end
 

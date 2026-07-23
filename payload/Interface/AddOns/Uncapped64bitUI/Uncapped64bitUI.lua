@@ -16,6 +16,10 @@
 
 local ADDON_NAME = "Uncapped64bitUI"
 
+-- Addon-message prefix for the server->client pipe. Must match
+-- ReagentBankChannelProtocol::ADDON_MESSAGE_PREFIX on the server.
+local ADDON_PIPE_PREFIX = "UNC"
+
 -- The dev-realm gate that used to sit here has been REMOVED (2026-07-23).
 --
 -- It bailed out of this entire file unless GetRealmName() contained "dev", because
@@ -197,6 +201,7 @@ end)
 -- real values (they live in float fields), so those we just truncate in place.
 -- ---------------------------------------------------------------------------
 local realStats = {}   -- latest values from RBALL
+local allPending = {}  -- buffered RBALLA/RBALLB halves until both have arrived
 
 -- The value FontString for an AllStats row: StatFrameTemplate names it
 -- "<frameName>StatText" (e.g. AllStatsFrameStat1 -> AllStatsFrameStat1StatText).
@@ -270,9 +275,15 @@ local function OnLine(msg)
     end
 
     -- Comprehensive real character-sheet stats (past the 32-bit wire wall).
-    if msg:find("^RBALL:") then
-        local p = {}
-        for tok in msg:gmatch("%-?%d+") do p[#p + 1] = tonumber(tok) end
+    -- RBALL now arrives as two halves (RBALLA + RBALLB).
+    --
+    -- Sixteen 64-bit fields is ~277 bytes at trillion scale, past the client's
+    -- 255-byte addon-message cap -- it would have truncated silently on exactly
+    -- the scaled characters this feed exists for. The halves are buffered and
+    -- applied together, so a dropped or reordered one never paints a half-filled
+    -- stat panel. "RBALL:" (undivided) is still accepted from any realm still
+    -- running the older worldserver.
+    local function ApplyRealStats(p)
         realStats = {
             str = p[1], agi = p[2], sta = p[3], int = p[4], spi = p[5],
             map = p[6], rap = p[7], sp = p[8], heal = p[9], armor = p[10],
@@ -280,6 +291,41 @@ local function OnLine(msg)
         }
         EnsureAllStatsHook()
         if CharacterFrame and CharacterFrame:IsShown() then ApplyAllStatsReal() end
+    end
+
+    local function Tokens(body)
+        local t = {}
+        for tok in body:gmatch("%-?%d+") do t[#t + 1] = tonumber(tok) end
+        return t
+    end
+
+    local bodyA = msg:match("^RBALLA:(.+)$")
+    if bodyA then
+        allPending.a = Tokens(bodyA)
+        if allPending.b then
+            local p = {}
+            for i = 1, 8 do p[i] = allPending.a[i] end
+            for i = 1, 8 do p[8 + i] = allPending.b[i] end
+            ApplyRealStats(p)
+        end
+        return
+    end
+
+    local bodyB = msg:match("^RBALLB:(.+)$")
+    if bodyB then
+        allPending.b = Tokens(bodyB)
+        if allPending.a then
+            local p = {}
+            for i = 1, 8 do p[i] = allPending.a[i] end
+            for i = 1, 8 do p[8 + i] = allPending.b[i] end
+            ApplyRealStats(p)
+        end
+        return
+    end
+
+    -- Legacy single-message form.
+    if msg:find("^RBALL:") then
+        ApplyRealStats(Tokens(msg))
         return
     end
 
@@ -328,6 +374,7 @@ listener:RegisterEvent("ADDON_LOADED")
 listener:RegisterEvent("PLAYER_ENTERING_WORLD")
 listener:RegisterEvent("PARTY_MEMBERS_CHANGED")
 listener:RegisterEvent("CHAT_MSG_CHANNEL")
+listener:RegisterEvent("CHAT_MSG_ADDON")
 listener:RegisterEvent("PLAYER_TARGET_CHANGED")
 listener:SetScript("OnEvent", function(self, event, a1, a2)
     if event == "ADDON_LOADED" then
@@ -348,12 +395,28 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         return
     end
 
-    -- CHAT_MSG_CHANNEL: a1 = message, a2 = author (our own name on the pipe).
-    if a2 ~= UnitName("player") or not a1 then
-        return
+    -- Two transports, on purpose.
+    --
+    -- CHAT_MSG_ADDON is where the pipe is moving: the client never renders it,
+    -- so the protocol can no longer leak into chat when an addon fails to load.
+    -- CHAT_MSG_CHANNEL is the old transport, kept because one payload serves
+    -- both realms and a realm still running the previous worldserver would go
+    -- silent otherwise. Drop the channel branch once every realm is converted.
+    --
+    --   CHAT_MSG_ADDON   : a1 = prefix, a2 = body
+    --   CHAT_MSG_CHANNEL : a1 = body,   a2 = author (our own name on the pipe)
+    local msg
+    if event == "CHAT_MSG_ADDON" then
+        if a1 ~= ADDON_PIPE_PREFIX then return end
+        msg = a2
+    else
+        if a2 ~= UnitName("player") then return end
+        msg = a1
     end
-    if a1:find("^RBHP:") or a1:find("^RBALL:") or a1:find("^RBDMG:") or a1:find("^RBHEAL:") then
-        OnLine(a1)
+    if not msg then return end
+
+    if msg:find("^RBHP:") or msg:find("^RBALL") or msg:find("^RBDMG:") or msg:find("^RBHEAL:") then
+        OnLine(msg)
     end
 end)
 

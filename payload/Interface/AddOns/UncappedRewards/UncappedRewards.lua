@@ -191,8 +191,12 @@ ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
     return false
 end)
 
+-- Prefix for the whole server->client pipe (see the transport note below).
+local ADDON_PIPE_PREFIX = "UNC"
+
 local listener = CreateFrame("Frame")
 listener:RegisterEvent("CHAT_MSG_CHANNEL")
+listener:RegisterEvent("CHAT_MSG_ADDON")
 listener:RegisterEvent("ADDON_LOADED")
 listener:SetScript("OnEvent", function(self, event, a1, a2)
     if event == "ADDON_LOADED" then
@@ -202,12 +206,31 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         return
     end
 
-    if a2 ~= UnitName("player") or not a1 then
+    -- Two transports, on purpose.
+    --
+    -- CHAT_MSG_ADDON is where the pipe is moving: the client never renders it,
+    -- so the protocol can no longer leak into chat when an addon fails to load.
+    -- CHAT_MSG_CHANNEL is the old transport, kept because one payload serves
+    -- both realms and a realm still running the previous worldserver would go
+    -- silent otherwise. Drop the channel branch once every realm is converted.
+    --
+    --   CHAT_MSG_ADDON   : a1 = prefix, a2 = body
+    --   CHAT_MSG_CHANNEL : a1 = body,   a2 = author (our own name on the pipe)
+    local msg
+    if event == "CHAT_MSG_ADDON" then
+        if a1 ~= ADDON_PIPE_PREFIX then return end
+        msg = a2
+    else
+        if a2 ~= UnitName("player") then return end
+        msg = a1
+    end
+    if not msg then
         return
     end
+    a1 = msg  -- parsers below read a1; keep it pointing at the normalised body
 
     -- RBCHEST:<level>:<name>x<count>|<name>x<count>|...
-    local level, rest = a1:match("^RBCHEST:(%d+):(.*)$")
+    local level, rest = msg:match("^RBCHEST:(%d+):(.*)$")
     if level then
         local list = {}
         for chunk in rest:gmatch("[^|]+") do

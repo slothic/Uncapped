@@ -225,10 +225,32 @@ ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
     return false
 end)
 
+-- Prefix for the whole server->client pipe (see the transport note below).
+local ADDON_PIPE_PREFIX = "UNC"
+
 local quitListener = CreateFrame("Frame")
 quitListener:RegisterEvent("CHAT_MSG_CHANNEL")
-quitListener:SetScript("OnEvent", function(self, event, text, sender)
-    if sender ~= UnitName("player") or not text then
+quitListener:RegisterEvent("CHAT_MSG_ADDON")
+quitListener:SetScript("OnEvent", function(self, event, a1, a2)
+    -- Two transports, on purpose.
+    --
+    -- CHAT_MSG_ADDON is where the pipe is moving: the client never renders it,
+    -- so the protocol can no longer leak into chat when an addon fails to load.
+    -- CHAT_MSG_CHANNEL is the old transport, kept because one payload serves
+    -- both realms and a realm still running the previous worldserver would go
+    -- silent otherwise. Drop the channel branch once every realm is converted.
+    --
+    --   CHAT_MSG_ADDON   : a1 = prefix, a2 = body
+    --   CHAT_MSG_CHANNEL : a1 = body,   a2 = author (our own name on the pipe)
+    local text
+    if event == "CHAT_MSG_ADDON" then
+        if a1 ~= ADDON_PIPE_PREFIX then return end
+        text = a2
+    else
+        if a2 ~= UnitName("player") then return end
+        text = a1
+    end
+    if not text then
         return
     end
 
