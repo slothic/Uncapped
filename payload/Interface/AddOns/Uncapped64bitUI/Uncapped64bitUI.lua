@@ -645,46 +645,125 @@ end
 -- range, cooldown and mana cost live on their own lines and are still correct.
 -- ---------------------------------------------------------------------------
 
--- Which stat governs a school. Physical abilities scale from attack power,
--- everything else from spell power. Per-spell exceptions (WotLK has plenty of
--- magic-school abilities that scale off attack power) go in SPELL_SCALING_OVERRIDE
--- below, keyed by spell name.
+-- What to credit a spell's scaling to, resolved in this order:
+--   1. SPELL_SCALING_OVERRIDE, keyed by exact spell name
+--   2. "Physical damage" in the text                  -> attack power
+--   3. the caster's class, for classes that have only one relevant stat
+--   4. the damage school named in the text
+--
+-- Step 3 matters: a Warrior, Rogue, Hunter or Death Knight has no meaningful
+-- spell power, so crediting one of their abilities to it is simply wrong even
+-- when the ability deals magic damage. Casters are the mirror image.
+local AP, SP = "attack power", "spell power"
+
+local CLASS_DEFAULT_STAT = {
+    WARRIOR     = AP,
+    ROGUE       = AP,
+    HUNTER      = AP,
+    DEATHKNIGHT = AP,
+    MAGE        = SP,
+    WARLOCK     = SP,
+    PRIEST      = SP,
+}
+-- PALADIN, DRUID and SHAMAN are deliberately absent: each has both melee and
+-- caster specs, so the school named in the tooltip is the better signal.
+
 local SCHOOL_STAT = {
-    ["Physical"] = "attack power",
-    ["Holy"]     = "spell power",
-    ["Fire"]     = "spell power",
-    ["Frost"]    = "spell power",
-    ["Arcane"]   = "spell power",
-    ["Nature"]   = "spell power",
-    ["Shadow"]   = "spell power",
+    ["Physical"] = AP,
+    ["Holy"]     = SP,
+    ["Fire"]     = SP,
+    ["Frost"]    = SP,
+    ["Arcane"]   = SP,
+    ["Nature"]   = SP,
+    ["Shadow"]   = SP,
 }
 
--- Magic-school abilities that actually scale from attack power. Extend as they
--- turn up; the school heuristic handles everything not listed.
+-- Abilities whose scaling the rules above get wrong. Mostly hybrid melee
+-- abilities that deal magic damage but scale from attack power. Extend freely --
+-- one line each, and it wins over everything else.
 local SPELL_SCALING_OVERRIDE = {
-    ["Seal of Righteousness"]  = "attack power",
-    ["Seal of Vengeance"]      = "attack power",
-    ["Seal of Corruption"]     = "attack power",
-    ["Hammer of the Righteous"] = "attack power",
-    ["Divine Storm"]           = "attack power",
-    ["Crusader Strike"]        = "attack power",
+    -- Paladin: melee-weapon abilities dealing Holy damage
+    ["Seal of Righteousness"]   = AP,
+    ["Seal of Vengeance"]       = AP,
+    ["Seal of Corruption"]      = AP,
+    ["Seal of Command"]         = AP,
+    ["Crusader Strike"]         = AP,
+    ["Divine Storm"]            = AP,
+    ["Hammer of the Righteous"] = AP,
+    ["Shield of Righteousness"] = AP,
+    ["Avenger's Shield"]        = SP,
+    ["Hammer of Wrath"]         = SP,
+    -- Shaman: Nature damage off weapon/attack power
+    ["Stormstrike"]             = AP,
+    ["Lava Lash"]               = AP,
+    -- Druid: Feral abilities
+    ["Swipe (Bear)"]            = AP,
+    ["Maul"]                    = AP,
+    -- Death Knight: Shadow/Frost damage scaling from attack power
+    ["Death Coil"]              = AP,
+    ["Icy Touch"]               = AP,
+    ["Howling Blast"]           = AP,
+    ["Death and Decay"]         = AP,
+    ["Scourge Strike"]          = AP,
+    -- Hunter: Nature/Arcane stings off ranged attack power
+    ["Serpent Sting"]           = AP,
+    ["Arcane Shot"]             = AP,
+    ["Explosive Shot"]          = AP,
 }
 
 -- Remove figures that came from the client's own arithmetic. Ranges go first,
 -- then any remaining number of four or more digits -- that threshold keeps the
 -- genuinely useful small ones ("for 3 sec", "within 8 yards") intact.
+-- Remove ONLY figures the client worked out from your stats.
+--
+-- The previous version deleted any number of four or more digits and annotated
+-- any line containing the word "damage". That was far too broad: "Improved
+-- Cleave -- Increases the bonus damage done by your Cleave ability by 40%" has
+-- no computed figure at all, yet it was being rewritten to claim it scaled with
+-- spell power. Every talent, racial, passive, buff and item mentioning damage or
+-- healing hit the same problem.
+--
+-- So match the specific shapes WoW uses for a computed figure: a number, or a
+-- range, sitting directly against a damage/healing/restore phrase. Percentages,
+-- durations, ranks, cooldowns, radii and talent scaling are all left untouched --
+-- the client did not derive those from your stats, so they were never wrong.
+--
+-- Returns the new text and whether anything was actually removed. The caller
+-- annotates only when something was, which is what keeps talents out of this.
 local function StripComputedFigures(text)
-    text = text:gsub("(%d[%d%.,]*)%s+to%s+(%d[%d%.,]*)%s*", "")
-    text = text:gsub("%d[%d%.,]*", function(n)
-        local digits = n:gsub("[^%d]", "")
-        if #digits >= 4 then return "" end
-        return n
-    end)
+    local changed = false
+    local function drop(replacement)
+        return function(captured)
+            changed = true
+            return replacement == "%1" and captured or replacement
+        end
+    end
+
+    -- Integer figures only: [%d,] not [%d,%.]. Including '.' in the class made the
+    -- match swallow the sentence's full stop along with the number.
+    --
+    -- "Causes 576761472 to 576761600 Holy damage" -> "Causes Holy damage"
+    text = text:gsub("%d[%d,]*%s+to%s+%d[%d,]*%s+(%a*%s*damage)", drop("%1"))
+    -- "Deals 12345 Fire damage" / "for 12345 damage" -> drops just the number
+    text = text:gsub("%d[%d,]*%s+(%a+%s+damage)", drop("%1"))
+    text = text:gsub("%d[%d,]*%s+(damage)", drop("%1"))
+    -- Healing and restoration: "restoring 12345 health"
+    text = text:gsub("%d[%d,]*%s+to%s+%d[%d,]*%s+(health)", drop("%1"))
+    text = text:gsub("%d[%d,]*%s+(health)", drop("%1"))
+    -- "Heals a friendly target for 12345." -- the "for" goes too, or the sentence
+    -- ends on a dangling preposition.
+    text = text:gsub("([Hh]eals?[%a%s]-)for%s+%d[%d,]*%s+to%s+%d[%d,]*", drop("%1"))
+    text = text:gsub("([Hh]eals?[%a%s]-)for%s+%d[%d,]*", drop("%1"))
+
+    if not changed then
+        return text, false
+    end
+
     -- Tidy the gaps the removals leave behind.
     text = text:gsub("%s%s+", " ")
     text = text:gsub("%s+([%.,])", "%1")
     text = text:gsub("^%s+", "")
-    return text
+    return text, true
 end
 
 local function RewriteSpellTooltip(tooltip)
@@ -695,18 +774,29 @@ local function RewriteSpellTooltip(tooltip)
     local governing = spellName and SPELL_SCALING_OVERRIDE[spellName] or nil
     local annotated = false
 
+    local _, playerClass = UnitClass("player")
+
     for i = 2, tooltip:NumLines() do
         local fs = _G[tooltip:GetName() .. "TextLeft" .. i]
         if fs then
             local text = fs:GetText()
-            if text and (text:find("damage") or text:find("healing") or text:find("Heals")
-                         or text:find("heals")) then
-                local stripped = StripComputedFigures(text)
+            if text then
+                local stripped, removed = StripComputedFigures(text)
 
-                if not annotated then
-                    -- Work out what to credit the scaling to: an explicit
-                    -- override, else the school named in the line itself.
+                -- Annotate only where a computed figure was actually removed.
+                -- A line that merely mentions damage -- every talent, racial and
+                -- passive in the game -- is left exactly as Blizzard wrote it.
+                if removed and not annotated then
+                    -- Physical always means attack power. Otherwise fall back to
+                    -- the caster's class where that is unambiguous, and only then
+                    -- to the school named in the line.
                     local stat = governing
+                    if not stat and text:find("Physical") then
+                        stat = AP
+                    end
+                    if not stat then
+                        stat = CLASS_DEFAULT_STAT[playerClass]
+                    end
                     if not stat then
                         for school, mapped in pairs(SCHOOL_STAT) do
                             if text:find(school) then
@@ -715,7 +805,7 @@ local function RewriteSpellTooltip(tooltip)
                             end
                         end
                     end
-                    stat = stat or "spell power"
+                    stat = stat or SP
 
                     -- Insert before the trailing full stop of the first sentence
                     -- so it reads naturally rather than being bolted on the end.
