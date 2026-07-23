@@ -39,8 +39,8 @@
                   {
                       "path":  "Data/enUS/patch-enUS-Z.MPQ",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Data/enUS/patch-enUS-Z.MPQ",
-                      "sha256":  "489d5d6247608cb1a765682bb0fdf4e212ee7553419fc60555ccb276af5e50f7",
-                      "size":  9084926
+                      "sha256":  "cb5ed742101ba0cf4e7b1804ebd5a2b3259a4ef9df0fc52e4fae21c28824f875",
+                      "size":  4569511
                   },
                   {
                       "path":  "Interface/AddOns/!Astrolabe/!Astrolabe.toc",
