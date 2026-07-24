@@ -2469,14 +2469,86 @@
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
-                      "sha256":  "77afbec4b8960382e17b1cdc1055590ec0e9414a4154fb8261ffff9cbe5e4754",
-                      "size":  44459
+                      "sha256":  "66a8f707b9a9a3488c5765eb39d3ef9bc2a09c81718139107548b627f6887543",
+                      "size":  58382
                   },
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.toc",
-                      "sha256":  "cc435aa5bf00b54562992c28437ed7614939af953fa3e9686fce9b8b6ebd115d",
-                      "size":  279
+                      "sha256":  "681d3d0113f8683481a2495189189a9a5ceada9238426562b72d7bd2a265552a",
+                      "size":  316
+                  },
+                  {
+                      "path":  "Interface/AddOns/Uncapped64bitUI/fonts/Anton-Regular.ttf",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/fonts/Anton-Regular.ttf",
+                      "sha256":  "a4ba3a92350ebb031da0cb47630ac49eb265082ca1bc0450442f4a83ab947cab",
+                      "size":  170812
+                  },
+                  {
+                      "path":  "Interface/AddOns/Uncapped64bitUI/fonts/Bangers-Regular.ttf",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/fonts/Bangers-Regular.ttf",
+                      "sha256":  "4160a7311de9342674cce9160cde9fcbb30f48190397d86ff1b70b455af65824",
+                      "size":  93148
+                  },
+                  {
+                      "path":  "Interface/AddOns/Uncapped64bitUI/fonts/BebasNeue-Regular.ttf",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/fonts/BebasNeue-Regular.ttf",
+                      "sha256":  "08e4623805102d819f58601e46e345648846075e363b2ceb23313c2d1c83ec73",
+                      "size":  61400
+                  },
+                  {
+                      "path":  "Interface/AddOns/Uncapped64bitUI/fonts/Bungee-Regular.ttf",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/fonts/Bungee-Regular.ttf",
+                      "sha256":  "c4f5361ce120af3e6b9156d0bf379fa19cda2ea0cd18ac01fd99596c6bf66e3f",
+                      "size":  118996
+                  },
+                  {
+                      "path":  "Interface/AddOns/Uncapped64bitUI/fonts/Creepster-Regular.ttf",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/fonts/Creepster-Regular.ttf",
+                      "sha256":  "402aeb734586c74aecd3dbdc454589b1fb12e2e1c71f782fd019ae68066d9f44",
+                      "size":  62724
+                  },
+                  {
+                      "path":  "Interface/AddOns/Uncapped64bitUI/fonts/FjallaOne-Regular.ttf",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/fonts/FjallaOne-Regular.ttf",
+                      "sha256":  "ce3b299625abe3c76f8acd235b57b3e07ac6ee2d550e106a4b4e4d60095ae2ba",
+                      "size":  209052
+                  },
+                  {
+                      "path":  "Interface/AddOns/Uncapped64bitUI/fonts/LICENSES-OFL.txt",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/fonts/LICENSES-OFL.txt",
+                      "sha256":  "8a4cfb7c2ccfc4fb3b5115d27e7eb211b7bb022a5d46bfa7e421f7678c44a148",
+                      "size":  50735
+                  },
+                  {
+                      "path":  "Interface/AddOns/Uncapped64bitUI/fonts/Metamorphous-Regular.ttf",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/fonts/Metamorphous-Regular.ttf",
+                      "sha256":  "55939a5664e06807e87fa4af64f52039ead12f002dda8317393fdce2f7ff57fe",
+                      "size":  135740
+                  },
+                  {
+                      "path":  "Interface/AddOns/Uncapped64bitUI/fonts/PressStart2P-Regular.ttf",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/fonts/PressStart2P-Regular.ttf",
+                      "sha256":  "034c77f1f05ec89421e4a63f0e3a4ca1ecf852cc6d2bf611f126f275728e017d",
+                      "size":  118204
+                  },
+                  {
+                      "path":  "Interface/AddOns/Uncapped64bitUI/fonts/Righteous-Regular.ttf",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/fonts/Righteous-Regular.ttf",
+                      "sha256":  "2ffb3fe5c27d7e6571210b800448c4e234e651b46c6b4426c1bb567e5341348a",
+                      "size":  43104
+                  },
+                  {
+                      "path":  "Interface/AddOns/Uncapped64bitUI/fonts/RussoOne-Regular.ttf",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/fonts/RussoOne-Regular.ttf",
+                      "sha256":  "bc0abcc660bd8b7ad3000ecb2898a27c58a29a50f7ec81652fa12e75148d09df",
+                      "size":  39124
+                  },
+                  {
+                      "path":  "Interface/AddOns/Uncapped64bitUI/fonts/TitanOne-Regular.ttf",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/fonts/TitanOne-Regular.ttf",
+                      "sha256":  "563ff6de179bbd44bcd7d2a6c448d6dc3bf935834237cf1250e506e65cd86ff1",
+                      "size":  55712
                   },
                   {
                       "path":  "Interface/AddOns/UncappedAlerts/alert.mp3",

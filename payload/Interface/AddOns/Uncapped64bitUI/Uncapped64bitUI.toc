@@ -3,5 +3,6 @@
 ## Notes: Shows the server's REAL 64-bit health, stats and combat numbers past the 32-bit client wall, and keeps the RB* addon protocol out of chat. Required on this realm.
 ## Author: Uncapped
 ## Version: 1.0
+## SavedVariables: Uncapped64bitUIDB
 
 Uncapped64bitUI.lua

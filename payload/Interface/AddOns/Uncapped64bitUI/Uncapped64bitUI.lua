@@ -51,6 +51,11 @@ end
 local ShowRealDamage
 local ShowRealHeal
 
+-- Forward declarations for the config/options plumbing at the bottom of the file
+-- (referenced by the ADDON_LOADED handler and slash commands above them).
+local InitSavedVars
+local RefreshOptionsPanel
+
 -- ---------------------------------------------------------------------------
 -- Overlay font strings, anchored to (and hidden with) a status bar.
 -- ---------------------------------------------------------------------------
@@ -386,6 +391,7 @@ listener:RegisterEvent("PLAYER_TARGET_CHANGED")
 listener:SetScript("OnEvent", function(self, event, a1, a2)
     if event == "ADDON_LOADED" then
         if a1 == ADDON_NAME then
+            InitSavedVars()   -- SavedVariables are guaranteed present now
             JoinChannelByName(UnitName("player"))
             SuppressBlizzardText()
         end
@@ -442,25 +448,73 @@ end
 -- over the TARGET (its nameplate when shown, else the target frame), incoming
 -- floats up over YOU; crits pop bigger. Live font: /dev64font, test: /dev64dmg.
 -- ===========================================================================
+local FONT_DIR = "Interface\\AddOns\\Uncapped64bitUI\\fonts\\"
 local FCT_FONTS = {
+    -- Built into the WoW client -- always present on every install.
     skurri   = "Fonts\\SKURRI.TTF",     -- the classic spiky WoW combat font
     arial    = "Fonts\\ARIALN.TTF",     -- condensed, clean, very readable
     morpheus = "Fonts\\MORPHEUS.TTF",   -- ornate fantasy serif
     friz     = "Fonts\\FRIZQT__.TTF",   -- default UI font
+    -- Bundled with this addon (SIL OFL 1.1, from Google Fonts).
+    -- Licences travel with them: fonts/LICENSES-OFL.txt.
+    bangers   = FONT_DIR .. "Bangers-Regular.ttf",      -- comic impact
+    anton     = FONT_DIR .. "Anton-Regular.ttf",        -- heavy condensed
+    bebas     = FONT_DIR .. "BebasNeue-Regular.ttf",    -- tall caps
+    russo     = FONT_DIR .. "RussoOne-Regular.ttf",     -- techno bold
+    fjalla    = FONT_DIR .. "FjallaOne-Regular.ttf",    -- bold display
+    metamorph = FONT_DIR .. "Metamorphous-Regular.ttf", -- fantasy
+    righteous = FONT_DIR .. "Righteous-Regular.ttf",    -- retro rounded
+    bungee    = FONT_DIR .. "Bungee-Regular.ttf",       -- chunky signage
+    titan     = FONT_DIR .. "TitanOne-Regular.ttf",     -- cartoon bold
+    creepster = FONT_DIR .. "Creepster-Regular.ttf",    -- horror
+    pixel     = FONT_DIR .. "PressStart2P-Regular.ttf", -- pixel/8-bit
 }
-local FCT_FONT = FCT_FONTS.morpheus
+-- Live, user-tunable FCT settings. These are the defaults; they are overwritten
+-- from SavedVariables (Uncapped64bitUIDB.fct) at ADDON_LOADED, and edited live
+-- from the options panel (ESC > Interface > AddOns > "Uncapped 64-bit UI") and
+-- /dev64font. Every FCT closure below reads them straight off this table, so a
+-- change takes effect on the very next number that floats.
+--   wiggleAmp    - how far heals sway side-to-side as they rise (px)
+--   wiggleFreq   - how fast that sway oscillates (rad/s; lower = slower)
+--   healDrop     - how far BELOW the target heals start (float up under its plate)
+--   selfHealDrop - same for self-heals (start at your character, so a smaller drop)
+--   spreadX/Y    - random scatter of each number's start point (breaks the baseline)
+--   normalSize   - font size of ordinary (non-crit) hits and heals (px)
+--   critSize     - font size a crit starts at, before it pops (px)
+--   critPop      - font size crits grow to just after they land (px)
+--   popTime      - seconds that crit grow-in takes
+--   font         - key into FCT_FONTS (see the picker in the options panel)
+local CFG_DEFAULTS = {
+    wiggleAmp = 10, wiggleFreq = 4.0, healDrop = 120, selfHealDrop = 30,
+    spreadX = 25, spreadY = 30, normalSize = 20, critSize = 34,
+    critPop = 54, popTime = 0.15, font = "morpheus",
+}
+local Cfg = {}
+for k, v in pairs(CFG_DEFAULTS) do Cfg[k] = v end
 
--- Heal floaters start UNDER the unit and drift up with a slow, gentle
--- side-to-side sway (a sine wiggle, not a shake). AMP = how far it sways (px),
--- FREQ = how fast it wiggles (rad/s; lower = slower). Tune to taste.
-local FCT_WIGGLE_AMP  = 10
-local FCT_WIGGLE_FREQ = 4.0
-local FCT_HEAL_DROP   = 120   -- how far BELOW the target heals start (float up to under the nameplate)
-local FCT_SELF_HEAL_DROP = 30 -- self-heals sit at your character, so a much smaller drop
-local FCT_SPREAD_X    = 25    -- horizontal scatter of each number's start point
-local FCT_SPREAD_Y    = 30    -- vertical scatter of the start point (breaks the flat baseline)
-local FCT_CRIT_POP    = 54    -- crits grow from their base size up to this (px) just after landing
-local FCT_POP_TIME    = 0.15  -- seconds the crit grow-in takes
+-- The resolved font path, kept in sync with Cfg.font. Reassigned at ADDON_LOADED
+-- and whenever the font changes from the panel or /dev64font.
+local FCT_FONT = FCT_FONTS[Cfg.font] or FCT_FONTS.morpheus
+
+-- Assigned to the forward-declared InitSavedVars; runs once at ADDON_LOADED, when
+-- Uncapped64bitUIDB is guaranteed loaded. Pulls saved tunables over the defaults,
+-- resolves the font, and (on a brand-new install only) turns nameplates on once
+-- so the over-target/over-ally combat text works out of the box.
+InitSavedVars = function()
+    Uncapped64bitUIDB = Uncapped64bitUIDB or {}
+    local db = Uncapped64bitUIDB
+    db.fct = db.fct or {}
+    for k in pairs(Cfg) do
+        if db.fct[k] ~= nil then Cfg[k] = db.fct[k] end
+    end
+    FCT_FONT = FCT_FONTS[Cfg.font] or FCT_FONTS.morpheus
+    if not db.initialized then
+        db.initialized = true
+        pcall(SetCVar, "nameplateShowEnemies", "1")
+        pcall(SetCVar, "nameplateShowFriends", "1")
+    end
+    if RefreshOptionsPanel then RefreshOptionsPanel() end
+end
 
 -- Disable Blizzard's floating combat text AND the scrolling "combat text" so
 -- ours fully replaces every kind of combat feedback.
@@ -560,6 +614,19 @@ end
 
 local fctPool, fctActive = {}, {}
 
+-- Apply the current combat font at a given size, ALWAYS leaving a usable font set.
+-- SetFont returns false (without setting anything) when the font file can't be
+-- loaded -- most commonly a bundled font that was added while the client was
+-- already running, which the client only picks up on a full restart. If we left
+-- it there, the next SetText() would throw "Font not set", so fall back to a
+-- built-in client font that is guaranteed to be loadable.
+local FCT_FALLBACK_FONT = "Fonts\\FRIZQT__.TTF"
+local function SafeSetFont(fs, size)
+    if not fs:SetFont(FCT_FONT, size, "OUTLINE") then
+        fs:SetFont(FCT_FALLBACK_FONT, size, "OUTLINE")
+    end
+end
+
 -- Spawn any floating text (a damage number, a heal, or a "Dodge"/"Parry"/etc).
 -- outgoing=true floats up over the target; false floats up over the player.
 local function FctSpawnText(text, big, r, g, b, outgoing, heal)
@@ -569,14 +636,14 @@ local function FctSpawnText(text, big, r, g, b, outgoing, heal)
     else
         x, y = GetIncomingPos()
     end
-    x = x + math.random(-FCT_SPREAD_X, FCT_SPREAD_X)
+    x = x + math.random(-Cfg.spreadX, Cfg.spreadX)
     -- Scatter the start height too, so numbers don't all lift off one flat line.
-    y = y + math.random(-FCT_SPREAD_Y, FCT_SPREAD_Y)
+    y = y + math.random(-Cfg.spreadY, Cfg.spreadY)
     -- Heals begin well UNDER the unit and float up to sit under the nameplate.
-    if heal then y = y - (outgoing and FCT_HEAL_DROP or FCT_SELF_HEAL_DROP) end
+    if heal then y = y - (outgoing and Cfg.healDrop or Cfg.selfHealDrop) end
     local fs = table.remove(fctPool) or fctHost:CreateFontString(nil, "OVERLAY")
-    local base = big and 34 or 20
-    fs:SetFont(FCT_FONT, base, "OUTLINE")
+    local base = big and Cfg.critSize or Cfg.normalSize
+    SafeSetFont(fs, base)
     fs:SetText(text)
     fs:SetTextColor(r, g, b)
     fs:SetAlpha(1)
@@ -610,22 +677,22 @@ fctHost:SetScript("OnUpdate", function(self, dt)
             fctPool[#fctPool + 1] = a.fs
             table.remove(fctActive, i)
         else
-            -- Crit "pop": grow from base size up to FCT_CRIT_POP over the first
-            -- FCT_POP_TIME seconds, then hold -- it visibly scales bigger just
+            -- Crit "pop": grow from base size up to Cfg.critPop over the first
+            -- Cfg.popTime seconds, then hold -- it visibly scales bigger just
             -- after it lands.
             if a.pop and not a.popped then
-                if a.t >= FCT_POP_TIME then
-                    a.fs:SetFont(FCT_FONT, FCT_CRIT_POP, "OUTLINE")
+                if a.t >= Cfg.popTime then
+                    SafeSetFont(a.fs, Cfg.critPop)
                     a.popped = true
                 else
-                    local pp = a.t / FCT_POP_TIME
-                    local size = a.base + (FCT_CRIT_POP - a.base) * (1 - (1 - pp) * (1 - pp))
-                    a.fs:SetFont(FCT_FONT, math.floor(size + 0.5), "OUTLINE")
+                    local pp = a.t / Cfg.popTime
+                    local size = a.base + (Cfg.critPop - a.base) * (1 - (1 - pp) * (1 - pp))
+                    SafeSetFont(a.fs, math.floor(size + 0.5))
                 end
             end
             local wx = a.x
             if a.wiggle then
-                wx = wx + math.sin(a.t * FCT_WIGGLE_FREQ + a.phase) * FCT_WIGGLE_AMP
+                wx = wx + math.sin(a.t * Cfg.wiggleFreq + a.phase) * Cfg.wiggleAmp
             end
             a.fs:SetPoint("CENTER", UIParent, "BOTTOMLEFT", wx, a.y0 + a.rise * p)
             if p > 0.55 then a.fs:SetAlpha(1 - (p - 0.55) / 0.45) end
@@ -709,34 +776,64 @@ fctEv:SetScript("OnEvent", function(self, event, ...)
         return
     end
     fctPlayerGUID = UnitGUID("player")
+    -- Keep Blizzard's OWN floating/scrolling combat text off on every world-enter
+    -- so it never doubles up with ours. (Nameplates are no longer force-held on
+    -- here -- see the one-time warning below.)
     DisableBlizzardFCT()
-    -- Force BOTH enemy and friendly nameplates on. Our floating text reads a
-    -- unit's 3D screen position from its nameplate, and friendlies have none by
-    -- default -- so without this a heal lands on the little target frame instead
-    -- of over the healed ally. Re-applied on every world-enter so it stays on.
-    pcall(SetCVar, "nameplateShowEnemies", "1")
-    pcall(SetCVar, "nameplateShowFriends", "1")
 end)
 
--- Lock nameplates (health bars) ON: players must not be able to toggle them off,
--- since the FCT reads unit positions from them. Re-assert instantly on any CVar
--- change AND poll as a backstop -- covers the V key, Interface options and
--- /console alike. Setting a CVar already at "1" is a no-op, so no event loop.
-local function ForceNameplatesOn()
-    if GetCVar("nameplateShowEnemies") ~= "1" then pcall(SetCVar, "nameplateShowEnemies", "1") end
-    if GetCVar("nameplateShowFriends") ~= "1" then pcall(SetCVar, "nameplateShowFriends", "1") end
+-- Nameplates power the over-target / over-ally combat text: a unit's on-screen
+-- position is read from its nameplate. We used to FORCE them on and re-assert on
+-- every CVar change, but players disliked losing the ability to turn them off.
+-- Now InitSavedVars just defaults them on for a fresh install; the first time a
+-- player turns them off we tell them EXACTLY what they're giving up, remember we
+-- said it, and never override or nag them again.
+local function NameplatesOff()
+    return GetCVar("nameplateShowEnemies") ~= "1" or GetCVar("nameplateShowFriends") ~= "1"
 end
 
-local npLock = CreateFrame("Frame")
-npLock:RegisterEvent("CVAR_UPDATE")
-npLock:SetScript("OnEvent", ForceNameplatesOn)
-local npAccum = 0
-npLock:SetScript("OnUpdate", function(self, dt)
-    npAccum = npAccum + dt
-    if npAccum >= 0.4 then
-        npAccum = 0
-        ForceNameplatesOn()
+StaticPopupDialogs["UNCAPPED64_NAMEPLATE_WARNING"] = {
+    text = "|cff40ff40Uncapped floating combat text|r\n\n"
+        .. "Your outgoing damage floats over your target, and your heals float over the "
+        .. "ally you healed -- both are positioned by reading that unit's nameplate.\n\n"
+        .. "You just turned nameplates |cffff2020OFF|r. While they're off:\n\n"
+        .. "|cffff8080-|r your damage numbers pile up in the center of the screen instead of over the enemy\n"
+        .. "|cffff8080-|r heals you cast on other players no longer appear over them at all\n\n"
+        .. "(Numbers over yourself are unaffected.)\n\n"
+        .. "Press |cffffd100V|r, or use Interface > Names, to turn them back on. "
+        .. "This warning only appears once.",
+    button1 = OKAY,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+local npWatch = CreateFrame("Frame")
+local function MaybeWarnNameplatesOff()
+    if not Uncapped64bitUIDB then return end   -- SavedVariables not loaded yet
+    if Uncapped64bitUIDB.nameplateWarningShown then
+        npWatch:SetScript("OnUpdate", nil)
+        npWatch:UnregisterAllEvents()
+        return
     end
+    if NameplatesOff() then
+        Uncapped64bitUIDB.nameplateWarningShown = true
+        StaticPopup_Show("UNCAPPED64_NAMEPLATE_WARNING")
+        npWatch:SetScript("OnUpdate", nil)
+        npWatch:UnregisterAllEvents()
+    end
+end
+-- CVAR_UPDATE catches the Interface panel and /console; the V key doesn't always
+-- fire it, so a light poll backstops it. Both stop the instant the warning fires.
+npWatch:RegisterEvent("CVAR_UPDATE")
+npWatch:SetScript("OnEvent", MaybeWarnNameplatesOff)
+local npWatchAccum = 0
+npWatch:SetScript("OnUpdate", function(self, dt)
+    npWatchAccum = npWatchAccum + dt
+    if npWatchAccum < 0.5 then return end
+    npWatchAccum = 0
+    MaybeWarnNameplatesOff()
 end)
 
 SLASH_DEV64FONT1 = "/dev64font"
@@ -744,14 +841,20 @@ SlashCmdList["DEV64FONT"] = function(msg)
     local key = (msg or ""):lower():gsub("%s", "")
     if FCT_FONTS[key] then
         FCT_FONT = FCT_FONTS[key]
+        Cfg.font = key
+        if Uncapped64bitUIDB and Uncapped64bitUIDB.fct then Uncapped64bitUIDB.fct.font = key end
+        if RefreshOptionsPanel then RefreshOptionsPanel() end
         DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[dev64]|r combat font -> " .. key)
     else
-        DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[dev64]|r fonts: skurri, arial, morpheus, friz")
+        DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[dev64]|r use /fct to pick a font, or one of: "
+            .. "morpheus, skurri, friz, arial, bangers, anton, bebas, russo, fjalla, "
+            .. "metamorph, righteous, bungee, titan, creepster, pixel")
     end
 end
 
-SLASH_DEV64DMG1 = "/dev64dmg"
-SlashCmdList["DEV64DMG"] = function()
+-- A sample burst of every FCT flavour, for tuning. Shared by /dev64dmg and the
+-- options panel's Preview button.
+local function FctPreview()
     FctSpawnText(Abbrev(math.random(100000000, 2000000000)) .. "!", true, 1, 1, 1, true)          -- melee crit (white, pops)
     FctSpawnText(Abbrev(math.random(1000000, 50000000)), false, 1, 1, 1, true)                    -- melee hit (white)
     FctSpawnText(Abbrev(math.random(1000000, 50000000)) .. "!", true, 1.0, 0.82, 0.0, true)       -- spell crit (yellow, pops)
@@ -759,8 +862,12 @@ SlashCmdList["DEV64DMG"] = function()
     FctSpawnText(Abbrev(math.random(50000000, 900000000)), false, 1.0, 0.4, 0.4, false)            -- taken
     FctSpawnText("Dodge", false, 0.85, 0.95, 1.0, false)                                            -- avoided
     FctSpawnText("Parry", false, 0.85, 0.95, 1.0, false)
-    FctSpawnText("+" .. Abbrev(math.random(5000000, 80000000)), false, 0.4, 1.0, 0.4, false, true)       -- heal
+    FctSpawnText("+" .. Abbrev(math.random(5000000, 80000000)), false, 0.4, 1.0, 0.4, false, true) -- target heal
+    FctSpawnText("+" .. Abbrev(math.random(5000000, 80000000)), true, 0.4, 1.0, 0.4, false, true)  -- self heal crit
 end
+
+SLASH_DEV64DMG1 = "/dev64dmg"
+SlashCmdList["DEV64DMG"] = FctPreview
 
 -- ---------------------------------------------------------------------------
 -- Stat panel hover removal.
@@ -1053,3 +1160,183 @@ banner:SetScript("OnEvent", function(self)
         "|r - RB* protocol filtered, real numbers active.")
     self:UnregisterAllEvents()
 end)
+
+-- ---------------------------------------------------------------------------
+-- Options panel: ESC > Interface > AddOns > "Uncapped 64-bit UI".
+--
+-- Live sliders + font picker for the FCT tunables. Every change writes straight
+-- to Cfg and SavedVariables and takes effect on the next number that floats --
+-- there's no Apply step. RefreshOptionsPanel() re-syncs every widget from Cfg
+-- (used after InitSavedVars loads the saved values, and after /dev64font).
+-- ---------------------------------------------------------------------------
+local optPanel = CreateFrame("Frame", "Uncapped64bitUIOptions", UIParent)
+optPanel.name = "Uncapped 64-bit UI"
+
+local optTitle = optPanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+optTitle:SetPoint("TOPLEFT", 16, -16)
+optTitle:SetText("Uncapped 64-bit UI  |cff808080-|r  Floating Combat Text")
+
+local optSub = optPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+optSub:SetPoint("TOPLEFT", optTitle, "BOTTOMLEFT", 0, -8)
+optSub:SetPoint("RIGHT", optPanel, "RIGHT", -16, 0)   -- wrap to the real panel width
+optSub:SetJustifyH("LEFT")
+optSub:SetText("Tune how your damage and healing numbers look and move. Changes apply "
+    .. "instantly; click Preview to see a sample burst.")
+
+-- One slider bound to a Cfg key. Writes Cfg + SavedVariables live and snaps to step.
+local SLIDERS = {
+    { key = "normalSize",   label = "Normal text size",   min = 10,   max = 48,  step = 1,    fmt = "%d px" },
+    { key = "critSize",     label = "Crit text size",     min = 16,   max = 60,  step = 1,    fmt = "%d px" },
+    { key = "critPop",      label = "Crit pop size",      min = 16,   max = 96,  step = 1,    fmt = "%d px" },
+    { key = "popTime",      label = "Crit pop time",      min = 0.05, max = 0.5, step = 0.05, fmt = "%.2f s" },
+    { key = "wiggleAmp",    label = "Heal sway distance", min = 0,    max = 30,  step = 1,    fmt = "%d px" },
+    { key = "wiggleFreq",   label = "Heal sway speed",    min = 0,    max = 10,  step = 0.5,  fmt = "%.1f" },
+    { key = "healDrop",     label = "Target heal drop",   min = 0,    max = 250, step = 5,    fmt = "%d px" },
+    { key = "selfHealDrop", label = "Self heal drop",     min = 0,    max = 150, step = 5,    fmt = "%d px" },
+    { key = "spreadX",      label = "Horizontal spread",  min = 0,    max = 60,  step = 1,    fmt = "%d px" },
+    { key = "spreadY",      label = "Vertical spread",    min = 0,    max = 60,  step = 1,    fmt = "%d px" },
+}
+
+local sliderWidgets = {}
+local function MakeSlider(meta, point, xOff, yOff)
+    local name = "Uncapped64Slider_" .. meta.key
+    local s = CreateFrame("Slider", name, optPanel, "OptionsSliderTemplate")
+    -- Anchor to the panel EDGE (not a hardcoded x) so the layout fits whatever
+    -- width the Interface options panel actually gives us on this client.
+    s:SetPoint(point, optPanel, point, xOff, yOff)
+    s:SetWidth(185)
+    s:SetMinMaxValues(meta.min, meta.max)
+    s:SetValueStep(meta.step)
+    _G[name .. "Low"]:SetText(tostring(meta.min))
+    _G[name .. "High"]:SetText(tostring(meta.max))
+    local caption = _G[name .. "Text"]
+    local function label(v) caption:SetText(meta.label .. ":  |cffffd100" .. string.format(meta.fmt, v) .. "|r") end
+    s.__label = label
+    s:SetValue(Cfg[meta.key])
+    label(Cfg[meta.key])
+    s:SetScript("OnValueChanged", function(self, value)
+        value = math.floor(value / meta.step + 0.5) * meta.step   -- snap to step
+        Cfg[meta.key] = value
+        if Uncapped64bitUIDB and Uncapped64bitUIDB.fct then Uncapped64bitUIDB.fct[meta.key] = value end
+        label(value)
+    end)
+    sliderWidgets[meta.key] = s
+    return s
+end
+
+-- Two even columns: the left column hugs the panel's left edge, the right column
+-- its right edge. Whatever the panel's real width, both stay on it.
+local SLIDER_HALF = math.ceil(#SLIDERS / 2)
+for i, meta in ipairs(SLIDERS) do
+    if i <= SLIDER_HALF then
+        MakeSlider(meta, "TOPLEFT",  16,  -72 - (i - 1) * 50)
+    else
+        MakeSlider(meta, "TOPRIGHT", -16, -72 - (i - 1 - SLIDER_HALF) * 50)
+    end
+end
+
+-- Font picker.
+local FONT_ORDER = {
+    "morpheus", "skurri", "friz", "arial",
+    "bangers", "anton", "bebas", "russo", "fjalla",
+    "metamorph", "righteous", "bungee", "titan", "creepster", "pixel",
+}
+local FONT_LABEL = {
+    morpheus  = "Morpheus (WoW fantasy)",
+    skurri    = "Skurri (WoW combat)",
+    friz      = "Friz Quadrata (WoW UI)",
+    arial     = "Arial Narrow (WoW clean)",
+    bangers   = "Bangers (comic impact)",
+    anton     = "Anton (heavy)",
+    bebas     = "Bebas Neue (tall caps)",
+    russo     = "Russo One (techno)",
+    fjalla    = "Fjalla One (bold)",
+    metamorph = "Metamorphous (fantasy)",
+    righteous = "Righteous (retro)",
+    bungee    = "Bungee (signage)",
+    titan     = "Titan One (cartoon)",
+    creepster = "Creepster (horror)",
+    pixel     = "Press Start 2P (pixel)",
+}
+
+local fontHeader = optPanel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+fontHeader:SetPoint("TOPLEFT", optPanel, "TOPLEFT", 20, -320)
+fontHeader:SetText("Combat font")
+
+local fontDrop = CreateFrame("Frame", "Uncapped64FontDropdown", optPanel, "UIDropDownMenuTemplate")
+fontDrop:SetPoint("TOPLEFT", optPanel, "TOPLEFT", 4, -340)
+local fontProbe = optPanel:CreateFontString(nil, "OVERLAY")   -- offscreen; tests loadability
+local function OnFontPicked(key)
+    Cfg.font = key
+    FCT_FONT = FCT_FONTS[key] or FCT_FONT
+    if Uncapped64bitUIDB and Uncapped64bitUIDB.fct then Uncapped64bitUIDB.fct.font = key end
+    UIDropDownMenu_SetSelectedValue(fontDrop, key)
+    UIDropDownMenu_SetText(fontDrop, FONT_LABEL[key])
+    -- Bundled fonts added while the client is running only register on a full
+    -- restart; until then the combat text quietly uses the default. Say so.
+    if not fontProbe:SetFont(FCT_FONT, 20, "OUTLINE") then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[FCT]|r \"" .. (FONT_LABEL[key] or key)
+            .. "\" needs a full client restart to load -- using the default font until you restart.")
+    end
+end
+UIDropDownMenu_Initialize(fontDrop, function(self, level)
+    for _, key in ipairs(FONT_ORDER) do
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = FONT_LABEL[key]
+        info.value = key
+        info.func = function() OnFontPicked(key) end   -- capture key; don't depend on self.value
+        info.checked = (Cfg.font == key)
+        UIDropDownMenu_AddButton(info, level)
+    end
+end)
+UIDropDownMenu_SetWidth(fontDrop, 180)
+
+-- Preview + Reset buttons.
+local previewBtn = CreateFrame("Button", nil, optPanel, "UIPanelButtonTemplate")
+previewBtn:SetWidth(110)
+previewBtn:SetHeight(24)
+previewBtn:SetPoint("TOPLEFT", optPanel, "TOPLEFT", 20, -382)
+previewBtn:SetText("Preview")
+previewBtn:SetScript("OnClick", function() FctPreview() end)
+
+local resetBtn = CreateFrame("Button", nil, optPanel, "UIPanelButtonTemplate")
+resetBtn:SetWidth(150)
+resetBtn:SetHeight(24)
+resetBtn:SetPoint("TOPLEFT", optPanel, "TOPLEFT", 140, -382)
+resetBtn:SetText("Reset to defaults")
+
+local function ApplyDefaults()
+    for k, v in pairs(CFG_DEFAULTS) do
+        Cfg[k] = v
+        if Uncapped64bitUIDB and Uncapped64bitUIDB.fct then Uncapped64bitUIDB.fct[k] = v end
+    end
+    FCT_FONT = FCT_FONTS[Cfg.font] or FCT_FONT
+    if RefreshOptionsPanel then RefreshOptionsPanel() end
+end
+resetBtn:SetScript("OnClick", ApplyDefaults)
+
+-- Push every current Cfg value back into the widgets (after a load or a slash cmd).
+RefreshOptionsPanel = function()
+    for key, s in pairs(sliderWidgets) do
+        s:SetValue(Cfg[key])
+        if s.__label then s.__label(Cfg[key]) end
+    end
+    UIDropDownMenu_SetSelectedValue(fontDrop, Cfg.font)
+    UIDropDownMenu_SetText(fontDrop, FONT_LABEL[Cfg.font] or Cfg.font)
+end
+
+optPanel.refresh = RefreshOptionsPanel
+optPanel.okay    = function() end   -- changes are already applied live
+optPanel.cancel  = function() end
+optPanel.default = ApplyDefaults    -- the Interface panel's "Defaults" button
+InterfaceOptions_AddCategory(optPanel)
+RefreshOptionsPanel()
+
+-- Open the panel directly.
+SLASH_UNCAPPEDFCT1 = "/fct"
+SlashCmdList["UNCAPPEDFCT"] = function()
+    -- Called twice on purpose: a long-standing client quirk means the first call
+    -- opens Interface options but doesn't scroll to our category.
+    InterfaceOptionsFrame_OpenToCategory(optPanel)
+    InterfaceOptionsFrame_OpenToCategory(optPanel)
+end
