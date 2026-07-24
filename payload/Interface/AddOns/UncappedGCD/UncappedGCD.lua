@@ -6,6 +6,11 @@
     Values come from the server (lua_scripts/time_stats_feed) over the "UTS"
     addon channel. We post-hook PrintStats so it refreshes with the panel.
 
+    Settings live under ESC > Interface > AddOns > Uncapped > Character Stats
+    (via the shared UncappedUI widget library, when present): toggle each row and
+    recolour the values. Row visibility applies live -- the character sheet
+    reflows the moment a toggle changes.
+
     3.3.5a client: hooksecurefunc, arg1.. globals available.
 ]]
 
@@ -15,23 +20,33 @@ local tmPct, cdrPct, mcPct = 0, 0, 0
 local built  = false
 local hooked = false
 local tmVal, cdrVal, mcVal
+local hdr
+local rows = {}
+local panelRefreshers = {}
+
+-- Live settings (defaults). Merged from SavedVariables at ADDON_LOADED; the
+-- global then points at this table so edits persist.
+local db = {
+    showTime  = true,
+    showCd    = true,
+    showMulti = true,
+    color     = { 0.3, 1.0, 0.3 },   -- green value colour
+}
 
 local function RequestStats()
     SendAddonMessage(PREFIX, "REQ", "WHISPER", UnitName("player"))
 end
 
--- One label(left, yellow) + value(right, green) row, matching AllStats' rows.
-local function MakeRow(anchorFrame, yoff, labelText)
+-- One label(left, yellow) + value(right, coloured) row, matching AllStats' rows.
+-- Placement is handled by Relayout so rows can be shown/hidden live.
+local function MakeRow(labelText)
     local row = CreateFrame("Frame", nil, AllStatsFrame)
-    row:SetPoint("TOPLEFT", anchorFrame, "BOTTOMLEFT", 0, yoff)
-    row:SetPoint("RIGHT", AllStatsFrameStatResil, "RIGHT", 0, 0)
     row:SetHeight(13)
     local lbl = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")   -- yellow label
     lbl:SetPoint("LEFT", 2, 0)
     lbl:SetText(labelText)
     local val = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     val:SetPoint("RIGHT", -2, 0)
-    val:SetTextColor(0.3, 1.0, 0.3)                                            -- green value
     return row, val
 end
 
@@ -51,6 +66,48 @@ local function ExtendBox()
     AllStatsFrame:SetHeight(AllStatsFrame:GetHeight() + 64)
 end
 
+-- Apply the configured value colour to every injected value fontstring.
+local function ApplyColor()
+    local c = db.color
+    for _, r in ipairs(rows) do
+        if r.val then r.val:SetTextColor(c[1], c[2], c[3]) end
+    end
+end
+
+-- Show/hide + restack the enabled rows. Anchors the "Uncapped" header above the
+-- first visible row. Runs on load (via Build) and whenever a toggle changes.
+local function Relayout()
+    if not built then return end
+    local prev = nil
+    local firstVisible = nil
+    for _, r in ipairs(rows) do
+        r.frame:ClearAllPoints()
+        r.frame:SetPoint("RIGHT", AllStatsFrameStatResil, "RIGHT", 0, 0)
+        if r.get() then
+            if not prev then
+                -- first visible row: gap left above it for the header
+                r.frame:SetPoint("TOPLEFT", AllStatsFrameStatResil, "BOTTOMLEFT", 0, -13)
+                firstVisible = r.frame
+            else
+                r.frame:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, 1)
+            end
+            r.frame:Show()
+            prev = r.frame
+        else
+            r.frame:Hide()
+        end
+    end
+    if hdr then
+        if firstVisible then
+            hdr:ClearAllPoints()
+            hdr:SetPoint("BOTTOM", firstVisible, "TOP", 0, -2)
+            hdr:Show()
+        else
+            hdr:Hide()
+        end
+    end
+end
+
 local function Build()
     if built then return end
     if not (AllStatsFrame and AllStatsFrameStatResil) then return end
@@ -58,15 +115,22 @@ local function Build()
 
     ExtendBox()
 
-    local row1
-    row1, tmVal = MakeRow(AllStatsFrameStatResil, -13, "Time Manip:")    -- gap for header
-    local hdr = AllStatsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    hdr:SetPoint("BOTTOM", row1, "TOP", 0, -2)
+    local r1, v1 = MakeRow("Time Manip:")
+    hdr = AllStatsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     hdr:SetText("Uncapped")
 
-    local row2
-    row2, cdrVal = MakeRow(row1, 1, "Cooldown:")
-    _, mcVal = MakeRow(row2, 1, "Multicast:")
+    local r2, v2 = MakeRow("Cooldown:")
+    local r3, v3 = MakeRow("Multicast:")
+
+    tmVal, cdrVal, mcVal = v1, v2, v3
+    rows = {
+        { frame = r1, val = v1, get = function() return db.showTime  end },
+        { frame = r2, val = v2, get = function() return db.showCd    end },
+        { frame = r3, val = v3, get = function() return db.showMulti end },
+    }
+
+    Relayout()   -- apply row visibility on load
+    ApplyColor() -- apply value colour on load
 end
 
 local function Refresh()
@@ -84,7 +148,38 @@ local function TryHook()
     end
 end
 
+-- ===========================================================================
+-- Settings page (under the shared "Uncapped" hub). Guarded: the widget library
+-- is provided by another addon and may be absent.
+-- ===========================================================================
+if UncappedUI then
+    local panel, L = UncappedUI.CreatePanel("Character Stats",
+        "Show or hide the extra Uncapped rows in the character sheet's All Stats panel, and recolour their values.")
+
+    L:Header("Rows")
+    L:Note("Each toggle shows or hides its row in the All Stats panel. Changes apply immediately -- the character sheet reflows on the spot.", 28)
+
+    panelRefreshers[#panelRefreshers + 1] = L:Check("Show Time Manipulation",
+        function() return db.showTime end,
+        function(v) db.showTime = v; Relayout() end).uncappedRefresh
+    panelRefreshers[#panelRefreshers + 1] = L:Check("Show Cooldown Reduction",
+        function() return db.showCd end,
+        function(v) db.showCd = v; Relayout() end).uncappedRefresh
+    panelRefreshers[#panelRefreshers + 1] = L:Check("Show Multicast %",
+        function() return db.showMulti end,
+        function(v) db.showMulti = v; Relayout() end).uncappedRefresh
+
+    L:Gap(6)
+    L:Header("Appearance")
+    panelRefreshers[#panelRefreshers + 1] = L:Color("Value colour",
+        function() return db.color[1], db.color[2], db.color[3] end,
+        function(r, g, b) db.color = { r, g, b }; ApplyColor() end).uncappedRefresh
+
+    UncappedGCDPanel = panel
+end
+
 local ev = CreateFrame("Frame")
+ev:RegisterEvent("ADDON_LOADED")
 ev:RegisterEvent("PLAYER_LOGIN")
 ev:RegisterEvent("PLAYER_ENTERING_WORLD")
 ev:RegisterEvent("CHAT_MSG_ADDON")
@@ -93,7 +188,23 @@ ev:SetScript("OnEvent", function(self, e, a1, a2)
     a1 = a1 or arg1
     a2 = a2 or arg2
 
-    if e == "PLAYER_LOGIN" then
+    if e == "ADDON_LOADED" then
+        if a1 == "UncappedGCD" then
+            local s = UncappedGCDDB
+            if type(s) == "table" then
+                if s.showTime  ~= nil then db.showTime  = s.showTime  end
+                if s.showCd    ~= nil then db.showCd    = s.showCd    end
+                if s.showMulti ~= nil then db.showMulti = s.showMulti end
+                if type(s.color) == "table" and s.color[1] then
+                    db.color = { s.color[1], s.color[2], s.color[3] }
+                end
+            end
+            UncappedGCDDB = db   -- persist edits to our live table
+            for _, r in ipairs(panelRefreshers) do r() end
+            Relayout()   -- apply loaded row visibility (no-op until Build runs)
+            ApplyColor() -- apply loaded value colour
+        end
+    elseif e == "PLAYER_LOGIN" then
         TryHook()
     elseif e == "PLAYER_ENTERING_WORLD" then
         TryHook()

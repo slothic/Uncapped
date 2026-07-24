@@ -1170,7 +1170,11 @@ end)
 -- (used after InitSavedVars loads the saved values, and after /dev64font).
 -- ---------------------------------------------------------------------------
 local optPanel = CreateFrame("Frame", "Uncapped64bitUIOptions", UIParent)
-optPanel.name = "Uncapped 64-bit UI"
+-- Nest under the shared "Uncapped" hub (registered by UncappedOptions). If that
+-- addon is missing, a .parent naming a non-existent category just falls back to
+-- a top-level entry, so this is safe either way.
+optPanel.name = "Combat Text"
+optPanel.parent = "Uncapped"
 
 local optTitle = optPanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 optTitle:SetPoint("TOPLEFT", 16, -16)

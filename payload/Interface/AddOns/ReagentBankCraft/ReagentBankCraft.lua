@@ -31,6 +31,67 @@
 -- Prefix for the whole server->client pipe (see the transport note at OnEvent).
 local ADDON_PIPE_PREFIX = "UNC"
 
+-- ---------------------------------------------------------------------------
+-- SavedVariables (ReagentBankCraftDB). Account-wide. A single shared global
+-- table drives both this file and Wishlist.lua (they are one addon, loaded in
+-- order). Defaults are filled for every key at load and again at ADDON_LOADED
+-- once the client has restored the saved table, so callers can always index it.
+local RBC_DEFAULTS = {
+    sourceRows = 14,                    -- "where to farm" visible rows
+    sourceRowHeight = 20,               -- "where to farm" row height (px)
+    wishlistRows = 22,                  -- /wishlist visible rows
+    savePos = true,                     -- remember dragged window positions
+    haveColor = { 0.0, 1.0, 0.0 },      -- wishlist "have enough" colour
+    needColor = { 1.0, 0.333, 0.333 },  -- wishlist "still short" colour
+}
+
+-- Ensures ReagentBankCraftDB is a table and every default key is present.
+-- Idempotent: only ever fills gaps, so it is safe to call before AND after the
+-- client restores SavedVariables (which replaces the global with the saved one).
+function ReagentBankCraft_InitDB()
+    if type(ReagentBankCraftDB) ~= "table" then
+        ReagentBankCraftDB = {}
+    end
+    local db = ReagentBankCraftDB
+    for k, v in pairs(RBC_DEFAULTS) do
+        if db[k] == nil then
+            if type(v) == "table" then
+                local t = {}
+                for i, vv in ipairs(v) do t[i] = vv end
+                db[k] = t
+            else
+                db[k] = v
+            end
+        end
+    end
+    return db
+end
+
+ReagentBankCraft_InitDB()
+
+-- Window position persistence, shared with Wishlist.lua. Saved only while
+-- db.savePos is on; restore falls back to the given default center offset when
+-- there is no saved position or the feature is off.
+function ReagentBankCraft_SavePos(f, key)
+    local db = ReagentBankCraftDB
+    if not (db and db.savePos) then return end
+    local point, _, relPoint, x, y = f:GetPoint()
+    if point then
+        db[key] = { point = point, relPoint = relPoint or point, x = x or 0, y = y or 0 }
+    end
+end
+
+function ReagentBankCraft_RestorePos(f, key, dPoint, dRel, dX, dY)
+    local db = ReagentBankCraftDB
+    local p = db and db.savePos and db[key]
+    f:ClearAllPoints()
+    if p then
+        f:SetPoint(p.point or dPoint, UIParent, p.relPoint or dRel, p.x or dX, p.y or dY)
+    else
+        f:SetPoint(dPoint, UIParent, dRel, dX, dY)
+    end
+end
+
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("CHAT_MSG_CHANNEL")
@@ -219,6 +280,9 @@ ReagentBankCraft_SourceBuffer = {}
 local sourceFrame = CreateFrame("Frame", "ReagentBankSourceFrame", UIParent)
 sourceFrame:SetSize(430, 340)
 sourceFrame:SetPoint("CENTER", UIParent, "CENTER", 260, 0)
+-- Default position; ReagentBankCraft_RestoreSourceWindow re-applies the saved
+-- or default spot on each open.
+local SOURCE_DEFAULT_POS = { "CENTER", "CENTER", 260, 0 }
 sourceFrame:SetBackdrop({
     bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
     edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
@@ -229,8 +293,16 @@ sourceFrame:SetMovable(true)
 sourceFrame:EnableMouse(true)
 sourceFrame:RegisterForDrag("LeftButton")
 sourceFrame:SetScript("OnDragStart", sourceFrame.StartMoving)
-sourceFrame:SetScript("OnDragStop", sourceFrame.StopMovingOrSizing)
+sourceFrame:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    ReagentBankCraft_SavePos(self, "sourcePos")
+end)
 sourceFrame:Hide()
+
+function ReagentBankCraft_RestoreSourceWindow()
+    ReagentBankCraft_RestorePos(sourceFrame, "sourcePos",
+        SOURCE_DEFAULT_POS[1], SOURCE_DEFAULT_POS[2], SOURCE_DEFAULT_POS[3], SOURCE_DEFAULT_POS[4])
+end
 
 sourceFrame.title = sourceFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 sourceFrame.title:SetPoint("TOPLEFT", 20, -18)
@@ -242,17 +314,40 @@ sourceFrame.close:SetPoint("TOPRIGHT", -8, -8)
 -- Visible rows. The full result set lives in the buffer and this window
 -- scrolls through it -- common materials have dozens of sources and a fixed
 -- 8-line panel simply hid most of them.
+-- These start at the DB defaults and are re-read from the DB each time the
+-- window is (re)built, so the sliders on the settings page take effect on the
+-- next open. RenderSources and the scroll handler below capture them as
+-- upvalues, so reassigning them here updates every closure.
 local SOURCE_VISIBLE_ROWS = 14
 local SOURCE_ROW_HEIGHT = 20
 
 sourceFrame.lines = {}
-for i = 1, SOURCE_VISIBLE_ROWS do
-    local fs = sourceFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    fs:SetPoint("TOPLEFT", 22, -38 - (i - 1) * SOURCE_ROW_HEIGHT)
-    fs:SetWidth(365)
-    fs:SetJustifyH("LEFT")
-    sourceFrame.lines[i] = fs
+
+-- (Re)creates and repositions the visible rows to match the current DB sizing.
+-- Extra rows from a previous, larger build are hidden rather than destroyed.
+local function RebuildSourceRows()
+    local db = ReagentBankCraftDB
+    SOURCE_VISIBLE_ROWS = (db and db.sourceRows) or 14
+    SOURCE_ROW_HEIGHT = (db and db.sourceRowHeight) or 20
+    for i = 1, SOURCE_VISIBLE_ROWS do
+        local fs = sourceFrame.lines[i]
+        if not fs then
+            fs = sourceFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            fs:SetWidth(365)
+            fs:SetJustifyH("LEFT")
+            sourceFrame.lines[i] = fs
+        end
+        fs:ClearAllPoints()
+        fs:SetPoint("TOPLEFT", 22, -38 - (i - 1) * SOURCE_ROW_HEIGHT)
+        fs:Show()
+    end
+    for i = SOURCE_VISIBLE_ROWS + 1, #sourceFrame.lines do
+        sourceFrame.lines[i]:SetText("")
+        sourceFrame.lines[i]:Hide()
+    end
 end
+
+RebuildSourceRows()
 
 -- FauxScrollFrame is the 3.3.5 way to scroll a fixed set of rows over a longer
 -- list: the rows never move, the offset into the data changes.
@@ -305,6 +400,8 @@ sourceFrame.scroll:SetScript("OnVerticalScroll", function(self, offset)
 end)
 
 function ReagentBankCraft_ShowSources(itemName)
+    RebuildSourceRows()
+    ReagentBankCraft_RestoreSourceWindow()
     sourceFrame.title:SetText("Where to farm: " .. (itemName or "item"))
     FauxScrollFrame_SetOffset(sourceFrame.scroll, 0)
     sourceFrame.scroll:SetVerticalScroll(0)
@@ -321,6 +418,15 @@ end
 local function OnEvent(self, event, ...)
     if event == "ADDON_LOADED" then
         local addonName = ...
+        if addonName == "ReagentBankCraft" then
+            -- Our own load: the client has now restored ReagentBankCraftDB (if
+            -- any), so re-fill any missing keys and sync the settings page.
+            ReagentBankCraft_InitDB()
+            if ReagentBankCraft_RefreshPanel then
+                ReagentBankCraft_RefreshPanel()
+            end
+            return
+        end
         if addonName ~= "Blizzard_TradeSkillUI" then
             return
         end
@@ -549,3 +655,69 @@ local function OnEvent(self, event, ...)
 end
 
 frame:SetScript("OnEvent", OnEvent)
+
+
+-- ---------------------------------------------------------------------------
+-- Settings page, nested under the "Uncapped" hub (ESC > Interface > AddOns).
+-- Guarded: the shared UncappedUI library comes from UncappedOptions, which may
+-- not be present. Every knob reads/writes ReagentBankCraftDB directly.
+if UncappedUI then
+    local panel, L = UncappedUI.CreatePanel("Reagent Bank",
+        "Row sizing, wishlist colours and window behaviour for the reagent-bank crafting helper, the 'where to farm' panel and the /wishlist tracker.")
+
+    local refreshers = {}
+    local function track(w)
+        if w and w.uncappedRefresh then
+            refreshers[#refreshers + 1] = w.uncappedRefresh
+        end
+        return w
+    end
+
+    L:Header("List sizing")
+    L:Note("Row counts and heights take effect the next time each window is opened.", 28)
+    track(L:Slider("Farm-source list rows", 5, 30, 1,
+        function() return ReagentBankCraftDB.sourceRows end,
+        function(v) ReagentBankCraftDB.sourceRows = v end, "%d"))
+    track(L:Slider("Farm-source row height", 12, 28, 1,
+        function() return ReagentBankCraftDB.sourceRowHeight end,
+        function(v) ReagentBankCraftDB.sourceRowHeight = v end, "%d"))
+    track(L:Slider("Wishlist visible rows", 5, 40, 1,
+        function() return ReagentBankCraftDB.wishlistRows end,
+        function(v) ReagentBankCraftDB.wishlistRows = v end, "%d"))
+
+    L:Gap(6)
+    L:Header("Windows")
+    track(L:Check("Remember window positions",
+        function() return ReagentBankCraftDB.savePos end,
+        function(v) ReagentBankCraftDB.savePos = v end))
+    L:Button("Reset window positions", function()
+        ReagentBankCraftDB.sourcePos = nil
+        ReagentBankCraftDB.wishlistPos = nil
+        if ReagentBankCraft_RestoreSourceWindow then ReagentBankCraft_RestoreSourceWindow() end
+        if ReagentBankWishlist_RestoreWindow then ReagentBankWishlist_RestoreWindow() end
+    end, 180)
+
+    L:Gap(6)
+    L:Header("Wishlist colours")
+    L:Note("Colours the have/need totals in the /wishlist tracker: the first once you have enough of a material, the second while you are still short.", 40)
+    track(L:Color("Wishlist 'have' colour",
+        function() local c = ReagentBankCraftDB.haveColor; return c[1], c[2], c[3] end,
+        function(r, g, b)
+            ReagentBankCraftDB.haveColor = { r, g, b }
+            if ReagentBankWishlist_Rerender then ReagentBankWishlist_Rerender() end
+        end))
+    track(L:Color("Wishlist 'need' colour",
+        function() local c = ReagentBankCraftDB.needColor; return c[1], c[2], c[3] end,
+        function(r, g, b)
+            ReagentBankCraftDB.needColor = { r, g, b }
+            if ReagentBankWishlist_Rerender then ReagentBankWishlist_Rerender() end
+        end))
+
+    -- Called from ADDON_LOADED once SavedVariables are restored, so the widgets
+    -- reflect the persisted values rather than the load-time defaults.
+    function ReagentBankCraft_RefreshPanel()
+        for _, r in ipairs(refreshers) do r() end
+    end
+
+    ReagentBankCraftPanel = panel
+end

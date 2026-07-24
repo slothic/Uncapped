@@ -8,7 +8,29 @@
 -- and every ~15s (so it also picks up the hourly rotation); the countdown is
 -- ticked down locally between pushes. The RBHOT lines are filtered out of chat.
 
-local SPEED = 55  -- scroll speed, pixels/second
+-- ---------------------------------------------------------------------------
+-- Settings. Live values live in `db`; they are persisted to the account-wide
+-- UncappedHotzonesDB SavedVariable at ADDON_LOADED (see the loader at the
+-- bottom). Every knob is applied both on load and on change, so the in-game
+-- settings page (ESC > Interface > AddOns > Uncapped > Hotzones) works live.
+-- ---------------------------------------------------------------------------
+local defaults = {
+    enabled      = true,                    -- show the hotzone bar at all
+    speed        = 55,                       -- scroll speed, pixels/second
+    height       = 16,                       -- bar height, pixels
+    bgAlpha      = 0.55,                      -- dark background opacity
+    raidColor    = { 1.0, 0.25, 0.25 },      -- RAID entry colour (was ffff4040)
+    dungeonColor = { 0.235, 0.905, 1.0 },    -- DUNGEON entry colour (was ff3ce7ff)
+}
+
+-- Start from a private copy of the defaults so the frame below can be built with
+-- sane values; the loader re-points `db` at the saved table and re-applies.
+local db = {}
+for k, v in pairs(defaults) do
+    if type(v) == "table" then db[k] = { v[1], v[2], v[3] } else db[k] = v end
+end
+
+local panelRefreshers = {}   -- settings widgets to resync after the DB loads
 
 -- ---------------------------------------------------------------------------
 -- Bar frame: full screen width so the text scrolls off the screen edges (WotLK
@@ -21,14 +43,14 @@ local SPEED = 55  -- scroll speed, pixels/second
 local bar = CreateFrame("Frame", "UncappedHotzoneBar", UIParent)
 bar:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
 bar:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", 0, 0)
-bar:SetHeight(16)
+bar:SetHeight(db.height)
 bar:SetFrameStrata("LOW")
 bar:Hide()
 
 bar.bg = bar:CreateTexture(nil, "BACKGROUND")
 bar.bg:SetAllPoints(bar)
 bar.bg:SetTexture(0, 0, 0)
-bar.bg:SetAlpha(0.55)
+bar.bg:SetAlpha(db.bgAlpha)
 
 -- Text layer, raised above the buffs so the text is never clipped by them.
 local textLayer = CreateFrame("Frame", nil, bar)
@@ -53,6 +75,15 @@ local rebuildAcc = 1
 local started = false      -- has the first data arrived (start the scroll once)?
 local scrollWidth = 1500   -- reset distance; refreshed to the real text width each rebuild
 
+-- Convert a {r,g,b} (0-1) colour to a "rrggbb" hex string for the |cffRRGGBB
+-- escape. Read live from `db` so a colour change on the settings page shows up on
+-- the next rebuild (~1s).
+local function chan(x) return math.floor(math.min(1, math.max(0, x)) * 255 + 0.5) end
+local function kindHex(kind)
+    local c = (kind == "raid") and db.raidColor or db.dungeonColor
+    return string.format("%02x%02x%02x", chan(c[1]), chan(c[2]), chan(c[3]))
+end
+
 local function fmtRemaining(sec)
     sec = math.max(0, math.floor(sec))
     local h = math.floor(sec / 3600)
@@ -72,12 +103,13 @@ local function BuildText()
     local now = GetTime()
     local parts = { "|cffffd100MYTHIC+ HOTZONES|r    " }
     for _, z in ipairs(zones) do
-        local color = (z.kind == "raid") and "ffff4040" or "ff3ce7ff"
+        local color = "ff" .. kindHex(z.kind)
         local left = fmtRemaining(z.expiry - now)
         table.insert(parts, string.format("|c%s%s|r |cffaaaaaa(%s, %s left)|r        ", color, z.name, z.kind, left))
     end
     bar.text:SetText(table.concat(parts))
-    bar:Show()
+    -- Only reveal the bar if the player hasn't disabled it on the settings page.
+    if db.enabled then bar:Show() else bar:Hide() end
 
     -- Cache the real rendered width for the scroll-reset. Ignore a bogus 0 (can
     -- happen if measured before layout) and keep the last good value.
@@ -88,6 +120,7 @@ local function BuildText()
 end
 
 bar:SetScript("OnUpdate", function(self, delta)
+    if not db.enabled then return end
     if #zones == 0 then return end
 
     -- Rebuild ~once a second so the countdowns tick.
@@ -99,12 +132,24 @@ bar:SetScript("OnUpdate", function(self, delta)
 
     -- Scroll left across the WHOLE screen; when the string has fully passed the
     -- left edge, wrap back to the right edge.
-    offset = offset - SPEED * delta
+    offset = offset - db.speed * delta
     if offset < -scrollWidth then
         offset = ScreenWidth()
     end
     self.text:SetPoint("LEFT", textLayer, "LEFT", offset, 0)
 end)
+
+-- Push every live setting onto the bar. Called on load (after the DB is read)
+-- and whenever the settings page toggles enable/disable, so nothing is stale.
+local function ApplyBar()
+    bar:SetHeight(db.height)
+    bar.bg:SetAlpha(db.bgAlpha)
+    if db.enabled and #zones > 0 then
+        BuildText()          -- rebuild + Show with current colours
+    else
+        bar:Hide()
+    end
+end
 
 -- RBHOT:<name>~<kind>~<remaining>|<name>~<kind>~<remaining>   (payload may be empty)
 local function OnData(payload)
@@ -151,6 +196,20 @@ listener:RegisterEvent("ADDON_LOADED")
 listener:SetScript("OnEvent", function(self, event, a1, a2)
     if event == "ADDON_LOADED" then
         if a1 == "UncappedHotzones" then
+            -- Load settings: create the SavedVariable if absent and backfill a
+            -- default for every key, then point the live `db` at it so edits
+            -- persist. (Reassigning the `db` upvalue updates every closure.)
+            if type(UncappedHotzonesDB) ~= "table" then UncappedHotzonesDB = {} end
+            local s = UncappedHotzonesDB
+            for k, v in pairs(defaults) do
+                if s[k] == nil then
+                    if type(v) == "table" then s[k] = { v[1], v[2], v[3] } else s[k] = v end
+                end
+            end
+            db = s
+            ApplyBar()                                   -- apply on load
+            for _, r in ipairs(panelRefreshers) do r() end  -- resync the page
+
             JoinChannelByName(UnitName("player"))
         end
         return
@@ -183,6 +242,42 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         OnData(payload)
     end
 end)
+
+-- ---------------------------------------------------------------------------
+-- Settings page (ESC > Interface > AddOns > Uncapped > Hotzones). Provided by
+-- the shared UncappedUI widget library (UncappedOptions addon); guard on it so
+-- the bar still works standalone if that addon is missing.
+-- ---------------------------------------------------------------------------
+if UncappedUI then
+    local panel, L = UncappedUI.CreatePanel("Hotzones",
+        "The scrolling top-screen bar of active Mythic+ hotzones -- raids and dungeons, each with a live countdown.")
+
+    L:Header("Hotzone bar")
+    panelRefreshers[#panelRefreshers + 1] = L:Check("Show hotzone bar",
+        function() return db.enabled end,
+        function(v) db.enabled = v; ApplyBar() end).uncappedRefresh
+    panelRefreshers[#panelRefreshers + 1] = L:Slider("Ticker scroll speed", 10, 150, 5,
+        function() return db.speed end,
+        function(v) db.speed = v end, "%d").uncappedRefresh
+    panelRefreshers[#panelRefreshers + 1] = L:Slider("Bar height", 10, 30, 1,
+        function() return db.height end,
+        function(v) db.height = v; bar:SetHeight(v) end, "%d").uncappedRefresh
+    panelRefreshers[#panelRefreshers + 1] = L:Slider("Bar background opacity", 0.0, 1.0, 0.05,
+        function() return db.bgAlpha end,
+        function(v) db.bgAlpha = v; bar.bg:SetAlpha(v) end, "%.2f").uncappedRefresh
+
+    L:Gap(6)
+    L:Header("Colours")
+    panelRefreshers[#panelRefreshers + 1] = L:Color("Raid colour",
+        function() return db.raidColor[1], db.raidColor[2], db.raidColor[3] end,
+        function(r, g, b) db.raidColor = { r, g, b }; if #zones > 0 then BuildText() end end).uncappedRefresh
+    panelRefreshers[#panelRefreshers + 1] = L:Color("Dungeon colour",
+        function() return db.dungeonColor[1], db.dungeonColor[2], db.dungeonColor[3] end,
+        function(r, g, b) db.dungeonColor = { r, g, b }; if #zones > 0 then BuildText() end end).uncappedRefresh
+
+    L:Gap(6)
+    L:Note("|cff808080The bar appears on its own when the server pushes active hotzones. Use /hotzones to preview it with sample data.|r", 40)
+end
 
 SLASH_UNCAPPEDHOTZONE1 = "/hotzones"
 SlashCmdList["UNCAPPEDHOTZONE"] = function()

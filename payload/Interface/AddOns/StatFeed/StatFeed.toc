@@ -3,6 +3,7 @@
 ## Notes: Shows Dungeon Stats gains in their own window instead of spamming chat.
 ## Author: Uncapped
 ## Version: 1.0
+## OptionalDeps: UncappedOptions
 ## SavedVariablesPerCharacter: StatFeedDB
 
 StatFeed.lua

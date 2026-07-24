@@ -3,5 +3,7 @@
 ## Notes: Shows your Time Manipulation and Cooldown Reduction values inside the AllStats character panel.
 ## Author: Uncapped
 ## Dependencies: AllStats
+## OptionalDeps: UncappedOptions
+## SavedVariables: UncappedGCDDB
 
 UncappedGCD.lua

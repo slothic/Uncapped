@@ -3,5 +3,7 @@
 ## Notes: Shiny treasure-chest popup for Mythic+ keystone crafting-mat bonuses.
 ## Author: Uncapped
 ## Version: 1.0
+## OptionalDeps: UncappedOptions
+## SavedVariables: UncappedRewardsDB
 
 UncappedRewards.lua

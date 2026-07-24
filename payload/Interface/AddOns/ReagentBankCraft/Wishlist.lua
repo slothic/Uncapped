@@ -17,7 +17,12 @@
 --
 -- Toggle with /wishlist. Add items from the crafting window's Track button.
 
+-- Re-read from ReagentBankCraftDB (shared with ReagentBankCraft.lua) each time
+-- the rows are (re)built, so the "Wishlist visible rows" slider takes effect on
+-- the next open. Render/Toggle capture it as an upvalue, so reassigning it in
+-- RebuildRows updates every closure. Starts at the DB default.
 local MAX_ROWS = 22
+local WISHLIST_DEFAULT_POS = { "CENTER", "CENTER", -320, 0 }
 
 ReagentBankWishlist_Buffer = {}
 ReagentBankWishlist_Entries = {}
@@ -35,8 +40,22 @@ frame:SetMovable(true)
 frame:EnableMouse(true)
 frame:RegisterForDrag("LeftButton")
 frame:SetScript("OnDragStart", frame.StartMoving)
-frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+frame:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    if ReagentBankCraft_SavePos then
+        ReagentBankCraft_SavePos(self, "wishlistPos")
+    end
+end)
 frame:Hide()
+
+-- Re-applies the saved (or default) window position. Also used by the settings
+-- page's "Reset window positions" button.
+function ReagentBankWishlist_RestoreWindow()
+    if ReagentBankCraft_RestorePos then
+        ReagentBankCraft_RestorePos(frame, "wishlistPos",
+            WISHLIST_DEFAULT_POS[1], WISHLIST_DEFAULT_POS[2], WISHLIST_DEFAULT_POS[3], WISHLIST_DEFAULT_POS[4])
+    end
+end
 
 frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 frame.title:SetPoint("TOPLEFT", 20, -18)
@@ -47,22 +66,60 @@ frame.close:SetPoint("TOPRIGHT", -8, -8)
 
 frame.rows = {}
 frame.rowButtons = {}
-for i = 1, MAX_ROWS do
-    local fs = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    fs:SetPoint("TOPLEFT", 22, -40 - (i - 1) * 16)
-    fs:SetWidth(295)
-    fs:SetJustifyH("LEFT")
-    frame.rows[i] = fs
 
-    -- Invisible hit area over each row. FontStrings cannot take clicks, so
-    -- removal needs a real frame on top; only rows that are a wishlist HEADER
-    -- get wired up, and the rest stay inert.
-    local hit = CreateFrame("Button", nil, frame)
-    hit:SetPoint("TOPLEFT", 20, -40 - (i - 1) * 16)
-    hit:SetSize(300, 16)
-    hit:RegisterForClicks("RightButtonUp")
-    hit:Hide()
-    frame.rowButtons[i] = hit
+-- (Re)creates rows to match the current DB row count. Extra rows from a larger
+-- previous build are hidden rather than destroyed.
+local function RebuildRows()
+    MAX_ROWS = (ReagentBankCraftDB and ReagentBankCraftDB.wishlistRows) or 22
+    for i = 1, MAX_ROWS do
+        local fs = frame.rows[i]
+        if not fs then
+            fs = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            fs:SetWidth(295)
+            fs:SetJustifyH("LEFT")
+            frame.rows[i] = fs
+
+            -- Invisible hit area over each row. FontStrings cannot take clicks,
+            -- so removal needs a real frame on top; only rows that are a wishlist
+            -- HEADER get wired up, and the rest stay inert.
+            local hit = CreateFrame("Button", nil, frame)
+            hit:SetSize(300, 16)
+            hit:RegisterForClicks("RightButtonUp")
+            frame.rowButtons[i] = hit
+        end
+        fs:ClearAllPoints()
+        fs:SetPoint("TOPLEFT", 22, -40 - (i - 1) * 16)
+        fs:Show()
+        local hit = frame.rowButtons[i]
+        hit:ClearAllPoints()
+        hit:SetPoint("TOPLEFT", 20, -40 - (i - 1) * 16)
+        hit:Hide()
+    end
+    for i = MAX_ROWS + 1, #frame.rows do
+        frame.rows[i]:SetText("")
+        frame.rows[i]:Hide()
+        frame.rowButtons[i]:Hide()
+        frame.rowButtons[i]:SetScript("OnClick", nil)
+    end
+end
+
+RebuildRows()
+
+-- Every open re-applies DB-driven sizing and window position before the fresh
+-- list arrives from the server.
+frame:SetScript("OnShow", function(self)
+    RebuildRows()
+    ReagentBankWishlist_RestoreWindow()
+end)
+
+-- Converts a {r,g,b} (0-1) DB colour into a "|cffRRGGBB" escape, falling back to
+-- the given default table when unset.
+local function ColorEscape(c, fallback)
+    c = c or fallback
+    local r = math.floor((c[1] or 1) * 255 + 0.5)
+    local g = math.floor((c[2] or 1) * 255 + 0.5)
+    local b = math.floor((c[3] or 1) * 255 + 0.5)
+    return string.format("|cff%02x%02x%02x", r, g, b)
 end
 
 StaticPopupDialogs["REAGENTBANK_WISHLIST_REMOVE"] = {
@@ -114,9 +171,13 @@ local function Render()
         for _, mat in ipairs(entry.materials) do
             if row > MAX_ROWS then break end
 
-            -- Green once satisfied, red while short. Colour is doing the real
-            -- work here: the point is to see at a glance what still needs doing.
-            local colour = (mat.have >= mat.need) and "|cff00ff00" or "|cffff5555"
+            -- Green once satisfied, red while short (both configurable on the
+            -- settings page). Colour is doing the real work here: the point is to
+            -- see at a glance what still needs doing.
+            local db = ReagentBankCraftDB
+            local colour = (mat.have >= mat.need)
+                and ColorEscape(db and db.haveColor, { 0.0, 1.0, 0.0 })
+                or ColorEscape(db and db.needColor, { 1.0, 0.333, 0.333 })
             local indent = string.rep("  ", (mat.depth or 0) + 1)
 
             frame.rows[row]:SetText(string.format("%s%s%d/%d|r %s",
@@ -178,6 +239,14 @@ function ReagentBankWishlist_OnMessage(text)
     end
 
     return false
+end
+
+-- Re-renders the current list in place (e.g. after a colour change on the
+-- settings page), without asking the server for fresh data.
+function ReagentBankWishlist_Rerender()
+    if frame:IsShown() then
+        Render()
+    end
 end
 
 SLASH_REAGENTWISHLIST1 = "/wishlist"

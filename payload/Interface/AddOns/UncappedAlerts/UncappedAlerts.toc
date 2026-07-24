@@ -3,6 +3,7 @@
 ## Notes: Client extras for Uncapped: restart warnings with auto-close so the launcher can update you, and a Land Here button to cancel a flight path in progress.
 ## Author: Uncapped
 ## Version: 1.0
+## OptionalDeps: UncappedOptions
 ## SavedVariablesPerCharacter: UncappedAlertsDB
 
 UncappedAlerts.lua

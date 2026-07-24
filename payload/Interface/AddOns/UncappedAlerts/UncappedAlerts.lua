@@ -49,6 +49,10 @@ end
 local countdown = nil
 local elapsed = 0
 
+-- Set when the settings page is built (below). Lets the /alerts commands repaint
+-- an already-open page so the checkbox/slider never show a stale value.
+local RefreshAlertsPanel = nil
+
 -- Set from the server's RBMODE line. Not saved between sessions: it describes
 -- one specific restart, and a stale value from last week is worse than the
 -- default.
@@ -317,4 +321,68 @@ SlashCmdList["UNCAPPEDALERTS"] = function(arg)
         DEFAULT_CHAT_FRAME:AddMessage("|cff888888The game only closes on a restart that ships a client update; the server says which.|r")
         DEFAULT_CHAT_FRAME:AddMessage("|cff888888/alerts sound|r, |cff888888/alerts time <seconds>|r, |cff888888/alerts testsound|r, |cff888888/alerts testquit|r")
     end
+
+    -- Keep an open settings page in step with changes made via chat command.
+    if RefreshAlertsPanel then
+        RefreshAlertsPanel()
+    end
+end
+
+-- ===========================================================================
+-- Settings page (ESC > Interface > AddOns > Uncapped > Alerts).
+--
+-- Built with the shared UncappedUI library, which the UncappedOptions addon
+-- provides at runtime. Guarded so UncappedAlerts still loads standalone if that
+-- addon is absent. Every knob drives the same UncappedAlertsDB keys and helpers
+-- the /alerts commands use, so the two stay in sync.
+--
+-- Deliberately NOT exposed: the update-mode auto-quit. Coming back on stale
+-- client files is the failure this addon exists to prevent, so it must not be
+-- switchable off.
+-- ===========================================================================
+if UncappedUI then
+    -- Default "Land Here" button placement, mirroring TaxiCancel.lua's fallback.
+    local TAXI_DEFAULT = { point = "TOP", relativePoint = "TOP", x = 0, y = -180 }
+
+    local panel, L = UncappedUI.CreatePanel("Alerts",
+        "Restart warnings and the Land Here flight-cancel button.")
+
+    L:Header("Restart warnings")
+    L:Note("When the server announces a restart, a countdown warns you so you are not caught mid-fight. If the restart ships a client update the game closes at the end so the launcher can patch you -- that is mandatory and cannot be turned off.", 44)
+
+    local soundCheck = L:Check("Play restart-warning sound",
+        function() return Setting("sound", true) end,
+        function(v) UncappedAlertsDB.sound = v end)
+
+    local countSlider = L:Slider("Restart warning countdown (seconds)", 5, 600, 5,
+        function() return Setting("countdown", DEFAULT_COUNTDOWN) end,
+        function(v) UncappedAlertsDB.countdown = v end,
+        "%d")
+
+    L:Button("Test warning sound", function()
+        PlayAlertSound()
+        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Played the alert. If you heard nothing, alert.mp3 is missing from the addon folder.")
+    end, 180)
+
+    L:Gap(6)
+    L:Header("Land Here button")
+    L:Note("The Land Here button appears while you are flying and is draggable. If you have lost track of it, reset it to its default spot below the minimap.", 32)
+
+    L:Button("Reset 'Land Here' button position", function()
+        UncappedAlertsDB.taxiButtonPos = { point = TAXI_DEFAULT.point, relativePoint = TAXI_DEFAULT.relativePoint, x = TAXI_DEFAULT.x, y = TAXI_DEFAULT.y }
+        local btn = _G.UncappedLandHereButton
+        if btn then
+            btn:ClearAllPoints()
+            btn:SetPoint(TAXI_DEFAULT.point, UIParent, TAXI_DEFAULT.relativePoint, TAXI_DEFAULT.x, TAXI_DEFAULT.y)
+        end
+        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Land Here button reset to its default position.")
+    end, 240)
+
+    -- Let the /alerts commands repaint these when they change the same values.
+    RefreshAlertsPanel = function()
+        soundCheck.uncappedRefresh()
+        countSlider.uncappedRefresh()
+    end
+
+    UncappedAlertsPanel = panel
 end

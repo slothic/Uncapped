@@ -8,7 +8,36 @@
 -- Rides the player's personal channel like the other addons, and filters the
 -- RBCHEST / RBRANK lines out of chat so only the window shows them.
 
-local VISIBLE = 10  -- reward rows visible at once (rest reached by scrolling)
+local VISIBLE = 10   -- reward rows visible at once (rest reached by scrolling); driven by db.rows
+local MAXROWS = 20   -- font strings pre-created so "rows shown" can change live
+
+-- ---------------------------------------------------------------------------
+-- Settings (SavedVariables: UncappedRewardsDB). db holds the live values; the
+-- panel's get()/set() read and write it, and the global points at it so edits
+-- persist. Defaults below are applied on load AND on every change.
+-- ---------------------------------------------------------------------------
+local DEFAULTS = {
+    rows = 10,                          -- reward rows shown at once (5-20)
+    sound = true,                       -- play the reward fanfare
+    flash = true,                       -- screen flash on reward
+    autoClose = 0,                      -- auto-close after N seconds (0 = never)
+    glowColor = { 1.0, 0.9, 0.4 },      -- chest glow tint
+    flashColor = { 1.0, 0.85, 0.35 },   -- screen-flash tint
+    pos = nil,                          -- saved popup position (point/relPoint/x/y) or nil
+}
+local function copyDefaults()
+    return {
+        rows = DEFAULTS.rows,
+        sound = DEFAULTS.sound,
+        flash = DEFAULTS.flash,
+        autoClose = DEFAULTS.autoClose,
+        glowColor = { DEFAULTS.glowColor[1], DEFAULTS.glowColor[2], DEFAULTS.glowColor[3] },
+        flashColor = { DEFAULTS.flashColor[1], DEFAULTS.flashColor[2], DEFAULTS.flashColor[3] },
+        pos = nil,
+    }
+end
+local db = copyDefaults()
+local refreshPanel               -- assigned when the settings page is built (guarded)
 
 local frame = CreateFrame("Frame", "UncappedRewardFrame", UIParent)
 frame:SetSize(360, 400)
@@ -25,7 +54,12 @@ frame:EnableMouse(true)
 frame:EnableMouseWheel(true)
 frame:RegisterForDrag("LeftButton")
 frame:SetScript("OnDragStart", frame.StartMoving)
-frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+frame:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    -- Movable but not otherwise auto-saved: remember where the player dropped it.
+    local point, _, relPoint, x, y = self:GetPoint()
+    db.pos = { point = point, relPoint = relPoint, x = x, y = y }
+end)
 frame:Hide()
 
 -- Golden glow behind the window contents, alpha-pulsed for the "shiny".
@@ -59,7 +93,7 @@ frame.hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 frame.hint:SetPoint("TOP", frame.rank, "BOTTOM", 0, -4)
 
 frame.lines = {}
-for i = 1, VISIBLE do
+for i = 1, MAXROWS do
     local fs = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     fs:SetPoint("TOP", frame.hint, "BOTTOM", 0, -4 - (i - 1) * 18)
     fs:SetWidth(320)
@@ -75,6 +109,7 @@ frame.close:SetPoint("TOPRIGHT", -6, -6)
 local entries = {}
 local scroll = 0
 local pulse = 0
+local closeTimer = nil   -- seconds until auto-close (nil = disabled), set in Show()
 
 local function fmtMs(ms)
     ms = tonumber(ms) or 0
@@ -83,8 +118,8 @@ local function fmtMs(ms)
 end
 
 local function RenderList()
-    for i = 1, VISIBLE do
-        local e = entries[scroll + i]
+    for i = 1, MAXROWS do
+        local e = (i <= VISIBLE) and entries[scroll + i] or nil
         if e then
             frame.lines[i]:SetText(string.format("|cff00ff00+%s|r  %s", e.count, e.name))
         else
@@ -116,7 +151,14 @@ frame:SetScript("OnUpdate", function(self, delta)
     self.glow:SetAlpha(0.35 + 0.30 * (math.sin(pulse) * 0.5 + 0.5))
     local s = 250 + 20 * (math.sin(pulse * 0.7) * 0.5 + 0.5)
     self.glow:SetSize(s, s)
-    -- No auto-close: stays until the player closes it (X button).
+    -- Optional auto-close (db.autoClose seconds); 0/nil = stays until the X button.
+    if closeTimer then
+        closeTimer = closeTimer - delta
+        if closeTimer <= 0 then
+            closeTimer = nil
+            self:Hide()
+        end
+    end
 end)
 
 -- Screen-wide gold flash.
@@ -155,6 +197,37 @@ local function ScreenFlash()
     screenGlow:Show()
 end
 
+-- ---------------------------------------------------------------------------
+-- Appliers: push a db value onto the live frames. Called on load and on change.
+-- ---------------------------------------------------------------------------
+local function ApplyRows()
+    VISIBLE = db.rows
+    if VISIBLE < 1 then VISIBLE = 1 elseif VISIBLE > MAXROWS then VISIBLE = MAXROWS end
+    -- Keep scroll in range for the new window size, then repaint if visible.
+    local maxScroll = #entries - VISIBLE
+    if maxScroll < 0 then maxScroll = 0 end
+    if scroll > maxScroll then scroll = maxScroll end
+    RenderList()
+end
+
+local function ApplyGlowColor()
+    frame.glow:SetVertexColor(db.glowColor[1], db.glowColor[2], db.glowColor[3])
+end
+
+local function ApplyFlashColor()
+    screenGlow.core:SetVertexColor(db.flashColor[1], db.flashColor[2], db.flashColor[3])
+    screenGlow.halo:SetVertexColor(db.flashColor[1], db.flashColor[2], db.flashColor[3])
+end
+
+local function ApplyPosition()
+    frame:ClearAllPoints()
+    if db.pos then
+        frame:SetPoint(db.pos.point, UIParent, db.pos.relPoint, db.pos.x, db.pos.y)
+    else
+        frame:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
+    end
+end
+
 -- The level the currently-shown window is for (to match a following RBRANK).
 local shownLevel = nil
 
@@ -169,9 +242,14 @@ local function Show(level, list)
     RenderList()
 
     frame:Show()
-    ScreenFlash()
-    PlaySound("LevelUp")
-    PlaySoundFile("Sound\\Interface\\LevelUp2.wav")
+    closeTimer = (db.autoClose and db.autoClose > 0) and db.autoClose or nil
+    if db.flash then
+        ScreenFlash()
+    end
+    if db.sound then
+        PlaySound("LevelUp")
+        PlaySoundFile("Sound\\Interface\\LevelUp2.wav")
+    end
 end
 
 local function SetRank(level, rank, total, durationMs, bestMs)
@@ -201,6 +279,35 @@ listener:RegisterEvent("ADDON_LOADED")
 listener:SetScript("OnEvent", function(self, event, a1, a2)
     if event == "ADDON_LOADED" then
         if a1 == "UncappedRewards" then
+            -- Load SavedVariables over the defaults, then point the global at the
+            -- live table so panel edits (and the saved popup position) persist.
+            if type(UncappedRewardsDB) ~= "table" then UncappedRewardsDB = {} end
+            local s = UncappedRewardsDB
+            if s.rows ~= nil then db.rows = s.rows end
+            if s.sound ~= nil then db.sound = s.sound end
+            if s.flash ~= nil then db.flash = s.flash end
+            if s.autoClose ~= nil then db.autoClose = s.autoClose end
+            if type(s.glowColor) == "table" then
+                db.glowColor = { s.glowColor[1] or DEFAULTS.glowColor[1],
+                                 s.glowColor[2] or DEFAULTS.glowColor[2],
+                                 s.glowColor[3] or DEFAULTS.glowColor[3] }
+            end
+            if type(s.flashColor) == "table" then
+                db.flashColor = { s.flashColor[1] or DEFAULTS.flashColor[1],
+                                  s.flashColor[2] or DEFAULTS.flashColor[2],
+                                  s.flashColor[3] or DEFAULTS.flashColor[3] }
+            end
+            if type(s.pos) == "table" and s.pos.point then
+                db.pos = { point = s.pos.point, relPoint = s.pos.relPoint, x = s.pos.x, y = s.pos.y }
+            end
+            UncappedRewardsDB = db
+
+            ApplyRows()
+            ApplyGlowColor()
+            ApplyFlashColor()
+            ApplyPosition()
+            if refreshPanel then refreshPanel() end
+
             JoinChannelByName(UnitName("player"))
         end
         return
@@ -259,4 +366,54 @@ SlashCmdList["UNCAPPEDREWARD"] = function()
     end
     Show(37, list)
     SetRank(37, 3, 51, 128640, 121003)
+end
+
+-- ---------------------------------------------------------------------------
+-- Settings page (ESC > Interface > AddOns > Uncapped > Rewards). Provided by the
+-- shared UncappedUI library from UncappedOptions; guard everything on it.
+-- ---------------------------------------------------------------------------
+if UncappedUI then
+    local panel, L = UncappedUI.CreatePanel("Rewards",
+        "The Mythic+ keystone reward popup: how many rows it shows, its fanfare and screen flash, auto-close, and colours.")
+
+    local refreshers = {}
+    local function track(w) refreshers[#refreshers + 1] = w.uncappedRefresh; return w end
+
+    L:Header("Popup")
+    track(L:Slider("Reward rows shown", 5, 20, 1,
+        function() return db.rows end,
+        function(v) db.rows = v; ApplyRows() end, "%d"))
+    track(L:Slider("Auto-close after (seconds, 0 = off)", 0, 60, 5,
+        function() return db.autoClose end,
+        function(v) db.autoClose = v end, "%d"))
+
+    L:Gap(6)
+    L:Header("Effects")
+    track(L:Check("Play reward fanfare",
+        function() return db.sound end,
+        function(v) db.sound = v end))
+    track(L:Check("Screen flash on reward",
+        function() return db.flash end,
+        function(v) db.flash = v end))
+
+    L:Gap(6)
+    L:Header("Colours")
+    track(L:Color("Chest glow colour",
+        function() return db.glowColor[1], db.glowColor[2], db.glowColor[3] end,
+        function(r, g, b) db.glowColor = { r, g, b }; ApplyGlowColor() end))
+    track(L:Color("Screen-flash colour",
+        function() return db.flashColor[1], db.flashColor[2], db.flashColor[3] end,
+        function(r, g, b) db.flashColor = { r, g, b }; ApplyFlashColor() end))
+
+    L:Gap(6)
+    L:Header("Position")
+    L:Note("The popup can be dragged anywhere and remembers where you left it. Use this to move it back to the centre.", 28)
+    L:Button("Reset position", function() db.pos = nil; ApplyPosition() end, 150)
+
+    -- Called from ADDON_LOADED after SavedVariables merge so widgets show saved values.
+    refreshPanel = function()
+        for _, r in ipairs(refreshers) do r() end
+    end
+
+    UncappedRewardPanel = panel
 end

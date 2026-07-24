@@ -17,12 +17,15 @@
 local ADDON_PREFIX = "DSTATS"
 
 local DEFAULTS = {
-    point    = "CENTER",
-    x        = 250,
-    y        = 0,
-    width    = 320,
-    height   = 180,
-    shown    = true,
+    point      = "CENTER",
+    x          = 250,
+    y          = 0,
+    width      = 320,
+    height     = 180,
+    shown      = true,
+    maxLines   = 200,
+    bgAlpha    = 0.7,
+    titleColor = { 0.61, 0.76, 0.26 }, -- |cff9CC243
 }
 
 local frame
@@ -33,7 +36,14 @@ local function GetDB()
     StatFeedDB = StatFeedDB or {}
     for k, v in pairs(DEFAULTS) do
         if StatFeedDB[k] == nil then
-            StatFeedDB[k] = v
+            if type(v) == "table" then
+                -- Copy, so we never mutate the DEFAULTS table in place.
+                local t = {}
+                for i, vv in pairs(v) do t[i] = vv end
+                StatFeedDB[k] = t
+            else
+                StatFeedDB[k] = v
+            end
         end
     end
     return StatFeedDB
@@ -62,7 +72,7 @@ local function BuildWindow()
         tile = true, tileSize = 32, edgeSize = 16,
         insets = { left = 5, right = 5, top = 5, bottom = 5 }
     })
-    frame:SetBackdropColor(0, 0, 0, 0.7)
+    frame:SetBackdropColor(0, 0, 0, db.bgAlpha)
 
     -- Drag to move, from anywhere on the frame.
     frame:SetMovable(true)
@@ -92,7 +102,9 @@ local function BuildWindow()
 
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOPLEFT", 12, -10)
-    title:SetText("|cff9CC243Stat Feed|r")
+    title:SetText("Stat Feed")
+    title:SetTextColor(db.titleColor[1], db.titleColor[2], db.titleColor[3])
+    frame.title = title
 
     local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -2, -2)
@@ -109,7 +121,7 @@ local function BuildWindow()
     log:SetFontObject(GameFontHighlightSmall)
     log:SetJustifyH("LEFT")
     log:SetFading(false)
-    log:SetMaxLines(200)
+    log:SetMaxLines(db.maxLines)
     log:EnableMouseWheel(true)
     log:SetScript("OnMouseWheel", function(_, delta)
         -- 3.3.5 passes delta as the global `arg1` in some paths; accept both.
@@ -161,6 +173,19 @@ events:SetScript("OnEvent", function(self, evt, a1, a2)
     end
 end)
 
+-- Recenter and restore default size; shared by /statfeed reset and the
+-- options-panel "Reset position & size" button.
+local function ResetWindow()
+    if not frame then return end
+    frame:ClearAllPoints()
+    frame:SetPoint("CENTER", UIParent, "CENTER", DEFAULTS.x, DEFAULTS.y)
+    frame:SetWidth(DEFAULTS.width)
+    frame:SetHeight(DEFAULTS.height)
+    frame:Show()
+    GetDB().shown = true
+    SavePosition()
+end
+
 SLASH_STATFEED1 = "/statfeed"
 SlashCmdList["STATFEED"] = function(msg)
     msg = string.lower(msg or "")
@@ -171,15 +196,7 @@ SlashCmdList["STATFEED"] = function(msg)
     end
 
     if msg == "reset" then
-        if frame then
-            frame:ClearAllPoints()
-            frame:SetPoint("CENTER", UIParent, "CENTER", DEFAULTS.x, DEFAULTS.y)
-            frame:SetWidth(DEFAULTS.width)
-            frame:SetHeight(DEFAULTS.height)
-            frame:Show()
-            GetDB().shown = true
-            SavePosition()
-        end
+        ResetWindow()
         return
     end
 
@@ -192,4 +209,72 @@ SlashCmdList["STATFEED"] = function(msg)
             GetDB().shown = true
         end
     end
+end
+
+-- Settings page under ESC > Interface > AddOns > Uncapped > Stat Feed.
+-- Guarded: the shared UncappedUI library is provided by another addon and may
+-- not be present.
+if UncappedUI then
+    local panel, L = UncappedUI.CreatePanel("Stat Feed", "The Dungeon Stats feed window.")
+
+    L:Header("Window")
+
+    L:Check("Show Stat Feed window",
+        function() return GetDB().shown end,
+        function(v)
+            GetDB().shown = v
+            if frame then
+                if v then frame:Show() else frame:Hide() end
+            end
+        end)
+
+    local widthSlider = L:Slider("Window width", 200, 600, 10,
+        function() return GetDB().width end,
+        function(v)
+            GetDB().width = v
+            if frame then frame:SetWidth(v) end
+        end, "%d px")
+
+    local heightSlider = L:Slider("Window height", 100, 500, 10,
+        function() return GetDB().height end,
+        function(v)
+            GetDB().height = v
+            if frame then frame:SetHeight(v) end
+        end, "%d px")
+
+    L:Header("Feed")
+
+    L:Slider("Scrollback lines", 50, 500, 10,
+        function() return GetDB().maxLines end,
+        function(v)
+            GetDB().maxLines = v
+            if frame and frame.log then frame.log:SetMaxLines(v) end
+        end, "%d")
+
+    L:Header("Appearance")
+
+    L:Slider("Background opacity", 0.0, 1.0, 0.05,
+        function() return GetDB().bgAlpha end,
+        function(v)
+            GetDB().bgAlpha = v
+            if frame then frame:SetBackdropColor(0, 0, 0, v) end
+        end, "%.2f")
+
+    L:Color("Title colour",
+        function()
+            local c = GetDB().titleColor
+            return c[1], c[2], c[3]
+        end,
+        function(r, g, b)
+            GetDB().titleColor = { r, g, b }
+            if frame and frame.title then frame.title:SetTextColor(r, g, b) end
+        end)
+
+    L:Gap(6)
+
+    L:Button("Reset position & size", function()
+        ResetWindow()
+        widthSlider.uncappedRefresh()
+        heightSlider.uncappedRefresh()
+    end)
 end
