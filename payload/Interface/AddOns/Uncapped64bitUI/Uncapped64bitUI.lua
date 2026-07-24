@@ -438,8 +438,9 @@ end
 -- ===========================================================================
 -- FLOATING COMBAT TEXT (merged in -- was a separate file that wouldn't load
 -- without a full client restart). Replaces Blizzard's over-head damage numbers
--- with our own, driven from the combat log. Outgoing rises on the right,
--- incoming on the left; crits bigger + gold. Live font: /dev64font, test: /dev64dmg.
+-- with our own, driven from the combat log. Blizzard-style: outgoing floats up
+-- over the TARGET (its nameplate when shown, else the target frame), incoming
+-- floats up over YOU; crits pop bigger. Live font: /dev64font, test: /dev64dmg.
 -- ===========================================================================
 local FCT_FONTS = {
     skurri   = "Fonts\\SKURRI.TTF",     -- the classic spiky WoW combat font
@@ -448,6 +449,18 @@ local FCT_FONTS = {
     friz     = "Fonts\\FRIZQT__.TTF",   -- default UI font
 }
 local FCT_FONT = FCT_FONTS.morpheus
+
+-- Heal floaters start UNDER the unit and drift up with a slow, gentle
+-- side-to-side sway (a sine wiggle, not a shake). AMP = how far it sways (px),
+-- FREQ = how fast it wiggles (rad/s; lower = slower). Tune to taste.
+local FCT_WIGGLE_AMP  = 10
+local FCT_WIGGLE_FREQ = 4.0
+local FCT_HEAL_DROP   = 120   -- how far BELOW the target heals start (float up to under the nameplate)
+local FCT_SELF_HEAL_DROP = 30 -- self-heals sit at your character, so a much smaller drop
+local FCT_SPREAD_X    = 25    -- horizontal scatter of each number's start point
+local FCT_SPREAD_Y    = 30    -- vertical scatter of the start point (breaks the flat baseline)
+local FCT_CRIT_POP    = 54    -- crits grow from their base size up to this (px) just after landing
+local FCT_POP_TIME    = 0.15  -- seconds the crit grow-in takes
 
 -- Disable Blizzard's floating combat text AND the scrolling "combat text" so
 -- ours fully replaces every kind of combat feedback.
@@ -483,39 +496,108 @@ local SCHOOL_COLOR = {
 }
 
 local fctHost = CreateFrame("Frame", nil, UIParent)
-local fctOut = CreateFrame("Frame", nil, UIParent)
-fctOut:SetWidth(1); fctOut:SetHeight(1)
-fctOut:SetPoint("CENTER", UIParent, "CENTER", 150, -10)
-local fctIn = CreateFrame("Frame", nil, UIParent)
-fctIn:SetWidth(1); fctIn:SetHeight(1)
-fctIn:SetPoint("CENTER", UIParent, "CENTER", -150, -10)
+-- Blizzard-style anchoring: outgoing floats up over the TARGET (its nameplate
+-- when one is shown, else the target frame); incoming floats up over YOU.
+local function LooksLikeNameplate(f)
+    if f:GetName() then return false end
+    if f:GetNumChildren() < 1 then return false end
+    local hb = select(1, f:GetChildren())
+    return hb ~= nil and hb.GetObjectType and hb:GetObjectType() == "StatusBar"
+end
+
+local function NameplateName(f)
+    for _, r in ipairs({ f:GetRegions() }) do
+        if r.GetObjectType and r:GetObjectType() == "FontString" then
+            local t = r:GetText()
+            if t and t ~= "" and not tonumber(t) then return t end   -- name, not the level number
+        end
+    end
+    return nil
+end
+
+local plateCache, plateCacheName
+local function TargetPlate()
+    if not UnitExists("target") or UnitIsDeadOrGhost("target") then return nil end
+    local tname = UnitName("target")
+    if plateCache and plateCache:IsShown() and plateCacheName == tname
+        and NameplateName(plateCache) == tname then
+        return plateCache
+    end
+    plateCache, plateCacheName = nil, nil
+    for _, f in ipairs({ WorldFrame:GetChildren() }) do
+        if f:IsShown() and LooksLikeNameplate(f) and NameplateName(f) == tname then
+            plateCache, plateCacheName = f, tname
+            return f
+        end
+    end
+    return nil
+end
+
+local function CenterInUIParent(frame)
+    if not frame or not frame:IsShown() then return nil end
+    local x, y = frame:GetCenter()
+    if not x then return nil end
+    local s = frame:GetEffectiveScale() / UIParent:GetEffectiveScale()
+    return x * s, y * s
+end
+
+local function GetOutgoingPos()
+    local plate = TargetPlate()
+    if plate then
+        local x, y = CenterInUIParent(plate)
+        if x then return x, y + 24 end
+    end
+    if TargetFrame and TargetFrame:IsShown() and UnitExists("target") then
+        local x, y = CenterInUIParent(TargetFrame)
+        if x then return x, y - 18 end
+    end
+    return GetScreenWidth() * 0.5, GetScreenHeight() * 0.70
+end
+
+local function GetIncomingPos()
+    return GetScreenWidth() * 0.5, GetScreenHeight() * 0.42
+end
 
 local fctPool, fctActive = {}, {}
 
 -- Spawn any floating text (a damage number, a heal, or a "Dodge"/"Parry"/etc).
-local function FctSpawnText(text, big, r, g, b, anchor)
+-- outgoing=true floats up over the target; false floats up over the player.
+local function FctSpawnText(text, big, r, g, b, outgoing, heal)
+    local x, y
+    if outgoing then
+        x, y = GetOutgoingPos()
+    else
+        x, y = GetIncomingPos()
+    end
+    x = x + math.random(-FCT_SPREAD_X, FCT_SPREAD_X)
+    -- Scatter the start height too, so numbers don't all lift off one flat line.
+    y = y + math.random(-FCT_SPREAD_Y, FCT_SPREAD_Y)
+    -- Heals begin well UNDER the unit and float up to sit under the nameplate.
+    if heal then y = y - (outgoing and FCT_HEAL_DROP or FCT_SELF_HEAL_DROP) end
     local fs = table.remove(fctPool) or fctHost:CreateFontString(nil, "OVERLAY")
-    fs:SetFont(FCT_FONT, big and 34 or 20, "OUTLINE")
+    local base = big and 34 or 20
+    fs:SetFont(FCT_FONT, base, "OUTLINE")
     fs:SetText(text)
     fs:SetTextColor(r, g, b)
     fs:SetAlpha(1)
     fs:ClearAllPoints()
-    local jitter = math.random(-30, 30)
-    fs:SetPoint("CENTER", anchor, "CENTER", jitter, 0)
+    fs:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
     fs:Show()
-    fctActive[#fctActive + 1] = { fs = fs, anchor = anchor, x = jitter, t = 0, dur = big and 1.6 or 1.2, rise = big and 150 or 110 }
+    fctActive[#fctActive + 1] = { fs = fs, x = x, y0 = y, t = 0, dur = big and 1.6 or 1.2,
+        rise = big and 95 or 70, wiggle = true, phase = math.random() * 6.2832,
+        pop = big or false, base = base }
 end
 
 -- Assigns the forward-declared handler: the server feeds real (trillion-scale)
 -- melee hits over the channel when they're past the 32-bit combat-log wall.
 ShowRealDamage = function(real)
-    FctSpawnText(Abbrev(real) .. "!", true, 1.0, 0.82, 0.0, fctOut)
+    FctSpawnText(Abbrev(real) .. "!", true, 1.0, 0.82, 0.0, true)
 end
 
 -- Real (trillion-scale) outgoing heal, fed over the channel when the client's
 -- own combat log would show the 32-bit-capped value. Heal green, "+" prefix.
 ShowRealHeal = function(real)
-    FctSpawnText("+" .. Abbrev(real), true, 0.4, 1.0, 0.4, fctOut)
+    FctSpawnText("+" .. Abbrev(real), true, 0.4, 1.0, 0.4, true, true)
 end
 
 fctHost:SetScript("OnUpdate", function(self, dt)
@@ -528,7 +610,24 @@ fctHost:SetScript("OnUpdate", function(self, dt)
             fctPool[#fctPool + 1] = a.fs
             table.remove(fctActive, i)
         else
-            a.fs:SetPoint("CENTER", a.anchor, "CENTER", a.x, a.rise * p)
+            -- Crit "pop": grow from base size up to FCT_CRIT_POP over the first
+            -- FCT_POP_TIME seconds, then hold -- it visibly scales bigger just
+            -- after it lands.
+            if a.pop and not a.popped then
+                if a.t >= FCT_POP_TIME then
+                    a.fs:SetFont(FCT_FONT, FCT_CRIT_POP, "OUTLINE")
+                    a.popped = true
+                else
+                    local pp = a.t / FCT_POP_TIME
+                    local size = a.base + (FCT_CRIT_POP - a.base) * (1 - (1 - pp) * (1 - pp))
+                    a.fs:SetFont(FCT_FONT, math.floor(size + 0.5), "OUTLINE")
+                end
+            end
+            local wx = a.x
+            if a.wiggle then
+                wx = wx + math.sin(a.t * FCT_WIGGLE_FREQ + a.phase) * FCT_WIGGLE_AMP
+            end
+            a.fs:SetPoint("CENTER", UIParent, "BOTTOMLEFT", wx, a.y0 + a.rise * p)
             if p > 0.55 then a.fs:SetAlpha(1 - (p - 0.55) / 0.45) end
         end
     end
@@ -543,17 +642,17 @@ local function FctMine(guid) return guid == fctPlayerGUID or guid == UnitGUID("p
 -- instead -- so drop our OWN combat-log floater there to avoid a stray double.
 local FCT_REAL_WALL = 2147483647
 
-local function FctDamage(srcGUID, dstGUID, amount, crit, school)
+local function FctDamage(srcGUID, dstGUID, amount, crit, isSpell)
     if not amount or amount <= 0 then return end
     if FctMine(srcGUID) and amount >= FCT_REAL_WALL then return end
+    local label = Abbrev(amount) .. (crit and "!" or "")
     if FctMine(srcGUID) then
-        local c = SCHOOL_COLOR[school]
-        if crit then FctSpawnText(Abbrev(amount) .. "!", true, 1.0, 0.82, 0.0, fctOut)
-        elseif c then FctSpawnText(Abbrev(amount), false, c[1], c[2], c[3], fctOut)
-        else FctSpawnText(Abbrev(amount), false, 1, 1, 1, fctOut) end
+        -- your damage: melee auto-attacks = white, spells/skills = yellow.
+        -- crit -> big=true, which drives the size pop in the animation loop.
+        if isSpell then FctSpawnText(label, crit, 1.0, 0.82, 0.0, true)
+        else FctSpawnText(label, crit, 1, 1, 1, true) end
     elseif dstGUID == fctPlayerGUID then
-        if crit then FctSpawnText(Abbrev(amount) .. "!", true, 1.0, 0.35, 0.1, fctIn)
-        else FctSpawnText(Abbrev(amount), false, 1.0, 0.4, 0.4, fctIn) end
+        FctSpawnText(label, crit, 1.0, 0.4, 0.4, false)   -- damage you take
     end
 end
 
@@ -561,9 +660,9 @@ end
 local function FctMiss(srcGUID, dstGUID, missType)
     local label = MISS_TEXT[missType] or "Miss"
     if FctMine(srcGUID) then
-        FctSpawnText(label, false, 0.85, 0.85, 0.85, fctOut)   -- your attack was avoided
+        FctSpawnText(label, false, 0.85, 0.85, 0.85, true)   -- your attack was avoided
     elseif dstGUID == fctPlayerGUID then
-        FctSpawnText(label, false, 0.85, 0.95, 1.0, fctIn)     -- you avoided one
+        FctSpawnText(label, false, 0.85, 0.95, 1.0, false)     -- you avoided one
     end
 end
 
@@ -571,9 +670,9 @@ local function FctHeal(srcGUID, dstGUID, amount, crit)
     if not amount or amount <= 0 then return end
     if FctMine(srcGUID) and amount >= FCT_REAL_WALL then return end  -- RBHEAL feed covers my own trillion heals
     if dstGUID == fctPlayerGUID then
-        FctSpawnText("+" .. Abbrev(amount), crit, 0.4, 1.0, 0.4, fctIn)
+        FctSpawnText("+" .. Abbrev(amount), crit, 0.4, 1.0, 0.4, false, true)
     elseif FctMine(srcGUID) then
-        FctSpawnText("+" .. Abbrev(amount), crit, 0.4, 1.0, 0.4, fctOut)
+        FctSpawnText("+" .. Abbrev(amount), crit, 0.4, 1.0, 0.4, true, true)
     end
 end
 
@@ -583,14 +682,14 @@ local function FctOnCombatLog(...)
     local dstGUID  = select(6, ...)
     if subevent == "SWING_DAMAGE" then
         local amount, overkill, school, resisted, blocked, absorbed, critical = select(9, ...)
-        FctDamage(srcGUID, dstGUID, amount, critical, school)
+        FctDamage(srcGUID, dstGUID, amount, critical, false)  -- melee swing -> white
     elseif subevent == "SWING_MISSED" then
         local missType = select(9, ...)
         FctMiss(srcGUID, dstGUID, missType)
     elseif subevent == "SPELL_DAMAGE" or subevent == "RANGE_DAMAGE" or subevent == "SPELL_PERIODIC_DAMAGE"
         or subevent == "DAMAGE_SHIELD" or subevent == "SPELL_BUILDING_DAMAGE" or subevent == "DAMAGE_SPLIT" then
         local spellId, spellName, spellSchool, amount, overkill, school, resisted, blocked, absorbed, critical = select(9, ...)
-        FctDamage(srcGUID, dstGUID, amount, critical, spellSchool)
+        FctDamage(srcGUID, dstGUID, amount, critical, true)  -- spell/skill -> yellow
     elseif subevent == "SPELL_MISSED" or subevent == "RANGE_MISSED" or subevent == "SPELL_PERIODIC_MISSED" then
         local spellId, spellName, spellSchool, missType = select(9, ...)
         FctMiss(srcGUID, dstGUID, missType)
@@ -611,6 +710,33 @@ fctEv:SetScript("OnEvent", function(self, event, ...)
     end
     fctPlayerGUID = UnitGUID("player")
     DisableBlizzardFCT()
+    -- Force BOTH enemy and friendly nameplates on. Our floating text reads a
+    -- unit's 3D screen position from its nameplate, and friendlies have none by
+    -- default -- so without this a heal lands on the little target frame instead
+    -- of over the healed ally. Re-applied on every world-enter so it stays on.
+    pcall(SetCVar, "nameplateShowEnemies", "1")
+    pcall(SetCVar, "nameplateShowFriends", "1")
+end)
+
+-- Lock nameplates (health bars) ON: players must not be able to toggle them off,
+-- since the FCT reads unit positions from them. Re-assert instantly on any CVar
+-- change AND poll as a backstop -- covers the V key, Interface options and
+-- /console alike. Setting a CVar already at "1" is a no-op, so no event loop.
+local function ForceNameplatesOn()
+    if GetCVar("nameplateShowEnemies") ~= "1" then pcall(SetCVar, "nameplateShowEnemies", "1") end
+    if GetCVar("nameplateShowFriends") ~= "1" then pcall(SetCVar, "nameplateShowFriends", "1") end
+end
+
+local npLock = CreateFrame("Frame")
+npLock:RegisterEvent("CVAR_UPDATE")
+npLock:SetScript("OnEvent", ForceNameplatesOn)
+local npAccum = 0
+npLock:SetScript("OnUpdate", function(self, dt)
+    npAccum = npAccum + dt
+    if npAccum >= 0.4 then
+        npAccum = 0
+        ForceNameplatesOn()
+    end
 end)
 
 SLASH_DEV64FONT1 = "/dev64font"
@@ -626,12 +752,14 @@ end
 
 SLASH_DEV64DMG1 = "/dev64dmg"
 SlashCmdList["DEV64DMG"] = function()
-    FctSpawnText(Abbrev(math.random(100000000, 2000000000)) .. "!", true, 1.0, 0.82, 0.0, fctOut)  -- crit out
-    FctSpawnText(Abbrev(math.random(1000000, 50000000)), false, 1.0, 0.5, 0.2, fctOut)             -- fire hit out
-    FctSpawnText(Abbrev(math.random(50000000, 900000000)), false, 1.0, 0.4, 0.4, fctIn)            -- taken
-    FctSpawnText("Dodge", false, 0.85, 0.95, 1.0, fctIn)                                            -- avoided
-    FctSpawnText("Parry", false, 0.85, 0.95, 1.0, fctIn)
-    FctSpawnText("+" .. Abbrev(math.random(5000000, 80000000)), false, 0.4, 1.0, 0.4, fctIn)       -- heal
+    FctSpawnText(Abbrev(math.random(100000000, 2000000000)) .. "!", true, 1, 1, 1, true)          -- melee crit (white, pops)
+    FctSpawnText(Abbrev(math.random(1000000, 50000000)), false, 1, 1, 1, true)                    -- melee hit (white)
+    FctSpawnText(Abbrev(math.random(1000000, 50000000)) .. "!", true, 1.0, 0.82, 0.0, true)       -- spell crit (yellow, pops)
+    FctSpawnText(Abbrev(math.random(1000000, 50000000)), false, 1.0, 0.82, 0.0, true)             -- spell hit (yellow)
+    FctSpawnText(Abbrev(math.random(50000000, 900000000)), false, 1.0, 0.4, 0.4, false)            -- taken
+    FctSpawnText("Dodge", false, 0.85, 0.95, 1.0, false)                                            -- avoided
+    FctSpawnText("Parry", false, 0.85, 0.95, 1.0, false)
+    FctSpawnText("+" .. Abbrev(math.random(5000000, 80000000)), false, 0.4, 1.0, 0.4, false, true)       -- heal
 end
 
 -- ---------------------------------------------------------------------------

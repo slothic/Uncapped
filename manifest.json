@@ -37,6 +37,12 @@
                       "size":  9234284
                   },
                   {
+                      "path":  "Data/enUS/patch-enUS-Y.MPQ",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Data/enUS/patch-enUS-Y.MPQ",
+                      "sha256":  "dbe2e518e52613895362190de96b628f500354df362dcb7e7b575e86d710c7c9",
+                      "size":  679784
+                  },
+                  {
                       "path":  "Data/enUS/patch-enUS-Z.MPQ",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Data/enUS/patch-enUS-Z.MPQ",
                       "sha256":  "cb5ed742101ba0cf4e7b1804ebd5a2b3259a4ef9df0fc52e4fae21c28824f875",
@@ -2469,8 +2475,8 @@
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
-                      "sha256":  "efd3f2bd7446ee0f8f79b631223597748f52c9c2bf86e19305cfd78f2f3d69a3",
-                      "size":  38700
+                      "sha256":  "77afbec4b8960382e17b1cdc1055590ec0e9414a4154fb8261ffff9cbe5e4754",
+                      "size":  44459
                   },
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.toc",
