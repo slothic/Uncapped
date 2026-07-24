@@ -13,5 +13,10 @@
     "_comment": "Mount pack v1: mount models backported from Cata 4.3.4 + MoP 5.4.8 into 3.3.5a (1353 displays / 183 new models), plus patched CreatureModelData.dbc + CreatureDisplayInfo.dbc. Hosted from this repo's own releases, not committed to payload/, to keep ~290 MB of binaries out of git history -- same rationale as the WDM patches above. Tag is pinned so re-releasing under a new tag is a deliberate act.",
     "path": "Data/enUS/patch-enUS-Q.MPQ",
     "url": "https://github.com/slothic/Uncapped/releases/download/mounts-v1/patch-enUS-Q.MPQ"
+  },
+  {
+    "_comment": "Mount pack v1 spells: patched Spell.dbc carrying 565 learnable mount spells (IDs 850000-850564) for the backported mounts in patch-Q. Client copy; the server loads the same Spell.dbc from its data volume. Released alongside patch-Q on the mounts-v1 tag.",
+    "path": "Data/enUS/patch-enUS-R.MPQ",
+    "url": "https://github.com/slothic/Uncapped/releases/download/mounts-v1/patch-enUS-R.MPQ"
   }
 ]
