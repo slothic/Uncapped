@@ -191,7 +191,14 @@ $manifest = [ordered]@{
 
     # Only paths under here are pruned when they leave the manifest. Third-party addons are
     # install-only and never deleted - we do not remove addons we did not write.
+    #
+    # Data/enUS is owned because the custom server patches there (patch-enUS-Q/M/N/Z/...) are
+    # OURS -- server-authored content, not third-party addons. Listing it lets a patch we pull
+    # from the manifest be cleaned off players' clients. Prune only ever touches files this
+    # launcher itself placed and recorded, so the base client's own patch-enUS/-2/-3 are never
+    # affected. This is what claws back the retired camel test patch (patch-enUS-Y).
     ownedPaths = @(
+        'Data/enUS',
         'Interface/AddOns/StatFeed',
         'Interface/AddOns/ReagentBankCraft',
         'Interface/AddOns/UncappedAlerts',

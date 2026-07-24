@@ -37,12 +37,6 @@
                       "size":  9234284
                   },
                   {
-                      "path":  "Data/enUS/patch-enUS-Y.MPQ",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Data/enUS/patch-enUS-Y.MPQ",
-                      "sha256":  "dbe2e518e52613895362190de96b628f500354df362dcb7e7b575e86d710c7c9",
-                      "size":  679784
-                  },
-                  {
                       "path":  "Data/enUS/patch-enUS-Z.MPQ",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Data/enUS/patch-enUS-Z.MPQ",
                       "sha256":  "cb5ed742101ba0cf4e7b1804ebd5a2b3259a4ef9df0fc52e4fae21c28824f875",
@@ -3233,6 +3227,12 @@
                       "url":  "https://github.com/Trimitor/WDM-patch/releases/download/2.4.5-beta/patch-enUS-N.MPQ",
                       "sha256":  "ebb6543ae32c392e1d52d6927d3a059517fb413ec6b152db4f0beaad9a0bbf29",
                       "size":  20494466
+                  },
+                  {
+                      "path":  "Data/enUS/patch-enUS-Q.MPQ",
+                      "url":  "https://github.com/slothic/Uncapped/releases/download/mounts-v1/patch-enUS-Q.MPQ",
+                      "sha256":  "215d7d8e47e56310c450bf5918de442e274f4938464dd70b7dda6f8c47187795",
+                      "size":  313013171
                   }
               ],
     "forceEnableAddOns":  [
@@ -3248,6 +3248,7 @@
                                "QuestHelper"
                            ],
     "ownedPaths":  [
+                       "Data/enUS",
                        "Interface/AddOns/StatFeed",
                        "Interface/AddOns/ReagentBankCraft",
                        "Interface/AddOns/UncappedAlerts",
