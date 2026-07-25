@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: Uncapped Item Customize
+## Notes: Deposit an equipped item and add custom (64-bit) stats to it for honor. Talks to the server over the UNC addon pipe.
+## Author: Uncapped
+## Version: 0.1
+## SavedVariables: UncappedItemCustomizeDB
+
+UncappedItemCustomize.lua
