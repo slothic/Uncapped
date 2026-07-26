@@ -15,7 +15,7 @@
 local ADDON_PIPE_PREFIX = "UNC"          -- server ADDON_MESSAGE_PREFIX (replies come in on this)
 local TRANSPORT_PREFIX  = "REAGENTBANK"  -- shared server addon transport (we send on this)
 
-local FORCE_LIVE = false
+local FORCE_LIVE = true   -- vault is live on prod (2026-07-26); live on every realm now
 local function realmIsDev()
     local r = GetRealmName()
     return r and string.find(string.lower(r), "dev", 1, true) ~= nil

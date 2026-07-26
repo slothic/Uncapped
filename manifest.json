@@ -2643,8 +2643,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedVault/UncappedVault.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVault/UncappedVault.lua",
-                      "sha256":  "9e27be4e351bc134a85399e14e40537aa9a856a04cfd51149602450da20345c5",
-                      "size":  35526
+                      "sha256":  "70fc6c95bdcaf2cae7621726e74010507be9971c4eaaa9c347ef369dd20a0e32",
+                      "size":  35590
                   },
                   {
                       "path":  "Interface/AddOns/UncappedVault/UncappedVault.toc",
@@ -2655,7 +2655,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "6ee0658f537b7ffdebdd3f6e076726afedd6bfaa23d9d0af1f6ecbfc9044aa0c",
+                      "sha256":  "ca7c0aadd3d53cdc85c2384da2ba378d882f0a10a8713a2e243d7c88822d8b10",
                       "size":  3593
                   },
                   {
