@@ -147,6 +147,7 @@ local pendingIcons = false -- a visible item isn't in the client's cache yet
 local scanTip = CreateFrame("GameTooltip", "UncappedVaultScanTip", UIParent, "GameTooltipTemplate")
 scanTip:SetOwner(UIParent, "ANCHOR_NONE")
 scanTip:Hide()
+local queried = {}   -- entries we've already asked the server for (query ONCE, not every tick)
 
 -- Track the last bag slot an item was picked up from, so a drag-drop onto the
 -- vault window knows exactly which stack to deposit.
@@ -236,8 +237,11 @@ local function RefreshSlots()
             local tex = select(10, GetItemInfo(it.e)) or it.i
             if not tex then
                 tex = "Interface\\Icons\\INV_Misc_QuestionMark"
-                pendingIcons = true                       -- not cached yet
-                scanTip:SetHyperlink("item:" .. it.e)     -- force the server to send item data
+                pendingIcons = true                        -- not cached yet; ticker re-renders when it lands
+                if not queried[it.e] then                  -- fire the item query exactly ONCE per item --
+                    queried[it.e] = true                   -- re-querying every tick floods the client's
+                    scanTip:SetHyperlink("item:" .. it.e)  -- query throttle so nothing ever resolves
+                end
             end
             _G[btn:GetName() .. "IconTexture"]:SetTexture(tex)
             local cf = _G[btn:GetName() .. "Count"]
@@ -492,6 +496,7 @@ local function Open()
         local p, rp, x, y = unpack(UncappedVaultDB.pos)
         frame:ClearAllPoints(); frame:SetPoint(p, UIParent, rp, x, y)
     end
+    wipe(queried)   -- allow a re-query of anything still uncached (e.g. a dropped query)
     Rebuild(); RefreshSlots()
     frame:Show()
     if not DEMO then VaultSend("VLTGET") end   -- pull a fresh snapshot
