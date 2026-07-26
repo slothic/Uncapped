@@ -740,7 +740,7 @@ local sbTipHideTimer = CreateFrame("Frame")
 sbTipHideTimer:Hide()
 
 local function hideSbTip()
-  if sbTip then sbTip:Hide() end
+  if sbTip then sbTip:Hide(); sbTip.curKey = nil end
   if sbWheel then sbWheel:Hide() end
 end
 local function cancelSbTipHide() sbTipHideDue = nil; sbTipHideTimer:Hide() end
@@ -838,10 +838,17 @@ local function buildSbTip()
   return f
 end
 
-local function showSbTip(lines)
+local function showSbTip(lines, key)
   local f = buildSbTip()
   f.lines = lines
-  local sb = _G["ICSoulboundTipScrollScrollBar"]; if sb then sb:SetValue(0) end
+  -- Only jump to the top when this is a DIFFERENT item than the panel is already
+  -- showing. Item tooltips re-fire their Set* hook constantly (refreshes, and the
+  -- scroll itself can trigger one), and resetting on every re-fire was yanking the
+  -- scroll position back to the top mid-scroll.
+  if key ~= f.curKey then
+    local sb = _G["ICSoulboundTipScrollScrollBar"]; if sb then sb:SetValue(0) end
+    f.curKey = key
+  end
   f:ClearAllPoints()
   f:SetPoint("TOPLEFT", GameTooltip, "TOPRIGHT", 6, 0)
   f:Show(); f:Fill()
@@ -884,7 +891,7 @@ local function Inject(tt, key)
     hideSbTip()   -- short: no panel needed
   else
     tt:AddLine("|cffffd200" .. #lines .. " bound powers|r — scroll to read them all", 1, 1, 1)
-    showSbTip(lines)
+    showSbTip(lines, key)
   end
   tt:Show()
 end
