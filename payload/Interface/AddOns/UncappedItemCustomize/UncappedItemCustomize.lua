@@ -107,6 +107,16 @@ local function send(body)
   SendAddonMessage(SEND_PREFIX, body, "WHISPER", UnitName("player"))
 end
 
+-- ---- soulbound-item tooltip cache ----------------------------------------
+-- Data is keyed by CLIENT slot position because the 3.3.5 item link/tooltip API
+-- exposes no item-instance GUID. Keys match what the tooltip hooks compute:
+--   "E:<invSlot>"      equipped, invSlot 1..19        (SetInventoryItem "player")
+--   "B:<bag>:<slot>"   bags, bag 0=backpack / 1..4, slot 1-based  (SetBagItem)
+-- Each entry: { stats = {{type,value}...}, procs = {{spellId,trigger,chance,mag}...} }.
+-- Built into `sbStaging` as ICITEM/ICISTAT/ICIPROC arrive, swapped in on ICINVEND.
+local sbInv = {}
+local sbStaging, sbCurKey = {}, nil
+
 -- ============================ UI ==========================================
 local UI
 local sourceRows, detailRows = {}, {}
@@ -589,17 +599,35 @@ local function OnLine(body)
     -- so we accept and ignore the list to keep the pipe quiet.
   elseif cmd == "ICEQUIPEND" then
     -- no-op (paper doll reads equipment locally)
+  elseif cmd == "ICITEM" then           -- <tag>  begins one soulbound item (E:n or B:b:s)
+    sbCurKey = rest
+    sbStaging[rest] = { stats = {}, procs = {} }
+  elseif cmd == "ICISTAT" then          -- <statType>:<value>  (value int64 as string)
+    local t, v = rest:match("^(%d+):(%-?%d+)$")
+    if t and sbCurKey and sbStaging[sbCurKey] then
+      table.insert(sbStaging[sbCurKey].stats, { type = tonumber(t), value = v })
+    end
+  elseif cmd == "ICIPROC" then          -- <spellId>:<trigger>:<chancePctInt>:<magPctInt>
+    local sid, tr, ch, mg = rest:match("^(%d+):(%d+):(%d+):(%d+)$")
+    if sid and sbCurKey and sbStaging[sbCurKey] then
+      table.insert(sbStaging[sbCurKey].procs,
+        { spellId = tonumber(sid), trigger = tonumber(tr), chance = tonumber(ch), mag = tonumber(mg) })
+    end
+  elseif cmd == "ICINVEND" then         -- swap the freshly-built cache in
+    sbInv = sbStaging
+    sbStaging = {}
+    sbCurKey = nil
   elseif cmd == "ICBOUND" then          -- <sourceEntry>  (single soulbind ok)
     local entry = tonumber(rest)
     local nm = entry and GetItemInfo(entry) or nil
     msg("Soulbound " .. (nm or ("item " .. tostring(rest))) .. " into your target.")
     if UI then UI:PlaySoulWisps() end
-    send("ICBENCH"); send("ICBAGS")
+    send("ICBENCH"); send("ICBAGS"); send("ICINV")
   elseif cmd == "ICBOUNDALL" then       -- <count>
     local n = tonumber(rest) or 0
     msg(string.format("Soulbound %d item%s into your target.", n, n == 1 and "" or "s"))
     if UI then UI:PlaySoulWisps() end
-    send("ICBENCH"); send("ICBAGS")
+    send("ICBENCH"); send("ICBAGS"); send("ICINV")
   elseif cmd == "ICCFG" then
     -- minimal cfg on open; nothing the new UI needs, accept quietly.
   elseif cmd == "ICERR" then
@@ -618,18 +646,84 @@ StaticPopupDialogs["UNCAPPED_IC_SOULBIND_ALL"] = {
   timeout = 0, whileDead = 1, hideOnEscape = 1, showAlert = 1,
 }
 
+-- ============================ tooltip injection ===========================
+-- Append the cached soulbound data onto GameTooltip AFTER the default tooltip
+-- builds (hooksecurefunc), then Show() to resize. Data is matched by the client
+-- slot key. Guard against double-injection by scanning for our marker line: a
+-- "Set" method rebuilds the tooltip from scratch (wiping our lines), so if the
+-- marker is still present the tooltip was not rebuilt and we must not re-append.
+local SB_MARK = "|cff66ccffSoulbound|r"
+
+local function alreadyInjected(tt)
+  local name = tt:GetName()
+  if not name then return false end
+  for i = 1, tt:NumLines() do
+    local fs = _G[name .. "TextLeft" .. i]
+    if fs and fs:GetText() == SB_MARK then return true end
+  end
+  return false
+end
+
+local function Inject(tt, key)
+  local e = sbInv[key]
+  if not e then return end
+  if alreadyInjected(tt) then return end   -- already injected on this build
+  tt:AddLine(" ")
+  tt:AddLine(SB_MARK)
+  for _, s in ipairs(e.stats) do
+    tt:AddLine("|cff20ff20+" .. tostring(s.value) .. " " .. statName(s.type) .. "|r")
+  end
+  for _, p in ipairs(e.procs) do
+    tt:AddLine(spellName(p.spellId) .. " |cff888888(" .. triggerName(p.trigger) .. ")|r — "
+      .. (p.chance or 0) .. "% chance, " .. fmtMult(p.mag) .. "x power", 0.75, 0.5, 0.94)
+  end
+  tt:Show()
+end
+
+hooksecurefunc(GameTooltip, "SetBagItem", function(tt, bag, slot)
+  Inject(tt, "B:" .. bag .. ":" .. slot)
+end)
+hooksecurefunc(GameTooltip, "SetInventoryItem", function(tt, unit, invSlot)
+  if unit == "player" then Inject(tt, "E:" .. invSlot) end
+end)
+
 -- ============================ events / slash ==============================
+-- Lightweight timer for ICINV requests: a PLAYER_LOGIN warm-up (~2s) and a
+-- BAG_UPDATE debounce (~0.3s) so a burst of bag events sends only one request.
+local invTimer = CreateFrame("Frame")
+local invDue = nil
+invTimer:Hide()
+invTimer:SetScript("OnUpdate", function(self, elapsed)
+  if not invDue then self:Hide(); return end
+  invDue = invDue - elapsed
+  if invDue <= 0 then
+    invDue = nil
+    self:Hide()
+    send("ICINV")
+  end
+end)
+local function requestInvIn(delay) invDue = delay; invTimer:Show() end
+local function requestInv() send("ICINV") end
+
 local listener = CreateFrame("Frame")
 listener:RegisterEvent("CHAT_MSG_ADDON")
 listener:RegisterEvent("PLAYER_LOGIN")
 listener:RegisterEvent("BAG_UPDATE")
 listener:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+listener:RegisterEvent("UNIT_INVENTORY_CHANGED")
 listener:SetScript("OnEvent", function(self, event, a1, a2)
   if event == "CHAT_MSG_ADDON" then
     if a1 == PIPE_PREFIX and a2 and a2:sub(1,2) == "IC" then OnLine(a2) end
     return
   end
-  if event == "PLAYER_LOGIN" then dbg("loaded. /soulbind (or /sb) to open."); return end
+  if event == "PLAYER_LOGIN" then
+    dbg("loaded. /soulbind (or /sb) to open.")
+    requestInvIn(2)                       -- warm the soulbound tooltip cache
+    return
+  end
+  if event == "BAG_UPDATE" then requestInvIn(0.3) end
+  if event == "PLAYER_EQUIPMENT_CHANGED" then requestInv() end
+  if event == "UNIT_INVENTORY_CHANGED" and a1 == "player" then requestInv() end
   -- keep the paper doll / source list live while the window is open
   if UI and UI:IsShown() then
     if event == "PLAYER_EQUIPMENT_CHANGED" and UI.RefreshDoll and not state.bench then UI:RefreshDoll() end
