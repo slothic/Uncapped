@@ -15,8 +15,8 @@
     "url": "https://github.com/slothic/Uncapped/releases/download/mounts-v1/patch-enUS-Q.MPQ"
   },
   {
-    "_comment": "Client Spell.dbc (mounts-v2): the merged client spell table -- all of the existing client-side spell edits (GCD tuning etc., formerly the payload patch-enUS-Z) plus the 565 learnable mount spells (IDs 850000-850564) for the backported mounts in patch-Q. This replaces the old payload patch-enUS-Z, which sorted after patch-R in MPQ load order and shadowed the mount spells. Single winning spell patch now; server loads the mount-inclusive Spell.dbc from its own data volume.",
+    "_comment": "Client Spell.dbc (mounts-v3): the merged client spell table -- all of the existing client-side spell edits (GCD tuning etc., formerly the payload patch-enUS-Z) plus the 565 learnable mount spells (IDs 850000-850564) for the backported mounts in patch-Q. v3 lowers the Red Mastiff (spell 850139) mounted-speed tooltip to +15% (slow level-1 starter mount) to match the server. This replaces the old payload patch-enUS-Z, which sorted after patch-R in MPQ load order and shadowed the mount spells. Single winning spell patch now; server loads the mount-inclusive Spell.dbc from its own data volume.",
     "path": "Data/enUS/patch-enUS-R.MPQ",
-    "url": "https://github.com/slothic/Uncapped/releases/download/mounts-v2/patch-enUS-R.MPQ"
+    "url": "https://github.com/slothic/Uncapped/releases/download/mounts-v3/patch-enUS-R.MPQ"
   }
 ]
