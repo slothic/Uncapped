@@ -6,12 +6,22 @@
 -- is the authoritative store; this addon is only a window onto it and asks
 -- for a page of results at a time (search/sort/paging all run server-side).
 --
--- PREVIEW BUILD: `DEMO = true` fills the window from a local test table so
--- the look can be reviewed with no server. Flip DEMO to false and wire the
--- IVAULT comms (see bottom of file) to ship it.
+-- One payload, two behaviours (like devUncapped64): on the DEV realm it runs
+-- LIVE against the server vault (VLT* comms over the shared addon pipe); on
+-- every other realm it stays a local PREVIEW with demo items until the vault
+-- ships to prod. Flip FORCE_LIVE (or add the realm) when that happens.
 -- =====================================================================
 
-local DEMO = true
+local ADDON_PIPE_PREFIX = "UNC"          -- server ADDON_MESSAGE_PREFIX (replies come in on this)
+local TRANSPORT_PREFIX  = "REAGENTBANK"  -- shared server addon transport (we send on this)
+
+local FORCE_LIVE = false
+local function realmIsDev()
+    local r = GetRealmName()
+    return r and string.find(string.lower(r), "dev", 1, true) ~= nil
+end
+-- DEMO = local preview (demo items); not DEMO = live server comms.
+local DEMO = not (FORCE_LIVE or realmIsDev())
 
 -- ---- layout constants -------------------------------------------------
 local COLS      = 10          -- slots per row
@@ -142,6 +152,9 @@ local function Rebuild()
     wipe(view)
     local q = query:lower()
     for _, it in ipairs(ALL) do
+        -- Live rows arrive name-less (server sends numbers only); resolve the
+        -- name lazily from the client's item cache so text search works.
+        if it.n == nil or it.n == "" then it.n = GetItemInfo(it.e) or "" end
         if q == "" or it.n:lower():find(q, 1, true) then
             view[#view + 1] = it
         end
@@ -230,7 +243,8 @@ local function DoWithdraw(it, count)
         Rebuild()
         RefreshSlots()
     else
-        VaultSend("WITHDRAW:" .. it.e .. ":" .. count)   -- server is authoritative
+        -- Server is authoritative; the row updates when VLTWDONE comes back.
+        VaultSend(string.format("VLTWD:%d:%d:%d", it.e, it.rp or 0, count))
     end
 end
 
@@ -429,7 +443,7 @@ local function Open()
     end
     Rebuild(); RefreshSlots()
     frame:Show()
-    if not DEMO then VaultSend("OPEN") end   -- pull a fresh snapshot
+    if not DEMO then VaultSend("VLTGET") end   -- pull a fresh snapshot
 end
 
 local function Toggle()
@@ -447,16 +461,56 @@ local function LoadDemo()
 end
 
 -- =====================================================================
--- IVAULT comms -- STUB (server side not built yet). Real build parses
--- server PAGE messages into ALL and calls Rebuild()/RefreshSlots().
+-- Server comms (live mode). We send VLT* commands over the shared addon
+-- transport ("REAGENTBANK"); the server routes them to the vault handler and
+-- replies over prefix "UNC", which the client never renders.
+--   send:  VLTGET | VLTWD:<entry>:<rpid>:<count>
+--   recv:  VLTROW:e,rp,c,q;...  VLTEND:<n>  VLTWDONE:e:rp:given:remaining  VLTWDFAIL:e:rp
 -- =====================================================================
-local PREFIX = "IVAULT"
 function VaultSend(msg)
-    -- SendAddonMessage(PREFIX, msg, "WHISPER", UnitName("player"))  -- real build
+    SendAddonMessage(TRANSPORT_PREFIX, msg, "WHISPER", UnitName("player"))
 end
--- local comms = CreateFrame("Frame")
--- comms:RegisterEvent("CHAT_MSG_ADDON")
--- comms:SetScript("OnEvent", function(_, _, pfx, text) ... parse PAGE ... end)
+
+local staging = {}
+local function findRow(e, rp)
+    for _, it in ipairs(ALL) do
+        if it.e == e and (it.rp or 0) == rp then return it end
+    end
+end
+
+local comms = CreateFrame("Frame")
+comms:RegisterEvent("CHAT_MSG_ADDON")
+comms:SetScript("OnEvent", function(_, _, a1, a2)
+    if a1 ~= ADDON_PIPE_PREFIX or not a2 then return end
+    local text = a2
+    if text:find("^VLTROW:") then
+        for e, rp, c, q in string.gmatch(text, "(%-?%d+),(%-?%d+),(%d+),(%d+);") do
+            staging[#staging + 1] = { e = tonumber(e), rp = tonumber(rp), c = tonumber(c), q = tonumber(q), n = "" }
+        end
+    elseif text:find("^VLTEND:") then
+        ALL = staging
+        staging = {}
+        for idx, it in ipairs(ALL) do it.added = #ALL - idx end
+        if frame and frame:IsShown() then Rebuild(); RefreshSlots() end
+    elseif text:find("^VLTWDONE:") then
+        local e, rp, given, remaining = text:match("^VLTWDONE:(%d+):(%-?%d+):(%d+):(%d+)$")
+        if e then
+            e, rp, given, remaining = tonumber(e), tonumber(rp), tonumber(given), tonumber(remaining)
+            local it = findRow(e, rp)
+            if it then
+                it.c = remaining
+                if remaining <= 0 then
+                    for k, v in ipairs(ALL) do if v == it then table.remove(ALL, k) break end end
+                end
+            end
+            DEFAULT_CHAT_FRAME:AddMessage(string.format(
+                "|cff40c0ff[Vault]|r withdrew |cffffffff%sx|r %s", Commafy(given), GetItemInfo(e) or ("item " .. e)))
+            Rebuild(); RefreshSlots()
+        end
+    elseif text:find("^VLTWDFAIL:") then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r couldn't withdraw -- bags full, or not enough left in the vault.")
+    end
+end)
 
 -- =====================================================================
 -- Init
@@ -473,6 +527,9 @@ init:SetScript("OnEvent", function()
             DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r preview installed -- type |cffffd100/vault|r to open it anytime.")
             Open()
         end
+    else
+        DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r ready -- type |cffffd100/vault|r to open your vault.")
+        VaultSend("VLTGET")   -- warm the snapshot so it's ready on first open
     end
 end)
 
