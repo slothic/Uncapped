@@ -2647,6 +2647,18 @@
                       "size":  254
                   },
                   {
+                      "path":  "Interface/AddOns/UncappedVault/UncappedVault.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVault/UncappedVault.lua",
+                      "sha256":  "0922c99a666de6806fa6fcd4ca70e2f86dbb3d558b01f6e3e7a4944902c59c48",
+                      "size":  22367
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedVault/UncappedVault.toc",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVault/UncappedVault.toc",
+                      "sha256":  "6aa1f8b8d90681e00dadfa7f281679d6b9648433bce98a6610c75ef8c1f14bbb",
+                      "size":  319
+                  },
+                  {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "sha256":  "79aafccb5cd339309d8109c0005fe2d0aae70d5a115efcb989d12b98e3729e7f",
@@ -3345,7 +3357,8 @@
                               "UncappedAlerts",
                               "UncappedVersion",
                               "UncappedGCD",
-                              "UncappedOptions"
+                              "UncappedOptions",
+                              "UncappedVault"
                           ],
     "forceDisableAddOns":  [
                                "QuestHelper"
@@ -3362,6 +3375,7 @@
                        "Interface/AddOns/UncappedHotzones",
                        "Interface/AddOns/Uncapped64bitUI",
                        "Interface/AddOns/UncappedOptions",
+                       "Interface/AddOns/UncappedVault",
                        "Interface/AddOns/devUncapped64"
                    ]
 }
