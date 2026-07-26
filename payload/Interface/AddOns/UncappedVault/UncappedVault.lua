@@ -128,56 +128,87 @@ local DEMO_ITEMS = {
 -- =====================================================================
 -- Live state
 -- =====================================================================
-local ALL       = {}      -- full item list (from demo or server)
-local view      = {}      -- filtered + sorted list currently displayed
-local sortKey   = "count"
-local query     = ""
-local filterCat = "all"           -- active category filter key
+local ALL        = {}     -- full item list (from demo or server)
+local groups     = {}     -- category key -> sorted item list (built by Regroup)
+local groupOrder = {}     -- ordered category keys that currently have items
+local layout     = {}     -- flat render list: {h=true,...} header rows / {items={}} item rows
+local shownStacks, shownItems = 0, 0
+local sortKey    = "count"
+local query      = ""
 local filterMin, filterMax = 0, 0 -- item-level bounds (0 = unbounded)
 
 -- Item class/subclass -> friendly categories. class/subclass arrive on the
 -- server row (it.cls / it.sub); missing (legacy rows / demo) counts as misc.
 local function C(it) return it.cls or 15 end
 local function S(it) return it.sub or 0 end
-local CATEGORIES = {
-    { key = "all",    label = "All Items",     test = function() return true end },
-    { key = "armor",  label = "Armor",         test = function(it) return C(it) == 4 end, subs = {
-        { key = "armor_cloth",   label = "Cloth",   test = function(it) return C(it) == 4 and S(it) == 1 end },
-        { key = "armor_leather", label = "Leather", test = function(it) return C(it) == 4 and S(it) == 2 end },
-        { key = "armor_mail",    label = "Mail",    test = function(it) return C(it) == 4 and S(it) == 3 end },
-        { key = "armor_plate",   label = "Plate",   test = function(it) return C(it) == 4 and S(it) == 4 end },
-        { key = "armor_shield",  label = "Shields", test = function(it) return C(it) == 4 and S(it) == 6 end },
-    } },
-    { key = "weapon", label = "Weapons",       test = function(it) return C(it) == 2 end },
-    { key = "consum", label = "Consumables",   test = function(it) return C(it) == 0 end, subs = {
-        { key = "potion", label = "Potions",      test = function(it) return C(it) == 0 and S(it) == 1 end },
-        { key = "elixir", label = "Elixirs",      test = function(it) return C(it) == 0 and S(it) == 2 end },
-        { key = "flask",  label = "Flasks",       test = function(it) return C(it) == 0 and S(it) == 3 end },
-        { key = "food",   label = "Food & Drink", test = function(it) return C(it) == 0 and S(it) == 5 end },
-    } },
-    { key = "trade",  label = "Trade Goods",   test = function(it) return C(it) == 7 end, subs = {
-        { key = "tg_cloth",   label = "Cloth",         test = function(it) return C(it) == 7 and S(it) == 5 end },
-        { key = "tg_leather", label = "Leather",       test = function(it) return C(it) == 7 and S(it) == 6 end },
-        { key = "tg_metal",   label = "Metal & Stone", test = function(it) return C(it) == 7 and S(it) == 7 end },
-        { key = "tg_herb",    label = "Herbs",         test = function(it) return C(it) == 7 and S(it) == 9 end },
-        { key = "tg_ench",    label = "Enchanting",    test = function(it) return C(it) == 7 and S(it) == 12 end },
-        { key = "tg_jc",      label = "Jewelcrafting", test = function(it) return C(it) == 7 and S(it) == 4 end },
-    } },
-    { key = "gem",    label = "Gems",          test = function(it) return C(it) == 3 end },
-    { key = "glyph",  label = "Glyphs",        test = function(it) return C(it) == 16 end },
-    { key = "recipe", label = "Recipes",       test = function(it) return C(it) == 9 end },
-    { key = "misc",   label = "Miscellaneous", test = function(it) return C(it) == 15 end },
+-- The default system categories, in their default order. The player picks
+-- which show (and reorders them) from the Categories panel; the choice is
+-- saved. Each vault item maps to exactly one of these by its item class.
+local SYSCATS = {
+    { key = "weapon",  label = "Weapons" },
+    { key = "armor",   label = "Armor" },
+    { key = "consum",  label = "Consumables" },
+    { key = "trade",   label = "Trade Goods" },
+    { key = "gem",     label = "Gems" },
+    { key = "glyph",   label = "Glyphs" },
+    { key = "recipe",  label = "Recipes" },
+    { key = "reagent", label = "Reagents" },
+    { key = "proj",    label = "Projectiles & Ammo" },
+    { key = "quest",   label = "Quest" },
+    { key = "misc",    label = "Miscellaneous" },
 }
-local catByKey, catLabel = {}, {}
-for _, cat in ipairs(CATEGORIES) do
-    catByKey[cat.key], catLabel[cat.key] = cat.test, cat.label
-    if cat.subs then
-        for _, s in ipairs(cat.subs) do catByKey[s.key], catLabel[s.key] = s.test, s.label end
+local CLASS_CAT = {   -- item class id -> category key
+    [0] = "consum", [2] = "weapon",  [3] = "gem",    [4] = "armor",
+    [5] = "reagent",[6] = "proj",    [7] = "trade",  [9] = "recipe",
+    [11] = "proj",  [12] = "quest",  [16] = "glyph",
+}
+local function itemCat(it) return CLASS_CAT[C(it)] or "misc" end
+
+local SYSLABEL = { __other = "Other" }
+for _, sc in ipairs(SYSCATS) do SYSLABEL[sc.key] = sc.label end
+local function labelFor(key) return SYSLABEL[key] or key end
+
+-- Section config lives in UncappedVaultDB.sections = an ordered {key,on} list.
+-- Reconciled against SYSCATS on every read, so a category added in a later
+-- build shows up automatically without wiping the player's saved order.
+local function sections()
+    UncappedVaultDB = UncappedVaultDB or {}
+    local s = UncappedVaultDB.sections
+    if not s then
+        s = {}
+        for _, sc in ipairs(SYSCATS) do s[#s + 1] = { key = sc.key, on = true } end
+        UncappedVaultDB.sections = s
+    else
+        local seen = {}
+        for _, e in ipairs(s) do seen[e.key] = true end
+        for _, sc in ipairs(SYSCATS) do
+            if not seen[sc.key] then s[#s + 1] = { key = sc.key, on = true } end
+        end
     end
+    return s
+end
+local function enabledSet()
+    local set = {}
+    for _, e in ipairs(sections()) do if e.on then set[e.key] = true end end
+    return set
+end
+local function orderedEnabledKeys()
+    local t = {}
+    for _, e in ipairs(sections()) do if e.on then t[#t + 1] = e.key end end
+    return t
+end
+local function isCollapsed(key)
+    return (UncappedVaultDB and UncappedVaultDB.collapsed and UncappedVaultDB.collapsed[key]) or false
+end
+local function toggleCollapse(key)
+    UncappedVaultDB = UncappedVaultDB or {}
+    UncappedVaultDB.collapsed = UncappedVaultDB.collapsed or {}
+    UncappedVaultDB.collapsed[key] = (not UncappedVaultDB.collapsed[key]) or nil
 end
 
 local frame               -- main window
 local slots     = {}      -- pool of COLS*ROWS slot buttons
+local headers   = {}      -- pool of section-header buttons (one per grid row)
 local scroll              -- FauxScrollFrame
 local footer              -- summary fontstring
 local pendingIcons = false -- a visible item isn't in the client's cache yet
@@ -250,6 +281,27 @@ local function DepositCursor()
     ClearCursor()
 end
 
+-- Ctrl- or Shift-click an item in your bags -- default UI or ArkInventory,
+-- Bagnon, etc. -- while the vault is open to deposit that stack, no dragging.
+-- We look the clicked link up to its bag/slot and reuse the normal deposit
+-- path. (The client's default modified-click still runs, so the item also
+-- links into an open chat edit box -- harmless.)
+if hooksecurefunc then
+    hooksecurefunc("HandleModifiedItemClick", function(link)
+        if DEMO or not link then return end
+        if not (frame and frame:IsShown()) then return end
+        if not (IsControlKeyDown() or IsShiftKeyDown()) then return end
+        for bag = 0, 4 do
+            for slot = 1, GetContainerNumSlots(bag) do
+                if GetContainerItemLink(bag, slot) == link then
+                    VaultSend(string.format("VLTDEP:%d:%d", bag, slot))
+                    return
+                end
+            end
+        end
+    end)
+end
+
 -- =====================================================================
 -- Filter + sort
 -- =====================================================================
@@ -260,35 +312,72 @@ local SORTERS = {
     recent  = function(a, b) return (a.added or 0) > (b.added or 0) end,
 }
 
-local function Rebuild()
-    wipe(view)
+-- Regroup: filter ALL by search + item level, then bucket the survivors into
+-- their category (a disabled/unknown category falls into "Other"), and sort
+-- each bucket. Expensive part -- run only when data / filter / sort / sections
+-- change, NOT on every resize tick.
+local function Regroup()
+    wipe(groups); wipe(groupOrder)
+    shownStacks, shownItems = 0, 0
     local q = query:lower()
-    local test = catByKey[filterCat] or catByKey.all
     local lo, hi = filterMin, filterMax
+    local enabled = enabledSet()
     for _, it in ipairs(ALL) do
         -- Live rows arrive name-less (server sends numbers only); resolve the
         -- name lazily from the client's item cache so text search works.
         if it.n == nil or it.n == "" then it.n = GetItemInfo(it.e) or "" end
         if (q == "" or it.n:lower():find(q, 1, true))
-            and test(it)
             and (lo == 0 or (it.ilvl or 0) >= lo)
             and (hi == 0 or (it.ilvl or 0) <= hi) then
-            view[#view + 1] = it
+            local k = itemCat(it)
+            if not enabled[k] then k = "__other" end
+            local g = groups[k]
+            if not g then g = {}; groups[k] = g end
+            g[#g + 1] = it
+            shownStacks = shownStacks + 1
+            shownItems = shownItems + it.c
         end
     end
-    table.sort(view, SORTERS[sortKey] or SORTERS.count)
+    local sorter = SORTERS[sortKey] or SORTERS.count
+    local order = orderedEnabledKeys()
+    order[#order + 1] = "__other"   -- catch-all always last
+    for _, key in ipairs(order) do
+        local g = groups[key]
+        if g and #g > 0 then
+            table.sort(g, sorter)
+            groupOrder[#groupOrder + 1] = key
+        end
+    end
 end
+
+-- BuildLayout: chunk the sorted buckets into the flat render list at the
+-- current COLS. Cheap -- safe to re-run on resize / collapse without regroup.
+local function BuildLayout()
+    wipe(layout)
+    for _, key in ipairs(groupOrder) do
+        local g = groups[key]
+        local collapsed = isCollapsed(key)
+        layout[#layout + 1] = { h = true, key = key, label = labelFor(key), n = #g, collapsed = collapsed }
+        if not collapsed then
+            for i = 1, #g, COLS do
+                local row = { items = {} }
+                for c = 0, COLS - 1 do row.items[c + 1] = g[i + c] end
+                layout[#layout + 1] = row
+            end
+        end
+    end
+end
+
+local function Rebuild() Regroup(); BuildLayout() end
 
 -- =====================================================================
 -- Rendering
 -- =====================================================================
 local function UpdateFooter()
-    local stacks, total = #view, 0
-    for _, it in ipairs(view) do total = total + it.c end
-    local filtered = (query ~= "" or filterCat ~= "all" or filterMin > 0 or filterMax > 0)
+    local filtered = (query ~= "" or filterMin > 0 or filterMax > 0)
     footer:SetText(string.format(
         "|cffffd100%s|r stacks   |cff808080/|r   |cffffd100%s|r items%s",
-        Commafy(stacks), Commafy(total),
+        Commafy(shownStacks), Commafy(shownItems),
         (filtered and "   |cff808080(filtered)|r" or "")))
 end
 
@@ -311,41 +400,69 @@ local function ShowTooltip(btn)
     GameTooltip:Show()
 end
 
+-- Paint one item into a slot button (icon / count / quality glow).
+local function paintSlot(btn, it)
+    btn.item = it
+    local tex = it.icon or select(10, GetItemInfo(it.e)) or it.i   -- server-sent icon first
+    if not tex then
+        tex = "Interface\\Icons\\INV_Misc_QuestionMark"
+        pendingIcons = true
+        enqueueWarm(it.e)   -- make sure this on-screen item is in the warm queue
+    end
+    _G[btn:GetName() .. "IconTexture"]:SetTexture(tex)
+    local cf = _G[btn:GetName() .. "Count"]
+    local txt = FmtCount(it.c)
+    cf:SetText(txt)
+    if txt ~= "" then cf:Show() else cf:Hide() end
+    local col = QCOLOR[it.q]
+    if it.q and it.q >= 2 and col then
+        btn.glow:SetVertexColor(col.r, col.g, col.b)
+        btn.glow:Show()
+    else
+        btn.glow:Hide()
+    end
+    btn:Show()
+end
+
+local function hideRow(r)
+    for c = 1, COLS do
+        local b = slots[r * COLS + c]
+        if b then b.item = nil; b:Hide() end
+    end
+end
+
+-- Render the visible window of the flat layout: each grid row is either a
+-- full-width section header or a row of up to COLS item slots.
 local function RefreshSlots()
     pendingIcons = false
     local offset = FauxScrollFrame_GetOffset(scroll) or 0
-    local rows = math.ceil(#view / COLS)
-    FauxScrollFrame_Update(scroll, rows, ROWS, STEP)
+    local maxOff = math.max(0, #layout - ROWS)
+    if offset > maxOff then offset = maxOff end   -- layout shrank (collapse / hide) while scrolled
+    FauxScrollFrame_Update(scroll, #layout, ROWS, STEP)
 
-    for idx = 1, COLS * ROWS do
-        local btn = slots[idx]
-        local dataIndex = offset * COLS + idx
-        local it = view[dataIndex]
-        if it then
-            btn.item = it
-            local tex = it.icon or select(10, GetItemInfo(it.e)) or it.i   -- server-sent icon first
-            if not tex then
-                tex = "Interface\\Icons\\INV_Misc_QuestionMark"
-                pendingIcons = true
-                enqueueWarm(it.e)   -- make sure this on-screen item is in the warm queue
+    for r = 0, ROWS - 1 do
+        local entry = layout[offset + r + 1]
+        local hdr = headers[r + 1]
+        if entry and entry.h then
+            hideRow(r)
+            if hdr then
+                hdr.key = entry.key
+                hdr.arrow:SetText(entry.collapsed and "+" or "-")
+                hdr.label:SetText(string.format("%s  |cff9d9d9d(%d)|r", entry.label, entry.n))
+                hdr:Show()
             end
-            _G[btn:GetName() .. "IconTexture"]:SetTexture(tex)
-            local cf = _G[btn:GetName() .. "Count"]
-            local txt = FmtCount(it.c)
-            cf:SetText(txt)
-            if txt ~= "" then cf:Show() else cf:Hide() end
-            -- quality glow on the slot (hidden for poor/common)
-            local col = QCOLOR[it.q]
-            if it.q and it.q >= 2 and col then
-                btn.glow:SetVertexColor(col.r, col.g, col.b)
-                btn.glow:Show()
-            else
-                btn.glow:Hide()
+        elseif entry then
+            if hdr then hdr:Hide() end
+            for c = 1, COLS do
+                local b = slots[r * COLS + c]
+                local it = entry.items[c]
+                if b then
+                    if it then paintSlot(b, it) else b.item = nil; b:Hide() end
+                end
             end
-            btn:Show()
         else
-            btn.item = nil
-            btn:Hide()
+            if hdr then hdr:Hide() end
+            hideRow(r)
         end
     end
     UpdateFooter()
@@ -407,6 +524,127 @@ local function SlotOnClick(btn, mouse)
 end
 
 -- =====================================================================
+-- Categories panel -- pick which system categories show as sections and in
+-- what order (ArkInventory-style). Everything is saved in UncappedVaultDB.
+-- =====================================================================
+local cfgFrame, cfgRows
+
+local function RefreshConfig()
+    if not cfgFrame then return end
+    local s = sections()
+    for i, row in ipairs(cfgRows) do
+        local e = s[i]
+        if e then
+            row.entry = e
+            row.check:SetChecked(e.on)
+            row.label:SetText(labelFor(e.key))
+            if i > 1 then row.up:Enable() else row.up:Disable() end
+            if i < #s then row.down:Enable() else row.down:Disable() end
+            row:Show()
+        else
+            row:Hide()
+        end
+    end
+end
+
+local function moveSection(entry, dir)
+    local s = sections()
+    local idx
+    for i, e in ipairs(s) do if e == entry then idx = i; break end end
+    if not idx then return end
+    local j = idx + dir
+    if j < 1 or j > #s then return end
+    s[idx], s[j] = s[j], s[idx]
+    RefreshConfig()
+    Rebuild(); RefreshSlots()
+end
+
+local function addAllDefaults()
+    local s = {}
+    for _, sc in ipairs(SYSCATS) do s[#s + 1] = { key = sc.key, on = true } end
+    UncappedVaultDB = UncappedVaultDB or {}
+    UncappedVaultDB.sections = s
+    RefreshConfig()
+    Rebuild(); RefreshSlots()
+end
+
+local function BuildConfig()
+    local n = #SYSCATS
+    cfgFrame = CreateFrame("Frame", "UncappedVaultConfig", UIParent)
+    cfgFrame:SetWidth(270)
+    cfgFrame:SetHeight(70 + n * 26 + 40)
+    cfgFrame:SetPoint("CENTER", 240, 0)
+    cfgFrame:SetFrameStrata("DIALOG")
+    cfgFrame:SetBackdrop({
+        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 },
+    })
+    cfgFrame:EnableMouse(true)
+    cfgFrame:SetMovable(true)
+    cfgFrame:SetClampedToScreen(true)
+    cfgFrame:RegisterForDrag("LeftButton")
+    cfgFrame:SetScript("OnDragStart", cfgFrame.StartMoving)
+    cfgFrame:SetScript("OnDragStop", cfgFrame.StopMovingOrSizing)
+    tinsert(UISpecialFrames, "UncappedVaultConfig")
+
+    local title = cfgFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOP", 0, -16); title:SetText("Vault Categories")
+    local close = CreateFrame("Button", nil, cfgFrame, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", -4, -4)
+    local hint = cfgFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    hint:SetPoint("TOP", 0, -34); hint:SetText("Tick to show as a section  |cff808080/|r  arrows reorder")
+
+    cfgRows = {}
+    for i = 1, n do
+        local row = CreateFrame("Frame", nil, cfgFrame)
+        row:SetWidth(238); row:SetHeight(24)
+        row:SetPoint("TOPLEFT", 18, -50 - (i - 1) * 26)
+
+        local check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+        check:SetWidth(24); check:SetHeight(24); check:SetPoint("LEFT", 0, 0)
+        check:SetScript("OnClick", function(self)
+            if row.entry then
+                row.entry.on = self:GetChecked() and true or false
+                Rebuild(); RefreshSlots()
+            end
+        end)
+        local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        label:SetPoint("LEFT", check, "RIGHT", 4, 0)
+
+        local down = CreateFrame("Button", nil, row)
+        down:SetWidth(24); down:SetHeight(24); down:SetPoint("RIGHT", 0, 0)
+        down:SetNormalTexture("Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Up")
+        down:SetPushedTexture("Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Down")
+        down:SetDisabledTexture("Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Disabled")
+        down:SetScript("OnClick", function() moveSection(row.entry, 1) end)
+        local up = CreateFrame("Button", nil, row)
+        up:SetWidth(24); up:SetHeight(24); up:SetPoint("RIGHT", down, "LEFT", 0, 0)
+        up:SetNormalTexture("Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Up")
+        up:SetPushedTexture("Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Down")
+        up:SetDisabledTexture("Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Disabled")
+        up:SetScript("OnClick", function() moveSection(row.entry, -1) end)
+
+        row.check, row.label, row.up, row.down = check, label, up, down
+        cfgRows[i] = row
+    end
+
+    local addBtn = CreateFrame("Button", nil, cfgFrame, "UIPanelButtonTemplate")
+    addBtn:SetWidth(230); addBtn:SetHeight(22)
+    addBtn:SetPoint("BOTTOM", 0, 16)
+    addBtn:SetText("Add all default categories")
+    addBtn:SetScript("OnClick", addAllDefaults)
+
+    RefreshConfig()
+end
+
+local function ToggleConfig()
+    if not cfgFrame then BuildConfig() end
+    if cfgFrame:IsShown() then cfgFrame:Hide() else RefreshConfig(); cfgFrame:Show() end
+end
+
+-- =====================================================================
 -- Build the window
 -- =====================================================================
 -- =====================================================================
@@ -431,6 +669,30 @@ local function createSlot(idx)
     return btn
 end
 
+-- A full-width section header that sits in one grid-row slot. Clicking it
+-- collapses/expands that category; the state is remembered.
+local function createHeader(r)
+    local h = CreateFrame("Button", nil, frame)
+    h:SetHeight(SLOT)
+    local bg = h:CreateTexture(nil, "BACKGROUND")
+    bg:SetTexture(0.24, 0.24, 0.30, 0.6)
+    bg:SetAllPoints()
+    h.bg = bg
+    local arrow = h:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    arrow:SetPoint("LEFT", 8, 0); arrow:SetWidth(14); arrow:SetJustifyH("CENTER")
+    h.arrow = arrow
+    local label = h:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetPoint("LEFT", 26, 0)
+    h.label = label
+    h:SetScript("OnEnter", function(self) self.bg:SetTexture(0.34, 0.34, 0.42, 0.75) end)
+    h:SetScript("OnLeave", function(self) self.bg:SetTexture(0.24, 0.24, 0.30, 0.6) end)
+    h:SetScript("OnClick", function(self)
+        if self.key then toggleCollapse(self.key); BuildLayout(); RefreshSlots() end
+    end)
+    headers[r + 1] = h
+    return h
+end
+
 local function Relayout()
     if not frame or not scroll then return end
     -- Fit as many whole slot columns/rows as the current window allows.
@@ -445,8 +707,17 @@ local function Relayout()
         btn:SetPoint("TOPLEFT", scroll, "TOPLEFT", c * STEP, -r * STEP)
     end
     for idx = need + 1, #slots do slots[idx]:Hide() end   -- surplus from a larger prior size
+    -- one full-width header per visible grid row (shown only where a header lands)
+    for r = 0, ROWS - 1 do
+        local h = headers[r + 1] or createHeader(r)
+        h:ClearAllPoints()
+        h:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, -r * STEP)
+        h:SetWidth(COLS * STEP - GAP)
+    end
+    for r = ROWS, #headers - 1 do if headers[r + 1] then headers[r + 1]:Hide() end end
     scroll:SetWidth(COLS * STEP - GAP)
     scroll:SetHeight(ROWS * STEP - GAP)
+    BuildLayout()   -- re-chunk to the new COLS (cheap; no regroup)
     RefreshSlots()
 end
 
@@ -560,47 +831,15 @@ local function BuildFrame()
     sortLabel:SetPoint("BOTTOMLEFT", sortDD, "TOPLEFT", 20, 0)
     sortLabel:SetText("Sort")
 
-    -- category filter dropdown (row 2, left) with armor/consumable/trade sub-types
-    local catDD = CreateFrame("Frame", "UncappedVaultCat", frame, "UIDropDownMenuTemplate")
-    catDD:SetPoint("TOPLEFT", PAD - 8, -60)
-    local function applyCat(key)
-        filterCat = key
-        UncappedVaultDB = UncappedVaultDB or {}; UncappedVaultDB.cat = key
-        UIDropDownMenu_SetText(catDD, catLabel[key] or "All Items")
-        Rebuild(); _G["UncappedVaultScrollScrollBar"]:SetValue(0); RefreshSlots()
-    end
-    UIDropDownMenu_Initialize(catDD, function(_, level, menuList)
-        level = level or 1
-        if level == 1 then
-            for _, cat in ipairs(CATEGORIES) do
-                local info = UIDropDownMenu_CreateInfo()
-                info.text, info.checked = cat.label, (filterCat == cat.key)
-                if cat.subs then
-                    info.hasArrow, info.menuList = true, cat.key
-                    info.func = function() applyCat(cat.key); CloseDropDownMenus() end
-                else
-                    info.func = function() applyCat(cat.key); CloseDropDownMenus() end
-                end
-                UIDropDownMenu_AddButton(info, level)
-            end
-        else
-            for _, cat in ipairs(CATEGORIES) do
-                if cat.key == menuList and cat.subs then
-                    for _, s in ipairs(cat.subs) do
-                        local info = UIDropDownMenu_CreateInfo()
-                        info.text, info.checked = s.label, (filterCat == s.key)
-                        info.func = function() applyCat(s.key); CloseDropDownMenus() end
-                        UIDropDownMenu_AddButton(info, level)
-                    end
-                end
-            end
-        end
-    end)
-    UIDropDownMenu_SetWidth(catDD, 120)
-    UIDropDownMenu_SetText(catDD, catLabel[filterCat] or "All Items")
+    -- categories button (row 2, left) -- opens the section manager
+    local catBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    catBtn:SetPoint("TOPLEFT", PAD + 2, -60)
+    catBtn:SetWidth(120); catBtn:SetHeight(22)
+    catBtn:SetText("Categories...")
+    catBtn:SetScript("OnClick", ToggleConfig)
     local catLbl = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    catLbl:SetPoint("BOTTOMLEFT", catDD, "TOPLEFT", 20, 0)
-    catLbl:SetText("Filter")
+    catLbl:SetPoint("BOTTOMLEFT", catBtn, "TOPLEFT", 4, 0)
+    catLbl:SetText("Sections")
 
     -- item-level range (row 2, right): min .. max
     local function applyIlvl()
@@ -790,7 +1029,6 @@ init:RegisterEvent("PLAYER_LOGIN")
 init:SetScript("OnEvent", function()
     UncappedVaultDB = UncappedVaultDB or {}
     if UncappedVaultDB.sort then sortKey = UncappedVaultDB.sort end
-    if UncappedVaultDB.cat and catByKey[UncappedVaultDB.cat] then filterCat = UncappedVaultDB.cat end
     if DEMO then
         LoadDemo()
         if not UncappedVaultDB.previewShown then
