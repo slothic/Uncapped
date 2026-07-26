@@ -15,8 +15,8 @@
     "url": "https://github.com/slothic/Uncapped/releases/download/mounts-v1/patch-enUS-Q.MPQ"
   },
   {
-    "_comment": "Mount pack v1 spells: patched Spell.dbc carrying 565 learnable mount spells (IDs 850000-850564) for the backported mounts in patch-Q. Client copy; the server loads the same Spell.dbc from its data volume. Released alongside patch-Q on the mounts-v1 tag.",
+    "_comment": "Client Spell.dbc (mounts-v2): the merged client spell table -- all of the existing client-side spell edits (GCD tuning etc., formerly the payload patch-enUS-Z) plus the 565 learnable mount spells (IDs 850000-850564) for the backported mounts in patch-Q. This replaces the old payload patch-enUS-Z, which sorted after patch-R in MPQ load order and shadowed the mount spells. Single winning spell patch now; server loads the mount-inclusive Spell.dbc from its own data volume.",
     "path": "Data/enUS/patch-enUS-R.MPQ",
-    "url": "https://github.com/slothic/Uncapped/releases/download/mounts-v1/patch-enUS-R.MPQ"
+    "url": "https://github.com/slothic/Uncapped/releases/download/mounts-v2/patch-enUS-R.MPQ"
   }
 ]

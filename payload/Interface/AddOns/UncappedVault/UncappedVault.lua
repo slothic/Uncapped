@@ -684,29 +684,11 @@ init:SetScript("OnEvent", function()
         local function openVault()  if not (frame and frame:IsShown()) then Open() end end
         local function closeVault() if frame and frame:IsShown() then frame:Hide() end end
 
-        -- Universal path: nearly every bag addon (and the default UI) routes bag
-        -- open/close/toggle through these standard functions, so hooking them
-        -- makes the vault follow the bags no matter which addon is installed.
-        local bagsShown = false
-        local function setBags(open)
-            bagsShown = open
-            if open then openVault() else closeVault() end
-        end
-        local function safeHook(name, fn)
-            if type(_G[name]) == "function" then hooksecurefunc(name, fn) end
-        end
-        safeHook("OpenAllBags",    function() setBags(true)  end)
-        safeHook("OpenBackpack",   function() setBags(true)  end)
-        safeHook("CloseAllBags",   function() setBags(false) end)
-        safeHook("CloseBackpack",  function() setBags(false) end)
-        safeHook("ToggleBackpack", function() setBags(not bagsShown) end)
-        safeHook("ToggleAllBags",  function() setBags(not bagsShown) end)
-
-        -- Bonus: hook the actual bag WINDOW of the popular replacements, so ESC /
-        -- direct show-hide also syncs (and corrects the toggle state). Each is
-        -- hooked only if present; some are created lazily after login.
+        -- Window frames of the popular bag replacements. bagsVisible() READS the
+        -- real state -- we never flip-track a toggle (that inverts as soon as the
+        -- tracked state drifts, which is exactly the ArkInventory bug).
         local BAG_FRAMES = {
-            "ARKINV_Frame1",                            -- ArkInventory (bags location)
+            "ARKINV_Frame1",                            -- ArkInventory (bags = location 1)
             "BagnonFrameinventory", "BagnonInventory",  -- Bagnon
             "CombuctorFrameinventory", "Combuctor",     -- Combuctor
             "OneBagFrame",                              -- OneBag3
@@ -715,15 +697,43 @@ init:SetScript("OnEvent", function()
             "cargBags_Default_Main",                    -- cargBags
             "BagginsForm1",                             -- Baggins
         }
+        local function bagsVisible()
+            for _, name in ipairs(BAG_FRAMES) do
+                local f = _G[name]
+                if f and f:IsShown() then return true end
+            end
+            for i = 0, 4 do
+                if IsBagOpen(i) then return true end
+            end
+            return false
+        end
+
+        -- Any bag event -> next frame, set the vault to match reality. Coalesces
+        -- the burst of events when several bag frames open/close at once.
+        local watcher = CreateFrame("Frame"); watcher:Hide()
+        watcher:SetScript("OnUpdate", function(self)
+            self:Hide()
+            if bagsVisible() then openVault() else closeVault() end
+        end)
+        local function sync() watcher:Show() end
+
+        -- Default bags fire ContainerFrame_OnShow/OnHide. We deliberately drive
+        -- everything off the actual bag WINDOWS (below) rather than the bag
+        -- functions -- a window we don't recognise then simply doesn't sync,
+        -- instead of wrongly closing the vault when its bags open.
+        hooksecurefunc("ContainerFrame_OnShow", sync)
+        hooksecurefunc("ContainerFrame_OnHide", sync)
+
+        -- Hook each popular addon's window directly, so its own show/hide
+        -- (incl. ESC) drives the sync. Hooked only if present; some are lazy.
         local hooked = {}
         local function hookFrames()
             for _, name in ipairs(BAG_FRAMES) do
                 local f = _G[name]
                 if f and not hooked[name] and f.HookScript then
                     hooked[name] = true
-                    f:HookScript("OnShow", function() setBags(true) end)
-                    f:HookScript("OnHide", function() setBags(false) end)
-                    if f:IsShown() then setBags(true) end
+                    f:HookScript("OnShow", sync)
+                    f:HookScript("OnHide", sync)
                 end
             end
         end

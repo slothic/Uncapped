@@ -2649,8 +2649,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedVault/UncappedVault.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVault/UncappedVault.lua",
-                      "sha256":  "814f368092434d3b6386ddfd33d69a6f217549e0ffd050c2a6b6ee1ad7546560",
-                      "size":  35257
+                      "sha256":  "9e27be4e351bc134a85399e14e40537aa9a856a04cfd51149602450da20345c5",
+                      "size":  35526
                   },
                   {
                       "path":  "Interface/AddOns/UncappedVault/UncappedVault.toc",
@@ -3344,9 +3344,9 @@
                   },
                   {
                       "path":  "Data/enUS/patch-enUS-R.MPQ",
-                      "url":  "https://github.com/slothic/Uncapped/releases/download/mounts-v1/patch-enUS-R.MPQ",
-                      "sha256":  "daa96d8f3951a03c3eabccc97c4b73fa8c158d5732222e0544f435e42765f026",
-                      "size":  4610259
+                      "url":  "https://github.com/slothic/Uncapped/releases/download/mounts-v2/patch-enUS-R.MPQ",
+                      "sha256":  "043aa9feded0e3a2b50cda3c677911b6bfc12a6f75e358eacb814a1528f57c77",
+                      "size":  4547583
                   }
               ],
     "forceEnableAddOns":  [
