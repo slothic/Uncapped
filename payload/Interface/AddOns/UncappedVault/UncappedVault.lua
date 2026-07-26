@@ -274,7 +274,7 @@ local function RefreshSlots()
         local it = view[dataIndex]
         if it then
             btn.item = it
-            local tex = select(10, GetItemInfo(it.e)) or it.i
+            local tex = it.icon or select(10, GetItemInfo(it.e)) or it.i   -- server-sent icon first
             if not tex then
                 tex = "Interface\\Icons\\INV_Misc_QuestionMark"
                 pendingIcons = true
@@ -578,8 +578,9 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
     if a1 ~= ADDON_PIPE_PREFIX or not a2 then return end
     local text = a2
     if text:find("^VLTROW:") then
-        for e, rp, c, q in string.gmatch(text, "(%-?%d+),(%-?%d+),(%d+),(%d+);") do
-            staging[#staging + 1] = { e = tonumber(e), rp = tonumber(rp), c = tonumber(c), q = tonumber(q), n = "" }
+        for e, rp, c, q, icon in string.gmatch(text, "(%-?%d+),(%-?%d+),(%d+),(%d+),([^;]*);") do
+            staging[#staging + 1] = { e = tonumber(e), rp = tonumber(rp), c = tonumber(c), q = tonumber(q),
+                icon = (icon ~= "" and ("Interface\\Icons\\" .. icon)) or nil, n = "" }
         end
     elseif text:find("^VLTEND:") then
         ALL = staging
