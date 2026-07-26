@@ -137,6 +137,34 @@ local frame               -- main window
 local slots     = {}      -- pool of COLS*ROWS slot buttons
 local scroll              -- FauxScrollFrame
 local footer              -- summary fontstring
+local pendingIcons = false -- a visible item isn't in the client's cache yet
+
+-- Hidden tooltip used purely to FORCE the client to request item data from
+-- the server. GetItemInfo() alone does not reliably trigger that request in
+-- 3.3.5, so an uncached item's icon/name would stay blank forever; setting its
+-- hyperlink here makes the client send the item query, and the next refresh
+-- (driven by the retry ticker) picks up the now-cached data.
+local scanTip = CreateFrame("GameTooltip", "UncappedVaultScanTip", UIParent, "GameTooltipTemplate")
+scanTip:SetOwner(UIParent, "ANCHOR_NONE")
+scanTip:Hide()
+
+-- Track the last bag slot an item was picked up from, so a drag-drop onto the
+-- vault window knows exactly which stack to deposit.
+local lastPickup
+if hooksecurefunc then
+    hooksecurefunc("PickupContainerItem", function(bag, slot)
+        lastPickup = { bag = bag, slot = slot }
+    end)
+end
+local function DepositCursor()
+    if DEMO then ClearCursor(); return end   -- preview build: deposit is server-only
+    if not CursorHasItem() then return end
+    local t = GetCursorInfo()
+    if t == "item" and lastPickup then
+        VaultSend(string.format("VLTDEP:%d:%d", lastPickup.bag, lastPickup.slot))
+    end
+    ClearCursor()
+end
 
 -- =====================================================================
 -- Filter + sort
@@ -194,6 +222,7 @@ local function ShowTooltip(btn)
 end
 
 local function RefreshSlots()
+    pendingIcons = false
     local offset = FauxScrollFrame_GetOffset(scroll) or 0
     local rows = math.ceil(#view / COLS)
     FauxScrollFrame_Update(scroll, rows, ROWS, STEP)
@@ -205,6 +234,11 @@ local function RefreshSlots()
         if it then
             btn.item = it
             local tex = select(10, GetItemInfo(it.e)) or it.i
+            if not tex then
+                tex = "Interface\\Icons\\INV_Misc_QuestionMark"
+                pendingIcons = true                       -- not cached yet
+                scanTip:SetHyperlink("item:" .. it.e)     -- force the server to send item data
+            end
             _G[btn:GetName() .. "IconTexture"]:SetTexture(tex)
             local cf = _G[btn:GetName() .. "Count"]
             local txt = FmtCount(it.c)
@@ -269,6 +303,7 @@ StaticPopupDialogs["UNCAPPEDVAULT_WITHDRAW"] = {
 }
 
 local function SlotOnClick(btn, mouse)
+    if CursorHasItem() then DepositCursor(); return end   -- clicked a slot holding an item -> deposit
     local it = btn.item
     if not it then return end
     if mouse == "RightButton" then
@@ -311,6 +346,21 @@ local function BuildFrame()
         UncappedVaultDB.pos = { p, rp, x, y }
     end)
     tinsert(UISpecialFrames, "UncappedVaultFrame")   -- ESC closes it
+
+    -- Drag an item from your bags onto the window (or click the window while
+    -- holding one) to deposit it into the vault.
+    frame:SetScript("OnReceiveDrag", DepositCursor)
+    frame:SetScript("OnMouseUp", function(_, b)
+        if b == "LeftButton" and CursorHasItem() then DepositCursor() end
+    end)
+    -- Retry icon resolution until the client has cached every visible item
+    -- (GetItemInfo returns nil the first time for an uncached item).
+    frame:SetScript("OnUpdate", function(self, dt)
+        self._t = (self._t or 0) + dt
+        if self._t < 0.4 then return end
+        self._t = 0
+        if pendingIcons then RefreshSlots() end
+    end)
 
     -- title banner (the classic gold header)
     local banner = frame:CreateTexture(nil, "ARTWORK")
@@ -417,6 +467,7 @@ local function BuildFrame()
         glow:Hide()
         btn.glow = glow
         btn:SetScript("OnClick", SlotOnClick)
+        btn:SetScript("OnReceiveDrag", DepositCursor)
         btn:SetScript("OnEnter", ShowTooltip)
         btn:SetScript("OnLeave", GameTooltip_Hide)
         slots[idx] = btn
@@ -427,7 +478,7 @@ local function BuildFrame()
     footer:SetPoint("BOTTOMLEFT", PAD + 2, 18)
     local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("BOTTOMRIGHT", -PAD - 4, 18)
-    hint:SetText("Right-click a slot to withdraw")
+    hint:SetText("Drag items here to deposit  |cff808080/|r  right-click to withdraw")
 
     frame:Hide()
 end
@@ -509,6 +560,11 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
         end
     elseif text:find("^VLTWDFAIL:") then
         DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r couldn't withdraw -- bags full, or not enough left in the vault.")
+    elseif text:find("^VLTDEPFAIL:") then
+        local why = text:match("^VLTDEPFAIL:(%a+)")
+        local reason = (why == "quest" and "quest items") or (why == "bag" and "bags")
+            or (why == "bound" and "soulbound items") or "that item"
+        DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r can't deposit " .. reason .. ".")
     end
 end)
 
