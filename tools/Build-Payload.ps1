@@ -181,6 +181,17 @@ $stock = @(
     'patch-enUS-M.MPQ','patch-enUS-N.MPQ','backup-enUS.MPQ','base-enUS.MPQ'
 )
 
+# Also skip any patch served from an external release (external-files.json). Those
+# archives are hosted off-repo (see New-Manifest); copying them into the payload
+# double-lists them AND points players at a raw-GitHub URL for hundreds of MB.
+# Deriving the skip from external-files.json keeps this from drifting as patches move
+# to external hosting -- Q and R did exactly that and got staged by mistake (2026-07).
+$externalManifest = Join-Path $PSScriptRoot 'external-files.json'
+if (Test-Path $externalManifest) {
+    $stock += (Get-Content $externalManifest -Raw | ConvertFrom-Json |
+               ForEach-Object { Split-Path $_.path -Leaf })
+}
+
 if (Test-Path $clientData) {
     $custom = Get-ChildItem $clientData -Filter 'patch-enUS-*.mpq' -File |
               Where-Object { $stock -notcontains $_.Name }

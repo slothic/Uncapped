@@ -289,7 +289,22 @@ local function BuildUI()
     r.icon = r:CreateTexture(nil,"ARTWORK"); r.icon:SetWidth(16); r.icon:SetHeight(16)
     r.icon:SetPoint("LEFT",2,0); r.icon:SetTexCoord(0.08,0.92,0.08,0.92)
     r.text = r:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
-    r.text:SetPoint("LEFT",22,0); r.text:SetWidth(352); r.text:SetJustifyH("LEFT")
+    r.text:SetPoint("LEFT",22,0); r.text:SetWidth(330); r.text:SetJustifyH("LEFT")
+    -- per-power remove: strips just this bound stat/proc off the target
+    r.removeBtn = CreateFrame("Button", nil, r)
+    r.removeBtn:SetWidth(18); r.removeBtn:SetHeight(18); r.removeBtn:SetPoint("RIGHT", 0, 0)
+    r.removeBtn:SetNormalTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Up")
+    r.removeBtn:SetHighlightTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Highlight")
+    r.removeBtn:SetScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:SetText("Remove this bound power"); GameTooltip:Show()
+    end)
+    r.removeBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    r.removeBtn:SetScript("OnClick", function()
+      local e = r.detail
+      if not e then return end
+      local itemName = state.bench and (GetItemInfo(state.bench.entry) or ("Item "..state.bench.entry)) or "the target"
+      StaticPopup_Show("UNCAPPED_IC_REMOVE", e.label or "this power", itemName, e)
+    end)
     detailRows[i] = r; r:Hide()
   end
 
@@ -518,12 +533,12 @@ local function attachMethods()
       local r = detailRows[i]
       local e = list[i + offset]
       if e then
-        r.sid = e.sid
+        r.sid = e.sid; r.detail = e
         if e.icon then r.icon:SetTexture(e.icon); r.icon:Show() else r.icon:Hide() end
         r.text:SetText(e.text)
         r:Show()
       else
-        r.sid = nil; r:Hide()
+        r.sid = nil; r.detail = nil; r:Hide()
       end
     end
   end
@@ -559,12 +574,18 @@ local function attachMethods()
     local out = {}
     if state.bench then
       for _, s in ipairs(state.bench.stats) do
-        out[#out+1] = { text = string.format("|cff20ff20+%s|r %s", tostring(s.value), statName(s.type)) }
+        out[#out+1] = {
+          kind = "stat", statType = s.type,
+          label = string.format("+%s %s", tostring(s.value), statName(s.type)),
+          text = string.format("|cff20ff20+%s|r %s", tostring(s.value), statName(s.type)),
+        }
       end
       for _, p in ipairs(state.bench.procs) do
         local nm, _, icon = GetSpellInfo(p.spellId)
         out[#out+1] = {
+          kind = "proc", spellId = p.spellId, trigger = p.trigger,
           sid = p.spellId, icon = icon,
+          label = nm or ("Spell #"..p.spellId),
           text = string.format("|cffc080f0%s|r |cff888888(%s)|r — %s",
             nm or ("Spell #"..p.spellId), triggerLabel(p.trigger), procMechanic(p)),
         }
@@ -654,6 +675,12 @@ local function OnLine(body)
     msg(string.format("Soulbound %d item%s into your target.", n, n == 1 and "" or "s"))
     if UI then UI:PlaySoulWisps() end
     send("ICBENCH"); send("ICBAGS"); send("ICINV")
+  elseif cmd == "ICREMOVED" then       -- <statType>:<honorRefund>:<arenaRefund>  (server also re-sends the bench)
+    local t = tonumber(rest:match("^(%-?%d+)"))
+    msg("Removed " .. (t and statName(t) or "a stat") .. " from your target.")
+  elseif cmd == "ICPREMOVED" then      -- <spellId>:<honorRefund>:<arenaRefund>
+    local sid = tonumber(rest:match("^(%d+)"))
+    msg("Removed " .. (sid and spellName(sid) or "a proc") .. " from your target.")
   elseif cmd == "ICCFG" then
     -- minimal cfg on open; nothing the new UI needs, accept quietly.
   elseif cmd == "ICERR" then
@@ -672,13 +699,123 @@ StaticPopupDialogs["UNCAPPED_IC_SOULBIND_ALL"] = {
   timeout = 0, whileDead = 1, hideOnEscape = 1, showAlert = 1,
 }
 
+-- ---- StaticPopup: confirm removing one bound power -----------------------
+-- Removal strips a single soulbound stat/proc off the target. It does NOT give
+-- back the item that was consumed to grant it, so we confirm first.
+StaticPopupDialogs["UNCAPPED_IC_REMOVE"] = {
+  text = "Remove |cffffffff%s|r from %s?\n\nThe item that granted it is not returned.",
+  button1 = ACCEPT, button2 = CANCEL,
+  OnAccept = function(self, e)
+    if not e then return end
+    if e.kind == "stat" then send("ICREMOVE:" .. e.statType)
+    elseif e.kind == "proc" then send("ICPREMOVE:" .. e.spellId) end
+  end,
+  timeout = 0, whileDead = 1, hideOnEscape = 1, showAlert = 1,
+}
+
 -- ============================ tooltip injection ===========================
 -- Append the cached soulbound data onto GameTooltip AFTER the default tooltip
 -- builds (hooksecurefunc), then Show() to resize. Data is matched by the client
 -- slot key. Guard against double-injection by scanning for our marker line: a
 -- "Set" method rebuilds the tooltip from scratch (wiping our lines), so if the
 -- marker is still present the tooltip was not rebuilt and we must not re-append.
+--
+-- Short bound-power blocks stay inline. Once a block would be long it overflows
+-- the bottom of the screen with no way to read it, so past a threshold we move it
+-- into a scrollable panel anchored to the tooltip and leave only a pointer inline.
 local SB_MARK = "|cff66ccffSoulbound|r"
+local TIP_MAX_INLINE = 12          -- bound-power lines shown inline before switching to the panel
+local TIP_ROWS, TIP_ROW_H = 16, 14
+
+-- ---- scrollable companion panel ------------------------------------------
+-- Hide is deferred so the player can slide the cursor off the item and onto the
+-- panel to scroll it: leaving the item schedules a hide, entering the panel
+-- cancels it, leaving the panel hides it immediately.
+local sbTip
+local sbTipHideDue
+local sbTipHideTimer = CreateFrame("Frame")
+sbTipHideTimer:Hide()
+local function cancelSbTipHide() sbTipHideDue = nil; sbTipHideTimer:Hide() end
+local function scheduleSbTipHide()
+  if sbTip and sbTip:IsShown() then sbTipHideDue = 0.25; sbTipHideTimer:Show() end
+end
+sbTipHideTimer:SetScript("OnUpdate", function(self, elapsed)
+  if not sbTipHideDue then self:Hide(); return end
+  sbTipHideDue = sbTipHideDue - elapsed
+  if sbTipHideDue <= 0 then
+    sbTipHideDue = nil; self:Hide()
+    if sbTip and not MouseIsOver(sbTip) then sbTip:Hide() end
+  end
+end)
+
+local function buildSbTip()
+  if sbTip then return sbTip end
+  local f = CreateFrame("Frame", "ICSoulboundTip", UIParent)
+  f:SetFrameStrata("TOOLTIP"); f:SetFrameLevel(100)
+  f:SetWidth(288); f:SetHeight(TIP_ROWS * TIP_ROW_H + 40)
+  f:SetBackdrop({
+    bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 16,
+    insets = { left = 4, right = 4, top = 4, bottom = 4 } })
+  f:SetBackdropColor(0.03, 0.02, 0.05, 0.95)
+  f:SetBackdropBorderColor(0.55, 0.4, 0.9, 0.9)
+  f:SetClampedToScreen(true)
+  f:EnableMouse(true)
+  f:Hide()
+
+  local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  title:SetPoint("TOPLEFT", 12, -10); title:SetText(SB_MARK)
+
+  local scroll = CreateFrame("ScrollFrame", "ICSoulboundTipScroll", f, "FauxScrollFrameTemplate")
+  scroll:SetPoint("TOPLEFT", 8, -28); scroll:SetWidth(256); scroll:SetHeight(TIP_ROWS * TIP_ROW_H)
+  scroll:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, TIP_ROW_H, function() f:Fill() end)
+  end)
+  scroll:EnableMouseWheel(true)
+  scroll:SetScript("OnMouseWheel", function(self, delta)
+    local sb = _G["ICSoulboundTipScrollScrollBar"]; if sb then sb:SetValue(sb:GetValue() - delta * TIP_ROW_H * 3) end
+  end)
+  f.scroll = scroll
+
+  f.rows = {}
+  for i = 1, TIP_ROWS do
+    local fs = f:CreateFontString(nil, "OVERLAY", "GameTooltipText")
+    fs:SetPoint("TOPLEFT", scroll, "TOPLEFT", 2, -(i-1)*TIP_ROW_H)
+    fs:SetWidth(248); fs:SetHeight(TIP_ROW_H); fs:SetJustifyH("LEFT")
+    f.rows[i] = fs
+  end
+
+  function f:Fill()
+    local lines = self.lines or {}
+    FauxScrollFrame_Update(self.scroll, #lines, TIP_ROWS, TIP_ROW_H)
+    local offset = FauxScrollFrame_GetOffset(self.scroll)
+    for i = 1, TIP_ROWS do
+      local e = lines[i + offset]
+      local fs = self.rows[i]
+      if e then
+        fs:SetText(e.text); fs:SetTextColor(e.r or 1, e.g or 1, e.b or 1); fs:Show()
+      else
+        fs:Hide()
+      end
+    end
+  end
+
+  f:SetScript("OnEnter", function() cancelSbTipHide() end)
+  f:SetScript("OnLeave", function() f:Hide() end)
+
+  sbTip = f
+  return f
+end
+
+local function showSbTip(lines)
+  local f = buildSbTip()
+  f.lines = lines
+  local sb = _G["ICSoulboundTipScrollScrollBar"]; if sb then sb:SetValue(0) end
+  f:ClearAllPoints()
+  f:SetPoint("TOPLEFT", GameTooltip, "TOPRIGHT", 6, 0)
+  f:Show(); f:Fill()
+  cancelSbTipHide()
+end
 
 local function alreadyInjected(tt)
   local name = tt:GetName()
@@ -692,19 +829,38 @@ end
 
 local function Inject(tt, key)
   local e = sbInv[key]
-  if not e then return end
+  if not e then
+    scheduleSbTipHide()   -- hovered something without soulbound data: drop any open panel
+    return
+  end
   if alreadyInjected(tt) then return end   -- already injected on this build
-  tt:AddLine(" ")
-  tt:AddLine(SB_MARK)
+
+  -- Flatten the bound powers to display lines once (shared by inline + panel).
+  local lines = {}
   for _, s in ipairs(e.stats) do
-    tt:AddLine("|cff20ff20+" .. tostring(s.value) .. " " .. statName(s.type) .. "|r")
+    lines[#lines+1] = { text = "+" .. tostring(s.value) .. " " .. statName(s.type), r = 0.12, g = 1, b = 0.12 }
   end
   for _, p in ipairs(e.procs) do
-    tt:AddLine(spellName(p.spellId) .. " |cff888888(" .. triggerLabel(p.trigger) .. ")|r — "
-      .. procMechanic(p), 0.75, 0.5, 0.94)
+    lines[#lines+1] = { text = spellName(p.spellId) .. " (" .. triggerLabel(p.trigger) .. ") — " .. procMechanic(p),
+      r = 0.75, g = 0.5, b = 0.94 }
+  end
+
+  tt:AddLine(" ")
+  tt:AddLine(SB_MARK)
+  if #lines <= TIP_MAX_INLINE then
+    for _, ln in ipairs(lines) do tt:AddLine(ln.text, ln.r, ln.g, ln.b) end
+    if sbTip and sbTip:IsShown() then sbTip:Hide() end   -- short: no panel needed
+  else
+    tt:AddLine("|cffffd200" .. #lines .. " bound powers|r — scroll the panel to view", 1, 1, 1)
+    showSbTip(lines)
   end
   tt:Show()
 end
+
+-- Leaving the item hides the tooltip; schedule the panel to follow unless the
+-- cursor lands on it (to scroll). Entering a new item re-runs Inject, which
+-- cancels the schedule if that item is also soulbound.
+GameTooltip:HookScript("OnHide", function() scheduleSbTipHide() end)
 
 hooksecurefunc(GameTooltip, "SetBagItem", function(tt, bag, slot)
   Inject(tt, "B:" .. bag .. ":" .. slot)
