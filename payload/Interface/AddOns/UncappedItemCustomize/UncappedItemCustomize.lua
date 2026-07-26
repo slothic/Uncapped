@@ -728,25 +728,43 @@ local TIP_MAX_INLINE = 12          -- bound-power lines shown inline before swit
 local TIP_ROWS, TIP_ROW_H = 16, 14
 
 -- ---- scrollable companion panel ------------------------------------------
--- Hide is deferred so the player can slide the cursor off the item and onto the
--- panel to scroll it: leaving the item schedules a hide, entering the panel
--- cancels it, leaving the panel hides it immediately.
-local sbTip
+-- You scroll this panel WITHOUT moving onto it: while it is up, an invisible,
+-- click-through, full-screen frame (sbWheel) captures the mouse wheel wherever
+-- the cursor is -- i.e. still over the item -- and drives the panel's scroll.
+-- The panel then just follows the tooltip and hides shortly after you leave the
+-- item. (The old "slide onto the panel to scroll it" model didn't work: the
+-- wheel went to the bag button, and reaching for the panel dropped the tooltip.)
+local sbTip, sbWheel
 local sbTipHideDue
 local sbTipHideTimer = CreateFrame("Frame")
 sbTipHideTimer:Hide()
+
+local function hideSbTip()
+  if sbTip then sbTip:Hide() end
+  if sbWheel then sbWheel:Hide() end
+end
 local function cancelSbTipHide() sbTipHideDue = nil; sbTipHideTimer:Hide() end
 local function scheduleSbTipHide()
-  if sbTip and sbTip:IsShown() then sbTipHideDue = 0.25; sbTipHideTimer:Show() end
+  -- Generous grace so that, as a fallback, the cursor can still travel from the
+  -- item onto the panel and scroll it there if the wheel catcher ever misses.
+  if sbTip and sbTip:IsShown() then sbTipHideDue = 0.5; sbTipHideTimer:Show() end
 end
 sbTipHideTimer:SetScript("OnUpdate", function(self, elapsed)
   if not sbTipHideDue then self:Hide(); return end
   sbTipHideDue = sbTipHideDue - elapsed
   if sbTipHideDue <= 0 then
     sbTipHideDue = nil; self:Hide()
-    if sbTip and not MouseIsOver(sbTip) then sbTip:Hide() end
+    -- keep it open if the cursor did land on the panel (bonus), else drop it
+    if not (sbTip and MouseIsOver(sbTip)) then hideSbTip() end
   end
 end)
+
+-- Scroll the panel by a wheel delta (shared by the panel's own wheel handler
+-- and the full-screen catcher).
+local function scrollSbTip(delta)
+  local sb = _G["ICSoulboundTipScrollScrollBar"]
+  if sb then sb:SetValue(sb:GetValue() - delta * TIP_ROW_H * 3) end
+end
 
 local function buildSbTip()
   if sbTip then return sbTip end
@@ -772,9 +790,7 @@ local function buildSbTip()
     FauxScrollFrame_OnVerticalScroll(self, offset, TIP_ROW_H, function() f:Fill() end)
   end)
   scroll:EnableMouseWheel(true)
-  scroll:SetScript("OnMouseWheel", function(self, delta)
-    local sb = _G["ICSoulboundTipScrollScrollBar"]; if sb then sb:SetValue(sb:GetValue() - delta * TIP_ROW_H * 3) end
-  end)
+  scroll:SetScript("OnMouseWheel", function(_, delta) scrollSbTip(delta) end)
   f.scroll = scroll
 
   f.rows = {}
@@ -801,7 +817,22 @@ local function buildSbTip()
   end
 
   f:SetScript("OnEnter", function() cancelSbTipHide() end)
-  f:SetScript("OnLeave", function() f:Hide() end)
+  f:SetScript("OnLeave", function() hideSbTip() end)
+
+  -- Full-screen wheel catcher: invisible and click-through (mouse disabled) but
+  -- wheel-enabled, so while the panel is shown it grabs the wheel wherever the
+  -- cursor is -- crucially, still over the item -- and scrolls the panel. This is
+  -- what lets you scroll without moving onto the panel (which drops the tooltip).
+  -- It only exists while a long soulbound tooltip is up, so it isn't stealing the
+  -- wheel the rest of the time.
+  sbWheel = CreateFrame("Frame", "ICSoulboundWheel", UIParent)
+  sbWheel:SetAllPoints(UIParent)
+  sbWheel:SetFrameStrata("TOOLTIP")
+  sbWheel:SetFrameLevel(90)
+  sbWheel:EnableMouse(false)
+  sbWheel:EnableMouseWheel(true)
+  sbWheel:SetScript("OnMouseWheel", function(_, delta) scrollSbTip(delta) end)
+  sbWheel:Hide()
 
   sbTip = f
   return f
@@ -814,6 +845,7 @@ local function showSbTip(lines)
   f:ClearAllPoints()
   f:SetPoint("TOPLEFT", GameTooltip, "TOPRIGHT", 6, 0)
   f:Show(); f:Fill()
+  sbWheel:Show()
   cancelSbTipHide()
 end
 
@@ -849,9 +881,9 @@ local function Inject(tt, key)
   tt:AddLine(SB_MARK)
   if #lines <= TIP_MAX_INLINE then
     for _, ln in ipairs(lines) do tt:AddLine(ln.text, ln.r, ln.g, ln.b) end
-    if sbTip and sbTip:IsShown() then sbTip:Hide() end   -- short: no panel needed
+    hideSbTip()   -- short: no panel needed
   else
-    tt:AddLine("|cffffd200" .. #lines .. " bound powers|r — scroll the panel to view", 1, 1, 1)
+    tt:AddLine("|cffffd200" .. #lines .. " bound powers|r — scroll to read them all", 1, 1, 1)
     showSbTip(lines)
   end
   tt:Show()
