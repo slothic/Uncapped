@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: Uncapped Vault
+## Notes: The infinite Vault -- a searchable, scrollable bag holding all your loot.|n|cffffd100PREVIEW BUILD:|r shows demo items locally; not yet wired to the server.
+## Author: Uncapped
+## OptionalDeps: UncappedOptions
+## SavedVariables: UncappedVaultDB
+
+UncappedVault.lua

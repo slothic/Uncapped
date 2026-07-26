@@ -1,8 +1,8 @@
 {
     "manifestVersion":  1,
-    "launcherVersion":  "1.4.0",
-    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.4.0/Uncapped.exe",
-    "launcherSha256":  "33e44dfd81ca62fbf2a48e775c615f1611574fa4225ba05c9bb615b66ac44a21",
+    "launcherVersion":  "1.0.0",
+    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.0.0/Uncapped.exe",
+    "launcherSha256":  "de93b7f9c6e0c8883d64a7cb6fa4e1b592a6aaf5a0fa83a146e493775474caf8",
     "realm":  {
                   "name":  "Uncapped",
                   "address":  "152.53.115.249",
@@ -39,8 +39,8 @@
                   {
                       "path":  "Data/enUS/patch-enUS-Z.MPQ",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Data/enUS/patch-enUS-Z.MPQ",
-                      "sha256":  "cb5ed742101ba0cf4e7b1804ebd5a2b3259a4ef9df0fc52e4fae21c28824f875",
-                      "size":  4569511
+                      "sha256":  "043aa9feded0e3a2b50cda3c677911b6bfc12a6f75e358eacb814a1528f57c77",
+                      "size":  4547583
                   },
                   {
                       "path":  "Interface/AddOns/!Astrolabe/!Astrolabe.toc",
@@ -2645,6 +2645,18 @@
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedRewards/UncappedRewards.toc",
                       "sha256":  "d98c0a65e911d9ca3eee3ae21a83771d41c58899ded1371a3ee0e7ea6fb4215d",
                       "size":  254
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedVault/UncappedVault.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVault/UncappedVault.lua",
+                      "sha256":  "814f368092434d3b6386ddfd33d69a6f217549e0ffd050c2a6b6ee1ad7546560",
+                      "size":  35257
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedVault/UncappedVault.toc",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVault/UncappedVault.toc",
+                      "sha256":  "6aa1f8b8d90681e00dadfa7f281679d6b9648433bce98a6610c75ef8c1f14bbb",
+                      "size":  319
                   },
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
