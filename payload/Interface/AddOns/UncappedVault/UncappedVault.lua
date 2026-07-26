@@ -30,7 +30,7 @@ local SLOT      = 37          -- slot button size
 local GAP       = 4           -- spacing between slots
 local STEP      = SLOT + GAP  -- grid pitch / faux-scroll row height
 local PAD       = 18          -- interior padding from the frame edge
-local HEADER    = 60          -- header band height (title + search row)
+local HEADER    = 88          -- header band: title/search row + filter row
 
 local QCOLOR = ITEM_QUALITY_COLORS   -- [q] = {r,g,b,hex}
 
@@ -132,6 +132,49 @@ local ALL       = {}      -- full item list (from demo or server)
 local view      = {}      -- filtered + sorted list currently displayed
 local sortKey   = "count"
 local query     = ""
+local filterCat = "all"           -- active category filter key
+local filterMin, filterMax = 0, 0 -- item-level bounds (0 = unbounded)
+
+-- Item class/subclass -> friendly categories. class/subclass arrive on the
+-- server row (it.cls / it.sub); missing (legacy rows / demo) counts as misc.
+local function C(it) return it.cls or 15 end
+local function S(it) return it.sub or 0 end
+local CATEGORIES = {
+    { key = "all",    label = "All Items",     test = function() return true end },
+    { key = "armor",  label = "Armor",         test = function(it) return C(it) == 4 end, subs = {
+        { key = "armor_cloth",   label = "Cloth",   test = function(it) return C(it) == 4 and S(it) == 1 end },
+        { key = "armor_leather", label = "Leather", test = function(it) return C(it) == 4 and S(it) == 2 end },
+        { key = "armor_mail",    label = "Mail",    test = function(it) return C(it) == 4 and S(it) == 3 end },
+        { key = "armor_plate",   label = "Plate",   test = function(it) return C(it) == 4 and S(it) == 4 end },
+        { key = "armor_shield",  label = "Shields", test = function(it) return C(it) == 4 and S(it) == 6 end },
+    } },
+    { key = "weapon", label = "Weapons",       test = function(it) return C(it) == 2 end },
+    { key = "consum", label = "Consumables",   test = function(it) return C(it) == 0 end, subs = {
+        { key = "potion", label = "Potions",      test = function(it) return C(it) == 0 and S(it) == 1 end },
+        { key = "elixir", label = "Elixirs",      test = function(it) return C(it) == 0 and S(it) == 2 end },
+        { key = "flask",  label = "Flasks",       test = function(it) return C(it) == 0 and S(it) == 3 end },
+        { key = "food",   label = "Food & Drink", test = function(it) return C(it) == 0 and S(it) == 5 end },
+    } },
+    { key = "trade",  label = "Trade Goods",   test = function(it) return C(it) == 7 end, subs = {
+        { key = "tg_cloth",   label = "Cloth",         test = function(it) return C(it) == 7 and S(it) == 5 end },
+        { key = "tg_leather", label = "Leather",       test = function(it) return C(it) == 7 and S(it) == 6 end },
+        { key = "tg_metal",   label = "Metal & Stone", test = function(it) return C(it) == 7 and S(it) == 7 end },
+        { key = "tg_herb",    label = "Herbs",         test = function(it) return C(it) == 7 and S(it) == 9 end },
+        { key = "tg_ench",    label = "Enchanting",    test = function(it) return C(it) == 7 and S(it) == 12 end },
+        { key = "tg_jc",      label = "Jewelcrafting", test = function(it) return C(it) == 7 and S(it) == 4 end },
+    } },
+    { key = "gem",    label = "Gems",          test = function(it) return C(it) == 3 end },
+    { key = "glyph",  label = "Glyphs",        test = function(it) return C(it) == 16 end },
+    { key = "recipe", label = "Recipes",       test = function(it) return C(it) == 9 end },
+    { key = "misc",   label = "Miscellaneous", test = function(it) return C(it) == 15 end },
+}
+local catByKey, catLabel = {}, {}
+for _, cat in ipairs(CATEGORIES) do
+    catByKey[cat.key], catLabel[cat.key] = cat.test, cat.label
+    if cat.subs then
+        for _, s in ipairs(cat.subs) do catByKey[s.key], catLabel[s.key] = s.test, s.label end
+    end
+end
 
 local frame               -- main window
 local slots     = {}      -- pool of COLS*ROWS slot buttons
@@ -220,11 +263,16 @@ local SORTERS = {
 local function Rebuild()
     wipe(view)
     local q = query:lower()
+    local test = catByKey[filterCat] or catByKey.all
+    local lo, hi = filterMin, filterMax
     for _, it in ipairs(ALL) do
         -- Live rows arrive name-less (server sends numbers only); resolve the
         -- name lazily from the client's item cache so text search works.
         if it.n == nil or it.n == "" then it.n = GetItemInfo(it.e) or "" end
-        if q == "" or it.n:lower():find(q, 1, true) then
+        if (q == "" or it.n:lower():find(q, 1, true))
+            and test(it)
+            and (lo == 0 or (it.ilvl or 0) >= lo)
+            and (hi == 0 or (it.ilvl or 0) <= hi) then
             view[#view + 1] = it
         end
     end
@@ -237,10 +285,11 @@ end
 local function UpdateFooter()
     local stacks, total = #view, 0
     for _, it in ipairs(view) do total = total + it.c end
+    local filtered = (query ~= "" or filterCat ~= "all" or filterMin > 0 or filterMax > 0)
     footer:SetText(string.format(
         "|cffffd100%s|r stacks   |cff808080/|r   |cffffd100%s|r items%s",
         Commafy(stacks), Commafy(total),
-        (query ~= "" and "   |cff808080(filtered)|r" or "")))
+        (filtered and "   |cff808080(filtered)|r" or "")))
 end
 
 local function ShowTooltip(btn)
@@ -459,7 +508,7 @@ local function BuildFrame()
 
     -- search box
     local search = CreateFrame("EditBox", "UncappedVaultSearch", frame, "InputBoxTemplate")
-    search:SetPoint("TOPLEFT", PAD + 6, -HEADER + 26)
+    search:SetPoint("TOPLEFT", PAD + 6, -34)
     search:SetWidth(180); search:SetHeight(20)
     search:SetAutoFocus(false)
     local ph = search:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -480,7 +529,7 @@ local function BuildFrame()
 
     -- sort dropdown
     local sortDD = CreateFrame("Frame", "UncappedVaultSort", frame, "UIDropDownMenuTemplate")
-    sortDD:SetPoint("TOPRIGHT", -PAD - 4, -HEADER + 34)
+    sortDD:SetPoint("TOPRIGHT", -PAD - 4, -26)
     local SORT_CHOICES = {
         { v = "count",   t = "Quantity" },
         { v = "quality", t = "Quality" },
@@ -510,6 +559,70 @@ local function BuildFrame()
     local sortLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     sortLabel:SetPoint("BOTTOMLEFT", sortDD, "TOPLEFT", 20, 0)
     sortLabel:SetText("Sort")
+
+    -- category filter dropdown (row 2, left) with armor/consumable/trade sub-types
+    local catDD = CreateFrame("Frame", "UncappedVaultCat", frame, "UIDropDownMenuTemplate")
+    catDD:SetPoint("TOPLEFT", PAD - 8, -60)
+    local function applyCat(key)
+        filterCat = key
+        UncappedVaultDB = UncappedVaultDB or {}; UncappedVaultDB.cat = key
+        UIDropDownMenu_SetText(catDD, catLabel[key] or "All Items")
+        Rebuild(); _G["UncappedVaultScrollScrollBar"]:SetValue(0); RefreshSlots()
+    end
+    UIDropDownMenu_Initialize(catDD, function(_, level, menuList)
+        level = level or 1
+        if level == 1 then
+            for _, cat in ipairs(CATEGORIES) do
+                local info = UIDropDownMenu_CreateInfo()
+                info.text, info.checked = cat.label, (filterCat == cat.key)
+                if cat.subs then
+                    info.hasArrow, info.menuList = true, cat.key
+                    info.func = function() applyCat(cat.key); CloseDropDownMenus() end
+                else
+                    info.func = function() applyCat(cat.key); CloseDropDownMenus() end
+                end
+                UIDropDownMenu_AddButton(info, level)
+            end
+        else
+            for _, cat in ipairs(CATEGORIES) do
+                if cat.key == menuList and cat.subs then
+                    for _, s in ipairs(cat.subs) do
+                        local info = UIDropDownMenu_CreateInfo()
+                        info.text, info.checked = s.label, (filterCat == s.key)
+                        info.func = function() applyCat(s.key); CloseDropDownMenus() end
+                        UIDropDownMenu_AddButton(info, level)
+                    end
+                end
+            end
+        end
+    end)
+    UIDropDownMenu_SetWidth(catDD, 120)
+    UIDropDownMenu_SetText(catDD, catLabel[filterCat] or "All Items")
+    local catLbl = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    catLbl:SetPoint("BOTTOMLEFT", catDD, "TOPLEFT", 20, 0)
+    catLbl:SetText("Filter")
+
+    -- item-level range (row 2, right): min .. max
+    local function applyIlvl()
+        Rebuild(); _G["UncappedVaultScrollScrollBar"]:SetValue(0); RefreshSlots()
+    end
+    local function ilvlBox(xoff)
+        local b = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+        b:SetPoint("TOPRIGHT", xoff, -64)
+        b:SetWidth(38); b:SetHeight(18)
+        b:SetAutoFocus(false); b:SetNumeric(true); b:SetMaxLetters(4)
+        b:SetScript("OnEscapePressed", function(s) s:ClearFocus() end)
+        return b
+    end
+    local maxBox = ilvlBox(-PAD - 4)
+    local dash = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    dash:SetPoint("RIGHT", maxBox, "LEFT", -4, 0); dash:SetText("-")
+    local minBox = ilvlBox(-PAD - 4 - 38 - 14)
+    minBox:SetScript("OnTextChanged", function(s) filterMin = tonumber(s:GetText()) or 0; applyIlvl() end)
+    maxBox:SetScript("OnTextChanged", function(s) filterMax = tonumber(s:GetText()) or 0; applyIlvl() end)
+    local ilvlLbl = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    ilvlLbl:SetPoint("BOTTOMRIGHT", minBox, "TOPLEFT", 24, 0)
+    ilvlLbl:SetText("Item level")
 
     -- interior "bag" backing behind the grid
     local gridTop = -HEADER
@@ -622,9 +735,21 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
     if a1 ~= ADDON_PIPE_PREFIX or not a2 then return end
     local text = a2
     if text:find("^VLTROW:") then
-        for e, rp, c, q, icon in string.gmatch(text, "(%-?%d+),(%-?%d+),(%d+),(%d+),([^;]*);") do
+        -- 8-field rows: entry,rpid,count,quality,class,subclass,ilvl,icon. Falls
+        -- back to the legacy 5-field format so a client on a not-yet-updated realm
+        -- still shows its vault (just without category / item-level filtering).
+        local any8 = false
+        for e, rp, c, q, cls, sub, ilvl, icon in string.gmatch(text, "(%-?%d+),(%-?%d+),(%d+),(%d+),(%d+),(%d+),(%d+),([^;]*);") do
+            any8 = true
             staging[#staging + 1] = { e = tonumber(e), rp = tonumber(rp), c = tonumber(c), q = tonumber(q),
+                cls = tonumber(cls), sub = tonumber(sub), ilvl = tonumber(ilvl),
                 icon = (icon ~= "" and ("Interface\\Icons\\" .. icon)) or nil, n = "" }
+        end
+        if not any8 then
+            for e, rp, c, q, icon in string.gmatch(text, "(%-?%d+),(%-?%d+),(%d+),(%d+),([^;]*);") do
+                staging[#staging + 1] = { e = tonumber(e), rp = tonumber(rp), c = tonumber(c), q = tonumber(q),
+                    icon = (icon ~= "" and ("Interface\\Icons\\" .. icon)) or nil, n = "" }
+            end
         end
     elseif text:find("^VLTEND:") then
         ALL = staging
@@ -665,6 +790,7 @@ init:RegisterEvent("PLAYER_LOGIN")
 init:SetScript("OnEvent", function()
     UncappedVaultDB = UncappedVaultDB or {}
     if UncappedVaultDB.sort then sortKey = UncappedVaultDB.sort end
+    if UncappedVaultDB.cat and catByKey[UncappedVaultDB.cat] then filterCat = UncappedVaultDB.cat end
     if DEMO then
         LoadDemo()
         if not UncappedVaultDB.previewShown then
