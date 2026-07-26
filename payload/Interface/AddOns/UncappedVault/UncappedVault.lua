@@ -139,15 +139,55 @@ local scroll              -- FauxScrollFrame
 local footer              -- summary fontstring
 local pendingIcons = false -- a visible item isn't in the client's cache yet
 
--- Hidden tooltip used purely to FORCE the client to request item data from
--- the server. GetItemInfo() alone does not reliably trigger that request in
--- 3.3.5, so an uncached item's icon/name would stay blank forever; setting its
--- hyperlink here makes the client send the item query, and the next refresh
--- (driven by the retry ticker) picks up the now-cached data.
-local scanTip = CreateFrame("GameTooltip", "UncappedVaultScanTip", UIParent, "GameTooltipTemplate")
-scanTip:SetOwner(UIParent, "ANCHOR_NONE")
-scanTip:Hide()
-local queried = {}   -- entries we've already asked the server for (query ONCE, not every tick)
+-- Item-cache warming.
+--
+-- 3.3.5's GetItemInfo() does NOT ask the server for an item it has never seen,
+-- so a freshly-migrated stack shows a blank icon forever. We force the fetch
+-- with a hidden scanning tooltip (SetHyperlink triggers the item query); the
+-- client then caches the result to disk (Cache\WDB), so it is instant on every
+-- later session. The whole vault is warmed in the BACKGROUND the moment its
+-- snapshot arrives at login -- so icons are ready before you even open it --
+-- at a steady trickle, each item queried EXACTLY ONCE (re-querying every tick
+-- is what jammed the client's query throttle before and left icons stuck).
+local scanParent = CreateFrame("Frame")
+scanParent:Hide()   -- a tooltip parented to a hidden frame never renders, but its query still fires
+local scanTip = CreateFrame("GameTooltip", "UncappedVaultScanTip", scanParent, "GameTooltipTemplate")
+scanTip:SetOwner(scanParent, "ANCHOR_NONE")
+
+local queried    = {}   -- item entries already queried (never re-query)
+local pending    = {}   -- item entries currently queued for warming
+local warmQueue  = {}
+local iconsDirty = false -- an icon resolved; the window (if open) should re-render
+
+local function enqueueWarm(e)
+    if pending[e] or GetItemInfo(e) then return end   -- already queued, or already cached
+    pending[e] = true
+    warmQueue[#warmQueue + 1] = e
+end
+
+-- Steady background warmer: fires a few new queries per tick, drops items as
+-- they resolve. Runs whether or not the window is open.
+local warmer = CreateFrame("Frame")
+local warmAcc = 0
+warmer:SetScript("OnUpdate", function(_, dt)
+    if #warmQueue == 0 then return end
+    warmAcc = warmAcc + dt
+    if warmAcc < 0.2 then return end
+    warmAcc = 0
+    local fired = 0
+    for i = #warmQueue, 1, -1 do
+        local e = warmQueue[i]
+        if GetItemInfo(e) then
+            pending[e] = nil
+            table.remove(warmQueue, i)
+            iconsDirty = true
+        elseif not queried[e] and fired < 10 then
+            queried[e] = true
+            scanTip:SetHyperlink("item:" .. e)
+            fired = fired + 1
+        end
+    end
+end)
 
 -- Track the last bag slot an item was picked up from, so a drag-drop onto the
 -- vault window knows exactly which stack to deposit.
@@ -237,11 +277,8 @@ local function RefreshSlots()
             local tex = select(10, GetItemInfo(it.e)) or it.i
             if not tex then
                 tex = "Interface\\Icons\\INV_Misc_QuestionMark"
-                pendingIcons = true                        -- not cached yet; ticker re-renders when it lands
-                if not queried[it.e] then                  -- fire the item query exactly ONCE per item --
-                    queried[it.e] = true                   -- re-querying every tick floods the client's
-                    scanTip:SetHyperlink("item:" .. it.e)  -- query throttle so nothing ever resolves
-                end
+                pendingIcons = true
+                enqueueWarm(it.e)   -- make sure this on-screen item is in the warm queue
             end
             _G[btn:GetName() .. "IconTexture"]:SetTexture(tex)
             local cf = _G[btn:GetName() .. "Count"]
@@ -361,9 +398,9 @@ local function BuildFrame()
     -- (GetItemInfo returns nil the first time for an uncached item).
     frame:SetScript("OnUpdate", function(self, dt)
         self._t = (self._t or 0) + dt
-        if self._t < 0.4 then return end
+        if self._t < 0.15 then return end
         self._t = 0
-        if pendingIcons then RefreshSlots() end
+        if iconsDirty then iconsDirty = false; RefreshSlots() end
     end)
 
     -- title banner (the classic gold header)
@@ -496,7 +533,8 @@ local function Open()
         local p, rp, x, y = unpack(UncappedVaultDB.pos)
         frame:ClearAllPoints(); frame:SetPoint(p, UIParent, rp, x, y)
     end
-    wipe(queried)   -- allow a re-query of anything still uncached (e.g. a dropped query)
+    wipe(queried); wipe(pending); wipe(warmQueue)   -- fresh retry pass for anything still uncached
+    for _, it in ipairs(ALL) do enqueueWarm(it.e) end
     Rebuild(); RefreshSlots()
     frame:Show()
     if not DEMO then VaultSend("VLTGET") end   -- pull a fresh snapshot
@@ -547,6 +585,7 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
         ALL = staging
         staging = {}
         for idx, it in ipairs(ALL) do it.added = #ALL - idx end
+        for _, it in ipairs(ALL) do enqueueWarm(it.e) end   -- warm the whole vault now, in the background
         if frame and frame:IsShown() then Rebuild(); RefreshSlots() end
     elseif text:find("^VLTWDONE:") then
         local e, rp, given, remaining = text:match("^VLTWDONE:(%d+):(%-?%d+):(%d+):(%d+)$")
