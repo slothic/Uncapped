@@ -562,6 +562,7 @@ local function OnLine(body)
   if cmd == "ICBENCH" then
     if rest == "0" then
       state.bench = nil
+      if UI then UI:Refresh() end   -- empty bench sends no ICBENCHEND; switch back to the deposit menu now
     else
       local guid, entry = rest:match("^(%d+):(%d+)$")
       if guid then state.bench = { guid = tonumber(guid), entry = tonumber(entry), stats = {}, procs = {} } end
