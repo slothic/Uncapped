@@ -360,6 +360,47 @@ end
 -- =====================================================================
 -- Build the window
 -- =====================================================================
+-- =====================================================================
+-- Dynamic grid. Slots are made on demand; COLS/ROWS are recomputed from the
+-- window's current size so the grid reflows as it's resized.
+-- =====================================================================
+local function createSlot(idx)
+    local btn = CreateFrame("Button", "UncappedVaultSlot" .. idx, frame, "ItemButtonTemplate")
+    btn:SetWidth(SLOT); btn:SetHeight(SLOT)
+    btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    local glow = btn:CreateTexture(nil, "OVERLAY")
+    glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+    glow:SetBlendMode("ADD"); glow:SetAlpha(0.75)
+    glow:SetWidth(SLOT + 22); glow:SetHeight(SLOT + 22)
+    glow:SetPoint("CENTER"); glow:Hide()
+    btn.glow = glow
+    btn:SetScript("OnClick", SlotOnClick)
+    btn:SetScript("OnReceiveDrag", DepositCursor)
+    btn:SetScript("OnEnter", ShowTooltip)
+    btn:SetScript("OnLeave", GameTooltip_Hide)
+    slots[idx] = btn
+    return btn
+end
+
+local function Relayout()
+    if not frame or not scroll then return end
+    -- Fit as many whole slot columns/rows as the current window allows.
+    COLS = math.max(4, math.min(24, math.floor((frame:GetWidth()  - PAD * 2 - 22 + GAP) / STEP)))
+    ROWS = math.max(3, math.min(20, math.floor((frame:GetHeight() - HEADER - 40 + GAP) / STEP)))
+    local need = COLS * ROWS
+    for idx = 1, need do
+        local btn = slots[idx] or createSlot(idx)
+        local r = math.floor((idx - 1) / COLS)
+        local c = (idx - 1) % COLS
+        btn:ClearAllPoints()
+        btn:SetPoint("TOPLEFT", scroll, "TOPLEFT", c * STEP, -r * STEP)
+    end
+    for idx = need + 1, #slots do slots[idx]:Hide() end   -- surplus from a larger prior size
+    scroll:SetWidth(COLS * STEP - GAP)
+    scroll:SetHeight(ROWS * STEP - GAP)
+    RefreshSlots()
+end
+
 local function BuildFrame()
     local W = PAD * 2 + COLS * STEP - GAP + 22   -- +bar gutter
     local H = HEADER + ROWS * STEP - GAP + 44    -- +footer
@@ -491,36 +532,35 @@ local function BuildFrame()
         bar:SetValue(bar:GetValue() - delta * STEP)   -- one row per wheel tick
     end)
 
-    -- slot pool
-    for idx = 1, COLS * ROWS do
-        local r = math.floor((idx - 1) / COLS)
-        local c = (idx - 1) % COLS
-        local btn = CreateFrame("Button", "UncappedVaultSlot" .. idx, frame, "ItemButtonTemplate")
-        btn:SetWidth(SLOT); btn:SetHeight(SLOT)
-        btn:SetPoint("TOPLEFT", scroll, "TOPLEFT", c * STEP, -r * STEP)
-        btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-        local glow = btn:CreateTexture(nil, "OVERLAY")
-        glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
-        glow:SetBlendMode("ADD")
-        glow:SetAlpha(0.75)
-        glow:SetWidth(SLOT + 22); glow:SetHeight(SLOT + 22)
-        glow:SetPoint("CENTER")
-        glow:Hide()
-        btn.glow = glow
-        btn:SetScript("OnClick", SlotOnClick)
-        btn:SetScript("OnReceiveDrag", DepositCursor)
-        btn:SetScript("OnEnter", ShowTooltip)
-        btn:SetScript("OnLeave", GameTooltip_Hide)
-        slots[idx] = btn
-    end
+    -- (slot buttons are created + laid out by Relayout, at the end of BuildFrame)
 
     -- footer summary
     footer = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     footer:SetPoint("BOTTOMLEFT", PAD + 2, 18)
     local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    hint:SetPoint("BOTTOMRIGHT", -PAD - 4, 18)
+    hint:SetPoint("BOTTOMRIGHT", -PAD - 12, 18)
     hint:SetText("Drag items here to deposit  |cff808080/|r  right-click to withdraw")
 
+    -- resize: a grip in the bottom-right corner; the grid reflows to fit.
+    frame:SetResizable(true)
+    frame:SetMinResize(PAD * 2 + 4 * STEP - GAP + 22, HEADER + 3 * STEP - GAP + 44)
+    frame:SetMaxResize(PAD * 2 + 24 * STEP - GAP + 22, HEADER + 20 * STEP - GAP + 44)
+    local grip = CreateFrame("Button", nil, frame)
+    grip:SetWidth(16); grip:SetHeight(16)
+    grip:SetPoint("BOTTOMRIGHT", -5, 7)
+    grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+    grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+    grip:SetScript("OnMouseDown", function() frame:StartSizing("BOTTOMRIGHT") end)
+    grip:SetScript("OnMouseUp", function()
+        frame:StopMovingOrSizing()
+        UncappedVaultDB = UncappedVaultDB or {}
+        UncappedVaultDB.size = { frame:GetWidth(), frame:GetHeight() }
+        Relayout()
+    end)
+    frame:SetScript("OnSizeChanged", function() Relayout() end)
+
+    Relayout()   -- build + place the initial grid
     frame:Hide()
 end
 
@@ -532,6 +572,10 @@ local function Open()
     if UncappedVaultDB and UncappedVaultDB.pos then
         local p, rp, x, y = unpack(UncappedVaultDB.pos)
         frame:ClearAllPoints(); frame:SetPoint(p, UIParent, rp, x, y)
+    end
+    if UncappedVaultDB and UncappedVaultDB.size then
+        frame:SetWidth(UncappedVaultDB.size[1])
+        frame:SetHeight(UncappedVaultDB.size[2])   -- fires OnSizeChanged -> Relayout
     end
     wipe(queried); wipe(pending); wipe(warmQueue)   -- fresh retry pass for anything still uncached
     for _, it in ipairs(ALL) do enqueueWarm(it.e) end
@@ -631,6 +675,26 @@ init:SetScript("OnEvent", function()
     else
         DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r ready -- type |cffffd100/vault|r to open your vault.")
         VaultSend("VLTGET")   -- warm the snapshot so it's ready on first open
+    end
+
+    -- Follow the bags: open the vault when bags open, close it when they close.
+    -- (Preview build stays out of the way -- no auto-pop on the live realm.)
+    if not DEMO then
+        local function anyBagOpen()
+            for i = 0, 4 do
+                if IsBagOpen(i) then return true end
+            end
+            return false
+        end
+        local function syncVaultToBags()
+            if anyBagOpen() then
+                if not (frame and frame:IsShown()) then Open() end
+            elseif frame and frame:IsShown() then
+                frame:Hide()
+            end
+        end
+        hooksecurefunc("ContainerFrame_OnShow", syncVaultToBags)
+        hooksecurefunc("ContainerFrame_OnHide", syncVaultToBags)
     end
 end)
 

@@ -51,6 +51,33 @@ local function statName(t) return STAT_NAMES[t] or ("Stat #" .. tostring(t)) end
 
 local TRIGGER_NAMES = { [0]="On Use", [1]="On Equip", [2]="On Hit", [3]="On Cast" }
 local function triggerName(t) return TRIGGER_NAMES[t] or ("Trigger " .. tostring(t)) end
+
+-- How a proc is LABELLED to the player. Only On Hit / On Cast actually roll the
+-- soulbind chance; On Equip is a passive (always active) and On Use is a clicky.
+-- Calling those "On Equip"/"On Use" plus a % chance is what confused everyone, so
+-- passives read "Passive" and never show a chance.
+local TRIGGER_LABEL = { [0]="On Use", [1]="Passive", [2]="On Hit", [3]="On Cast" }
+local function triggerLabel(t) return TRIGGER_LABEL[t] or ("Trigger " .. tostring(t)) end
+
+-- The mechanic clause for a proc. Chance-rolled procs (On Hit / On Cast) show
+-- their % chance; passives and on-use effects have no chance, so they show only
+-- how far their effect has been upgraded (the power multiplier) -- which is the
+-- ONLY thing re-soulbinding raises for them. fmtMult is defined just below.
+local function procMechanic(p)
+  local isChance = (p.trigger == 2 or p.trigger == 3)
+  local mult = fmtMult(p.mag)
+  if isChance then
+    if mult ~= "1" then
+      return string.format("%d%% chance, %sx power", p.chance or 0, mult)
+    end
+    return string.format("%d%% chance", p.chance or 0)
+  end
+  -- Passive / On Use: no chance, just the (upgradable) effect strength.
+  if mult ~= "1" then
+    return string.format("%sx power", mult)
+  end
+  return "base effect"
+end
 local function spellName(id)
   local n = GetSpellInfo(id)
   return n or ("Spell #" .. tostring(id))
