@@ -2601,14 +2601,14 @@
                   {
                       "path":  "Interface/AddOns/UncappedItemCustomize/UncappedItemCustomize.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedItemCustomize/UncappedItemCustomize.lua",
-                      "sha256":  "0c75b03944f97790abcab77834d6ef1bbb2690bf6854bf79a880ab609c723135",
-                      "size":  31771
+                      "sha256":  "fed8d247cb1a7ac03dd4cbc728f6657a584e9856b7df36583d76e89f607d6eff",
+                      "size":  29449
                   },
                   {
                       "path":  "Interface/AddOns/UncappedItemCustomize/UncappedItemCustomize.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedItemCustomize/UncappedItemCustomize.toc",
-                      "sha256":  "d524dcc904d2cf6c08f64e7cca48b5900857b25e37af62c7f943b3f09be45df8",
-                      "size":  287
+                      "sha256":  "e88608bf1466238e84370a4add9be48efa96759f6f2739d8e3e9edbb1fe8af81",
+                      "size":  327
                   },
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.lua",
@@ -2649,7 +2649,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "672dc9a044aa964ed0aef5c2064fda55c61f98f3c72ce5fa030f4a1d1cfbfeb0",
+                      "sha256":  "fd2de9082b61cc42c9f006edd78829b99a46868de730e3491168fdac3e767cad",
                       "size":  3593
                   },
                   {
