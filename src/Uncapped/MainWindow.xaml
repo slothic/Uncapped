@@ -36,6 +36,20 @@
                             Content="&#xE8BB;" ToolTip="Close" Click="OnClose" />
                 </StackPanel>
 
+                <!-- ── Wordmark ────────────────────────────────────────────────────
+                     Top right, tucked under the window controls: it is branding, not part of
+                     the launch flow, and sitting above PLAY it was only pushing the thing
+                     people actually came for further down the screen. -->
+                <TextBlock Text="UNCAPPED" FontSize="36" FontWeight="Light"
+                           HorizontalAlignment="Right" VerticalAlignment="Top"
+                           Margin="0,44,44,0" Foreground="{StaticResource Ink}"
+                           IsHitTestVisible="False">
+                    <!-- A soft glow keeps it legible wherever the sky behind is bright. -->
+                    <TextBlock.Effect>
+                        <DropShadowEffect BlurRadius="22" ShadowDepth="0" Opacity="0.9" Color="#1A0A14" />
+                    </TextBlock.Effect>
+                </TextBlock>
+
                 <!-- ── News frame ──────────────────────────────────────────────────
                      Full height down the left. The right column deliberately keeps its
                      upper half empty: that is where a donate panel goes later, and leaving
@@ -109,18 +123,9 @@
                     </Grid>
                 </Border>
 
-                <!-- ── Wordmark, status and PLAY ───────────────────────────────── -->
+                <!-- ── Status and PLAY ─────────────────────────────────────────── -->
                 <StackPanel HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                            Margin="0,0,44,44" Width="286">
-
-                    <TextBlock Text="UNCAPPED" FontSize="42" FontWeight="Light"
-                               HorizontalAlignment="Right" Foreground="{StaticResource Ink}"
-                               Margin="0,0,0,18" IsHitTestVisible="False">
-                        <!-- A soft glow keeps it legible wherever the sky behind is bright. -->
-                        <TextBlock.Effect>
-                            <DropShadowEffect BlurRadius="22" ShadowDepth="0" Opacity="0.9" Color="#1A0A14" />
-                        </TextBlock.Effect>
-                    </TextBlock>
+                            Margin="0,0,44,44" Width="300">
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" IsHitTestVisible="False">
                         <Ellipse x:Name="RealmDot" Width="7" Height="7" Fill="{StaticResource Muted}"
@@ -133,6 +138,17 @@
                         </TextBlock>
                     </StackPanel>
 
+                    <!-- Which client build the player is on, read from the version addon the
+                         server's gate actually checks. -->
+                    <TextBlock x:Name="VersionText" FontSize="11" Margin="0,6,0,0"
+                               HorizontalAlignment="Right" TextAlignment="Right"
+                               Foreground="{StaticResource Muted}" IsHitTestVisible="False">
+                        <TextBlock.Effect>
+                            <DropShadowEffect BlurRadius="10" ShadowDepth="0" Opacity="0.9" Color="#1A0A14" />
+                        </TextBlock.Effect>
+                    </TextBlock>
+
+                    <!-- Transient: whatever the launcher is doing this second. -->
                     <TextBlock x:Name="StatusText" Text="Starting…" FontSize="11.5" Margin="0,9,0,0"
                                HorizontalAlignment="Right" TextAlignment="Right" Foreground="#BCB0BE"
                                TextTrimming="CharacterEllipsis" IsHitTestVisible="False">
@@ -144,9 +160,24 @@
                     <ProgressBar x:Name="Progress" Style="{StaticResource SlimProgress}"
                                  Minimum="0" Maximum="1000" Value="0" Margin="0,10,0,0" />
 
+                    <!-- Sticky: what the last update actually did. Kept separate from the line
+                         above so that launching the game — "Running." — does not wipe out the
+                         one piece of text that says what changed. -->
+                    <TextBlock x:Name="SummaryText" FontSize="11.5" Margin="0,9,0,0"
+                               HorizontalAlignment="Right" TextAlignment="Right" Foreground="#D8CFDA"
+                               TextWrapping="Wrap" IsHitTestVisible="False">
+                        <TextBlock.Effect>
+                            <DropShadowEffect BlurRadius="10" ShadowDepth="0" Opacity="0.9" Color="#1A0A14" />
+                        </TextBlock.Effect>
+                    </TextBlock>
+
                     <Button x:Name="PlayButton" Style="{StaticResource PlayButton}"
-                            Content="PLAY" Height="66" Margin="0,16,0,0"
+                            Content="PLAY" Height="66" Margin="0,14,0,0"
                             IsEnabled="False" Click="OnPlay" />
+
+                    <Button x:Name="CheckButton" Style="{StaticResource GhostButton}"
+                            Content="CHECK FOR UPDATES" Height="32" Margin="0,8,0,0"
+                            IsEnabled="False" Click="OnCheckForUpdates" />
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
                         <Button x:Name="RegisterLink" Style="{StaticResource QuietLink}"

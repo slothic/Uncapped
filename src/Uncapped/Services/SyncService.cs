@@ -6,9 +6,17 @@ namespace Uncapped.Services;
 public sealed record SyncProgress(string Status, int Completed, int Total);
 
 public sealed record SyncOutcome(
-    int Downloaded, int UpToDate, int Removed, List<string> Errors)
+    int Downloaded, int UpToDate, int Removed, List<string> Errors, List<ManifestFile> Mismatched)
 {
     public bool ChangedAnything => Downloaded > 0 || Removed > 0;
+
+    /// <summary>
+    /// A file downloading cleanly but hashing to the wrong value means the host handed us
+    /// something other than what the manifest describes — in practice, GitHub's CDN still
+    /// serving the previous release. Worth distinguishing from a plain network failure,
+    /// because it is fixed by waiting rather than by retrying immediately.
+    /// </summary>
+    public bool LooksLikeStaleHost => Mismatched.Count > 0;
 }
 
 /// <summary>
@@ -41,6 +49,7 @@ public sealed class SyncService
         CancellationToken ct)
     {
         var errors = new ConcurrentBag<string>();
+        var mismatched = new ConcurrentBag<ManifestFile>();
         var installed = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
         foreach (var f in state.InstalledFiles) installed.TryAdd(f, 0);
 
@@ -103,6 +112,11 @@ public sealed class SyncService
                         installed.TryAdd(item.Relative, 0);
                     }
                     catch (OperationCanceledException) { throw; }
+                    catch (InvalidDataException ex)
+                    {
+                        errors.Add($"{item.Relative}: {ex.Message}");
+                        mismatched.Add(item.File);
+                    }
                     catch (Exception ex)
                     {
                         errors.Add($"{item.Relative}: {ex.Message}");
@@ -122,7 +136,7 @@ public sealed class SyncService
         state.LastSyncedManifestVersion = manifest.LauncherVersion;
         state.Save();
 
-        return new SyncOutcome(downloaded, upToDate, removed, errorList);
+        return new SyncOutcome(downloaded, upToDate, removed, errorList, mismatched.ToList());
     }
 
     private static async Task<bool> IsCurrentAsync(string destination, ManifestFile file, CancellationToken ct)

@@ -125,12 +125,28 @@ To switch back to a no-prerequisite build, set `<SelfContained>true</SelfContain
    sees the game window flash once, on first install only. If the client never writes a
    config, a minimal one is written instead rather than giving up.
 5. Refuses to sync if `Wow.exe` is running, or if the folder needs elevation.
-6. Hashes manifest files on disk, downloads only what differs, verifies each download's
-   SHA-256 before moving it into place.
-7. Writes `realmlist.wtf` (root **and** `Data\enUS\`) and fixes `realmList` in `WTF\Config.wtf`.
-8. Force-enables StatFeed and ReagentBankCraft in every `AddOns.txt`.
-9. Clears `Cache\WDB` if anything changed.
-10. Stays open with news and realm status; `PLAY` launches the game.
+6. Checks the release has finished publishing before syncing: it reads `CLIENT_VERSION` out of
+   `UncappedVersion.lua` as GitHub's API has it, and compares the bytes
+   `raw.githubusercontent.com` is actually serving against the SHA-256 the manifest declares.
+   While those disagree the CDN is still on the previous release, so `PLAY` is switched off and
+   the launcher polls (up to 6 minutes) until the files are the ones the manifest describes.
+   Syncing through that window would download the old bytes, fail their checksums, and leave a
+   client the server's version gate kicks at the login screen. A player who is already on the
+   version being published is let through — they have nothing to wait for.
+7. Hashes manifest files on disk, downloads only what differs, verifies each download's
+   SHA-256 before moving it into place. Downloads that arrive but hash wrong are treated as the
+   same stale-CDN case: it waits for those specific files and syncs again, twice at most.
+8. Writes `realmlist.wtf` (root **and** `Data\enUS\`) and fixes `realmList` in `WTF\Config.wtf`.
+9. Force-enables StatFeed and ReagentBankCraft in every `AddOns.txt`.
+10. Clears `Cache\WDB` if anything changed.
+11. Stays open with news, realm status and the installed client version; **Check for updates**
+    re-runs steps 2 and 6–10 by hand, for players who left the launcher open or launched it
+    while a release was going out.
+12. `PLAY` re-checks the manifest, forces **windowed mode** (`gxWindow 1`, `gxMaximize 1`,
+    `hwDetect 0`) and launches the game. Windowed is re-applied on every launch, not once at
+    install: exclusive fullscreen crashes this client on a lot of machines, and the client
+    rewrites `Config.wtf` on exit, so anyone who switched in-game would otherwise be stuck
+    crashing with no obvious way back.
 
 ---
 

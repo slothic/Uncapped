@@ -15,10 +15,17 @@ public partial class MainWindow : Window
     private readonly LauncherState _state;
     private readonly CancellationTokenSource _cts = new();
 
+    /// <summary>
+    /// How many times a sync will wait out a half-published release and try again before
+    /// settling for letting the player in with a warning.
+    /// </summary>
+    private const int MaxHostRetries = 2;
+
     private Credentials _credentials = Credentials.Load();
     private Manifest? _manifest;
     private string? _manifestHash;
     private string? _installPath;
+    private ClientVersions? _versions;
     private bool _readyToPlay;
     private bool _closing;
 
@@ -69,8 +76,13 @@ public partial class MainWindow : Window
             if (InstallLocator.IsValidInstall(_state.InstallPath))
             {
                 _installPath = _state.InstallPath;
+                ShowVersions(new ClientVersions(ClientVersionService.ReadInstalled(_installPath), null, null, true));
                 EnablePlay("Playing offline with your current files.");
             }
+
+            // Leave the check button live either way: the network coming back is exactly the
+            // case where a player wants to retry without restarting the launcher.
+            SetBusy(false);
             return;
         }
 
@@ -231,6 +243,11 @@ public partial class MainWindow : Window
     {
         if (_manifest is null || _installPath is null) return;
 
+        // Captured up front: both can be reassigned from other handlers, and everything below
+        // an await must be talking about the same manifest and folder it started with.
+        var manifest = _manifest;
+        var installPath = _installPath;
+
         if (GameProcess.IsRunning(_installPath))
         {
             SetStatus("World of Warcraft is already running — close it, then reopen the launcher.");
@@ -254,76 +271,249 @@ public partial class MainWindow : Window
             return;
         }
 
-        SyncOutcome outcome;
+        SetBusy(true);
         try
         {
-            var reporter = new Progress<SyncProgress>(p =>
-            {
-                SetStatus($"{p.Status}  ({p.Completed}/{p.Total})");
-                SetProgress(p.Total == 0 ? 1 : (double)p.Completed / p.Total);
-            });
+            // Nothing below is worth doing against a release that is still going out: the
+            // downloads would fail their checksums and the client we ended up with is one the
+            // server's version gate kicks on login.
+            if (!await EnsureReleasePublishedAsync(manifest, installPath)) return;
 
-            outcome = await new SyncService(_http)
-                .SyncAsync(_installPath, _manifest, _state, reporter, _cts.Token);
+            SyncOutcome outcome;
+            var attempt = 0;
+
+            while (true)
+            {
+                try
+                {
+                    var reporter = new Progress<SyncProgress>(p =>
+                    {
+                        SetStatus($"{p.Status}  ({p.Completed}/{p.Total})");
+                        SetProgress(p.Total == 0 ? 1 : (double)p.Completed / p.Total);
+                    });
+
+                    outcome = await new SyncService(_http)
+                        .SyncAsync(installPath, manifest, _state, reporter, _cts.Token);
+                }
+                catch (OperationCanceledException) { return; }
+                catch (Exception ex)
+                {
+                    Log.Write(ex.ToString());
+                    SetStatus($"Update failed — {ex.Message}");
+                    EnablePlay("You can still play, but your files may be out of date.");
+                    return;
+                }
+
+                // Files that downloaded fine but hashed wrong are the CDN handing out the
+                // previous release. The canary above only catches that when the release
+                // bumped the client version, so this is the general case: wait for the
+                // specific files that came back wrong, then fetch them again.
+                if (!outcome.LooksLikeStaleHost || attempt++ >= MaxHostRetries) break;
+                if (!await WaitForHostAsync(outcome.Mismatched)) break;
+            }
+
+            SetProgress(1);
+
+            var realm = ClientConfigWriter.WriteRealmlist(
+                installPath, manifest.Realm.Address, manifest.Realm.Name);
+            foreach (var failure in realm.Failed) Log.Write($"realmlist: {failure}");
+
+            AddOnsTxtEnforcer.Apply(installPath, manifest.ForceEnableAddOns, manifest.ForceDisableAddOns);
+
+            if (manifest.HardenClient)
+            {
+                var hardened = ClientHardening.Apply(installPath);
+                foreach (var note in hardened.Notes) Log.Write($"hardening: {note}");
+            }
+
+            if (manifest.LargeAddressAware)
+            {
+                var laa = Services.LargeAddressAware.Apply(installPath);
+                if (laa.Changed) Log.Write($"large address aware: {laa.Detail}");
+            }
+
+            // Only worth clearing when something actually changed — it costs the player a slower
+            // first login while the client refetches.
+            if (outcome.ChangedAnything) WdbCleaner.Clear(installPath);
+
+            // Re-read what landed on disk — this is the version the player is now actually
+            // running. Off disk rather than over the network: the sync just verified every one
+            // of these files against the manifest, so another round-trip would learn nothing.
+            var installedNow = ClientVersionService.ReadInstalled(installPath);
+            ShowVersions(_versions is null
+                ? new ClientVersions(installedNow, null, null, true)
+                : _versions with { Installed = installedNow });
+
+            try
+            {
+                var sent = await new CrashReporter(_http)
+                    .ReportNewCrashesAsync(installPath, manifest, _state, _cts.Token);
+                if (sent > 0) Log.Write($"uploaded {sent} crash report(s)");
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { Log.Write($"crash reporting: {ex.Message}"); }
+
+            if (outcome.Errors.Count > 0)
+            {
+                foreach (var e in outcome.Errors) Log.Write($"sync: {e}");
+                // Deliberately not recorded as synced: a partial sync must be retried on the next
+                // PLAY rather than skipped because the manifest hash happens to match.
+                EnablePlay($"Ready, but {outcome.Errors.Count} file(s) failed to update. See launcher.log.");
+            }
+            else
+            {
+                _state.LastManifestHash = _manifestHash;
+                _state.Save();
+
+                EnablePlay(outcome.ChangedAnything
+                    ? $"Updated {outcome.Downloaded} file(s)."
+                    : "Up to date.");
+            }
+
+            // Otherwise the activity line is left reading "Checking your files (552/552)",
+            // which looks like it stopped halfway rather than finished.
+            SetStatus("Ready.");
+        }
+        finally { SetBusy(false); }
+    }
+
+    // ---------- publish gate ----------
+
+    /// <summary>
+    /// Asks GitHub what the current client version is, asks its CDN what it is handing out,
+    /// and refuses to go any further while the two disagree.
+    ///
+    /// Returns true when it is safe to sync and play. Returns false only if the wait was
+    /// abandoned, and PLAY is deliberately left off in that case: a client assembled from a
+    /// half-published release gets kicked at the login screen, which is a much worse experience
+    /// than a launcher that says "hang on a minute".
+    /// </summary>
+    private async Task<bool> EnsureReleasePublishedAsync(Manifest manifest, string installPath)
+    {
+        ClientVersions versions;
+        try
+        {
+            versions = await new ClientVersionService(_http).CheckAsync(manifest, installPath, _cts.Token);
+        }
+        catch (OperationCanceledException) { return false; }
+
+        ShowVersions(versions);
+
+        if (versions.CdnCurrent) return true;
+
+        // The CDN is behind, but this player already has the version being published — there
+        // is nothing they need to download, so there is nothing to make them wait for.
+        if (versions.Matches)
+        {
+            SetStatus("A release is still publishing, but your client is already current.");
+            return true;
+        }
+
+        var file = ClientVersionService.FindVersionFile(manifest);
+        return file is null || await WaitForHostAsync(new List<ManifestFile> { file });
+    }
+
+    /// <summary>
+    /// Holds PLAY off until the file host is serving the files the manifest describes, polling
+    /// until it catches up. GitHub's raw-file CDN caches for a few minutes, so this is normally
+    /// a short wait right after a release goes out.
+    /// </summary>
+    private async Task<bool> WaitForHostAsync(IReadOnlyList<ManifestFile> files)
+    {
+        var target = _versions?.Latest is int latest ? $"v{latest}" : "the new version";
+
+        // The status line is one narrow column: anything much longer than this is ellipsised
+        // away mid-sentence, so the detail goes on the summary line, which wraps.
+        BlockPlay($"Update {target} is publishing — please wait…");
+        SetSummary($"PLAY is off until {target} has finished going out.");
+
+        var waited = new Progress<TimeSpan>(elapsed =>
+        {
+            if (elapsed > TimeSpan.FromSeconds(20))
+                SetStatus($"Waiting for {target} to publish ({elapsed:m\\:ss})…");
+
+            // The bar becomes a timer against the give-up point, so a long wait still looks
+            // like something in progress rather than a frozen window.
+            SetProgress(Math.Min(elapsed.TotalSeconds / CdnGate.MaxWait.TotalSeconds, 0.98));
+        });
+
+        bool ready;
+        try { ready = await new CdnGate(_http).WaitUntilCurrentAsync(files, waited, _cts.Token); }
+        catch (OperationCanceledException) { return false; }
+
+        if (!ready)
+        {
+            SetStatus("The update has not finished publishing.");
+            SetSummary($"PLAY stays off until {target} is available — check again in a few minutes.");
+            SetProgress(0);
+            return false;
+        }
+
+        if (_manifest is not null && _installPath is not null)
+        {
+            try
+            {
+                ShowVersions(await new ClientVersionService(_http)
+                    .CheckAsync(_manifest, _installPath, _cts.Token));
+            }
+            catch (OperationCanceledException) { return false; }
+        }
+
+        SetStatus($"{target} published — downloading it now.");
+        return true;
+    }
+
+    // ---------- explicit update check ----------
+
+    private async void OnCheckForUpdates(object sender, RoutedEventArgs e)
+    {
+        SetBusy(true);
+        try { await CheckForUpdatesAsync(); }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Log.Write(ex.ToString());
+            SetStatus($"Update check failed — {ex.Message}");
+        }
+        finally { SetBusy(false); }
+    }
+
+    /// <summary>
+    /// The manual half of everything the launcher does at startup: re-read the manifest, work
+    /// out what the current client version is, and sync up to it. Also the way back in after a
+    /// failed startup — an offline launch or a publish that was mid-flight — without making the
+    /// player close and reopen the launcher.
+    /// </summary>
+    private async Task CheckForUpdatesAsync()
+    {
+        ManifestFetch fetched;
+        try
+        {
+            SetStatus("Checking for updates…");
+            fetched = await new ManifestService(_http).FetchAsync(_config.ManifestUrl, _cts.Token);
         }
         catch (OperationCanceledException) { return; }
         catch (Exception ex)
         {
-            Log.Write(ex.ToString());
-            SetStatus($"Update failed — {ex.Message}");
-            EnablePlay("You can still play, but your files may be out of date.");
+            Log.Write($"update check: {ex.Message}");
+            SetStatus($"Could not reach the update server — {ex.Message}");
             return;
         }
 
-        SetProgress(1);
+        var moved = !string.Equals(fetched.Hash, _manifestHash, StringComparison.OrdinalIgnoreCase);
 
-        var realm = ClientConfigWriter.WriteRealmlist(
-            _installPath, _manifest.Realm.Address, _manifest.Realm.Name);
-        foreach (var failure in realm.Failed) Log.Write($"realmlist: {failure}");
+        _manifest = fetched.Manifest;
+        _manifestHash = fetched.Hash;
 
-        AddOnsTxtEnforcer.Apply(_installPath, _manifest.ForceEnableAddOns, _manifest.ForceDisableAddOns);
+        if (moved) _ = LoadNewsAsync(_manifest);
 
-        if (_manifest.HardenClient)
+        if (_installPath is null)
         {
-            var hardened = ClientHardening.Apply(_installPath);
-            foreach (var note in hardened.Notes) Log.Write($"hardening: {note}");
+            _installPath = await ResolveInstallAsync(_manifest);
+            if (_installPath is null) return;
         }
 
-        if (_manifest.LargeAddressAware)
-        {
-            var laa = Services.LargeAddressAware.Apply(_installPath);
-            if (laa.Changed) Log.Write($"large address aware: {laa.Detail}");
-        }
-
-        // Only worth clearing when something actually changed — it costs the player a slower
-        // first login while the client refetches.
-        if (outcome.ChangedAnything) WdbCleaner.Clear(_installPath);
-
-        try
-        {
-            var sent = await new CrashReporter(_http)
-                .ReportNewCrashesAsync(_installPath, _manifest, _state, _cts.Token);
-            if (sent > 0) Log.Write($"uploaded {sent} crash report(s)");
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception ex) { Log.Write($"crash reporting: {ex.Message}"); }
-
-        if (outcome.Errors.Count > 0)
-        {
-            foreach (var e in outcome.Errors) Log.Write($"sync: {e}");
-            // Deliberately not recorded as synced: a partial sync must be retried on the next
-            // PLAY rather than skipped because the manifest hash happens to match.
-            EnablePlay($"Ready, but {outcome.Errors.Count} file(s) failed to update. See launcher.log.");
-        }
-        else
-        {
-            _state.LastManifestHash = _manifestHash;
-            _state.Save();
-
-            EnablePlay(outcome.ChangedAnything
-                ? $"Updated {outcome.Downloaded} file(s). Ready to play."
-                : "Up to date.");
-        }
+        await SyncAndPrepareAsync();
     }
 
     /// <summary>
@@ -375,7 +565,9 @@ public partial class MainWindow : Window
     {
         if (!_readyToPlay || _installPath is null) return;
 
-        if (GameProcess.IsRunning(_installPath))
+        var installPath = _installPath;
+
+        if (GameProcess.IsRunning(installPath))
         {
             MessageBox.Show("World of Warcraft is already running.", "Already running",
                 MessageBoxButton.OK, MessageBoxImage.Information);
@@ -387,16 +579,33 @@ public partial class MainWindow : Window
             PlayButton.IsEnabled = false;
             await RefreshBeforeLaunchAsync();
 
+            if (_closing) return;
+
+            // The pre-launch check gets a veto: a release still going out, or a sync that
+            // failed outright, both turn PLAY off and have already said why on screen.
+            if (!_readyToPlay) return;
+
+            PlayButton.IsEnabled = false;
+
             // The sync refuses while the game is up, and it may have taken a while, so
             // re-check rather than trusting the state from before the update.
-            if (_closing) return;
-            if (GameProcess.IsRunning(_installPath))
+            if (GameProcess.IsRunning(installPath))
             {
                 PlayButton.IsEnabled = true;
                 return;
             }
 
-            GameProcess.Launch(_installPath);
+            // Exclusive fullscreen crashes this client on too many machines to leave to the
+            // player's saved setting — and the client rewrites Config.wtf when it exits, so
+            // anyone who switched in-game would be back in fullscreen next launch. Hence
+            // every launch, not once at install.
+            try
+            {
+                if (DisplayMode.ForceWindowed(installPath)) Log.Write("display: forced windowed mode");
+            }
+            catch (Exception ex) { Log.Write($"windowed mode: {ex.Message}"); }
+
+            GameProcess.Launch(installPath);
 
             // Copied after launch so it lands on the clipboard while the player is heading
             // for the login screen, rather than sitting there through a long update.
@@ -504,14 +713,46 @@ public partial class MainWindow : Window
             : item.Body;
     }
 
-    private void EnablePlay(string status)
+    private void EnablePlay(string summary)
     {
         _readyToPlay = true;
         Dispatcher.Invoke(() => PlayButton.IsEnabled = true);
-        SetStatus(status);
+        SetSummary(summary);
     }
 
+    private void BlockPlay(string reason)
+    {
+        _readyToPlay = false;
+        Dispatcher.Invoke(() => PlayButton.IsEnabled = false);
+        SetStatus(reason);
+    }
+
+    /// <summary>
+    /// Locks both buttons while an update is in flight — two syncs writing the same game
+    /// folder at once is a good way to corrupt an MPQ — and restores PLAY to whatever the
+    /// update decided when it lets go.
+    /// </summary>
+    private void SetBusy(bool busy) => Dispatcher.Invoke(() =>
+    {
+        CheckButton.IsEnabled = !busy;
+        PlayButton.IsEnabled = !busy && _readyToPlay;
+    });
+
+    private void ShowVersions(ClientVersions versions)
+    {
+        _versions = versions;
+        Dispatcher.Invoke(() => VersionText.Text = versions.Describe());
+    }
+
+    /// <summary>What the launcher is doing right now. Overwritten constantly.</summary>
     private void SetStatus(string text) => Dispatcher.Invoke(() => StatusText.Text = text);
+
+    /// <summary>
+    /// What the last update actually did. Deliberately a separate line from the status: it has
+    /// to survive launching the game, so that "Running." does not erase the only record of what
+    /// changed.
+    /// </summary>
+    private void SetSummary(string text) => Dispatcher.Invoke(() => SummaryText.Text = text);
 
     private void SetProgress(double fraction) =>
         Dispatcher.Invoke(() => Progress.Value = Math.Clamp(fraction * 1000, 0, 1000));
