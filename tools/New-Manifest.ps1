@@ -38,7 +38,10 @@ param(
     # Addons to switch off on clients that already have them, for ones we shipped and then
     # pulled. Keep in step with $temporarilyDisabled in Build-Payload.ps1.
     [string[]]$ForceDisableAddOns = @('QuestHelper'),
-    [string]$LauncherVersion = '1.0.0',
+    # Empty by default: a regen that omits these inherits whatever the current manifest
+    # already advertises (see below) instead of resetting the pointer. Pass explicitly to
+    # publish a new launcher release.
+    [string]$LauncherVersion = '',
     [string]$LauncherUrl     = '',
     # Leave empty to have it computed from -LauncherExe, if that file exists.
     [string]$LauncherSha256  = '',
@@ -109,6 +112,18 @@ if (Test-Path $ExternalFiles) {
             Write-Host ("  + {0,-32} {1,6} MB" -f $e.path, [math]::Round($item.Length / 1MB, 1)) -ForegroundColor Green
         }
     }
+}
+
+# When a routine regen omits the launcher args, keep whatever the current manifest already
+# advertises rather than falling back to the defaults. A publish that forgets -LauncherVersion
+# used to silently downgrade every client's self-update pointer (e.g. 1.4.0 -> 1.0.0).
+if ((-not $LauncherVersion -or -not $LauncherUrl -or -not $LauncherSha256) -and (Test-Path $OutFile)) {
+    try {
+        $prevManifest = Get-Content $OutFile -Raw | ConvertFrom-Json
+        if (-not $LauncherVersion -and $prevManifest.launcherVersion) { $LauncherVersion = $prevManifest.launcherVersion }
+        if (-not $LauncherUrl     -and $prevManifest.launcherUrl)     { $LauncherUrl     = $prevManifest.launcherUrl }
+        if (-not $LauncherSha256  -and $prevManifest.launcherSha256)  { $LauncherSha256  = $prevManifest.launcherSha256 }
+    } catch { Write-Warning "Could not read existing manifest to preserve launcher fields." }
 }
 
 # Resolve the launcher hash. Self-update verifies the downloaded exe against this before
