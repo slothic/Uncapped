@@ -12,7 +12,7 @@
   Everything on the wire is numeric (item entries, ITEM_MOD stat ints, spell ids);
   this addon resolves item/spell names + icons itself (GetItemInfo / GetSpellInfo).
 
-  /ic       open/close        /icdebug   toggle verbose wire logging
+  /soulbind, /sb   open/close        /sbdebug   toggle verbose wire logging
 ]]
 
 local SEND_PREFIX = "REAGENTBANK"
@@ -628,14 +628,15 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
     if a1 == PIPE_PREFIX and a2 and a2:sub(1,2) == "IC" then OnLine(a2) end
     return
   end
-  if event == "PLAYER_LOGIN" then dbg("loaded. /ic to open."); return end
+  if event == "PLAYER_LOGIN" then dbg("loaded. /soulbind (or /sb) to open."); return end
   -- keep the paper doll / source list live while the window is open
   if UI and UI:IsShown() then
     if event == "PLAYER_EQUIPMENT_CHANGED" and UI.RefreshDoll and not state.bench then UI:RefreshDoll() end
   end
 end)
 
-SLASH_ICUST1 = "/ic"
+SLASH_ICUST1 = "/soulbind"
+SLASH_ICUST2 = "/sb"
 SlashCmdList["ICUST"] = function()
   BuildUI(); attachMethods()
   if UI:IsShown() then
@@ -647,7 +648,7 @@ SlashCmdList["ICUST"] = function()
   end
 end
 
-SLASH_ICDEBUG1 = "/icdebug"
+SLASH_ICDEBUG1 = "/sbdebug"
 SlashCmdList["ICDEBUG"] = function() DEBUG = not DEBUG; msg("debug " .. (DEBUG and "ON" or "OFF")) end
 
 dbg("file parsed.")
