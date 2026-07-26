@@ -2601,8 +2601,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedItemCustomize/UncappedItemCustomize.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedItemCustomize/UncappedItemCustomize.lua",
-                      "sha256":  "2eef1edeaa8326a5a560628639d16fb734db83cf8bfb9df716fe4d44ffa84958",
-                      "size":  34950
+                      "sha256":  "3c3a33716c837e8fa4999cebe0ef2c3be842d9b6e1e2ded4b10a8473663ddea9",
+                      "size":  34810
                   },
                   {
                       "path":  "Interface/AddOns/UncappedItemCustomize/UncappedItemCustomize.toc",
@@ -2647,21 +2647,9 @@
                       "size":  254
                   },
                   {
-                      "path":  "Interface/AddOns/UncappedVault/UncappedVault.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVault/UncappedVault.lua",
-                      "sha256":  "32443bbf58b862b930a91d43b74e6763d175d852993f961a397bf1ac6a5dc6ad",
-                      "size":  32868
-                  },
-                  {
-                      "path":  "Interface/AddOns/UncappedVault/UncappedVault.toc",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVault/UncappedVault.toc",
-                      "sha256":  "6aa1f8b8d90681e00dadfa7f281679d6b9648433bce98a6610c75ef8c1f14bbb",
-                      "size":  319
-                  },
-                  {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "79aafccb5cd339309d8109c0005fe2d0aae70d5a115efcb989d12b98e3729e7f",
+                      "sha256":  "6ee0658f537b7ffdebdd3f6e076726afedd6bfaa23d9d0af1f6ecbfc9044aa0c",
                       "size":  3593
                   },
                   {

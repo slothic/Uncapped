@@ -58,26 +58,6 @@ local function triggerName(t) return TRIGGER_NAMES[t] or ("Trigger " .. tostring
 -- passives read "Passive" and never show a chance.
 local TRIGGER_LABEL = { [0]="On Use", [1]="Passive", [2]="On Hit", [3]="On Cast" }
 local function triggerLabel(t) return TRIGGER_LABEL[t] or ("Trigger " .. tostring(t)) end
-
--- The mechanic clause for a proc. Chance-rolled procs (On Hit / On Cast) show
--- their % chance; passives and on-use effects have no chance, so they show only
--- how far their effect has been upgraded (the power multiplier) -- which is the
--- ONLY thing re-soulbinding raises for them. fmtMult is defined just below.
-local function procMechanic(p)
-  local isChance = (p.trigger == 2 or p.trigger == 3)
-  local mult = fmtMult(p.mag)
-  if isChance then
-    if mult ~= "1" then
-      return string.format("%d%% chance, %sx power", p.chance or 0, mult)
-    end
-    return string.format("%d%% chance", p.chance or 0)
-  end
-  -- Passive / On Use: no chance, just the (upgradable) effect strength.
-  if mult ~= "1" then
-    return string.format("%sx power", mult)
-  end
-  return "base effect"
-end
 local function spellName(id)
   local n = GetSpellInfo(id)
   return n or ("Spell #" .. tostring(id))
@@ -89,6 +69,25 @@ local function fmtMult(magPct)
   local s = string.format("%.2f", m)
   s = s:gsub("0+$", ""):gsub("%.$", "")
   return s
+end
+
+-- The mechanic clause for a proc. Chance-rolled procs (On Hit / On Cast) show
+-- their % chance; passives and on-use effects have no chance, so they show only
+-- how far their effect has been upgraded (the power multiplier) -- which is the
+-- ONLY thing re-soulbinding raises for them.
+local function procMechanic(p)
+  local mult = fmtMult(p.mag)
+  if p.trigger == 2 or p.trigger == 3 then
+    if mult ~= "1" then
+      return string.format("%d%% chance, %sx power", p.chance or 0, mult)
+    end
+    return string.format("%d%% chance", p.chance or 0)
+  end
+  -- Passive / On Use: no chance, just the (upgradable) effect strength.
+  if mult ~= "1" then
+    return string.format("%sx power", mult)
+  end
+  return "base effect"
 end
 
 -- Hidden scanning tooltip so rows can show a short "what it does" snippet.
@@ -566,8 +565,8 @@ local function attachMethods()
         local nm, _, icon = GetSpellInfo(p.spellId)
         out[#out+1] = {
           sid = p.spellId, icon = icon,
-          text = string.format("|cffc080f0%s|r |cff888888(%s)|r — %d%% chance, %sx power",
-            nm or ("Spell #"..p.spellId), triggerName(p.trigger), p.chance or 0, fmtMult(p.mag)),
+          text = string.format("|cffc080f0%s|r |cff888888(%s)|r — %s",
+            nm or ("Spell #"..p.spellId), triggerLabel(p.trigger), procMechanic(p)),
         }
       end
     end
@@ -701,8 +700,8 @@ local function Inject(tt, key)
     tt:AddLine("|cff20ff20+" .. tostring(s.value) .. " " .. statName(s.type) .. "|r")
   end
   for _, p in ipairs(e.procs) do
-    tt:AddLine(spellName(p.spellId) .. " |cff888888(" .. triggerName(p.trigger) .. ")|r — "
-      .. (p.chance or 0) .. "% chance, " .. fmtMult(p.mag) .. "x power", 0.75, 0.5, 0.94)
+    tt:AddLine(spellName(p.spellId) .. " |cff888888(" .. triggerLabel(p.trigger) .. ")|r — "
+      .. procMechanic(p), 0.75, 0.5, 0.94)
   end
   tt:Show()
 end
