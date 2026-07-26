@@ -142,11 +142,13 @@ To switch back to a no-prerequisite build, set `<SelfContained>true</SelfContain
 11. Stays open with news, realm status and the installed client version; **Check for updates**
     re-runs steps 2 and 6–10 by hand, for players who left the launcher open or launched it
     while a release was going out.
-12. `PLAY` re-checks the manifest, forces **windowed mode** (`gxWindow 1`, `gxMaximize 1`,
-    `hwDetect 0`) and launches the game. Windowed is re-applied on every launch, not once at
-    install: exclusive fullscreen crashes this client on a lot of machines, and the client
-    rewrites `Config.wtf` on exit, so anyone who switched in-game would otherwise be stuck
-    crashing with no obvious way back.
+12. `PLAY` re-checks the manifest, forces **windowed mode** (`gxWindow 1`, `hwDetect 0`) and
+    launches the game. It deliberately does **not** touch `gxMaximize` — whether the window is
+    maximized/borderless or a plain window is the player's own choice and is left as-is.
+    Windowed is re-applied on every launch, not once at install: exclusive fullscreen crashes
+    this client on a lot of machines, and the client rewrites `Config.wtf` on exit, so anyone
+    who switched to fullscreen in-game would otherwise be stuck crashing with no obvious way
+    back.
 
 ---
 

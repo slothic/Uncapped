@@ -17,10 +17,9 @@ public static class DisplayMode
         {
             // Windowed rather than exclusive fullscreen.
             ["gxWindow"] = "1",
-            // ...but filling the desktop, so it still looks fullscreen. Without this a player
-            // whose saved gxResolution is their full monitor size gets a window larger than
-            // the screen, with the title bar and taskbar fighting it.
-            ["gxMaximize"] = "1",
+            // Deliberately do NOT touch gxMaximize — whether the window is maximized/borderless
+            // or a plain window is the player's choice; we only force it out of exclusive
+            // fullscreen (which crashes). Leave their maximize setting exactly as-is.
             // Stop the client re-running hardware detection and undoing the above.
             ["hwDetect"] = "0",
         },
