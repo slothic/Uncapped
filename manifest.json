@@ -3338,9 +3338,9 @@
                   },
                   {
                       "path":  "Data/enUS/patch-enUS-R.MPQ",
-                      "url":  "https://github.com/slothic/Uncapped/releases/download/mounts-v3/patch-enUS-R.MPQ",
-                      "sha256":  "fe0000bcd151702378c730c717b6aa7b6165bedb77d6b26074f42ba213325172",
-                      "size":  4547590
+                      "url":  "https://github.com/slothic/Uncapped/releases/download/mounts-v4/patch-enUS-R.MPQ",
+                      "sha256":  "91676e6f5593f57b33863b9ab65b0e5dfe91090daadfc8ca7cc9e50ba9de282d",
+                      "size":  4608467
                   }
               ],
     "forceEnableAddOns":  [
