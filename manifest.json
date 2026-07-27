@@ -2655,7 +2655,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "c6f0aa5346d4455998e5886983c9ab52a68be9b962c87a6922c3d8f01d8a0a99",
+                      "sha256":  "1c0a4bd701a4dde6bf64c21a483efae9777a71aa90307dc214d9fcd77c6d8624",
                       "size":  3593
                   },
                   {
@@ -3338,9 +3338,9 @@
                   },
                   {
                       "path":  "Data/enUS/patch-enUS-R.MPQ",
-                      "url":  "https://github.com/slothic/Uncapped/releases/download/mounts-v7/patch-enUS-R.MPQ",
-                      "sha256":  "3dceabc7e94d10cc5e2dc9a8c8421896e53f02b614af5e77b137f5282998656c",
-                      "size":  4615523
+                      "url":  "https://github.com/slothic/Uncapped/releases/download/mounts-v8/patch-enUS-R.MPQ",
+                      "sha256":  "386ab3f7e826faf4eae38da81445bc21730c1fad910e74d02252a276cbba2fe2",
+                      "size":  4615691
                   }
               ],
     "archives":  [

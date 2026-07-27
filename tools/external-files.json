@@ -15,8 +15,8 @@
     "url": "https://github.com/slothic/Uncapped/releases/download/mounts-v1/patch-enUS-Q.MPQ"
   },
   {
-    "_comment": "Client DBC patch (mounts-v6): the consolidated client DBC bundle. (1) Spell.dbc -- all client-side spell edits (GCD tuning etc., formerly payload patch-enUS-Z) + the 565 mount spells (850000-850564) for patch-Q, with the Red Mastiff (850139) at +15% speed. (2) AreaTable.dbc -- clears NO_FLY_ZONE on the 15 Dalaran subareas (restores Dalaran flying, lost when payload patch-Z was retired) and sets AREA_FLAG_OUTLAND on all Eastern Kingdoms + Kalimdor areas. (3) Map.dbc -- maps 0/1 ExpansionID -> 1 so the client permits flight in the old world. Replaces the old payload patch-enUS-Z (which sorted after patch-R and shadowed the mounts). Server loads a matching AreaTable.dbc from its data volume and has the Dalaran restricted-flight spell_area (58600) removed.",
+    "_comment": "Client DBC patch (mounts-v6): the consolidated client DBC bundle. (1) Spell.dbc -- all client-side spell edits (GCD tuning etc., formerly payload patch-enUS-Z) + the 565 mount spells (850000-850564) for patch-Q, with the Red Mastiff (850139) at +15% speed. (2) AreaTable.dbc -- clears NO_FLY_ZONE on the 15 Dalaran subareas (restores Dalaran flying, lost when payload patch-Z was retired) and sets AREA_FLAG_OUTLAND on all Eastern Kingdoms + Kalimdor areas. (3) Map.dbc -- maps 0/1 ExpansionID -> 1 so the client permits flight in the old world. Replaces the old payload patch-enUS-Z (which sorted after patch-R and shadowed the mounts). Server loads a matching AreaTable.dbc from its data volume and has the Dalaran restricted-flight spell_area (58600) removed. (4) mounts-v8: spell 28204 renamed to \"SoulRush\" with a matching icon and buff tooltip -- it is the carrier aura for the Clearstreak system, whose name and icon can only come from the client's Spell.dbc.",
     "path": "Data/enUS/patch-enUS-R.MPQ",
-    "url": "https://github.com/slothic/Uncapped/releases/download/mounts-v7/patch-enUS-R.MPQ"
+    "url": "https://github.com/slothic/Uncapped/releases/download/mounts-v8/patch-enUS-R.MPQ"
   }
 ]
