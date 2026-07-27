@@ -82,6 +82,8 @@ local state = {
   sf = { mult = 0.1, fill = 0, completions = 0, autoconsume = false },  -- soulforge status
   whitelist = {},        -- current whitelist item names
   wlStaging = {},
+  wlSuggest = {},        -- item-name search suggestions (server ICINAME search)
+  wlSuggestStaging = {},
   equipped = {},         -- rendered rows: your equipped items that carry bonuses
 }
 
@@ -283,13 +285,14 @@ end
 
 -- ============================ whitelist manager ===========================
 local WLM
-local wlRows = {}
-local WL_ROWS, WL_H = 8, 24
+local wlRows, sugRows = {}, {}
+local WL_ROWS, WL_H = 6, 24
+local SUG_ROWS, SUG_H = 6, 22
 
 local function BuildWhitelist()
   if WLM then return WLM end
   local f = CreateFrame("Frame", "UncappedSoulforgeWL", UIParent)
-  f:SetSize(320, 380); f:SetPoint("CENTER", 240, 0); f:SetFrameStrata("DIALOG")
+  f:SetSize(340, 476); f:SetPoint("CENTER", 250, 0); f:SetFrameStrata("DIALOG")
   f:SetBackdrop({ bgFile="Interface\\DialogFrame\\UI-DialogBox-Background",
     edgeFile="Interface\\DialogFrame\\UI-DialogBox-Border", edgeSize=32,
     insets={left=11,right=12,top=12,bottom=11} })
@@ -300,24 +303,62 @@ local function BuildWhitelist()
   local title = f:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
   title:SetPoint("TOP",0,-16); title:SetText("Whitelist")
   local sub = f:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
-  sub:SetPoint("TOP",title,"BOTTOM",0,-2); sub:SetWidth(280)
+  sub:SetPoint("TOP",title,"BOTTOM",0,-2); sub:SetWidth(300)
   sub:SetText("Items whose name contains one of these are never auto-consumed.")
   local close = CreateFrame("Button", nil, f, "UIPanelCloseButton"); close:SetPoint("TOPRIGHT",-6,-6)
 
+  -- search box (searches ALL items server-side as you type)
   local box = CreateFrame("EditBox", "UncappedSoulforgeWLBox", f, "InputBoxTemplate")
-  box:SetPoint("TOPLEFT", 22, -54); box:SetSize(210, 20); box:SetAutoFocus(false)
+  box:SetPoint("TOPLEFT", 22, -54); box:SetSize(230, 20); box:SetAutoFocus(false)
   box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
   local add = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  add:SetSize(58, 22); add:SetPoint("LEFT", box, "RIGHT", 6, 0); add:SetText("Add")
+  add:SetSize(56, 22); add:SetPoint("LEFT", box, "RIGHT", 6, 0); add:SetText("Add")
   local function doAdd()
     local t = box:GetText()
-    if t and t ~= "" then send("ICWLADD:" .. t); box:SetText("") end
+    if t and t ~= "" then send("ICWLADD:" .. t); box:SetText(""); state.wlSuggest = {}; if WLM then WLM:UpdateSuggest() end end
   end
   add:SetScript("OnClick", doAdd)
   box:SetScript("OnEnterPressed", doAdd)
+  box:SetScript("OnTextChanged", function(self, userInput)
+    if not userInput then return end
+    local t = self:GetText()
+    if t and #t >= 2 then send("ICISEARCH:" .. t) else state.wlSuggest = {}; if WLM then WLM:UpdateSuggest() end end
+  end)
 
+  -- suggestions (matching items from the whole game)
+  local sHdr = f:CreateFontString(nil,"OVERLAY","GameFontNormal")
+  sHdr:SetPoint("TOPLEFT",22,-84); sHdr:SetText("|cff40c0f0Matching items|r")
+  local sScroll = CreateFrame("ScrollFrame", "UncappedSoulforgeSugScroll", f, "FauxScrollFrameTemplate")
+  sScroll:SetPoint("TOPLEFT", 22, -100); sScroll:SetSize(290, SUG_ROWS*SUG_H)
+  sScroll:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, SUG_H, function() f:UpdateSuggest() end)
+  end)
+  sScroll:EnableMouseWheel(true)
+  sScroll:SetScript("OnMouseWheel", function(self, delta)
+    local sb = _G["UncappedSoulforgeSugScrollScrollBar"]; if sb then sb:SetValue(sb:GetValue() - delta*SUG_H) end
+  end)
+  f.sScroll = sScroll
+  for i = 1, SUG_ROWS do
+    local r = CreateFrame("Button", nil, f); r:SetSize(284, SUG_H-2)
+    r:SetPoint("TOPLEFT", sScroll, "TOPLEFT", 0, -(i-1)*SUG_H)
+    r:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+    r.name = r:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+    r.name:SetPoint("LEFT",4,0); r.name:SetWidth(250); r.name:SetJustifyH("LEFT")
+    r.plus = r:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
+    r.plus:SetPoint("RIGHT",-4,0); r.plus:SetText("|cff20ff20+|r")
+    r:SetScript("OnClick", function() if r.iname then send("ICWLADD:" .. r.iname) end end)
+    sugRows[i] = r; r:Hide()
+  end
+  local sEmpty = f:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
+  sEmpty:SetPoint("TOP", sScroll, "TOP", 0, -20); sEmpty:SetWidth(260)
+  sEmpty:SetText("Type at least 2 letters to search all items.")
+  f.sEmpty = sEmpty
+
+  -- current whitelist
+  local wHdr = f:CreateFontString(nil,"OVERLAY","GameFontNormal")
+  wHdr:SetPoint("TOPLEFT",22,-100-(SUG_ROWS*SUG_H)-14); wHdr:SetText("|cffff6060Whitelisted|r")
   local scroll = CreateFrame("ScrollFrame", "UncappedSoulforgeWLScroll", f, "FauxScrollFrameTemplate")
-  scroll:SetPoint("TOPLEFT", 22, -86); scroll:SetSize(270, WL_ROWS*WL_H)
+  scroll:SetPoint("TOPLEFT", wHdr, "BOTTOMLEFT", 0, -6); scroll:SetSize(290, WL_ROWS*WL_H)
   scroll:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, WL_H, function() f:Update() end)
   end)
@@ -326,12 +367,11 @@ local function BuildWhitelist()
     local sb = _G["UncappedSoulforgeWLScrollScrollBar"]; if sb then sb:SetValue(sb:GetValue() - delta*WL_H) end
   end)
   f.scroll = scroll
-
   for i = 1, WL_ROWS do
-    local r = CreateFrame("Frame", nil, f); r:SetSize(264, WL_H-2)
+    local r = CreateFrame("Frame", nil, f); r:SetSize(284, WL_H-2)
     r:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, -(i-1)*WL_H)
     r.name = r:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
-    r.name:SetPoint("LEFT",4,0); r.name:SetWidth(210); r.name:SetJustifyH("LEFT")
+    r.name:SetPoint("LEFT",4,0); r.name:SetWidth(230); r.name:SetJustifyH("LEFT")
     r.btn = CreateFrame("Button", nil, r)
     r.btn:SetSize(18,18); r.btn:SetPoint("RIGHT",0,0)
     r.btn:SetNormalTexture("Interface\\RaidFrame\\ReadyCheck-NotReady")
@@ -340,9 +380,20 @@ local function BuildWhitelist()
     wlRows[i] = r; r:Hide()
   end
   local empty = f:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
-  empty:SetPoint("TOP", scroll, "TOP", 0, -20); empty:SetWidth(240)
-  empty:SetText("Nothing whitelisted. Add an item name above.")
+  empty:SetPoint("TOP", scroll, "TOP", 0, -16); empty:SetWidth(240)
+  empty:SetText("Nothing whitelisted yet.")
   f.empty = empty
+
+  function f:UpdateSuggest()
+    local list = state.wlSuggest
+    FauxScrollFrame_Update(self.sScroll, #list, SUG_ROWS, SUG_H)
+    if #list == 0 then self.sEmpty:Show() else self.sEmpty:Hide() end
+    local offset = FauxScrollFrame_GetOffset(self.sScroll)
+    for i = 1, SUG_ROWS do
+      local r = sugRows[i]; local nm = list[i + offset]
+      if nm then r.iname = nm; r.name:SetText(nm); r:Show() else r.iname = nil; r:Hide() end
+    end
+  end
 
   function f:Update()
     local list = state.whitelist
@@ -383,6 +434,12 @@ local function OnLine(body)
     state.whitelist = state.wlStaging
     state.wlStaging = {}
     if WLM then WLM:Update() end
+  elseif cmd == "ICINAME" then          -- <name>  item-name search hit
+    table.insert(state.wlSuggestStaging, rest)
+  elseif cmd == "ICINAMEEND" then
+    state.wlSuggest = state.wlSuggestStaging
+    state.wlSuggestStaging = {}
+    if WLM then WLM:UpdateSuggest() end
   elseif cmd == "ICITEM" then
     sbCurKey = rest
     sbStaging[rest] = { stats = {}, procs = {} }
@@ -596,7 +653,9 @@ local function attachWhitelistOpener()
   function UI:OpenWhitelist()
     BuildWhitelist()
     if WLM:IsShown() then WLM:Hide() return end
-    WLM:Show(); WLM:Update(); send("ICWLIST")
+    local box = _G["UncappedSoulforgeWLBox"]; if box then box:SetText("") end
+    state.wlSuggest = {}
+    WLM:Show(); WLM:Update(); WLM:UpdateSuggest(); send("ICWLIST")
   end
 end
 
