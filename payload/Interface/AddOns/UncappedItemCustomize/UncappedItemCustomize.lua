@@ -166,7 +166,7 @@ local function BuildUI()
 
   local ao = CreateFrame("CheckButton", "UncappedSoulforgeAO", f, "InterfaceOptionsCheckButtonTemplate")
   ao:SetPoint("TOPLEFT", 20, -166)
-  _G[ao:GetName().."Text"]:SetText("Auto-open Sacks of Mythic Treasure (a few at a time)")
+  _G[ao:GetName().."Text"]:SetText("Auto-melt Sacks \226\134\146 souls + transmog + duplicates")
   ao:SetScript("OnClick", function(self) send("ICAO:" .. (self:GetChecked() and 1 or 0)) end)
   f.aoCheck = ao
 
