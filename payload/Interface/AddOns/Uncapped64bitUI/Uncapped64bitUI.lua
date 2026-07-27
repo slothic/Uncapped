@@ -265,6 +265,13 @@ local function ApplyAllStatsReal()
     SetRow("Armor", W(r.armor))
     SetRow("Defense", W(r.def))
 
+    -- [Haste->CritDamage] Haste no longer speeds anything on this realm; it grants
+    -- crit damage. Repurpose the now-inert "Spell Haste" row into a Crit Damage
+    -- readout: relabel it and show the haste-derived crit-damage percent.
+    local hLabel = _G["AllStatsFrameStatSpellHasteLabel"]
+    if hLabel then hLabel:SetText("Crit Damage") end
+    if r.critdmg then SetRow("SpellHaste", WHITE .. "+" .. r.critdmg .. "%|r") end
+
     -- Real-but-huge derived lines: truncate the client's own value in place.
     AbbrevRow("MeleeCrit"); AbbrevRow("RangeCrit"); AbbrevRow("SpellCrit")
     AbbrevRow("Dodge"); AbbrevRow("Parry"); AbbrevRow("Block")
@@ -300,6 +307,7 @@ local function OnLine(msg)
             str = p[1], agi = p[2], sta = p[3], int = p[4], spi = p[5],
             map = p[6], rap = p[7], sp = p[8], heal = p[9], armor = p[10],
             def = p[11], exp = p[12], mmin = p[13], mmax = p[14], rmin = p[15], rmax = p[16],
+            critdmg = p[17],
         }
         EnsureAllStatsHook()
         if CharacterFrame and CharacterFrame:IsShown() then ApplyAllStatsReal() end
@@ -317,7 +325,7 @@ local function OnLine(msg)
         if allPending.b then
             local p = {}
             for i = 1, 8 do p[i] = allPending.a[i] end
-            for i = 1, 8 do p[8 + i] = allPending.b[i] end
+            for i = 1, 9 do p[8 + i] = allPending.b[i] end
             ApplyRealStats(p)
         end
         return
@@ -329,7 +337,7 @@ local function OnLine(msg)
         if allPending.a then
             local p = {}
             for i = 1, 8 do p[i] = allPending.a[i] end
-            for i = 1, 8 do p[8 + i] = allPending.b[i] end
+            for i = 1, 9 do p[8 + i] = allPending.b[i] end
             ApplyRealStats(p)
         end
         return
