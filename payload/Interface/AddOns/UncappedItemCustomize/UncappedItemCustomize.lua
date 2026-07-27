@@ -1,18 +1,19 @@
 --[[
-  Uncapped Item Customize  ->  Soulbinding
-  ----------------------------------------
-  Consume a source item to copy its stat block + procs onto a target ("bench")
-  item, additively. Deposit an equipped item as the target, then soulbind bag
-  items into it (one at a time, or all at once).
+  Uncapped Soulforge  (formerly Item Customize / Soulbinding)
+  -----------------------------------------------------------
+  Two systems:
+    * The Soulforge -- a per-account bar. Junk gear you don't want is eaten for
+      "souls"; each time the bar fills, a global EXTRACTION multiplier rises a
+      little (forever). Auto-consume (off by default) feeds it as you play.
+    * Soulbinding -- feed an EXACT DUPLICATE of an item you're WEARING onto it to
+      extract (the current multiplier) of its stats and ramp its procs. "Soulbind
+      Duplicates" does it in bulk from your bags + vault.
 
   Transport (matches the rest of the UNC pipe):
     * SEND    : SendAddonMessage("REAGENTBANK", body, "WHISPER", UnitName("player"))
     * RECEIVE : CHAT_MSG_ADDON, arg1 == "UNC", arg2 == body.
 
-  Everything on the wire is numeric (item entries, ITEM_MOD stat ints, spell ids);
-  this addon resolves item/spell names + icons itself (GetItemInfo / GetSpellInfo).
-
-  /soulbind, /sb   open/close        /sbdebug   toggle verbose wire logging
+  /soulforge, /sf, /sb   open/close        /sbdebug   toggle verbose wire logging
 ]]
 
 local SEND_PREFIX = "REAGENTBANK"
@@ -25,10 +26,10 @@ local function dbg(...)
   if not DEBUG then return end
   local parts = {}
   for i = 1, select("#", ...) do parts[i] = tostring(select(i, ...)) end
-  DEFAULT_CHAT_FRAME:AddMessage("|cff66ccff[IC]|r " .. table.concat(parts, " "))
+  DEFAULT_CHAT_FRAME:AddMessage("|cff66ccff[SF]|r " .. table.concat(parts, " "))
 end
 local function msg(text)
-  DEFAULT_CHAT_FRAME:AddMessage("|cffffd200Soulbinding:|r " .. text)
+  DEFAULT_CHAT_FRAME:AddMessage("|cffffd200Soulforge:|r " .. text)
 end
 
 -- ---- name tables ---------------------------------------------------------
@@ -43,19 +44,11 @@ local STAT_NAMES = {
   [38]="Attack Power",[39]="Ranged Attack Power",[41]="Spell Healing",[42]="Spell Damage",
   [43]="Mana Regen",[44]="Armor Penetration",[45]="Spell Power",[46]="Health Regen",
   [47]="Spell Penetration",[48]="Block Value",
-  -- resistance pseudo-codes (60 + school): 1=holy .. 6=arcane
   [61]="Holy Resistance",[62]="Fire Resistance",[63]="Nature Resistance",
   [64]="Frost Resistance",[65]="Shadow Resistance",[66]="Arcane Resistance",
 }
 local function statName(t) return STAT_NAMES[t] or ("Stat #" .. tostring(t)) end
 
-local TRIGGER_NAMES = { [0]="On Use", [1]="On Equip", [2]="On Hit", [3]="On Cast" }
-local function triggerName(t) return TRIGGER_NAMES[t] or ("Trigger " .. tostring(t)) end
-
--- How a proc is LABELLED to the player. Only On Hit / On Cast actually roll the
--- soulbind chance; On Equip is a passive (always active) and On Use is a clicky.
--- Calling those "On Equip"/"On Use" plus a % chance is what confused everyone, so
--- passives read "Passive" and never show a chance.
 local TRIGGER_LABEL = { [0]="On Use", [1]="Passive", [2]="On Hit", [3]="On Cast" }
 local function triggerLabel(t) return TRIGGER_LABEL[t] or ("Trigger " .. tostring(t)) end
 local function spellName(id)
@@ -71,61 +64,25 @@ local function fmtMult(magPct)
   return s
 end
 
--- The mechanic clause for a proc. Chance-rolled procs (On Hit / On Cast) show
--- their % chance; passives and on-use effects have no chance, so they show only
--- how far their effect has been upgraded (the power multiplier) -- which is the
--- ONLY thing re-soulbinding raises for them.
+-- The mechanic clause for a proc.
 local function procMechanic(p)
   local mult = fmtMult(p.mag)
   if p.trigger == 2 or p.trigger == 3 then
-    if mult ~= "1" then
-      return string.format("%d%% chance, %sx power", p.chance or 0, mult)
-    end
+    if mult ~= "1" then return string.format("%d%% chance, %sx power", p.chance or 0, mult) end
     return string.format("%d%% chance", p.chance or 0)
   end
-  -- Passive / On Use: no chance, just the (upgradable) effect strength.
-  if mult ~= "1" then
-    return string.format("%sx power", mult)
-  end
+  if mult ~= "1" then return string.format("%sx power", mult) end
   return "base effect"
 end
 
--- Hidden scanning tooltip so rows can show a short "what it does" snippet.
-local scanTip = CreateFrame("GameTooltip", "ICScanTip", nil, "GameTooltipTemplate")
-local descCache = {}
-local function spellDesc(id)
-  if descCache[id] ~= nil then return descCache[id] end
-  scanTip:SetOwner(WorldFrame, "ANCHOR_NONE")
-  scanTip:ClearLines()
-  scanTip:SetHyperlink("spell:" .. id)
-  local best = ""   -- the longest tooltip line is almost always the description
-  for i = 2, scanTip:NumLines() do
-    local fs = _G["ICScanTipTextLeft" .. i]
-    local t = fs and fs:GetText()
-    if t and #t > #best then best = t end
-  end
-  if #best > 92 then best = best:sub(1, 90) .. "..." end
-  descCache[id] = best
-  return best
-end
-
--- ---- animation constants (ported from SoulbindPreview: anim #6 Soul Wisps) --
-local SPARK  = "Interface\\Cooldown\\star4"
-local GLOW   = "Interface\\SpellActivationOverlay\\IconAlert"
-local BORDER = "Interface\\Buttons\\UI-ActionButton-Border"
-local SND_GATHER = "Sound\\Spells\\SimonGame_Visual_GameStart.wav"
-local SND_SEAL   = "Sound\\Spells\\SoulstoneResurrection_Base.wav"
-
-local function clamp01(x) return x < 0 and 0 or (x > 1 and 1 or x) end
-local function easeOut(p) p = clamp01(p); return 1 - (1 - p) * (1 - p) end
-local function easeIn(p)  p = clamp01(p); return p * p end
-local function easeInOut(p) p = clamp01(p); return p < 0.5 and 2*p*p or 1 - (-2*p+2)^2/2 end
+local SND_SEAL = "Sound\\Spells\\SoulstoneResurrection_Base.wav"
 
 -- ---- state ---------------------------------------------------------------
 local state = {
-  bench = nil,                 -- { guid, entry, stats={{type,value}}, procs={{spellId,trigger,chance,mag}} }
-  bags = {}, bagsStaging = {}, -- source candidates { {bag,slot,entry} }
-  details = {},                -- rendered accumulated stat/proc rows for the bench
+  sf = { mult = 0.1, fill = 0, completions = 0, autoconsume = false },  -- soulforge status
+  whitelist = {},        -- current whitelist item names
+  wlStaging = {},
+  equipped = {},         -- rendered rows: your equipped items that carry bonuses
 }
 
 local function send(body)
@@ -134,28 +91,21 @@ local function send(body)
 end
 
 -- ---- soulbound-item tooltip cache ----------------------------------------
--- Data is keyed by CLIENT slot position because the 3.3.5 item link/tooltip API
--- exposes no item-instance GUID. Keys match what the tooltip hooks compute:
---   "E:<invSlot>"      equipped, invSlot 1..19        (SetInventoryItem "player")
---   "B:<bag>:<slot>"   bags, bag 0=backpack / 1..4, slot 1-based  (SetBagItem)
--- Each entry: { stats = {{type,value}...}, procs = {{spellId,trigger,chance,mag}...} }.
--- Built into `sbStaging` as ICITEM/ICISTAT/ICIPROC arrive, swapped in on ICINVEND.
+-- Keyed by CLIENT slot position ("E:<invSlot>" equipped / "B:<bag>:<slot>" bags);
+-- built into sbStaging as ICITEM/ICISTAT/ICIPROC arrive, swapped in on ICINVEND.
 local sbInv = {}
 local sbStaging, sbCurKey = {}, nil
 
 -- ============================ UI ==========================================
 local UI
-local OpenBlacklist   -- forward declaration (defined in the blacklist-manager section)
-local sourceRows, detailRows = {}, {}
-
-local DETAIL_ROWS, DETAIL_H = 5, 22
-local SOURCE_ROWS, SOURCE_H = 6, 30
+local eqRows = {}
+local EQ_ROWS, EQ_H = 6, 34
 
 local function BuildUI()
   if UI then return UI end
 
-  local f = CreateFrame("Frame", "UncappedItemCustomizeFrame", UIParent)
-  f:SetWidth(440); f:SetHeight(600); f:SetPoint("CENTER")
+  local f = CreateFrame("Frame", "UncappedSoulforgeFrame", UIParent)
+  f:SetWidth(400); f:SetHeight(470); f:SetPoint("CENTER")
   f:SetFrameStrata("DIALOG")
   f:SetBackdrop({
     edgeFile="Interface\\DialogFrame\\UI-DialogBox-Border", edgeSize=32,
@@ -174,374 +124,99 @@ local function BuildUI()
 
   local banner = f:CreateTexture(nil,"ARTWORK")
   banner:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Header")
-  banner:SetWidth(320); banner:SetHeight(60); banner:SetPoint("TOP", 0, 12)
+  banner:SetWidth(300); banner:SetHeight(60); banner:SetPoint("TOP", 0, 12)
   local title = f:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
-  title:SetPoint("TOP", banner, "TOP", 0, -19); title:SetText("Soulbinding")
+  title:SetPoint("TOP", banner, "TOP", 0, -19); title:SetText("Soulforge")
 
   local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
   close:SetPoint("TOPRIGHT",-6,-6)
 
-  -- ============ DEPOSIT panel (shown when there is no bench target) =========
-  local dp = CreateFrame("Frame", nil, f)
-  dp:SetPoint("TOPLEFT",20,-52); dp:SetPoint("BOTTOMRIGHT",-20,20); f.depositPanel = dp
+  -- ---- forge bar ----
+  local sfLabel = f:CreateFontString(nil,"OVERLAY","GameFontNormal")
+  sfLabel:SetPoint("TOPLEFT", 22, -44); sfLabel:SetText("|cff9a7bffThe Soulforge|r")
+  local sfLevel = f:CreateFontString(nil,"OVERLAY","GameFontHighlight")
+  sfLevel:SetPoint("TOPRIGHT", -22, -44); f.sfLevel = sfLevel
 
-  local dollHint = dp:CreateFontString(nil,"OVERLAY","GameFontNormal")
-  dollHint:SetPoint("TOP",0,-4); dollHint:SetWidth(390)
-  dollHint:SetText("Click an equipped item to deposit it as the target you want to empower.")
+  local bar = CreateFrame("StatusBar", nil, f)
+  bar:SetSize(356, 20); bar:SetPoint("TOPLEFT", 22, -62)
+  bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+  bar:SetStatusBarColor(0.55, 0.35, 0.95)
+  bar:SetMinMaxValues(0, 1000); bar:SetValue(0)
+  bar:SetBackdrop({ bgFile="Interface\\Buttons\\WHITE8X8",
+    edgeFile="Interface\\Tooltips\\UI-Tooltip-Border", edgeSize=12,
+    insets={left=3,right=3,top=3,bottom=3} })
+  bar:SetBackdropColor(0,0,0,0.6); bar:SetBackdropBorderColor(0.4,0.4,0.5)
+  local barText = bar:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+  barText:SetPoint("CENTER"); f.sfBar = bar; f.sfBarText = barText
 
-  local LEFT   = { "HeadSlot","NeckSlot","ShoulderSlot","BackSlot","ChestSlot","ShirtSlot","TabardSlot","WristSlot" }
-  local RIGHT  = { "HandsSlot","WaistSlot","LegsSlot","FeetSlot","Finger0Slot","Finger1Slot","Trinket0Slot","Trinket1Slot" }
-  local BOTTOM = { "MainHandSlot","SecondaryHandSlot","RangedSlot" }
-  f.dollSlots = {}
+  local sfExtract = f:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
+  sfExtract:SetPoint("TOPLEFT", 22, -88); f.sfExtract = sfExtract
+  local sfHint = f:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
+  sfHint:SetPoint("TOPLEFT", 22, -110); sfHint:SetWidth(356); sfHint:SetJustifyH("LEFT")
+  sfHint:SetText("Feed junk gear to the forge to raise the extraction rate. Soulbinding a duplicate onto gear you're wearing extracts that share of its stats.")
 
-  local function makeSlot(name, x, y)
-    local id = GetInventorySlotInfo(name)
-    local b = CreateFrame("Button", nil, dp)
-    b:SetWidth(40); b:SetHeight(40); b:SetPoint("TOPLEFT", x, y)
-    b:SetBackdrop({
-      bgFile = "Interface\\Buttons\\WHITE8X8",
-      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12,
-      insets = { left = 3, right = 3, top = 3, bottom = 3 } })
-    b:SetBackdropColor(0, 0, 0, 0.6)
-    b:SetBackdropBorderColor(0.45, 0.40, 0.55)
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetPoint("TOPLEFT", 4, -4); b.icon:SetPoint("BOTTOMRIGHT", -4, 4)
-    b.icon:SetTexCoord(0.08,0.92,0.08,0.92)
-    b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square")
-    b.slotId = id; b.slotName = name
-    b:SetScript("OnClick", function(self)
-      if GetInventoryItemTexture("player", self.slotId) then send("ICDEPOSIT:"..(self.slotId-1)) else msg("That slot is empty.") end
-    end)
-    b:SetScript("OnEnter", function(self)
-      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-      if GetInventoryItemLink("player", self.slotId) then GameTooltip:SetInventoryItem("player", self.slotId)
-      else GameTooltip:SetText("Empty " .. name:gsub("Slot","")) end
-      GameTooltip:Show()
-    end)
-    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    f.dollSlots[#f.dollSlots+1] = b
-  end
+  -- ---- controls ----
+  local ac = CreateFrame("CheckButton", "UncappedSoulforgeAC", f, "InterfaceOptionsCheckButtonTemplate")
+  ac:SetPoint("TOPLEFT", 20, -146)
+  _G[ac:GetName().."Text"]:SetText("Auto-consume junk gear for souls (unlocks its transmog)")
+  ac:SetScript("OnClick", function(self) send("ICAC:" .. (self:GetChecked() and 1 or 0)) end)
+  f.acCheck = ac
 
-  local topY, stepY = -34, -50
-  for i, s in ipairs(LEFT)   do makeSlot(s, 8,   topY + (i-1)*stepY) end
-  for i, s in ipairs(RIGHT)  do makeSlot(s, 352, topY + (i-1)*stepY) end
-  for i, s in ipairs(BOTTOM) do makeSlot(s, 120 + (i-1)*50, -448) end
+  local sbBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  sbBtn:SetSize(170, 24); sbBtn:SetPoint("TOPLEFT", 22, -174); sbBtn:SetText("Soulbind Duplicates")
+  sbBtn:SetScript("OnClick", function() StaticPopup_Show("UNCAPPED_SF_SOULBIND_ALL") end)
 
-  -- ============ WORK panel (shown once a bench target exists) ==============
-  local wp = CreateFrame("Frame", nil, f)
-  wp:SetPoint("TOPLEFT",20,-52); wp:SetPoint("BOTTOMRIGHT",-20,20); f.workPanel = wp
+  local wlBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  wlBtn:SetSize(170, 24); wlBtn:SetPoint("TOPRIGHT", -22, -174); wlBtn:SetText("Whitelist\226\128\166")
+  wlBtn:SetScript("OnClick", function() if UI and UI.OpenWhitelist then UI:OpenWhitelist() end end)
 
-  -- target item icon (also the animation anchor)
-  local benchItem = CreateFrame("Frame", nil, wp)
-  benchItem:SetWidth(40); benchItem:SetHeight(40)
-  benchItem:SetPoint("CENTER", wp, "TOPLEFT", 30, -30)
-  benchItem.icon = benchItem:CreateTexture(nil,"ARTWORK")
-  benchItem.icon:SetAllPoints(); benchItem.icon:SetTexCoord(0.08,0.92,0.08,0.92)
-  local benchFrameTex = benchItem:CreateTexture(nil,"OVERLAY")
-  benchFrameTex:SetPoint("TOPLEFT",-5,5); benchFrameTex:SetPoint("BOTTOMRIGHT",5,-5)
-  benchFrameTex:SetTexture("Interface\\Buttons\\UI-Quickslot2")
-  f.benchItem = benchItem
-  benchItem:EnableMouse(true)
-  benchItem:SetScript("OnEnter", function(self)
-    if not (state.bench and state.bench.entry) then return end
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:SetHyperlink("item:"..state.bench.entry); GameTooltip:Show()
+  -- ---- your soulbound gear ----
+  local eqHdr = f:CreateFontString(nil,"OVERLAY","GameFontNormal")
+  eqHdr:SetPoint("TOPLEFT", 22, -208); eqHdr:SetText("|cff40c0f0Your soulbound gear|r")
+  local dLine = f:CreateTexture(nil,"ARTWORK"); dLine:SetTexture("Interface\\Buttons\\WHITE8X8")
+  dLine:SetGradientAlpha("HORIZONTAL", 0.25,0.60,0.90,0.6, 0.25,0.60,0.90,0.0)
+  dLine:SetHeight(2); dLine:SetWidth(340); dLine:SetPoint("TOPLEFT", 22, -224)
+
+  local scroll = CreateFrame("ScrollFrame", "UncappedSoulforgeEqScroll", f, "FauxScrollFrameTemplate")
+  scroll:SetPoint("TOPLEFT", 24, -232); scroll:SetSize(348, EQ_ROWS*EQ_H)
+  scroll:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, EQ_H, function() if UI then UI:RefreshEquipped() end end)
   end)
-  benchItem:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-  local benchLabel = wp:CreateFontString(nil,"OVERLAY","GameFontHighlightLarge")
-  benchLabel:SetPoint("LEFT", benchItem, "RIGHT", 10, 6); benchLabel:SetWidth(230); benchLabel:SetJustifyH("LEFT")
-  f.benchLabel = benchLabel
-  local benchSub = wp:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
-  benchSub:SetPoint("TOPLEFT", benchLabel, "BOTTOMLEFT", 0, -2); benchSub:SetText("Target item (soulbound)")
-
-  local retrieveBtn = CreateFrame("Button", nil, wp, "UIPanelButtonTemplate")
-  retrieveBtn:SetWidth(78); retrieveBtn:SetHeight(20); retrieveBtn:SetPoint("TOPRIGHT",0,-4); retrieveBtn:SetText("Retrieve")
-  retrieveBtn:SetScript("OnClick", function() send("ICRETRIEVE") end)
-
-  -- open the effect blacklist manager for the current target item
-  local blBtn = CreateFrame("Button", nil, wp, "UIPanelButtonTemplate")
-  blBtn:SetWidth(78); blBtn:SetHeight(20); blBtn:SetPoint("TOPRIGHT", retrieveBtn, "BOTTOMRIGHT", 0, -4)
-  blBtn:SetText("Blacklist")
-  blBtn:SetScript("OnClick", function() if OpenBlacklist then OpenBlacklist() end end)
-
-  -- accumulated stats/procs header + divider
-  local detailHdr = wp:CreateFontString(nil,"OVERLAY","GameFontNormal")
-  detailHdr:SetPoint("TOPLEFT",2,-62); detailHdr:SetText("|cff9a7bffBound powers|r")
-  local dLine = wp:CreateTexture(nil,"ARTWORK"); dLine:SetTexture("Interface\\Buttons\\WHITE8X8")
-  dLine:SetGradientAlpha("HORIZONTAL", 0.55,0.35,0.95,0.6, 0.55,0.35,0.95,0.0)
-  dLine:SetHeight(2); dLine:SetWidth(300); dLine:SetPoint("TOPLEFT", 2, -78)
-
-  local detailScroll = CreateFrame("ScrollFrame", "ICDetailScroll", wp, "FauxScrollFrameTemplate")
-  detailScroll:SetPoint("TOPLEFT", 6, -84)
-  detailScroll:SetWidth(384); detailScroll:SetHeight(DETAIL_ROWS * DETAIL_H)
-  detailScroll:SetScript("OnVerticalScroll", function(self, offset)
-    FauxScrollFrame_OnVerticalScroll(self, offset, DETAIL_H, function() if UI then UI:UpdateDetails() end end)
+  scroll:EnableMouseWheel(true)
+  scroll:SetScript("OnMouseWheel", function(self, delta)
+    local sb = _G["UncappedSoulforgeEqScrollScrollBar"]; if sb then sb:SetValue(sb:GetValue() - delta*EQ_H) end
   end)
-  detailScroll:EnableMouseWheel(true)
-  detailScroll:SetScript("OnMouseWheel", function(self, delta)
-    local sb = _G["ICDetailScrollScrollBar"]; if sb then sb:SetValue(sb:GetValue() - delta * DETAIL_H) end
-  end)
-  f.detailScroll = detailScroll
+  f.eqScroll = scroll
 
-  for i = 1, DETAIL_ROWS do
-    local r = CreateFrame("Frame", nil, wp)
-    r:SetWidth(378); r:SetHeight(DETAIL_H - 2)
-    r:SetPoint("TOPLEFT", detailScroll, "TOPLEFT", 0, -(i-1)*DETAIL_H)
-    r:EnableMouse(true)
-    r:SetScript("OnEnter", function(self)
-      if not self.sid then return end
-      GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:SetHyperlink("spell:" .. self.sid); GameTooltip:Show()
-    end)
-    r:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    r.icon = r:CreateTexture(nil,"ARTWORK"); r.icon:SetWidth(16); r.icon:SetHeight(16)
+  for i = 1, EQ_ROWS do
+    local r = CreateFrame("Frame", nil, f); r:SetSize(340, EQ_H-2)
+    r:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, -(i-1)*EQ_H)
+    r.icon = r:CreateTexture(nil,"ARTWORK"); r.icon:SetSize(28,28)
     r.icon:SetPoint("LEFT",2,0); r.icon:SetTexCoord(0.08,0.92,0.08,0.92)
-    r.text = r:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
-    r.text:SetPoint("LEFT",22,0); r.text:SetWidth(306); r.text:SetJustifyH("LEFT")
-    -- per-power remove: strips just this bound stat/proc off the target
-    r.removeBtn = CreateFrame("Button", nil, r)
-    r.removeBtn:SetWidth(18); r.removeBtn:SetHeight(18); r.removeBtn:SetPoint("RIGHT", 0, 0)
-    r.removeBtn:SetNormalTexture("Interface\\RaidFrame\\ReadyCheck-NotReady")
-    r.removeBtn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square")
-    r.removeBtn:SetScript("OnEnter", function(self)
-      GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:SetText("Remove this bound power"); GameTooltip:Show()
-    end)
-    r.removeBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    r.removeBtn:SetScript("OnClick", function()
-      local e = r.detail
-      if not e then return end
-      local itemName = state.bench and (GetItemInfo(state.bench.entry) or ("Item "..state.bench.entry)) or "the target"
-      StaticPopup_Show("UNCAPPED_IC_REMOVE", e.label or "this power", itemName, e)
-    end)
-    -- per-power blacklist: blocks just this effect from FUTURE soulbinds on the target
-    -- (gold "deny" symbol, to read apart from the red remove; sits just left of it)
-    r.blBtn = CreateFrame("Button", nil, r)
-    r.blBtn:SetWidth(18); r.blBtn:SetHeight(18); r.blBtn:SetPoint("RIGHT", r.removeBtn, "LEFT", -3, 0)
-    r.blBtn:SetNormalTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Up")
-    r.blBtn:SetHighlightTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Highlight")
-    r.blBtn:GetNormalTexture():SetVertexColor(1, 0.82, 0)
-    r.blBtn:SetScript("OnEnter", function(self)
-      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-      GameTooltip:SetText("Blacklist this effect")
-      GameTooltip:AddLine("Future soulbinds on this item will skip it.", 0.8, 0.8, 0.8, true)
-      GameTooltip:Show()
-    end)
-    r.blBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    r.blBtn:SetScript("OnClick", function()
-      local e = r.detail
-      if not e then return end
-      if e.kind == "stat" then send("ICBLADD:0:"..e.statType)
-      elseif e.kind == "proc" then send("ICBLADD:1:"..e.spellId) end
-      msg("Blacklisted |cffffffff"..(e.label or "that effect").."|r — future soulbinds will skip it.")
-    end)
-    detailRows[i] = r; r:Hide()
-  end
-
-  local emptyDetail = wp:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
-  emptyDetail:SetPoint("TOPLEFT",8,-90); emptyDetail:SetWidth(360); emptyDetail:SetJustifyH("LEFT")
-  emptyDetail:SetText("No stats or procs bound yet. Soulbind an item below.")
-  f.emptyDetail = emptyDetail
-
-  -- source list header + divider
-  local srcHdr = wp:CreateFontString(nil,"OVERLAY","GameFontNormal")
-  srcHdr:SetPoint("TOPLEFT",2,-202); srcHdr:SetText("|cff40c0f0Items in your bags|r")
-  local sLine = wp:CreateTexture(nil,"ARTWORK"); sLine:SetTexture("Interface\\Buttons\\WHITE8X8")
-  sLine:SetGradientAlpha("HORIZONTAL", 0.25,0.60,0.90,0.6, 0.25,0.60,0.90,0.0)
-  sLine:SetHeight(2); sLine:SetWidth(300); sLine:SetPoint("TOPLEFT", 2, -218)
-  local srcNote = wp:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
-  srcNote:SetPoint("TOPLEFT",2,-222); srcNote:SetText("Soulbinding an item consumes it permanently.")
-
-  local sourceScroll = CreateFrame("ScrollFrame", "ICSourceScroll", wp, "FauxScrollFrameTemplate")
-  sourceScroll:SetPoint("TOPLEFT", 6, -238)
-  sourceScroll:SetWidth(384); sourceScroll:SetHeight(SOURCE_ROWS * SOURCE_H)
-  sourceScroll:SetScript("OnVerticalScroll", function(self, offset)
-    FauxScrollFrame_OnVerticalScroll(self, offset, SOURCE_H, function() if UI then UI:UpdateSources() end end)
-  end)
-  sourceScroll:EnableMouseWheel(true)
-  sourceScroll:SetScript("OnMouseWheel", function(self, delta)
-    local sb = _G["ICSourceScrollScrollBar"]; if sb then sb:SetValue(sb:GetValue() - delta * SOURCE_H) end
-  end)
-  f.sourceScroll = sourceScroll
-
-  local srcInset = CreateFrame("Frame", nil, wp)
-  srcInset:SetPoint("TOPLEFT", 2, -234); srcInset:SetPoint("TOPRIGHT", -2, -234)
-  srcInset:SetHeight(SOURCE_ROWS * SOURCE_H + 8)
-  srcInset:SetBackdrop({
-    bgFile = "Interface\\Buttons\\WHITE8X8",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12,
-    insets = { left = 3, right = 3, top = 3, bottom = 3 } })
-  srcInset:SetBackdropColor(0, 0, 0, 0.35); srcInset:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.6)
-  srcInset:SetFrameLevel(sourceScroll:GetFrameLevel()-1 >= 0 and sourceScroll:GetFrameLevel()-1 or 0)
-
-  for i = 1, SOURCE_ROWS do
-    local r = CreateFrame("Frame", nil, wp)
-    r:SetWidth(372); r:SetHeight(SOURCE_H - 2)
-    r:SetPoint("TOPLEFT", sourceScroll, "TOPLEFT", 0, -(i-1)*SOURCE_H)
-    r.iconBtn = CreateFrame("Button", nil, r)
-    r.iconBtn:SetWidth(24); r.iconBtn:SetHeight(24); r.iconBtn:SetPoint("LEFT",2,0)
-    r.iconBtn.tex = r.iconBtn:CreateTexture(nil,"ARTWORK")
-    r.iconBtn.tex:SetAllPoints(); r.iconBtn.tex:SetTexCoord(0.08,0.92,0.08,0.92)
-    r.iconBtn:SetScript("OnEnter", function(self)
-      if not r.entry then return end
-      GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:SetHyperlink("item:"..r.entry); GameTooltip:Show()
-    end)
-    r.iconBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     r.name = r:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
-    r.name:SetPoint("LEFT",32,0); r.name:SetWidth(240); r.name:SetJustifyH("LEFT")
-    r.btn = CreateFrame("Button", nil, r, "UIPanelButtonTemplate")
-    r.btn:SetWidth(74); r.btn:SetHeight(20); r.btn:SetPoint("RIGHT",2,0); r.btn:SetText("Soulbind")
-    r.btn:SetScript("OnClick", function()
-      if r.bag and r.slot then send("ICSB:"..r.bag..":"..r.slot) end
-    end)
-    sourceRows[i] = r; r:Hide()
+    r.name:SetPoint("TOPLEFT",36,-1); r.name:SetWidth(300); r.name:SetJustifyH("LEFT")
+    r.sub = r:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
+    r.sub:SetPoint("TOPLEFT",36,-15); r.sub:SetWidth(300); r.sub:SetJustifyH("LEFT")
+    eqRows[i] = r; r:Hide()
   end
+  local eqEmpty = f:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
+  eqEmpty:SetPoint("TOP", scroll, "TOP", 0, -30); eqEmpty:SetWidth(320)
+  eqEmpty:SetText("No soulbound bonuses yet. Soulbind duplicates onto gear you're wearing.")
+  f.eqEmpty = eqEmpty
 
-  local emptySource = wp:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
-  emptySource:SetPoint("TOP", sourceScroll, "TOP", 0, -30); emptySource:SetWidth(340)
-  emptySource:SetText("No bag items with stats or procs to soulbind.")
-  f.emptySource = emptySource
-
-  -- Soulbind ALL
-  local allBtn = CreateFrame("Button", nil, wp, "UIPanelButtonTemplate")
-  allBtn:SetWidth(200); allBtn:SetHeight(24); allBtn:SetPoint("BOTTOM",0,4)
-  allBtn:SetText("Soulbind ALL in bags")
-  allBtn:SetScript("OnClick", function()
-    local n = state.bench and (GetItemInfo(state.bench.entry) or ("Item "..state.bench.entry)) or "the target"
-    StaticPopup_Show("UNCAPPED_IC_SOULBIND_ALL", n)
+  -- ---- ding flash ----
+  local flash = f:CreateTexture(nil, "OVERLAY")
+  flash:SetAllPoints(f); flash:SetTexture(1,1,1); flash:SetBlendMode("ADD"); flash:SetAlpha(0)
+  f.flash = flash
+  local flashDrv = CreateFrame("Frame"); flashDrv:Hide()
+  local flashT = 0
+  flashDrv:SetScript("OnUpdate", function(self, e)
+    flashT = flashT - e
+    if flashT <= 0 then flash:SetAlpha(0); self:Hide(); return end
+    flash:SetVertexColor(0.7,0.5,1); flash:SetAlpha(math.min(0.5, flashT))
   end)
-  f.allBtn = allBtn
-
-  wp:Hide()
-
-  -- ============ animation engine (ported: SoulbindPreview anim #6) =========
-  local ITEM_SIZE, BASE_X, BASE_Y = 40, 30, -30
-  local itemGlow = benchItem:CreateTexture(nil,"OVERLAY")
-  itemGlow:SetBlendMode("ADD"); itemGlow:SetTexture(GLOW); itemGlow:SetPoint("CENTER")
-  itemGlow:SetWidth(ITEM_SIZE*2); itemGlow:SetHeight(ITEM_SIZE*2); itemGlow:SetAlpha(0)
-  local itemBorder = benchItem:CreateTexture(nil,"OVERLAY")
-  itemBorder:SetBlendMode("ADD"); itemBorder:SetTexture(BORDER); itemBorder:SetPoint("CENTER")
-  itemBorder:SetWidth(ITEM_SIZE*1.6); itemBorder:SetHeight(ITEM_SIZE*1.6); itemBorder:SetAlpha(0)
-
-  local fx = CreateFrame("Frame", nil, UIParent)
-  fx:SetWidth(700); fx:SetHeight(700); fx:SetFrameStrata("FULLSCREEN_DIALOG")
-  local flash = UIParent:CreateTexture(nil, "OVERLAY")
-  flash:SetBlendMode("ADD"); flash:SetTexture(1,1,1); flash:SetAllPoints(UIParent)
-  flash:SetAlpha(0); flash:SetDrawLayer("OVERLAY", 7)
-
-  local tasks, pool = {}, {}
-  local driver = CreateFrame("Frame")
-  local function addTask(fn) tasks[#tasks + 1] = { fn = fn, t = 0 } end
-  driver:SetScript("OnUpdate", function(_, dt)
-    for i = #tasks, 1, -1 do
-      local task = tasks[i]; task.t = task.t + dt
-      if task.fn(task.t, dt) then table.remove(tasks, i) end
-    end
-  end)
-  local function getTex()
-    local t = table.remove(pool)
-    if not t then t = fx:CreateTexture(nil, "OVERLAY") end
-    t:SetParent(fx); t:SetTexture(SPARK); t:SetBlendMode("ADD")
-    t:SetVertexColor(1,1,1); t:SetAlpha(1); t:ClearAllPoints(); t:Show()
-    return t
-  end
-  local function release(t) t:Hide(); t:ClearAllPoints(); pool[#pool + 1] = t end
-  local function spark(o)
-    local t = getTex()
-    if o.tex then t:SetTexture(o.tex) end
-    if o.color then t:SetVertexColor(o.color[1], o.color[2], o.color[3]) end
-    local fi, fo = o.fadeIn or 0.15, o.fadeOut or 0.3
-    addTask(function(elapsed)
-      local p = elapsed / o.dur
-      if p >= 1 then release(t); return true end
-      local x, y = o.pos(p)
-      local s = o.sz and o.sz(p) or o.size
-      t:SetWidth(s); t:SetHeight(s)
-      t:SetPoint("CENTER", fx, "CENTER", x, y)
-      local a = 1
-      if p < fi then a = p / fi elseif p > (1 - fo) then a = (1 - p) / fo end
-      t:SetAlpha(a * (o.alpha or 1))
-      return false
-    end)
-  end
-  local function pulse(color, maxSize, dur, startSize)
-    spark({ tex = GLOW, color = color, dur = dur, fadeIn = 0.05, fadeOut = 0.6,
-      pos = function() return 0, 0 end,
-      sz = function(p) return (startSize or 40) + (maxSize - (startSize or 40)) * easeOut(p) end,
-      alpha = 0.8 })
-  end
-  local function itemEmpower(dur, peak, color)
-    itemGlow:SetVertexColor(color[1], color[2], color[3])
-    addTask(function(elapsed)
-      local p = elapsed / dur
-      if p >= 1 then itemGlow:SetAlpha(0); return true end
-      local a = math.sin(p * math.pi)
-      itemGlow:SetAlpha(a * (peak or 0.9))
-      local s = ITEM_SIZE*1.6 + ITEM_SIZE*1.1 * a
-      itemGlow:SetWidth(s); itemGlow:SetHeight(s)
-      return false
-    end)
-  end
-  local function itemBounce(dur, strength)
-    addTask(function(elapsed)
-      local p = elapsed / dur
-      if p >= 1 then benchItem:SetScale(1); benchItem:SetPoint("CENTER", wp, "TOPLEFT", BASE_X, BASE_Y); return true end
-      local s = math.sin(p * math.pi)
-      benchItem:SetScale(1 + (strength or 0.35) * s)
-      benchItem:SetPoint("CENTER", wp, "TOPLEFT", BASE_X, BASE_Y + 22 * s)
-      return false
-    end)
-  end
-  local function itemBorderFlash(dur, color)
-    itemBorder:SetVertexColor(color[1], color[2], color[3])
-    addTask(function(elapsed)
-      local p = elapsed / dur
-      if p >= 1 then itemBorder:SetAlpha(0); return true end
-      itemBorder:SetAlpha(math.sin(p * math.pi))
-      return false
-    end)
-  end
-  local function screenFlash(peak, dur, color)
-    if color then flash:SetVertexColor(color[1], color[2], color[3]) else flash:SetVertexColor(1,1,1) end
-    addTask(function(elapsed)
-      local p = elapsed / dur
-      if p >= 1 then flash:SetAlpha(0); return true end
-      flash:SetAlpha((1 - p) * peak)
-      return false
-    end)
-  end
-  local function after(t, fn)
-    addTask(function(elapsed) if elapsed >= t then fn(); return true end return false end)
-  end
-
-  -- Soul Wisps: purple wisps gather on wavy paths, item empowers + pops, seal.
-  function f:PlaySoulWisps()
-    if not benchItem:IsVisible() then return end
-    fx:ClearAllPoints(); fx:SetPoint("CENTER", benchItem, "CENTER", 0, 0)
-    local col = { 0.72, 0.45, 1.0 }   -- spectral purple
-    PlaySoundFile(SND_GATHER)          -- gathering shimmer
-    local N = 12
-    for i = 1, N do
-      after((i / N) * 0.4, function()
-        local ang0 = math.random() * math.pi * 2
-        local r0 = 180 + math.random() * 60
-        local wob = 40 + math.random() * 30
-        local wfreq = 2 + math.random() * 2
-        local sx, sy = math.cos(ang0) * r0, math.sin(ang0) * r0
-        local px, py = -math.sin(ang0), math.cos(ang0)   -- perpendicular
-        spark({ color = col, size = 22, dur = 1.1, fadeIn = 0.15, fadeOut = 0.25,
-          pos = function(p)
-            local e = easeInOut(p)
-            local w = math.sin(p * math.pi * wfreq) * wob * (1 - p)
-            return sx * (1 - e) + px * w, sy * (1 - e) + py * w
-          end,
-          sz = function(p) return 22 * (0.6 + 0.4 * math.sin(p * math.pi)) end })
-      end)
-    end
-    itemEmpower(1.4, 0.85, col)
-    after(1.15, function()
-      itemBounce(0.5, 0.3); itemBorderFlash(0.6, col)
-      pulse(col, 280, 0.7); screenFlash(0.3, 0.5, col)
-      PlaySoundFile(SND_SEAL)
-    end)
+  function f:Ding()
+    flashT = 0.6; flashDrv:Show(); PlaySoundFile(SND_SEAL)
   end
 
   UI = f
@@ -550,427 +225,223 @@ end
 
 -- ---- methods -------------------------------------------------------------
 local function attachMethods()
-  if UI.UpdateDetails then return end
+  if UI.RefreshForge then return end
 
-  function UI:UpdateDetails()
-    local list = state.details
-    FauxScrollFrame_Update(self.detailScroll, #list, DETAIL_ROWS, DETAIL_H)
-    if #list == 0 then self.emptyDetail:Show() else self.emptyDetail:Hide() end
-    local offset = FauxScrollFrame_GetOffset(self.detailScroll)
-    for i = 1, DETAIL_ROWS do
-      local r = detailRows[i]
-      local e = list[i + offset]
+  function UI:RefreshForge()
+    local sf = state.sf
+    self.sfLevel:SetText("Level " .. sf.completions)
+    self.sfBar:SetValue(math.max(0, math.min(1000, sf.fill * 10)))
+    self.sfBarText:SetText(string.format("%.1f%% to Level %d", sf.fill, sf.completions + 1))
+    self.sfExtract:SetText(string.format("Extraction: |cff9CC243+%.2f%%|r of stats per soulbind", sf.mult))
+    self.acCheck:SetChecked(sf.autoconsume)
+  end
+
+  -- Build the "your soulbound gear" list from the equipped (E:) tooltip cache.
+  local INV_NAMES = {
+    [1]="Head",[2]="Neck",[3]="Shoulder",[5]="Chest",[6]="Waist",[7]="Legs",[8]="Feet",
+    [9]="Wrist",[10]="Hands",[11]="Ring",[12]="Ring",[13]="Trinket",[14]="Trinket",
+    [15]="Back",[16]="Main Hand",[17]="Off Hand",[18]="Ranged",
+  }
+  function UI:RefreshEquipped()
+    local list = {}
+    for key, e in pairs(sbInv) do
+      local slot = key:match("^E:(%d+)$")
+      if slot then
+        slot = tonumber(slot)
+        local link = GetInventoryItemLink("player", slot)
+        local name = link and GetItemInfo(link) or (INV_NAMES[slot] or ("Slot " .. slot))
+        local tex = GetInventoryItemTexture("player", slot)
+        list[#list+1] = { slot = slot, name = name, tex = tex,
+          nStats = #e.stats, nProcs = #e.procs }
+      end
+    end
+    table.sort(list, function(a, b) return a.slot < b.slot end)
+    state.equipped = list
+
+    FauxScrollFrame_Update(self.eqScroll, #list, EQ_ROWS, EQ_H)
+    if #list == 0 then self.eqEmpty:Show() else self.eqEmpty:Hide() end
+    local offset = FauxScrollFrame_GetOffset(self.eqScroll)
+    for i = 1, EQ_ROWS do
+      local r = eqRows[i]; local e = list[i + offset]
       if e then
-        r.sid = e.sid; r.detail = e
-        if e.icon then r.icon:SetTexture(e.icon); r.icon:Show() else r.icon:Hide() end
-        r.text:SetText(e.text)
+        r.icon:SetTexture(e.tex or QUESTION)
+        r.name:SetText(e.name)
+        r.sub:SetText(string.format("|cff20ff20%d stat%s|r, |cffc080f0%d proc%s|r",
+          e.nStats, e.nStats == 1 and "" or "s", e.nProcs, e.nProcs == 1 and "" or "s"))
         r:Show()
       else
-        r.sid = nil; r.detail = nil; r:Hide()
+        r:Hide()
       end
     end
-  end
-
-  function UI:UpdateSources()
-    local list = state.bags
-    FauxScrollFrame_Update(self.sourceScroll, #list, SOURCE_ROWS, SOURCE_H)
-    if #list == 0 then self.emptySource:Show() else self.emptySource:Hide() end
-    local offset = FauxScrollFrame_GetOffset(self.sourceScroll)
-    for i = 1, SOURCE_ROWS do
-      local r = sourceRows[i]
-      local e = list[i + offset]
-      if e then
-        local iname, _, _, _, _, _, _, _, _, itex = GetItemInfo(e.entry)
-        r.bag = e.bag; r.slot = e.slot; r.entry = e.entry
-        r.iconBtn.tex:SetTexture(itex or QUESTION)
-        r.name:SetText(iname or ("Item " .. e.entry))
-        r:Show()
-      else
-        r.bag = nil; r.slot = nil; r.entry = nil; r:Hide()
-      end
-    end
-  end
-
-  function UI:RefreshDoll()
-    for _, b in ipairs(self.dollSlots) do
-      b.icon:SetTexture(GetInventoryItemTexture("player", b.slotId) or QUESTION)
-    end
-  end
-
-  -- Build the merged accumulated stat/proc display list from the bench.
-  local function buildDetails()
-    local out = {}
-    if state.bench then
-      for _, s in ipairs(state.bench.stats) do
-        out[#out+1] = {
-          kind = "stat", statType = s.type,
-          label = string.format("+%s %s", tostring(s.value), statName(s.type)),
-          text = string.format("|cff20ff20+%s|r %s", tostring(s.value), statName(s.type)),
-        }
-      end
-      for _, p in ipairs(state.bench.procs) do
-        local nm, _, icon = GetSpellInfo(p.spellId)
-        out[#out+1] = {
-          kind = "proc", spellId = p.spellId, trigger = p.trigger,
-          sid = p.spellId, icon = icon,
-          label = nm or ("Spell #"..p.spellId),
-          text = string.format("|cffc080f0%s|r |cff888888(%s)|r — %s",
-            nm or ("Spell #"..p.spellId), triggerLabel(p.trigger), procMechanic(p)),
-        }
-      end
-    end
-    state.details = out
   end
 
   function UI:Refresh()
-    if not state.bench then
-      self.workPanel:Hide(); self.depositPanel:Show()
-      self:RefreshDoll()
-      return
-    end
-    self.depositPanel:Hide(); self.workPanel:Show()
-    local bname, _, _, _, _, _, _, _, _, btex = GetItemInfo(state.bench.entry)
-    self.benchItem.icon:SetTexture(btex or QUESTION)
-    self.benchLabel:SetText("|cffffff00" .. (bname or ("Item "..state.bench.entry)) .. "|r")
-    buildDetails()
-    self:UpdateDetails()
-    self:UpdateSources()
+    self:RefreshForge()
+    self:RefreshEquipped()
   end
 end
 
--- ============================ receive =====================================
--- ============================ blacklist manager ===========================
--- Per-item effect blacklist: search all soulbindable effects (stats + procs),
--- blacklist any so future soulbinds skip it on this item; whitelist to undo.
--- Server ops: ICBLADD / ICBLREM / ICBLIST -> ICBL:<kind>:<id>... ICBLEND.
--- Proc search reuses the server's ICPSEARCH -> ICPRESULT / ICPSEARCHEND.
-local BLM
-local blSearchRows, blListRows = {}, {}
-local BL_ROWS, BL_H = 7, 24
-local blState = { query = "", results = {}, procResults = {}, list = {} }
-local blStaging = {}
+-- ============================ whitelist manager ===========================
+local WLM
+local wlRows = {}
+local WL_ROWS, WL_H = 8, 24
 
--- Ordered stat codes, for the local stat-name search.
-local STAT_CODES = {}
-for code in pairs(STAT_NAMES) do STAT_CODES[#STAT_CODES + 1] = code end
-table.sort(STAT_CODES)
-
-local function blIsListed(kind, id)
-  for _, e in ipairs(blState.list) do
-    if e.kind == kind and e.id == id then return true end
-  end
-  return false
-end
-
--- Merge local stat matches + async proc matches into the results list.
-local function blComputeResults()
-  local q = (blState.query or ""):lower()
-  local out = {}
-  if q ~= "" then
-    for _, code in ipairs(STAT_CODES) do
-      local nm = statName(code)
-      if nm:lower():find(q, 1, true) then
-        out[#out + 1] = { kind = 0, id = code, name = nm }
-      end
-    end
-    for _, sid in ipairs(blState.procResults) do
-      out[#out + 1] = { kind = 1, id = sid, name = spellName(sid), icon = select(3, GetSpellInfo(sid)) }
-    end
-  end
-  blState.results = out
-  if BLM then BLM:UpdateResults() end
-end
-
-local function BuildBlacklistManager()
-  if BLM then return BLM end
-
-  local f = CreateFrame("Frame", "UncappedICBlacklist", UIParent)
-  f:SetWidth(380); f:SetHeight(520); f:SetPoint("CENTER", 220, 0)
-  f:SetFrameStrata("DIALOG")
-  f:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", edgeSize = 32,
-    insets = { left = 11, right = 12, top = 12, bottom = 11 } })
+local function BuildWhitelist()
+  if WLM then return WLM end
+  local f = CreateFrame("Frame", "UncappedSoulforgeWL", UIParent)
+  f:SetSize(320, 380); f:SetPoint("CENTER", 240, 0); f:SetFrameStrata("DIALOG")
+  f:SetBackdrop({ bgFile="Interface\\DialogFrame\\UI-DialogBox-Background",
+    edgeFile="Interface\\DialogFrame\\UI-DialogBox-Border", edgeSize=32,
+    insets={left=11,right=12,top=12,bottom=11} })
   f:SetMovable(true); f:EnableMouse(true); f:RegisterForDrag("LeftButton")
   f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
   f:SetClampedToScreen(true); f:Hide()
 
-  local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-  title:SetPoint("TOP", 0, -16); title:SetText("Blacklist")
-  local sub = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  sub:SetPoint("TOP", title, "BOTTOM", 0, -2); sub:SetWidth(340)
-  sub:SetText("Blacklisted effects are skipped by future soulbinds on this item.")
+  local title = f:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
+  title:SetPoint("TOP",0,-16); title:SetText("Whitelist")
+  local sub = f:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
+  sub:SetPoint("TOP",title,"BOTTOM",0,-2); sub:SetWidth(280)
+  sub:SetText("Items whose name contains one of these are never auto-consumed.")
+  local close = CreateFrame("Button", nil, f, "UIPanelCloseButton"); close:SetPoint("TOPRIGHT",-6,-6)
 
-  local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-  close:SetPoint("TOPRIGHT", -6, -6)
-
-  local search = CreateFrame("EditBox", "UncappedICBlacklistSearch", f, "InputBoxTemplate")
-  search:SetPoint("TOPLEFT", 22, -54); search:SetWidth(296); search:SetHeight(20); search:SetAutoFocus(false)
-  search:SetScript("OnTextChanged", function(self)
-    blState.query = self:GetText() or ""
-    blState.procResults = {}
-    if blState.query ~= "" then send("ICPSEARCH:" .. blState.query) end
-    blComputeResults()
-  end)
-  search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-
-  local rHdr = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  rHdr:SetPoint("TOPLEFT", 20, -82); rHdr:SetText("|cff40c0f0Search results|r")
-
-  local rScroll = CreateFrame("ScrollFrame", "UncappedICBLResultScroll", f, "FauxScrollFrameTemplate")
-  rScroll:SetPoint("TOPLEFT", 22, -98); rScroll:SetWidth(320); rScroll:SetHeight(BL_ROWS * BL_H)
-  rScroll:SetScript("OnVerticalScroll", function(self, offset)
-    FauxScrollFrame_OnVerticalScroll(self, offset, BL_H, function() f:UpdateResults() end)
-  end)
-  rScroll:EnableMouseWheel(true)
-  rScroll:SetScript("OnMouseWheel", function(self, delta)
-    local sb = _G["UncappedICBLResultScrollScrollBar"]; if sb then sb:SetValue(sb:GetValue() - delta * BL_H) end
-  end)
-  f.rScroll = rScroll
-
-  for i = 1, BL_ROWS do
-    local r = CreateFrame("Frame", nil, f); r:SetWidth(314); r:SetHeight(BL_H - 2)
-    r:SetPoint("TOPLEFT", rScroll, "TOPLEFT", 0, -(i - 1) * BL_H)
-    r.icon = r:CreateTexture(nil, "ARTWORK"); r.icon:SetWidth(16); r.icon:SetHeight(16)
-    r.icon:SetPoint("LEFT", 2, 0); r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r.name:SetPoint("LEFT", 22, 0); r.name:SetWidth(206); r.name:SetJustifyH("LEFT")
-    r.btn = CreateFrame("Button", nil, r, "UIPanelButtonTemplate")
-    r.btn:SetWidth(74); r.btn:SetHeight(20); r.btn:SetPoint("RIGHT", 0, 0); r.btn:SetText("Blacklist")
-    r.btn:SetScript("OnClick", function() if r.kind then send("ICBLADD:" .. r.kind .. ":" .. r.id) end end)
-    blSearchRows[i] = r; r:Hide()
+  local box = CreateFrame("EditBox", "UncappedSoulforgeWLBox", f, "InputBoxTemplate")
+  box:SetPoint("TOPLEFT", 22, -54); box:SetSize(210, 20); box:SetAutoFocus(false)
+  box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+  local add = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  add:SetSize(58, 22); add:SetPoint("LEFT", box, "RIGHT", 6, 0); add:SetText("Add")
+  local function doAdd()
+    local t = box:GetText()
+    if t and t ~= "" then send("ICWLADD:" .. t); box:SetText("") end
   end
-  local rEmpty = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  rEmpty:SetPoint("TOP", rScroll, "TOP", 0, -20); rEmpty:SetWidth(280)
-  rEmpty:SetText("Type to search stats and procs to blacklist.")
-  f.rEmpty = rEmpty
+  add:SetScript("OnClick", doAdd)
+  box:SetScript("OnEnterPressed", doAdd)
 
-  local lHdr = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  lHdr:SetPoint("TOPLEFT", 20, -98 - (BL_ROWS * BL_H) - 18); lHdr:SetText("|cffff6060Blacklisted on this item|r")
-
-  local lScroll = CreateFrame("ScrollFrame", "UncappedICBLListScroll", f, "FauxScrollFrameTemplate")
-  lScroll:SetPoint("TOPLEFT", lHdr, "BOTTOMLEFT", 2, -6); lScroll:SetWidth(320); lScroll:SetHeight(BL_ROWS * BL_H)
-  lScroll:SetScript("OnVerticalScroll", function(self, offset)
-    FauxScrollFrame_OnVerticalScroll(self, offset, BL_H, function() f:UpdateList() end)
+  local scroll = CreateFrame("ScrollFrame", "UncappedSoulforgeWLScroll", f, "FauxScrollFrameTemplate")
+  scroll:SetPoint("TOPLEFT", 22, -86); scroll:SetSize(270, WL_ROWS*WL_H)
+  scroll:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, WL_H, function() f:Update() end)
   end)
-  lScroll:EnableMouseWheel(true)
-  lScroll:SetScript("OnMouseWheel", function(self, delta)
-    local sb = _G["UncappedICBLListScrollScrollBar"]; if sb then sb:SetValue(sb:GetValue() - delta * BL_H) end
+  scroll:EnableMouseWheel(true)
+  scroll:SetScript("OnMouseWheel", function(self, delta)
+    local sb = _G["UncappedSoulforgeWLScrollScrollBar"]; if sb then sb:SetValue(sb:GetValue() - delta*WL_H) end
   end)
-  f.lScroll = lScroll
+  f.scroll = scroll
 
-  for i = 1, BL_ROWS do
-    local r = CreateFrame("Frame", nil, f); r:SetWidth(314); r:SetHeight(BL_H - 2)
-    r:SetPoint("TOPLEFT", lScroll, "TOPLEFT", 0, -(i - 1) * BL_H)
-    r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r.name:SetPoint("LEFT", 4, 0); r.name:SetWidth(224); r.name:SetJustifyH("LEFT")
-    r.btn = CreateFrame("Button", nil, r, "UIPanelButtonTemplate")
-    r.btn:SetWidth(74); r.btn:SetHeight(20); r.btn:SetPoint("RIGHT", 0, 0); r.btn:SetText("Whitelist")
-    r.btn:SetScript("OnClick", function() if r.kind then send("ICBLREM:" .. r.kind .. ":" .. r.id) end end)
-    blListRows[i] = r; r:Hide()
+  for i = 1, WL_ROWS do
+    local r = CreateFrame("Frame", nil, f); r:SetSize(264, WL_H-2)
+    r:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, -(i-1)*WL_H)
+    r.name = r:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+    r.name:SetPoint("LEFT",4,0); r.name:SetWidth(210); r.name:SetJustifyH("LEFT")
+    r.btn = CreateFrame("Button", nil, r)
+    r.btn:SetSize(18,18); r.btn:SetPoint("RIGHT",0,0)
+    r.btn:SetNormalTexture("Interface\\RaidFrame\\ReadyCheck-NotReady")
+    r.btn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square")
+    r.btn:SetScript("OnClick", function() if r.wlname then send("ICWLREM:" .. r.wlname) end end)
+    wlRows[i] = r; r:Hide()
   end
-  local lEmpty = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  lEmpty:SetPoint("TOP", lScroll, "TOP", 0, -20); lEmpty:SetWidth(280)
-  lEmpty:SetText("Nothing blacklisted on this item yet.")
-  f.lEmpty = lEmpty
+  local empty = f:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
+  empty:SetPoint("TOP", scroll, "TOP", 0, -20); empty:SetWidth(240)
+  empty:SetText("Nothing whitelisted. Add an item name above.")
+  f.empty = empty
 
-  function f:UpdateResults()
-    local list = blState.results
-    FauxScrollFrame_Update(self.rScroll, #list, BL_ROWS, BL_H)
-    if #list == 0 then self.rEmpty:Show() else self.rEmpty:Hide() end
-    local offset = FauxScrollFrame_GetOffset(self.rScroll)
-    for i = 1, BL_ROWS do
-      local r = blSearchRows[i]
-      local e = list[i + offset]
-      if e then
-        r.kind = e.kind; r.id = e.id
-        if e.icon then r.icon:SetTexture(e.icon); r.icon:Show() else r.icon:Hide() end
-        r.name:SetText((e.kind == 1 and "|cffc080f0" or "|cff20ff20") .. e.name .. "|r")
-        if blIsListed(e.kind, e.id) then r.btn:SetText("Listed"); r.btn:Disable()
-        else r.btn:SetText("Blacklist"); r.btn:Enable() end
-        r:Show()
-      else
-        r.kind = nil; r:Hide()
-      end
+  function f:Update()
+    local list = state.whitelist
+    FauxScrollFrame_Update(self.scroll, #list, WL_ROWS, WL_H)
+    if #list == 0 then self.empty:Show() else self.empty:Hide() end
+    local offset = FauxScrollFrame_GetOffset(self.scroll)
+    for i = 1, WL_ROWS do
+      local r = wlRows[i]; local nm = list[i + offset]
+      if nm then r.wlname = nm; r.name:SetText(nm); r:Show() else r.wlname = nil; r:Hide() end
     end
   end
 
-  function f:UpdateList()
-    local list = blState.list
-    FauxScrollFrame_Update(self.lScroll, #list, BL_ROWS, BL_H)
-    if #list == 0 then self.lEmpty:Show() else self.lEmpty:Hide() end
-    local offset = FauxScrollFrame_GetOffset(self.lScroll)
-    for i = 1, BL_ROWS do
-      local r = blListRows[i]
-      local e = list[i + offset]
-      if e then
-        r.kind = e.kind; r.id = e.id
-        r.name:SetText((e.kind == 1 and "|cffc080f0" or "|cff20ff20") .. e.name .. "|r")
-        r:Show()
-      else
-        r.kind = nil; r:Hide()
-      end
-    end
-  end
-
-  BLM = f
+  WLM = f
   return f
 end
 
--- assign the forward-declared opener
-function OpenBlacklist()
-  if not (state.bench and state.bench.entry) then
-    msg("Deposit a target item first, then open its blacklist.")
-    return
-  end
-  BuildBlacklistManager()
-  if BLM:IsShown() then BLM:Hide(); return end
-  blState.query = ""; blState.procResults = {}; blState.results = {}
-  local box = _G["UncappedICBlacklistSearch"]; if box then box:SetText("") end
-  BLM:Show(); BLM:UpdateResults(); BLM:UpdateList()
-  send("ICBLIST")
-end
-
+-- ============================ receive =====================================
 local function OnLine(body)
   dbg("<- " .. body)
   local cmd, rest = body:match("^(%u+):?(.*)$")
   if not cmd then cmd = body; rest = "" end
 
-  if cmd == "ICBENCH" then
-    if rest == "0" then
-      state.bench = nil
-      if BLM then BLM:Hide() end     -- blacklist is per-item; drop it when the target goes away
-      if UI then UI:Refresh() end   -- empty bench sends no ICBENCHEND; switch back to the deposit menu now
-    else
-      local guid, entry = rest:match("^(%d+):(%d+)$")
-      if guid then state.bench = { guid = tonumber(guid), entry = tonumber(entry), stats = {}, procs = {} } end
+  if cmd == "ICSF" then                 -- <extractPctx100>:<fillPctx10>:<completions>:<autoconsume>
+    local mp, fp, comp, ac = rest:match("^(%d+):(%d+):(%d+):(%d+)$")
+    if mp then
+      state.sf.mult = tonumber(mp) / 100
+      state.sf.fill = tonumber(fp) / 10
+      state.sf.completions = tonumber(comp)
+      state.sf.autoconsume = ac == "1"
+      if UI then UI:RefreshForge() end
     end
-  elseif cmd == "ICBSTAT" then          -- <statType>:<value>  (value int64 as string)
-    local t, v = rest:match("^(%d+):(%-?%d+)$")
-    if t and state.bench then table.insert(state.bench.stats, { type = tonumber(t), value = v }) end
-  elseif cmd == "ICBPROC" then          -- <spellId>:<trigger>:<chancePctInt>:<magPctInt>
-    local sid, tr, ch, mg = rest:match("^(%d+):(%d+):(%d+):(%d+)$")
-    if sid and state.bench then
-      table.insert(state.bench.procs, { spellId = tonumber(sid), trigger = tonumber(tr), chance = tonumber(ch), mag = tonumber(mg) })
-    end
-  elseif cmd == "ICBENCHEND" then
-    if UI then UI:Refresh() end
-  elseif cmd == "ICBAG" then            -- <bag>:<slot>:<entry>
-    local bag, slot, entry = rest:match("^(%-?%d+):(%d+):(%d+)$")
-    if bag then table.insert(state.bagsStaging, { bag = tonumber(bag), slot = tonumber(slot), entry = tonumber(entry) }) end
-  elseif cmd == "ICBAGEND" then         -- <count>
-    state.bags = state.bagsStaging
-    state.bagsStaging = {}
-    if UI then UI:UpdateSources() end
-  elseif cmd == "ICEQUIP" then
-    -- deposit candidates (existing); this addon uses the client-side paper doll,
-    -- so we accept and ignore the list to keep the pipe quiet.
-  elseif cmd == "ICEQUIPEND" then
-    -- no-op (paper doll reads equipment locally)
-  elseif cmd == "ICITEM" then           -- <tag>  begins one soulbound item (E:n or B:b:s)
+  elseif cmd == "ICSFDING" then         -- <levelsGained>
+    if UI then UI:Ding() end
+    msg("|cff9CC243The Soulforge grows stronger!|r Extraction is now higher.")
+  elseif cmd == "ICWL" then             -- <name>
+    table.insert(state.wlStaging, rest)
+  elseif cmd == "ICWLEND" then
+    state.whitelist = state.wlStaging
+    state.wlStaging = {}
+    if WLM then WLM:Update() end
+  elseif cmd == "ICITEM" then
     sbCurKey = rest
     sbStaging[rest] = { stats = {}, procs = {} }
-  elseif cmd == "ICISTAT" then          -- <statType>:<value>  (value int64 as string)
+  elseif cmd == "ICISTAT" then
     local t, v = rest:match("^(%d+):(%-?%d+)$")
     if t and sbCurKey and sbStaging[sbCurKey] then
       table.insert(sbStaging[sbCurKey].stats, { type = tonumber(t), value = v })
     end
-  elseif cmd == "ICIPROC" then          -- <spellId>:<trigger>:<chancePctInt>:<magPctInt>
+  elseif cmd == "ICIPROC" then
     local sid, tr, ch, mg = rest:match("^(%d+):(%d+):(%d+):(%d+)$")
     if sid and sbCurKey and sbStaging[sbCurKey] then
       table.insert(sbStaging[sbCurKey].procs,
         { spellId = tonumber(sid), trigger = tonumber(tr), chance = tonumber(ch), mag = tonumber(mg) })
     end
-  elseif cmd == "ICINVEND" then         -- swap the freshly-built cache in
+  elseif cmd == "ICINVEND" then
     sbInv = sbStaging
     sbStaging = {}
     sbCurKey = nil
+    if UI and UI:IsShown() then UI:RefreshEquipped() end
   elseif cmd == "ICBOUND" then          -- <sourceEntry>  (single soulbind ok)
     local entry = tonumber(rest)
     local nm = entry and GetItemInfo(entry) or nil
-    msg("Soulbound " .. (nm or ("item " .. tostring(rest))) .. " into your target.")
-    if UI then UI:PlaySoulWisps() end
-    send("ICBENCH"); send("ICBAGS"); send("ICINV")
+    msg("Soulbound " .. (nm or ("item " .. tostring(rest))) .. " onto your gear.")
+    if UI then UI:Ding() end
+    send("ICINV"); send("ICSF")
   elseif cmd == "ICBOUNDALL" then       -- <count>
     local n = tonumber(rest) or 0
-    msg(string.format("Soulbound %d item%s into your target.", n, n == 1 and "" or "s"))
-    if UI then UI:PlaySoulWisps() end
-    send("ICBENCH"); send("ICBAGS"); send("ICINV")
-  elseif cmd == "ICREMOVED" then       -- <statType>:<honorRefund>:<arenaRefund>  (server also re-sends the bench)
-    local t = tonumber(rest:match("^(%-?%d+)"))
-    msg("Removed " .. (t and statName(t) or "a stat") .. " from your target.")
-  elseif cmd == "ICPREMOVED" then      -- <spellId>:<honorRefund>:<arenaRefund>
-    local sid = tonumber(rest:match("^(%d+)"))
-    msg("Removed " .. (sid and spellName(sid) or "a proc") .. " from your target.")
-  elseif cmd == "ICPRESULT" then       -- <spellId>  proc-search hit (blacklist search)
-    local sid = tonumber(rest)
-    if sid then table.insert(blState.procResults, sid) end
-  elseif cmd == "ICPSEARCHEND" then    -- proc search done; merge into results
-    if BLM and BLM:IsShown() then blComputeResults() end
-  elseif cmd == "ICBL" then            -- <kind>:<id>  one blacklist entry
-    local k, id = rest:match("^(%d+):(%d+)$")
-    if k then table.insert(blStaging, { kind = tonumber(k), id = tonumber(id) }) end
-  elseif cmd == "ICBLEND" then         -- blacklist list complete; commit + refresh
-    local out = {}
-    for _, e in ipairs(blStaging) do
-      out[#out+1] = { kind = e.kind, id = e.id,
-        name = (e.kind == 1) and spellName(e.id) or statName(e.id) }
-    end
-    blState.list = out
-    blStaging = {}
-    if BLM then BLM:UpdateList(); BLM:UpdateResults() end
-  elseif cmd == "ICCFG" then
-    -- minimal cfg on open; nothing the new UI needs, accept quietly.
+    msg(string.format("Soulbound %d duplicate%s onto your gear.", n, n == 1 and "" or "s"))
+    if UI then UI:Ding() end
+    send("ICINV"); send("ICSF")
   elseif cmd == "ICERR" then
     local op, reason = rest:match("^(%a+):(.+)$")
-    msg("|cffff4040" .. tostring(op) .. " failed:|r " .. tostring(reason))
+    if reason == "no_equipped_match" then
+      msg("|cffff8040You can only soulbind a duplicate of an item you're wearing.|r")
+    elseif reason == "nothing" then
+      msg("|cffff8040No duplicates of your equipped gear were found.|r")
+    else
+      msg("|cffff4040" .. tostring(op) .. " failed:|r " .. tostring(reason))
+    end
   else
     dbg("unhandled:", body)
   end
 end
 
--- ---- StaticPopup: confirm Soulbind ALL -----------------------------------
-StaticPopupDialogs["UNCAPPED_IC_SOULBIND_ALL"] = {
-  text = "Consume ALL items in your bags AND vault that have stats/procs and bind them into %s?\n\nBlacklisted effects are skipped. This cannot be undone.",
+-- ---- StaticPopup: confirm Soulbind Duplicates ----------------------------
+StaticPopupDialogs["UNCAPPED_SF_SOULBIND_ALL"] = {
+  text = "Soulbind every exact duplicate of the gear you're wearing (from bags AND vault) onto it?\n\nThe duplicates are consumed. This cannot be undone.",
   button1 = ACCEPT, button2 = CANCEL,
   OnAccept = function() send("ICSBALL") end,
   timeout = 0, whileDead = 1, hideOnEscape = 1, showAlert = 1,
 }
 
--- ---- StaticPopup: confirm removing one bound power -----------------------
--- Removal strips a single soulbound stat/proc off the target. It does NOT give
--- back the item that was consumed to grant it, so we confirm first.
-StaticPopupDialogs["UNCAPPED_IC_REMOVE"] = {
-  text = "Remove |cffffffff%s|r from %s?\n\nThe item that granted it is not returned.",
-  button1 = ACCEPT, button2 = CANCEL,
-  OnAccept = function(self, e)
-    if not e then return end
-    if e.kind == "stat" then send("ICREMOVE:" .. e.statType)
-    elseif e.kind == "proc" then send("ICPREMOVE:" .. e.spellId) end
-  end,
-  timeout = 0, whileDead = 1, hideOnEscape = 1, showAlert = 1,
-}
-
 -- ============================ tooltip injection ===========================
--- Append the cached soulbound data onto GameTooltip AFTER the default tooltip
--- builds (hooksecurefunc), then Show() to resize. Data is matched by the client
--- slot key. Guard against double-injection by scanning for our marker line: a
--- "Set" method rebuilds the tooltip from scratch (wiping our lines), so if the
--- marker is still present the tooltip was not rebuilt and we must not re-append.
---
--- Short bound-power blocks stay inline. Once a block would be long it overflows
--- the bottom of the screen with no way to read it, so past a threshold we move it
--- into a scrollable panel anchored to the tooltip and leave only a pointer inline.
+-- Append cached soulbound data onto GameTooltip after it builds; long blocks go
+-- into a scrollable panel scrolled in place via a full-screen wheel catcher.
 local SB_MARK = "|cff66ccffSoulbound|r"
-local TIP_MAX_INLINE = 12          -- bound-power lines shown inline before switching to the panel
+local TIP_MAX_INLINE = 12
 local TIP_ROWS, TIP_ROW_H = 16, 14
 
--- ---- scrollable companion panel ------------------------------------------
--- You scroll this panel WITHOUT moving onto it: while it is up, an invisible,
--- click-through, full-screen frame (sbWheel) captures the mouse wheel wherever
--- the cursor is -- i.e. still over the item -- and drives the panel's scroll.
--- The panel then just follows the tooltip and hides shortly after you leave the
--- item. (The old "slide onto the panel to scroll it" model didn't work: the
--- wheel went to the bag button, and reaching for the panel dropped the tooltip.)
 local sbTip, sbWheel
 local sbTipHideDue
 local sbTipHideTimer = CreateFrame("Frame")
@@ -982,8 +453,6 @@ local function hideSbTip()
 end
 local function cancelSbTipHide() sbTipHideDue = nil; sbTipHideTimer:Hide() end
 local function scheduleSbTipHide()
-  -- Generous grace so that, as a fallback, the cursor can still travel from the
-  -- item onto the panel and scroll it there if the wheel catcher ever misses.
   if sbTip and sbTip:IsShown() then sbTipHideDue = 0.5; sbTipHideTimer:Show() end
 end
 sbTipHideTimer:SetScript("OnUpdate", function(self, elapsed)
@@ -991,21 +460,18 @@ sbTipHideTimer:SetScript("OnUpdate", function(self, elapsed)
   sbTipHideDue = sbTipHideDue - elapsed
   if sbTipHideDue <= 0 then
     sbTipHideDue = nil; self:Hide()
-    -- keep it open if the cursor did land on the panel (bonus), else drop it
     if not (sbTip and MouseIsOver(sbTip)) then hideSbTip() end
   end
 end)
 
--- Scroll the panel by a wheel delta (shared by the panel's own wheel handler
--- and the full-screen catcher).
 local function scrollSbTip(delta)
-  local sb = _G["ICSoulboundTipScrollScrollBar"]
+  local sb = _G["UncappedSoulboundTipScrollScrollBar"]
   if sb then sb:SetValue(sb:GetValue() - delta * TIP_ROW_H * 3) end
 end
 
 local function buildSbTip()
   if sbTip then return sbTip end
-  local f = CreateFrame("Frame", "ICSoulboundTip", UIParent)
+  local f = CreateFrame("Frame", "UncappedSoulboundTip", UIParent)
   f:SetFrameStrata("TOOLTIP"); f:SetFrameLevel(100)
   f:SetWidth(288); f:SetHeight(TIP_ROWS * TIP_ROW_H + 40)
   f:SetBackdrop({
@@ -1014,14 +480,12 @@ local function buildSbTip()
     insets = { left = 4, right = 4, top = 4, bottom = 4 } })
   f:SetBackdropColor(0.03, 0.02, 0.05, 0.95)
   f:SetBackdropBorderColor(0.55, 0.4, 0.9, 0.9)
-  f:SetClampedToScreen(true)
-  f:EnableMouse(true)
-  f:Hide()
+  f:SetClampedToScreen(true); f:EnableMouse(true); f:Hide()
 
   local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   title:SetPoint("TOPLEFT", 12, -10); title:SetText(SB_MARK)
 
-  local scroll = CreateFrame("ScrollFrame", "ICSoulboundTipScroll", f, "FauxScrollFrameTemplate")
+  local scroll = CreateFrame("ScrollFrame", "UncappedSoulboundTipScroll", f, "FauxScrollFrameTemplate")
   scroll:SetPoint("TOPLEFT", 8, -28); scroll:SetWidth(256); scroll:SetHeight(TIP_ROWS * TIP_ROW_H)
   scroll:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, TIP_ROW_H, function() f:Fill() end)
@@ -1056,18 +520,10 @@ local function buildSbTip()
   f:SetScript("OnEnter", function() cancelSbTipHide() end)
   f:SetScript("OnLeave", function() hideSbTip() end)
 
-  -- Full-screen wheel catcher: invisible and click-through (mouse disabled) but
-  -- wheel-enabled, so while the panel is shown it grabs the wheel wherever the
-  -- cursor is -- crucially, still over the item -- and scrolls the panel. This is
-  -- what lets you scroll without moving onto the panel (which drops the tooltip).
-  -- It only exists while a long soulbound tooltip is up, so it isn't stealing the
-  -- wheel the rest of the time.
-  sbWheel = CreateFrame("Frame", "ICSoulboundWheel", UIParent)
+  sbWheel = CreateFrame("Frame", "UncappedSoulboundWheel", UIParent)
   sbWheel:SetAllPoints(UIParent)
-  sbWheel:SetFrameStrata("TOOLTIP")
-  sbWheel:SetFrameLevel(90)
-  sbWheel:EnableMouse(false)
-  sbWheel:EnableMouseWheel(true)
+  sbWheel:SetFrameStrata("TOOLTIP"); sbWheel:SetFrameLevel(90)
+  sbWheel:EnableMouse(false); sbWheel:EnableMouseWheel(true)
   sbWheel:SetScript("OnMouseWheel", function(_, delta) scrollSbTip(delta) end)
   sbWheel:Hide()
 
@@ -1078,12 +534,8 @@ end
 local function showSbTip(lines, key)
   local f = buildSbTip()
   f.lines = lines
-  -- Only jump to the top when this is a DIFFERENT item than the panel is already
-  -- showing. Item tooltips re-fire their Set* hook constantly (refreshes, and the
-  -- scroll itself can trigger one), and resetting on every re-fire was yanking the
-  -- scroll position back to the top mid-scroll.
   if key ~= f.curKey then
-    local sb = _G["ICSoulboundTipScrollScrollBar"]; if sb then sb:SetValue(0) end
+    local sb = _G["UncappedSoulboundTipScrollScrollBar"]; if sb then sb:SetValue(0) end
     f.curKey = key
   end
   f:ClearAllPoints()
@@ -1106,18 +558,17 @@ end
 local function Inject(tt, key)
   local e = sbInv[key]
   if not e then
-    scheduleSbTipHide()   -- hovered something without soulbound data: drop any open panel
+    scheduleSbTipHide()
     return
   end
-  if alreadyInjected(tt) then return end   -- already injected on this build
+  if alreadyInjected(tt) then return end
 
-  -- Flatten the bound powers to display lines once (shared by inline + panel).
   local lines = {}
   for _, s in ipairs(e.stats) do
     lines[#lines+1] = { text = "+" .. tostring(s.value) .. " " .. statName(s.type), r = 0.12, g = 1, b = 0.12 }
   end
   for _, p in ipairs(e.procs) do
-    lines[#lines+1] = { text = spellName(p.spellId) .. " (" .. triggerLabel(p.trigger) .. ") — " .. procMechanic(p),
+    lines[#lines+1] = { text = spellName(p.spellId) .. " (" .. triggerLabel(p.trigger) .. ") \226\128\148 " .. procMechanic(p),
       r = 0.75, g = 0.5, b = 0.94 }
   end
 
@@ -1125,84 +576,75 @@ local function Inject(tt, key)
   tt:AddLine(SB_MARK)
   if #lines <= TIP_MAX_INLINE then
     for _, ln in ipairs(lines) do tt:AddLine(ln.text, ln.r, ln.g, ln.b) end
-    hideSbTip()   -- short: no panel needed
+    hideSbTip()
   else
-    tt:AddLine("|cffffd200" .. #lines .. " bound powers|r — scroll to read them all", 1, 1, 1)
+    tt:AddLine("|cffffd200" .. #lines .. " bound powers|r \226\128\148 scroll to read them all", 1, 1, 1)
     showSbTip(lines, key)
   end
   tt:Show()
 end
 
--- Leaving the item hides the tooltip; schedule the panel to follow unless the
--- cursor lands on it (to scroll). Entering a new item re-runs Inject, which
--- cancels the schedule if that item is also soulbound.
 GameTooltip:HookScript("OnHide", function() scheduleSbTipHide() end)
-
-hooksecurefunc(GameTooltip, "SetBagItem", function(tt, bag, slot)
-  Inject(tt, "B:" .. bag .. ":" .. slot)
-end)
+hooksecurefunc(GameTooltip, "SetBagItem", function(tt, bag, slot) Inject(tt, "B:" .. bag .. ":" .. slot) end)
 hooksecurefunc(GameTooltip, "SetInventoryItem", function(tt, unit, invSlot)
   if unit == "player" then Inject(tt, "E:" .. invSlot) end
 end)
 
+-- give the UI its whitelist opener now that BuildWhitelist exists
+local function attachWhitelistOpener()
+  if not UI or UI.OpenWhitelist then return end
+  function UI:OpenWhitelist()
+    BuildWhitelist()
+    if WLM:IsShown() then WLM:Hide() return end
+    WLM:Show(); WLM:Update(); send("ICWLIST")
+  end
+end
+
 -- ============================ events / slash ==============================
--- Lightweight timer for ICINV requests: a PLAYER_LOGIN warm-up (~2s) and a
--- BAG_UPDATE debounce (~0.3s) so a burst of bag events sends only one request.
-local invTimer = CreateFrame("Frame")
+local invTimer = CreateFrame("Frame"); invTimer:Hide()
 local invDue = nil
-invTimer:Hide()
 invTimer:SetScript("OnUpdate", function(self, elapsed)
   if not invDue then self:Hide(); return end
   invDue = invDue - elapsed
-  if invDue <= 0 then
-    invDue = nil
-    self:Hide()
-    send("ICINV")
-  end
+  if invDue <= 0 then invDue = nil; self:Hide(); send("ICINV") end
 end)
 local function requestInvIn(delay) invDue = delay; invTimer:Show() end
-local function requestInv() send("ICINV") end
 
 local listener = CreateFrame("Frame")
 listener:RegisterEvent("CHAT_MSG_ADDON")
 listener:RegisterEvent("PLAYER_LOGIN")
 listener:RegisterEvent("BAG_UPDATE")
 listener:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
-listener:RegisterEvent("UNIT_INVENTORY_CHANGED")
 listener:SetScript("OnEvent", function(self, event, a1, a2)
   if event == "CHAT_MSG_ADDON" then
     if a1 == PIPE_PREFIX and a2 and a2:sub(1,2) == "IC" then OnLine(a2) end
     return
   end
   if event == "PLAYER_LOGIN" then
-    dbg("loaded. /soulbind (or /sb) to open.")
-    requestInvIn(2)                       -- warm the soulbound tooltip cache
+    requestInvIn(2)          -- warm the soulbound tooltip cache
+    send("ICSF")             -- get the forge bar
     return
   end
   if event == "BAG_UPDATE" then requestInvIn(0.3) end
-  if event == "PLAYER_EQUIPMENT_CHANGED" then requestInv() end
-  if event == "UNIT_INVENTORY_CHANGED" and a1 == "player" then requestInv() end
-  -- keep the paper doll / source list live while the window is open
-  if UI and UI:IsShown() then
-    if event == "PLAYER_EQUIPMENT_CHANGED" and UI.RefreshDoll and not state.bench then UI:RefreshDoll() end
-  end
+  if event == "PLAYER_EQUIPMENT_CHANGED" then send("ICINV") end
 end)
 
-SLASH_ICUST1 = "/soulbind"
-SLASH_ICUST2 = "/sb"
-SlashCmdList["ICUST"] = function()
-  BuildUI(); attachMethods()
+SLASH_SOULFORGE1 = "/soulforge"
+SLASH_SOULFORGE2 = "/sf"
+SLASH_SOULFORGE3 = "/soulbind"
+SLASH_SOULFORGE4 = "/sb"
+SlashCmdList["SOULFORGE"] = function()
+  BuildUI(); attachMethods(); attachWhitelistOpener()
   if UI:IsShown() then
     UI:Hide()
-    if BLM then BLM:Hide() end
+    if WLM then WLM:Hide() end
   else
-    state.bench = nil; state.bags = {}; state.bagsStaging = {}; state.details = {}
     UI:Show(); UI:Refresh()
-    dbg("opening -> ICOPEN"); send("ICOPEN")
+    send("ICSF"); send("ICINV")
   end
 end
 
 SLASH_ICDEBUG1 = "/sbdebug"
 SlashCmdList["ICDEBUG"] = function() DEBUG = not DEBUG; msg("debug " .. (DEBUG and "ON" or "OFF")) end
 
-dbg("file parsed.")
+dbg("Soulforge addon parsed.")
