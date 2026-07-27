@@ -79,7 +79,7 @@ local SND_SEAL = "Sound\\Spells\\SoulstoneResurrection_Base.wav"
 
 -- ---- state ---------------------------------------------------------------
 local state = {
-  sf = { mult = 0.1, fill = 0, completions = 0, autoconsume = false },  -- soulforge status
+  sf = { mult = 0.1, fill = 0, completions = 0, autoconsume = false, autoopen = false },  -- soulforge status
   whitelist = {},        -- current whitelist item names
   wlStaging = {},
   wlSuggest = {},        -- item-name search suggestions (server ICINAME search)
@@ -107,7 +107,7 @@ local function BuildUI()
   if UI then return UI end
 
   local f = CreateFrame("Frame", "UncappedSoulforgeFrame", UIParent)
-  f:SetWidth(400); f:SetHeight(470); f:SetPoint("CENTER")
+  f:SetWidth(400); f:SetHeight(494); f:SetPoint("CENTER")
   f:SetFrameStrata("DIALOG")
   f:SetBackdrop({
     edgeFile="Interface\\DialogFrame\\UI-DialogBox-Border", edgeSize=32,
@@ -159,28 +159,34 @@ local function BuildUI()
 
   -- ---- controls ----
   local ac = CreateFrame("CheckButton", "UncappedSoulforgeAC", f, "InterfaceOptionsCheckButtonTemplate")
-  ac:SetPoint("TOPLEFT", 20, -146)
-  _G[ac:GetName().."Text"]:SetText("Auto-consume junk gear for souls (unlocks its transmog)")
+  ac:SetPoint("TOPLEFT", 20, -142)
+  _G[ac:GetName().."Text"]:SetText("Auto-consume junk gear \226\134\146 souls + transmog")
   ac:SetScript("OnClick", function(self) send("ICAC:" .. (self:GetChecked() and 1 or 0)) end)
   f.acCheck = ac
 
+  local ao = CreateFrame("CheckButton", "UncappedSoulforgeAO", f, "InterfaceOptionsCheckButtonTemplate")
+  ao:SetPoint("TOPLEFT", 20, -166)
+  _G[ao:GetName().."Text"]:SetText("Auto-open Sacks of Mythic Treasure (a few at a time)")
+  ao:SetScript("OnClick", function(self) send("ICAO:" .. (self:GetChecked() and 1 or 0)) end)
+  f.aoCheck = ao
+
   local sbBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  sbBtn:SetSize(170, 24); sbBtn:SetPoint("TOPLEFT", 22, -174); sbBtn:SetText("Soulbind Duplicates")
+  sbBtn:SetSize(170, 24); sbBtn:SetPoint("TOPLEFT", 22, -194); sbBtn:SetText("Soulbind Duplicates")
   sbBtn:SetScript("OnClick", function() StaticPopup_Show("UNCAPPED_SF_SOULBIND_ALL") end)
 
   local wlBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  wlBtn:SetSize(170, 24); wlBtn:SetPoint("TOPRIGHT", -22, -174); wlBtn:SetText("Whitelist\226\128\166")
+  wlBtn:SetSize(170, 24); wlBtn:SetPoint("TOPRIGHT", -22, -194); wlBtn:SetText("Whitelist\226\128\166")
   wlBtn:SetScript("OnClick", function() if UI and UI.OpenWhitelist then UI:OpenWhitelist() end end)
 
   -- ---- your soulbound gear ----
   local eqHdr = f:CreateFontString(nil,"OVERLAY","GameFontNormal")
-  eqHdr:SetPoint("TOPLEFT", 22, -208); eqHdr:SetText("|cff40c0f0Your soulbound gear|r")
+  eqHdr:SetPoint("TOPLEFT", 22, -228); eqHdr:SetText("|cff40c0f0Your soulbound gear|r")
   local dLine = f:CreateTexture(nil,"ARTWORK"); dLine:SetTexture("Interface\\Buttons\\WHITE8X8")
   dLine:SetGradientAlpha("HORIZONTAL", 0.25,0.60,0.90,0.6, 0.25,0.60,0.90,0.0)
-  dLine:SetHeight(2); dLine:SetWidth(340); dLine:SetPoint("TOPLEFT", 22, -224)
+  dLine:SetHeight(2); dLine:SetWidth(340); dLine:SetPoint("TOPLEFT", 22, -244)
 
   local scroll = CreateFrame("ScrollFrame", "UncappedSoulforgeEqScroll", f, "FauxScrollFrameTemplate")
-  scroll:SetPoint("TOPLEFT", 24, -232); scroll:SetSize(348, EQ_ROWS*EQ_H)
+  scroll:SetPoint("TOPLEFT", 24, -252); scroll:SetSize(348, EQ_ROWS*EQ_H)
   scroll:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, EQ_H, function() if UI then UI:RefreshEquipped() end end)
   end)
@@ -236,6 +242,7 @@ local function attachMethods()
     self.sfBarText:SetText(string.format("%.1f%% to Level %d", sf.fill, sf.completions + 1))
     self.sfExtract:SetText(string.format("Extraction: |cff9CC243+%.2f%%|r of stats per soulbind", sf.mult))
     self.acCheck:SetChecked(sf.autoconsume)
+    self.aoCheck:SetChecked(sf.autoopen)
   end
 
   -- Build the "your soulbound gear" list from the equipped (E:) tooltip cache.
@@ -416,13 +423,14 @@ local function OnLine(body)
   local cmd, rest = body:match("^(%u+):?(.*)$")
   if not cmd then cmd = body; rest = "" end
 
-  if cmd == "ICSF" then                 -- <extractPctx100>:<fillPctx10>:<completions>:<autoconsume>
-    local mp, fp, comp, ac = rest:match("^(%d+):(%d+):(%d+):(%d+)$")
+  if cmd == "ICSF" then                 -- <extractPctx100>:<fillPctx10>:<completions>:<autoconsume>:<autoopen>
+    local mp, fp, comp, ac, ao = rest:match("^(%d+):(%d+):(%d+):(%d+):(%d+)$")
     if mp then
       state.sf.mult = tonumber(mp) / 100
       state.sf.fill = tonumber(fp) / 10
       state.sf.completions = tonumber(comp)
       state.sf.autoconsume = ac == "1"
+      state.sf.autoopen = ao == "1"
       if UI then UI:RefreshForge() end
     end
   elseif cmd == "ICSFDING" then         -- <levelsGained>
