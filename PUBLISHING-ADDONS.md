@@ -108,10 +108,53 @@ git show origin/main:manifest.json | Select-String '"launcherVersion"'
 - **Do not add an addon that reserves all rights.** `Build-Payload.ps1` already excludes
   AckisRecipeList, ArkInventory and ArkInventoryRules for this reason — see
   `ADDON-LICENCES.md`. Do not remove them from `$licenceExcluded` without the author's
-  permission.
+  permission. If you want players to have one of these, use `archives.json` (below) — that
+  installs it without us redistributing it, and does not touch `$licenceExcluded`.
 - **Do not run the launcher while the owner has it open.** It is single-instance, and it
   shares `%LOCALAPPDATA%\Uncapped\state.json`. Two sessions racing that file has caused real
   confusion. Check first: `Get-Process Uncapped`.
+
+---
+
+## Addons we are not allowed to redistribute (`archives.json`)
+
+For an addon whose licence forbids us shipping it, the launcher can install it *without* us
+hosting a single byte: it downloads the author's own upload and unpacks it. ArkInventory is the
+worked example.
+
+Add an entry to `tools\archives.json` and re-run `New-Manifest.ps1` — that is all. No payload
+change, no `$licenceExcluded` change, **and no launcher release** (the code shipped in v1.6.0):
+
+```json
+{
+  "name": "ArkInventory",
+  "label": "ArkInventory",
+  "url": "https://mediafilez.forgecdn.net/files/458/795/ArkInventory-3.02.54_BETA_17-00-Cataclysm.zip",
+  "extractTo": "Interface/AddOns",
+  "verifyPath": "Interface/AddOns/ArkInventory/ArkInventory.toc"
+}
+```
+
+`New-Manifest.ps1` downloads it once to record its `sha256` and `size`, then publishes it under
+`archives[]`. The launcher verifies that hash before unpacking and remembers it, so it extracts
+once rather than on every launch. `verifyPath` is what re-installs the addon if a player deletes
+the folder — without it the state file would keep claiming it is installed.
+
+**Finding a CurseForge URL.** The site's `/download/<id>` page is an HTML interstitial and
+plain HTTP clients get a 403, so neither is usable. The direct CDN URL is, and needs no API
+key. For file id `458795`, split it as `458` / `795`:
+
+```
+https://mediafilez.forgecdn.net/files/458/795/<exact-filename>.zip
+```
+
+Ids are listed at `https://api.cfwidget.com/wow/addons/<project>` (keyless). Pick the file
+whose `.toc` says `## Interface: 30300` — CurseForge's own "game version" column is unreliable
+for this era, and the newest 3.3.5-compatible build is often tagged `4.0.1`.
+
+Rules that still apply: these are third-party, so they never go in `ownedPaths` and the
+launcher will never delete them. Check the `.toc` for `## DefaultState: Enabled` before
+reaching for `forceEnableAddOns`.
 
 ---
 

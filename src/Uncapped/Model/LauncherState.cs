@@ -17,6 +17,14 @@ public sealed class LauncherState
     /// </summary>
     [JsonPropertyName("installedFiles")] public List<string> InstalledFiles { get; set; } = new();
 
+    /// <summary>
+    /// Archive name -> the sha256 of the zip last unpacked for it. Lets the launcher skip
+    /// re-extracting an archive that has not changed, which is the whole point of pinning the
+    /// hash: without this, every launch would re-download and re-expand ArkInventory.
+    /// </summary>
+    [JsonPropertyName("installedArchives")]
+    public Dictionary<string, string> InstalledArchives { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     [JsonPropertyName("lastSyncedManifestVersion")] public string? LastSyncedManifestVersion { get; set; }
 
     /// <summary>
@@ -40,7 +48,17 @@ public sealed class LauncherState
         {
             var path = AppPaths.StateFile;
             if (!File.Exists(path)) return new LauncherState();
-            return JsonSerializer.Deserialize<LauncherState>(File.ReadAllText(path)) ?? new LauncherState();
+
+            var state = JsonSerializer.Deserialize<LauncherState>(File.ReadAllText(path)) ?? new LauncherState();
+
+            // Deserialisation hands back a plain Dictionary, discarding the case-insensitive
+            // comparer the property was initialised with. Rebuild it, or an archive recorded as
+            // "ArkInventory" would not be found when looked up as "arkinventory" and would be
+            // re-downloaded and re-extracted on every single launch.
+            state.InstalledArchives = new Dictionary<string, string>(
+                state.InstalledArchives, StringComparer.OrdinalIgnoreCase);
+
+            return state;
         }
         catch
         {

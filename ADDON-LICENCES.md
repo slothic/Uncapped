@@ -40,8 +40,34 @@ To ship one of these, get the author's permission, then remove it from `$licence
 `tools\Build-Payload.ps1`. Until then players can install them by hand — they still work, they
 are simply not distributed by us.
 
-Note that ArkInventory is a popular bag replacement, so its absence is the most visible
-consequence of this audit. Its author is still active; asking is a realistic option.
+### ArkInventory — fetched from upstream instead (2026-07-27)
+
+ArkInventory stays excluded above: we still do not redistribute it, and it is still in
+`$licenceExcluded`. What changed is that players no longer install it by hand. The launcher
+now downloads **the author's own CurseForge upload** and unpacks it — the same position as the
+`patch-enUS-M/N.MPQ` archives, which come from Trimitor's releases rather than from us.
+
+- Declared in `tools\archives.json`, published as `archives[]` in the manifest, installed by
+  `SyncService.SyncArchivesAsync`. Nothing of ArkInventory's enters `payload\` or this repo.
+- Pinned to CurseForge file id **458795**
+  (`ArkInventory-3.02.54_BETA_17-00-Cataclysm.zip`, uploaded 2010-10-12), and pinned by
+  sha256, so a changed upstream file is refused rather than installed.
+- That file is byte-identical to `Addons\felbite.com-arkinventory-wotlk-arkinventory.zip`
+  (both `43d7f2b2…48f2aa7`) — the felbite copy was a mirror of this exact upload. So this
+  changes *where the bytes come from*, not what players get.
+- The zip contains both `ArkInventory` and `ArkInventoryRules`, which is why the companion
+  needs no separate entry. 171 files.
+- Not in `ownedPaths`: third-party, so the launcher installs and updates it but will never
+  delete it. Not in `forceEnableAddOns` either — its `.toc` is `## DefaultState: Enabled`, so
+  it switches itself on and players can still turn it off.
+
+This is the option the standing position below recommends ("link players to the original
+download pages instead of mirroring the files"), automated so nobody has to be walked through
+it. It does depend on CurseForge continuing to serve that URL; if that ever stops, the choice
+goes back to asking the author's permission versus dropping the addon — not to mirroring it.
+
+The author is still active (releases as recently as July 2026), so asking remains a realistic
+option and would be the cleaner long-term answer.
 
 ---
 

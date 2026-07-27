@@ -1,8 +1,8 @@
 {
     "manifestVersion":  1,
-    "launcherVersion":  "1.5.0",
-    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.5.0/Uncapped.exe",
-    "launcherSha256":  "917752a3fea855281785545d336e1df97e1223390d23039c80c88dcf6bb19d2a",
+    "launcherVersion":  "1.6.0",
+    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.6.0/Uncapped.exe",
+    "launcherSha256":  "0d2421e765031e65048619f53c250b2256c60b29fb8d94e50cf58de6eb996e7d",
     "realm":  {
                   "name":  "Uncapped",
                   "address":  "152.53.115.249",
@@ -3343,6 +3343,17 @@
                       "size":  4615526
                   }
               ],
+    "archives":  [
+                     {
+                         "name":  "ArkInventory",
+                         "url":  "https://mediafilez.forgecdn.net/files/458/795/ArkInventory-3.02.54_BETA_17-00-Cataclysm.zip",
+                         "sha256":  "43d7f2b24309ee06a838408f0fdb98aabfb3a21c9889fd682f2ecef9948f2aa7",
+                         "size":  887518,
+                         "extractTo":  "Interface/AddOns",
+                         "verifyPath":  "Interface/AddOns/ArkInventory/ArkInventory.toc",
+                         "label":  "ArkInventory"
+                     }
+                 ],
     "forceEnableAddOns":  [
                               "StatFeed",
                               "ReagentBankCraft",

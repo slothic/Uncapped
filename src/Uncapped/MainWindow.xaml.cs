@@ -365,8 +365,16 @@ public partial class MainWindow : Window
                 _state.LastManifestHash = _manifestHash;
                 _state.Save();
 
+                // Archives are counted separately from files: installing ArkInventory unpacks
+                // 171 files the manifest never lists individually, so reporting only
+                // outcome.Downloaded would say "Updated 0 file(s)." after real work happened.
+                var summary = outcome.Downloaded > 0 ? $"Updated {outcome.Downloaded} file(s)." : "";
+                if (outcome.ArchivesInstalled > 0)
+                    summary = (summary.Length > 0 ? summary + " " : "")
+                            + $"Installed {outcome.ArchivesInstalled} addon(s).";
+
                 EnablePlay(outcome.ChangedAnything
-                    ? $"Updated {outcome.Downloaded} file(s)."
+                    ? (summary.Length > 0 ? summary : "Updated.")
                     : "Up to date.");
             }
 

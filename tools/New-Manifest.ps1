@@ -49,6 +49,9 @@ param(
     # Files served from somewhere other than this repo (the WDM MPQ patches, which live in
     # Trimitor's releases). Downloaded once to a cache purely so we can hash them.
     [string]$ExternalFiles = 'C:\Wotlk\Launcher\tools\external-files.json',
+    # Zips fetched from someone else's host and unpacked into the install, for addons we are
+    # not entitled to redistribute. Hashed here so the launcher can pin them.
+    [string]$Archives      = 'C:\Wotlk\Launcher\tools\archives.json',
     [string]$ExternalCache = 'C:\Wotlk\Launcher\.external-cache',
     [string]$Magnet          = 'magnet:?xt=urn:btih:2ba2833baf733ce0a16040d43ed09491f2bf2ab2&dn=ChromieCraft_3.3.5a.zip&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.uw0.xyz%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.zerobytes.xyz%3A1337%2Fannounce',
     [string]$DirectDownloadUrl = $null
@@ -110,6 +113,57 @@ if (Test-Path $ExternalFiles) {
                 size   = $item.Length
             }
             Write-Host ("  + {0,-32} {1,6} MB" -f $e.path, [math]::Round($item.Length / 1MB, 1)) -ForegroundColor Green
+        }
+    }
+}
+
+# --- Externally hosted archives ----------------------------------------------------------
+# Zips we do not redistribute: the launcher downloads them from the author's own host and
+# unpacks them into the install. Downloaded once here purely to hash and size them, so the
+# launcher can verify what it gets and skip re-extracting an archive that has not changed.
+$archiveEntries = @()
+if (Test-Path $Archives) {
+    $archiveDefs = Get-Content $Archives -Raw | ConvertFrom-Json
+    if ($archiveDefs) {
+        New-Item -ItemType Directory -Force $ExternalCache | Out-Null
+        $awc = New-Object Net.WebClient
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+        Write-Host "`nExternally hosted archives (downloaded by the launcher, not shipped):" -ForegroundColor Cyan
+        foreach ($a in $archiveDefs) {
+            if (-not $a.name -or -not $a.url -or -not $a.extractTo) { continue }
+
+            $cached = Join-Path $ExternalCache ("archive_" + ($a.name -replace '[\\/:*?"<>|]', '_') + '.zip')
+
+            # Re-download only when absent. These are pinned to a specific upstream file id,
+            # so the bytes behind a given URL do not change; delete the cache to force a refresh.
+            if (-not (Test-Path $cached)) {
+                Write-Host "  downloading $($a.name)..." -ForegroundColor DarkGray
+                $awc.DownloadFile($a.url, $cached)
+            }
+
+            $item = Get-Item $cached
+            if ($item.Length -eq 0) { throw "Archive $($a.name) downloaded as 0 bytes." }
+
+            # Cheap sanity check: a 403/interstitial HTML page saved to disk is still a file,
+            # and would otherwise be published as a perfectly valid hash of the wrong thing.
+            $sig = [IO.File]::ReadAllBytes($cached)[0..1]
+            if ($sig[0] -ne 0x50 -or $sig[1] -ne 0x4B) {
+                throw "Archive $($a.name) is not a zip (first bytes $($sig[0]),$($sig[1])). The host probably served an error page."
+            }
+
+            $entry = [ordered]@{
+                name      = $a.name
+                url       = $a.url
+                sha256    = (Get-FileHash $cached -Algorithm SHA256).Hash.ToLower()
+                size      = $item.Length
+                extractTo = $a.extractTo
+            }
+            if ($a.verifyPath) { $entry.verifyPath = $a.verifyPath }
+            if ($a.label)      { $entry.label      = $a.label }
+
+            $archiveEntries += $entry
+            Write-Host ("  + {0,-24} {1,8} KB  -> {2}" -f $a.name, [math]::Round($item.Length / 1KB, 1), $a.extractTo) -ForegroundColor Green
         }
     }
 }
@@ -194,6 +248,10 @@ $manifest = [ordered]@{
     news    = $news
     files   = @($files)
 
+    # Zips the launcher fetches from their author's own host and unpacks. Not in files[] and
+    # not in payload\: we do not redistribute these. See tools\archives.json.
+    archives = @($archiveEntries)
+
     # Force-ticked in AddOns.txt on every launch. StatFeed is the reason the launcher exists;
     # without it players see no stat-gain messages at all.
     forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedVault')
@@ -250,6 +308,14 @@ $check = $null
 try { $check = $written | ConvertFrom-Json } catch { throw "Wrote $OutFile but it does not parse as JSON: $_" }
 if (-not $check.files -or $check.files.Count -ne $files.Count) {
     throw "Wrote $OutFile but it contains $($check.files.Count) file entries, expected $($files.Count)."
+}
+# Same reasoning as the files check above: an archive that silently failed to serialise would
+# publish a manifest that simply stops shipping the addon, with nothing to notice at generation
+# time. (The @() wrapper on the property is what keeps a single entry a JSON array rather than
+# a bare object -- verified, but cheap to keep honest.)
+$writtenArchives = @($check.archives).Count
+if ($writtenArchives -ne $archiveEntries.Count) {
+    throw "Wrote $OutFile but it contains $writtenArchives archive entries, expected $($archiveEntries.Count)."
 }
 
 # $files holds ordered hashtables, whose keys are not properties Measure-Object can see.

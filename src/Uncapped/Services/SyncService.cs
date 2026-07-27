@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.IO.Compression;
 using Uncapped.Model;
 
 namespace Uncapped.Services;
@@ -6,9 +7,10 @@ namespace Uncapped.Services;
 public sealed record SyncProgress(string Status, int Completed, int Total);
 
 public sealed record SyncOutcome(
-    int Downloaded, int UpToDate, int Removed, List<string> Errors, List<ManifestFile> Mismatched)
+    int Downloaded, int UpToDate, int Removed, List<string> Errors, List<ManifestFile> Mismatched,
+    int ArchivesInstalled = 0)
 {
-    public bool ChangedAnything => Downloaded > 0 || Removed > 0;
+    public bool ChangedAnything => Downloaded > 0 || Removed > 0 || ArchivesInstalled > 0;
 
     /// <summary>
     /// A file downloading cleanly but hashing to the wrong value means the host handed us
@@ -128,15 +130,165 @@ public sealed class SyncService
                 });
         }
 
-        // ---- Phase 3: prune, single-threaded. ----
+        // ---- Phase 3: externally hosted archives. ----
         state.InstalledFiles = installed.Keys.ToList();
         var errorList = errors.ToList();
+        var archivesInstalled = await SyncArchivesAsync(installPath, manifest, state, errorList, progress, ct);
+
+        // ---- Phase 4: prune, single-threaded. ----
         var removed = PruneOrphans(installPath, manifest, state, errorList);
 
         state.LastSyncedManifestVersion = manifest.LauncherVersion;
         state.Save();
 
-        return new SyncOutcome(downloaded, upToDate, removed, errorList, mismatched.ToList());
+        return new SyncOutcome(downloaded, upToDate, removed, errorList, mismatched.ToList(), archivesInstalled);
+    }
+
+    /// <summary>
+    /// Downloads and expands the archives in <see cref="Manifest.Archives"/> — addons we are
+    /// not entitled to redistribute, so they come from the author's own host instead of our
+    /// payload. Sequential on purpose: there is currently one of these and it is under a
+    /// megabyte, so concurrency would buy nothing and cost clarity.
+    ///
+    /// Failures are recorded and skipped rather than thrown. A CurseForge outage should leave
+    /// the player with a client that is otherwise fully updated and playable, missing one
+    /// optional bag addon, and it should retry by itself next launch.
+    /// </summary>
+    private async Task<int> SyncArchivesAsync(
+        string installPath,
+        Manifest manifest,
+        LauncherState state,
+        List<string> errors,
+        IProgress<SyncProgress> progress,
+        CancellationToken ct)
+    {
+        if (manifest.Archives.Count == 0) return 0;
+
+        var done = 0;
+        var installedCount = 0;
+
+        foreach (var archive in manifest.Archives)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var label = string.IsNullOrWhiteSpace(archive.Label) ? archive.Name : archive.Label!;
+            var target = NormalizeRelative(archive.ExtractTo);
+
+            if (string.IsNullOrWhiteSpace(archive.Name) || string.IsNullOrWhiteSpace(archive.Url) || target is null)
+            {
+                errors.Add($"Rejected malformed archive entry: {archive.Name}");
+                continue;
+            }
+
+            // An archive with no hash cannot be verified, and cannot be known to be current
+            // either. Refusing is safer than unpacking whatever the host happened to return.
+            if (string.IsNullOrEmpty(archive.Sha256))
+            {
+                errors.Add($"{label}: archive has no sha256; refusing to install it.");
+                continue;
+            }
+
+            if (IsArchiveCurrent(installPath, archive, state))
+            {
+                progress.Report(new SyncProgress($"{label} is up to date", ++done, manifest.Archives.Count));
+                continue;
+            }
+
+            progress.Report(new SyncProgress($"Downloading {label}", done, manifest.Archives.Count));
+
+            var temp = Path.Combine(Path.GetTempPath(), $"uncapped-{Guid.NewGuid():N}.zip");
+            try
+            {
+                using (var response = await _http.GetAsync(archive.Url, HttpCompletionOption.ResponseHeadersRead, ct))
+                {
+                    response.EnsureSuccessStatusCode();
+
+                    await using var source = await response.Content.ReadAsStreamAsync(ct);
+                    await using var file = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None,
+                                                          1024 * 64, useAsync: true);
+                    await source.CopyToAsync(file, ct);
+                }
+
+                var actual = await Hashing.Sha256FileAsync(temp, ct);
+                if (!Hashing.Matches(actual, archive.Sha256))
+                {
+                    // Pinned by hash precisely so that a third-party host swapping the bytes
+                    // behind a URL cannot push unreviewed code into every player's client.
+                    errors.Add($"{label}: checksum mismatch " +
+                               $"(expected {archive.Sha256[..Math.Min(12, archive.Sha256.Length)]}…, got {actual[..12]}…)");
+                    continue;
+                }
+
+                progress.Report(new SyncProgress($"Installing {label}", done, manifest.Archives.Count));
+
+                ExtractInto(temp, Path.Combine(installPath, target), ct);
+
+                state.InstalledArchives[archive.Name] = actual.ToLowerInvariant();
+                installedCount++;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                errors.Add($"{label}: {ex.Message}");
+            }
+            finally
+            {
+                if (File.Exists(temp)) { try { File.Delete(temp); } catch { /* best effort */ } }
+            }
+
+            progress.Report(new SyncProgress($"Installed {label}", ++done, manifest.Archives.Count));
+        }
+
+        return installedCount;
+    }
+
+    /// <summary>
+    /// True when the recorded sha matches and the archive's contents are still on disk. The
+    /// second half matters: a player who deletes the addon folder must get it back, and the
+    /// state file alone would claim it is already installed.
+    /// </summary>
+    private static bool IsArchiveCurrent(string installPath, ManifestArchive archive, LauncherState state)
+    {
+        if (!state.InstalledArchives.TryGetValue(archive.Name, out var recorded)) return false;
+        if (!Hashing.Matches(recorded, archive.Sha256)) return false;
+
+        if (string.IsNullOrWhiteSpace(archive.VerifyPath)) return true;
+
+        var verify = NormalizeRelative(archive.VerifyPath!);
+        if (verify is null) return true;
+
+        var full = Path.Combine(installPath, verify);
+        return File.Exists(full) || Directory.Exists(full);
+    }
+
+    /// <summary>
+    /// Expands a zip into <paramref name="targetDir"/>, overwriting what is there. Existing
+    /// files not in the archive are left alone, so a player's own additions survive.
+    /// </summary>
+    private static void ExtractInto(string archivePath, string targetDir, CancellationToken ct)
+    {
+        Directory.CreateDirectory(targetDir);
+
+        using var zip = ZipFile.OpenRead(archivePath);
+        var root = Path.GetFullPath(targetDir);
+
+        foreach (var entry in zip.Entries)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (string.IsNullOrEmpty(entry.Name)) continue; // directory entry
+
+            var destination = Path.GetFullPath(Path.Combine(targetDir, entry.FullName));
+
+            // Zip-slip guard: an entry named ..\..\something must not write outside the target.
+            // This archive comes from a third-party host, so the check is load-bearing here in
+            // a way it is not for our own payload.
+            if (!destination.StartsWith(root, StringComparison.OrdinalIgnoreCase)) continue;
+
+            var dir = Path.GetDirectoryName(destination);
+            if (dir is not null) Directory.CreateDirectory(dir);
+
+            entry.ExtractToFile(destination, overwrite: true);
+        }
     }
 
     private static async Task<bool> IsCurrentAsync(string destination, ManifestFile file, CancellationToken ct)

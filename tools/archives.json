@@ -1,0 +1,10 @@
+[
+  {
+    "_comment": "ArkInventory (+ its companion ArkInventoryRules, which ships inside the same zip). NOT redistributed by us: the addon reserves all rights in its own source (ArkInventory.lua:1, see ADDON-LICENCES.md), so it stays in $licenceExcluded in Build-Payload.ps1 and never enters payload\\. Instead the launcher downloads the author's own CurseForge upload on the player's behalf and unpacks it -- the same principle as the WDM patches in external-files.json, which are served from Trimitor's releases rather than copied here. File 458795 is the exact build the realm has been running: its sha256 matches Addons\\felbite.com-arkinventory-wotlk-arkinventory.zip byte for byte, so this changes where the bytes come from and nothing about what players get. Pinned by file id, so a new upstream release cannot change what is installed without us deciding to move.",
+    "name": "ArkInventory",
+    "label": "ArkInventory",
+    "url": "https://mediafilez.forgecdn.net/files/458/795/ArkInventory-3.02.54_BETA_17-00-Cataclysm.zip",
+    "extractTo": "Interface/AddOns",
+    "verifyPath": "Interface/AddOns/ArkInventory/ArkInventory.toc"
+  }
+]

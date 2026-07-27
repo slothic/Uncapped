@@ -53,6 +53,18 @@ public sealed class Manifest
     [JsonPropertyName("files")] public List<ManifestFile> Files { get; set; } = new();
 
     /// <summary>
+    /// Zip archives fetched from someone else's distribution point and unpacked into the
+    /// install, rather than copied into our payload and served file-by-file.
+    ///
+    /// This exists for addons we are not entitled to redistribute. ArkInventory reserves all
+    /// rights in its own source (see ADDON-LICENCES.md), so we do not host its bytes — the
+    /// launcher downloads the author's own CurseForge upload on the player's behalf. Same
+    /// principle as the externally hosted WDM patches in <see cref="Files"/>, but a zip that
+    /// has to be expanded rather than a single file that lands as-is.
+    /// </summary>
+    [JsonPropertyName("archives")] public List<ManifestArchive> Archives { get; set; } = new();
+
+    /// <summary>
     /// Addon folder names the launcher force-enables in AddOns.txt on every launch.
     /// 3.3.5a has no .toc flag that makes an addon undisableable, so re-ticking the box
     /// each launch is the closest available equivalent.
@@ -120,4 +132,40 @@ public sealed class ManifestFile
     [JsonPropertyName("url")] public string Url { get; set; } = "";
     [JsonPropertyName("sha256")] public string Sha256 { get; set; } = "";
     [JsonPropertyName("size")] public long Size { get; set; }
+}
+
+/// <summary>
+/// A zip downloaded from an external host and expanded into the install.
+///
+/// Unlike <see cref="ManifestFile"/> these are not tracked per-file: we record only which
+/// <see cref="Sha256"/> was last unpacked, so a re-extract happens when the pinned archive
+/// changes and not on every launch. That also means an archive's contents are never pruned,
+/// which is correct — everything shipped this way is third-party, and the standing rule is
+/// that the launcher never deletes an addon it did not write.
+/// </summary>
+public sealed class ManifestArchive
+{
+    /// <summary>Stable key used to remember what has been unpacked. Not a filename.</summary>
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+
+    [JsonPropertyName("url")] public string Url { get; set; } = "";
+    [JsonPropertyName("sha256")] public string Sha256 { get; set; } = "";
+    [JsonPropertyName("size")] public long Size { get; set; }
+
+    /// <summary>
+    /// Install-root-relative directory the zip is expanded into, forward slashes. The archive
+    /// carries its own top-level folders, so this is the parent — "Interface/AddOns", not
+    /// "Interface/AddOns/ArkInventory".
+    /// </summary>
+    [JsonPropertyName("extractTo")] public string ExtractTo { get; set; } = "";
+
+    /// <summary>
+    /// A path that must exist for the archive to count as installed, install-root-relative.
+    /// Without this, a player who deletes the addon folder would never get it back: the state
+    /// file still says the sha is unpacked. Optional; empty means "trust the recorded sha".
+    /// </summary>
+    [JsonPropertyName("verifyPath")] public string? VerifyPath { get; set; }
+
+    /// <summary>Shown in the launcher while it downloads. Falls back to <see cref="Name"/>.</summary>
+    [JsonPropertyName("label")] public string? Label { get; set; }
 }
