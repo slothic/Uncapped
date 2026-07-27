@@ -145,6 +145,7 @@ local sbStaging, sbCurKey = {}, nil
 
 -- ============================ UI ==========================================
 local UI
+local OpenBlacklist   -- forward declaration (defined in the blacklist-manager section)
 local sourceRows, detailRows = {}, {}
 
 local DETAIL_ROWS, DETAIL_H = 5, 22
@@ -256,6 +257,12 @@ local function BuildUI()
   local retrieveBtn = CreateFrame("Button", nil, wp, "UIPanelButtonTemplate")
   retrieveBtn:SetWidth(78); retrieveBtn:SetHeight(20); retrieveBtn:SetPoint("TOPRIGHT",0,-4); retrieveBtn:SetText("Retrieve")
   retrieveBtn:SetScript("OnClick", function() send("ICRETRIEVE") end)
+
+  -- open the effect blacklist manager for the current target item
+  local blBtn = CreateFrame("Button", nil, wp, "UIPanelButtonTemplate")
+  blBtn:SetWidth(78); blBtn:SetHeight(20); blBtn:SetPoint("TOPRIGHT", retrieveBtn, "BOTTOMRIGHT", 0, -4)
+  blBtn:SetText("Blacklist")
+  blBtn:SetScript("OnClick", function() if OpenBlacklist then OpenBlacklist() end end)
 
   -- accumulated stats/procs header + divider
   local detailHdr = wp:CreateFontString(nil,"OVERLAY","GameFontNormal")
@@ -611,6 +618,197 @@ local function attachMethods()
 end
 
 -- ============================ receive =====================================
+-- ============================ blacklist manager ===========================
+-- Per-item effect blacklist: search all soulbindable effects (stats + procs),
+-- blacklist any so future soulbinds skip it on this item; whitelist to undo.
+-- Server ops: ICBLADD / ICBLREM / ICBLIST -> ICBL:<kind>:<id>... ICBLEND.
+-- Proc search reuses the server's ICPSEARCH -> ICPRESULT / ICPSEARCHEND.
+local BLM
+local blSearchRows, blListRows = {}, {}
+local BL_ROWS, BL_H = 7, 24
+local blState = { query = "", results = {}, procResults = {}, list = {} }
+local blStaging = {}
+
+-- Ordered stat codes, for the local stat-name search.
+local STAT_CODES = {}
+for code in pairs(STAT_NAMES) do STAT_CODES[#STAT_CODES + 1] = code end
+table.sort(STAT_CODES)
+
+local function blIsListed(kind, id)
+  for _, e in ipairs(blState.list) do
+    if e.kind == kind and e.id == id then return true end
+  end
+  return false
+end
+
+-- Merge local stat matches + async proc matches into the results list.
+local function blComputeResults()
+  local q = (blState.query or ""):lower()
+  local out = {}
+  if q ~= "" then
+    for _, code in ipairs(STAT_CODES) do
+      local nm = statName(code)
+      if nm:lower():find(q, 1, true) then
+        out[#out + 1] = { kind = 0, id = code, name = nm }
+      end
+    end
+    for _, sid in ipairs(blState.procResults) do
+      out[#out + 1] = { kind = 1, id = sid, name = spellName(sid), icon = select(3, GetSpellInfo(sid)) }
+    end
+  end
+  blState.results = out
+  if BLM then BLM:UpdateResults() end
+end
+
+local function BuildBlacklistManager()
+  if BLM then return BLM end
+
+  local f = CreateFrame("Frame", "UncappedICBlacklist", UIParent)
+  f:SetWidth(380); f:SetHeight(520); f:SetPoint("CENTER", 220, 0)
+  f:SetFrameStrata("DIALOG")
+  f:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", edgeSize = 32,
+    insets = { left = 11, right = 12, top = 12, bottom = 11 } })
+  f:SetMovable(true); f:EnableMouse(true); f:RegisterForDrag("LeftButton")
+  f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
+  f:SetClampedToScreen(true); f:Hide()
+
+  local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  title:SetPoint("TOP", 0, -16); title:SetText("Blacklist")
+  local sub = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  sub:SetPoint("TOP", title, "BOTTOM", 0, -2); sub:SetWidth(340)
+  sub:SetText("Blacklisted effects are skipped by future soulbinds on this item.")
+
+  local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+  close:SetPoint("TOPRIGHT", -6, -6)
+
+  local search = CreateFrame("EditBox", "UncappedICBlacklistSearch", f, "InputBoxTemplate")
+  search:SetPoint("TOPLEFT", 22, -54); search:SetWidth(296); search:SetHeight(20); search:SetAutoFocus(false)
+  search:SetScript("OnTextChanged", function(self)
+    blState.query = self:GetText() or ""
+    blState.procResults = {}
+    if blState.query ~= "" then send("ICPSEARCH:" .. blState.query) end
+    blComputeResults()
+  end)
+  search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+  local rHdr = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  rHdr:SetPoint("TOPLEFT", 20, -82); rHdr:SetText("|cff40c0f0Search results|r")
+
+  local rScroll = CreateFrame("ScrollFrame", "UncappedICBLResultScroll", f, "FauxScrollFrameTemplate")
+  rScroll:SetPoint("TOPLEFT", 22, -98); rScroll:SetWidth(320); rScroll:SetHeight(BL_ROWS * BL_H)
+  rScroll:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, BL_H, function() f:UpdateResults() end)
+  end)
+  rScroll:EnableMouseWheel(true)
+  rScroll:SetScript("OnMouseWheel", function(self, delta)
+    local sb = _G["UncappedICBLResultScrollScrollBar"]; if sb then sb:SetValue(sb:GetValue() - delta * BL_H) end
+  end)
+  f.rScroll = rScroll
+
+  for i = 1, BL_ROWS do
+    local r = CreateFrame("Frame", nil, f); r:SetWidth(314); r:SetHeight(BL_H - 2)
+    r:SetPoint("TOPLEFT", rScroll, "TOPLEFT", 0, -(i - 1) * BL_H)
+    r.icon = r:CreateTexture(nil, "ARTWORK"); r.icon:SetWidth(16); r.icon:SetHeight(16)
+    r.icon:SetPoint("LEFT", 2, 0); r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.name:SetPoint("LEFT", 22, 0); r.name:SetWidth(206); r.name:SetJustifyH("LEFT")
+    r.btn = CreateFrame("Button", nil, r, "UIPanelButtonTemplate")
+    r.btn:SetWidth(74); r.btn:SetHeight(20); r.btn:SetPoint("RIGHT", 0, 0); r.btn:SetText("Blacklist")
+    r.btn:SetScript("OnClick", function() if r.kind then send("ICBLADD:" .. r.kind .. ":" .. r.id) end end)
+    blSearchRows[i] = r; r:Hide()
+  end
+  local rEmpty = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  rEmpty:SetPoint("TOP", rScroll, "TOP", 0, -20); rEmpty:SetWidth(280)
+  rEmpty:SetText("Type to search stats and procs to blacklist.")
+  f.rEmpty = rEmpty
+
+  local lHdr = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  lHdr:SetPoint("TOPLEFT", 20, -98 - (BL_ROWS * BL_H) - 18); lHdr:SetText("|cffff6060Blacklisted on this item|r")
+
+  local lScroll = CreateFrame("ScrollFrame", "UncappedICBLListScroll", f, "FauxScrollFrameTemplate")
+  lScroll:SetPoint("TOPLEFT", lHdr, "BOTTOMLEFT", 2, -6); lScroll:SetWidth(320); lScroll:SetHeight(BL_ROWS * BL_H)
+  lScroll:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, BL_H, function() f:UpdateList() end)
+  end)
+  lScroll:EnableMouseWheel(true)
+  lScroll:SetScript("OnMouseWheel", function(self, delta)
+    local sb = _G["UncappedICBLListScrollScrollBar"]; if sb then sb:SetValue(sb:GetValue() - delta * BL_H) end
+  end)
+  f.lScroll = lScroll
+
+  for i = 1, BL_ROWS do
+    local r = CreateFrame("Frame", nil, f); r:SetWidth(314); r:SetHeight(BL_H - 2)
+    r:SetPoint("TOPLEFT", lScroll, "TOPLEFT", 0, -(i - 1) * BL_H)
+    r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.name:SetPoint("LEFT", 4, 0); r.name:SetWidth(224); r.name:SetJustifyH("LEFT")
+    r.btn = CreateFrame("Button", nil, r, "UIPanelButtonTemplate")
+    r.btn:SetWidth(74); r.btn:SetHeight(20); r.btn:SetPoint("RIGHT", 0, 0); r.btn:SetText("Whitelist")
+    r.btn:SetScript("OnClick", function() if r.kind then send("ICBLREM:" .. r.kind .. ":" .. r.id) end end)
+    blListRows[i] = r; r:Hide()
+  end
+  local lEmpty = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  lEmpty:SetPoint("TOP", lScroll, "TOP", 0, -20); lEmpty:SetWidth(280)
+  lEmpty:SetText("Nothing blacklisted on this item yet.")
+  f.lEmpty = lEmpty
+
+  function f:UpdateResults()
+    local list = blState.results
+    FauxScrollFrame_Update(self.rScroll, #list, BL_ROWS, BL_H)
+    if #list == 0 then self.rEmpty:Show() else self.rEmpty:Hide() end
+    local offset = FauxScrollFrame_GetOffset(self.rScroll)
+    for i = 1, BL_ROWS do
+      local r = blSearchRows[i]
+      local e = list[i + offset]
+      if e then
+        r.kind = e.kind; r.id = e.id
+        if e.icon then r.icon:SetTexture(e.icon); r.icon:Show() else r.icon:Hide() end
+        r.name:SetText((e.kind == 1 and "|cffc080f0" or "|cff20ff20") .. e.name .. "|r")
+        if blIsListed(e.kind, e.id) then r.btn:SetText("Listed"); r.btn:Disable()
+        else r.btn:SetText("Blacklist"); r.btn:Enable() end
+        r:Show()
+      else
+        r.kind = nil; r:Hide()
+      end
+    end
+  end
+
+  function f:UpdateList()
+    local list = blState.list
+    FauxScrollFrame_Update(self.lScroll, #list, BL_ROWS, BL_H)
+    if #list == 0 then self.lEmpty:Show() else self.lEmpty:Hide() end
+    local offset = FauxScrollFrame_GetOffset(self.lScroll)
+    for i = 1, BL_ROWS do
+      local r = blListRows[i]
+      local e = list[i + offset]
+      if e then
+        r.kind = e.kind; r.id = e.id
+        r.name:SetText((e.kind == 1 and "|cffc080f0" or "|cff20ff20") .. e.name .. "|r")
+        r:Show()
+      else
+        r.kind = nil; r:Hide()
+      end
+    end
+  end
+
+  BLM = f
+  return f
+end
+
+-- assign the forward-declared opener
+function OpenBlacklist()
+  if not (state.bench and state.bench.entry) then
+    msg("Deposit a target item first, then open its blacklist.")
+    return
+  end
+  BuildBlacklistManager()
+  if BLM:IsShown() then BLM:Hide(); return end
+  blState.query = ""; blState.procResults = {}; blState.results = {}
+  local box = _G["UncappedICBlacklistSearch"]; if box then box:SetText("") end
+  BLM:Show(); BLM:UpdateResults(); BLM:UpdateList()
+  send("ICBLIST")
+end
+
 local function OnLine(body)
   dbg("<- " .. body)
   local cmd, rest = body:match("^(%u+):?(.*)$")
@@ -619,6 +817,7 @@ local function OnLine(body)
   if cmd == "ICBENCH" then
     if rest == "0" then
       state.bench = nil
+      if BLM then BLM:Hide() end     -- blacklist is per-item; drop it when the target goes away
       if UI then UI:Refresh() end   -- empty bench sends no ICBENCHEND; switch back to the deposit menu now
     else
       local guid, entry = rest:match("^(%d+):(%d+)$")
@@ -681,6 +880,23 @@ local function OnLine(body)
   elseif cmd == "ICPREMOVED" then      -- <spellId>:<honorRefund>:<arenaRefund>
     local sid = tonumber(rest:match("^(%d+)"))
     msg("Removed " .. (sid and spellName(sid) or "a proc") .. " from your target.")
+  elseif cmd == "ICPRESULT" then       -- <spellId>  proc-search hit (blacklist search)
+    local sid = tonumber(rest)
+    if sid then table.insert(blState.procResults, sid) end
+  elseif cmd == "ICPSEARCHEND" then    -- proc search done; merge into results
+    if BLM and BLM:IsShown() then blComputeResults() end
+  elseif cmd == "ICBL" then            -- <kind>:<id>  one blacklist entry
+    local k, id = rest:match("^(%d+):(%d+)$")
+    if k then table.insert(blStaging, { kind = tonumber(k), id = tonumber(id) }) end
+  elseif cmd == "ICBLEND" then         -- blacklist list complete; commit + refresh
+    local out = {}
+    for _, e in ipairs(blStaging) do
+      out[#out+1] = { kind = e.kind, id = e.id,
+        name = (e.kind == 1) and spellName(e.id) or statName(e.id) }
+    end
+    blState.list = out
+    blStaging = {}
+    if BLM then BLM:UpdateList(); BLM:UpdateResults() end
   elseif cmd == "ICCFG" then
     -- minimal cfg on open; nothing the new UI needs, accept quietly.
   elseif cmd == "ICERR" then
@@ -693,7 +909,7 @@ end
 
 -- ---- StaticPopup: confirm Soulbind ALL -----------------------------------
 StaticPopupDialogs["UNCAPPED_IC_SOULBIND_ALL"] = {
-  text = "Consume ALL items in your bags that have stats/procs and bind them into %s?\n\nThis cannot be undone.",
+  text = "Consume ALL items in your bags AND vault that have stats/procs and bind them into %s?\n\nBlacklisted effects are skipped. This cannot be undone.",
   button1 = ACCEPT, button2 = CANCEL,
   OnAccept = function() send("ICSBALL") end,
   timeout = 0, whileDead = 1, hideOnEscape = 1, showAlert = 1,
@@ -957,6 +1173,7 @@ SlashCmdList["ICUST"] = function()
   BuildUI(); attachMethods()
   if UI:IsShown() then
     UI:Hide()
+    if BLM then BLM:Hide() end
   else
     state.bench = nil; state.bags = {}; state.bagsStaging = {}; state.details = {}
     UI:Show(); UI:Refresh()
