@@ -152,8 +152,10 @@ local function ApplyBar()
 end
 
 -- RBHOT:<name>~<kind>~<remaining>|<name>~<kind>~<remaining>   (payload may be empty)
-local function OnData(payload)
-    zones = {}
+local function OnData(payload, append)
+    -- The server chunks the list across messages (255-byte pipe cap): the first
+    -- "RBHOT:" resets, each following "RBHOT+:" appends. Only reset on the first.
+    if not append then zones = {} end
     local now = GetTime()
     for chunk in payload:gmatch("[^|]+") do
         local name, kind, rem = chunk:match("^(.-)~(%a+)~(%d+)$")
@@ -180,7 +182,7 @@ end
 
 -- Keep the protocol line out of chat.
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and msg:find("^RBHOT:") then
+    if msg and msg:find("^RBHOT") then
         return true
     end
     return false
@@ -239,7 +241,12 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
 
     local payload = msg:match("^RBHOT:(.*)$")
     if payload ~= nil then
-        OnData(payload)
+        OnData(payload, false)   -- first message: reset the list
+        return
+    end
+    local more = msg:match("^RBHOT%+:(.*)$")
+    if more ~= nil then
+        OnData(more, true)       -- continuation: append to the list
     end
 end)
 

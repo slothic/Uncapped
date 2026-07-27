@@ -2583,8 +2583,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedHotzones/UncappedHotzones.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedHotzones/UncappedHotzones.lua",
-                      "sha256":  "52ab922f65d0e94b3f8a28229970a9d45cca5e5dbf18d94516a5e94c92f28398",
-                      "size":  11736
+                      "sha256":  "8034383580dc935ae464f5971b1146f1f3c3c651408fa1ed7b68d1ad79c317d2",
+                      "size":  12133
                   },
                   {
                       "path":  "Interface/AddOns/UncappedHotzones/UncappedHotzones.toc",
