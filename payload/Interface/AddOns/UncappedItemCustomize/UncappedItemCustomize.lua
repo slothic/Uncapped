@@ -85,6 +85,12 @@ local state = {
   wlSuggest = {},        -- item-name search suggestions (server ICINAME search)
   wlSuggestStaging = {},
   equipped = {},         -- rendered rows: your equipped items that carry bonuses
+  exItems = {},          -- extraction picker: key "bag:slot" -> {bag,slot,entry,equipped,procs={}}
+  exStaging = {},        -- accumulates ICEXI lines until ICEXIEND
+  exSources = {},        -- flattened source rows: one per (item, proc)
+  exTargets = {},        -- one row per gear item (any -- with or without a proc)
+  exSelSrc = nil,        -- selected source row (from exSources)
+  exSelTgt = nil,        -- selected target row (from exTargets)
 }
 
 local function send(body)
@@ -417,6 +423,187 @@ local function BuildWhitelist()
   return f
 end
 
+-- ====================== Scroll of Extraction picker =======================
+-- Opened by ICEXOPEN (the scroll's OnUse). Pick an effect to pull from one item
+-- (left) and the item to stamp it onto (right); Extract sends ICEXTRACT and the
+-- server moves the proc, consumes the source item and one scroll.
+local EXT
+local exSrcRows, exTgtRows = {}, {}
+local EXR_ROWS, EXR_H = 9, 26
+
+local function itemDisplay(entry)
+  local name, _, quality, _, _, _, _, _, _, tex = GetItemInfo(entry)
+  local r, g, b = GetItemQualityColor(quality or 1)
+  return name or ("Item #" .. tostring(entry)), tex or QUESTION, r, g, b
+end
+
+local function BuildExtractor()
+  if EXT then return EXT end
+  local f = CreateFrame("Frame", "UncappedExtractorFrame", UIParent)
+  f:SetSize(500, 400)
+  f:SetPoint("CENTER")
+  f:SetFrameStrata("HIGH")
+  f:SetBackdrop({
+    bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", tile = true, tileSize = 32, edgeSize = 32,
+    insets = { left = 11, right = 12, top = 12, bottom = 11 } })
+  f:SetBackdropBorderColor(0.55, 0.4, 0.9, 1)
+  f:EnableMouse(true); f:SetMovable(true); f:RegisterForDrag("LeftButton")
+  f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
+  f:SetClampedToScreen(true); f:Hide()
+  tinsert(UISpecialFrames, "UncappedExtractorFrame")   -- Esc closes it
+
+  local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  title:SetPoint("TOP", 0, -18); title:SetText("|cffb384ffScroll of Extraction|r")
+
+  local sub = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  sub:SetPoint("TOP", 0, -40)
+  sub:SetText("Pull an effect from one item and stamp it onto another.")
+
+  local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+  close:SetPoint("TOPRIGHT", -8, -8)
+
+  local lh = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  lh:SetPoint("TOPLEFT", 20, -62); lh:SetText("1. Effect to pull")
+  local rh = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  rh:SetPoint("TOPLEFT", 258, -62); rh:SetText("2. Item to receive it")
+
+  -- Build one FauxScrollFrame column of selectable rows.
+  local function buildColumn(name, x, rowStore, onClick)
+    local scroll = CreateFrame("ScrollFrame", "UncappedExtractor" .. name, f, "FauxScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", x, -82)
+    scroll:SetSize(210, EXR_ROWS * EXR_H)
+    scroll:SetScript("OnVerticalScroll", function(self, offset)
+      FauxScrollFrame_OnVerticalScroll(self, offset, EXR_H, function() if EXT then EXT:Refresh() end end)
+    end)
+    scroll:SetScript("OnMouseWheel", function(self, delta)
+      FauxScrollFrame_OnVerticalScroll(self, (FauxScrollFrame_GetOffset(self) - delta) * EXR_H, EXR_H,
+        function() if EXT then EXT:Refresh() end end)
+    end)
+    for i = 1, EXR_ROWS do
+      local r = CreateFrame("Button", nil, f); r:SetSize(206, EXR_H - 2)
+      if i == 1 then r:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, 0)
+      else r:SetPoint("TOPLEFT", rowStore[i-1], "BOTTOMLEFT", 0, -2) end
+      r.sel = r:CreateTexture(nil, "BACKGROUND")
+      r.sel:SetAllPoints(); r.sel:SetTexture(0.4, 0.3, 0.7, 0.5); r.sel:Hide()
+      local hl = r:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetTexture(1, 1, 1, 0.12)
+      r.icon = r:CreateTexture(nil, "ARTWORK"); r.icon:SetSize(EXR_H - 8, EXR_H - 8)
+      r.icon:SetPoint("LEFT", 2, 0)
+      r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+      r.name:SetPoint("LEFT", r.icon, "RIGHT", 4, 4); r.name:SetWidth(168); r.name:SetJustifyH("LEFT")
+      r.sub = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+      r.sub:SetPoint("LEFT", r.icon, "RIGHT", 4, -7); r.sub:SetWidth(168); r.sub:SetJustifyH("LEFT")
+      r:SetScript("OnClick", function() if r.data then onClick(r.data) end end)
+      r:Hide()
+      rowStore[i] = r
+    end
+    return scroll
+  end
+
+  f.srcScroll = buildColumn("SrcScroll", 20, exSrcRows, function(d) state.exSelSrc = d; EXT:Refresh() end)
+  f.tgtScroll = buildColumn("TgtScroll", 258, exTgtRows, function(d) state.exSelTgt = d; EXT:Refresh() end)
+
+  f.summary = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  f.summary:SetPoint("BOTTOMLEFT", 20, 44); f.summary:SetPoint("BOTTOMRIGHT", -20, 44)
+  f.summary:SetJustifyH("CENTER"); f.summary:SetHeight(28)
+
+  local btn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  btn:SetSize(160, 26); btn:SetPoint("BOTTOM", 0, 14); btn:SetText("Extract")
+  btn:SetScript("OnClick", function()
+    local s, t = state.exSelSrc, state.exSelTgt
+    if not s or not t then return end
+    send(string.format("ICEXTRACT:%d:%d:%d:%d:%d:%d", s.bag, s.slot, s.spell, s.trigger, t.bag, t.slot))
+  end)
+  f.extractBtn = btn
+
+  local function fillRow(r, d, isSource)
+    r.data = d
+    local nm, tex, cr, cg, cb = itemDisplay(d.entry)
+    r.icon:SetTexture(tex)
+    if isSource then
+      r.name:SetText(nm); r.name:SetTextColor(cr, cg, cb)
+      r.sub:SetText("|cffb384ff" .. spellName(d.spell) .. "|r  (" .. triggerLabel(d.trigger) .. ")")
+    else
+      r.name:SetText(nm .. (d.equipped == 1 and "  |cff40ff40[Worn]|r" or ""))
+      r.name:SetTextColor(cr, cg, cb)
+      r.sub:SetText("")
+    end
+    local selData = isSource and state.exSelSrc or state.exSelTgt
+    if selData and selData.bag == d.bag and selData.slot == d.slot
+       and (not isSource or selData.spell == d.spell) then r.sel:Show() else r.sel:Hide() end
+    r:Show()
+  end
+
+  function f:Refresh()
+    local src, tgt = state.exSources, state.exTargets
+    FauxScrollFrame_Update(self.srcScroll, #src, EXR_ROWS, EXR_H)
+    FauxScrollFrame_Update(self.tgtScroll, #tgt, EXR_ROWS, EXR_H)
+    local so = FauxScrollFrame_GetOffset(self.srcScroll)
+    local to = FauxScrollFrame_GetOffset(self.tgtScroll)
+    for i = 1, EXR_ROWS do
+      local ds = src[i + so]; if ds then fillRow(exSrcRows[i], ds, true) else exSrcRows[i].data = nil; exSrcRows[i]:Hide() end
+      local dt = tgt[i + to]; if dt then fillRow(exTgtRows[i], dt, false) else exTgtRows[i].data = nil; exTgtRows[i]:Hide() end
+    end
+    -- summary + button state
+    local s, t = state.exSelSrc, state.exSelTgt
+    if s and t then
+      if s.bag == t.bag and s.slot == t.slot then
+        self.summary:SetText("|cffff8040Pick a different item to receive the effect.|r")
+        self.extractBtn:Disable()
+      else
+        local sn = itemDisplay(s.entry); local tn = itemDisplay(t.entry)
+        self.summary:SetText(string.format("Move |cffb384ff%s|r\nfrom |cffffffff%s|r  onto  |cffffffff%s|r",
+          spellName(s.spell), sn, tn))
+        self.extractBtn:Enable()
+      end
+    elseif s then
+      self.summary:SetText("Now choose the item on the right to receive |cffb384ff" .. spellName(s.spell) .. "|r.")
+      self.extractBtn:Disable()
+    else
+      self.summary:SetText("Choose an effect on the left to pull.")
+      self.extractBtn:Disable()
+    end
+  end
+
+  EXT = f
+  return f
+end
+
+-- Rebuild the source/target arrays from the staged ICEXI lines.
+local function commitExtractItems()
+  local sources, targets = {}, {}
+  for _, it in pairs(state.exStaging) do
+    tinsert(targets, { bag = it.bag, slot = it.slot, entry = it.entry, equipped = it.equipped })
+    for _, pr in ipairs(it.procs) do
+      tinsert(sources, { bag = it.bag, slot = it.slot, entry = it.entry, equipped = it.equipped,
+                         spell = pr.spell, trigger = pr.trigger })
+    end
+  end
+  local function byName(a, b) return (itemDisplay(a.entry)) < (itemDisplay(b.entry)) end
+  table.sort(sources, byName); table.sort(targets, byName)
+  state.exSources = sources
+  state.exTargets = targets
+  -- drop selections that no longer exist
+  local function stillThere(list, sel, isSrc)
+    if not sel then return nil end
+    for _, d in ipairs(list) do
+      if d.bag == sel.bag and d.slot == sel.slot and (not isSrc or d.spell == sel.spell) then return d end
+    end
+    return nil
+  end
+  state.exSelSrc = stillThere(sources, state.exSelSrc, true)
+  state.exSelTgt = stillThere(targets, state.exSelTgt, false)
+  if EXT and EXT:IsShown() then EXT:Refresh() end
+end
+
+local function openExtractor()
+  BuildExtractor()
+  state.exStaging = {}
+  EXT:Show()
+  EXT:Refresh()
+  send("ICEXSRC")
+end
+
 -- ============================ receive =====================================
 local function OnLine(body)
   dbg("<- " .. body)
@@ -478,12 +665,43 @@ local function OnLine(body)
     msg(string.format("Soulbound %d duplicate%s onto your gear.", n, n == 1 and "" or "s"))
     if UI then UI:Ding() end
     send("ICINV"); send("ICSF")
+  elseif cmd == "ICEXOPEN" then         -- the scroll was used -> open the picker
+    openExtractor()
+  elseif cmd == "ICEXI" then            -- <bag>:<slot>:<entry>:<equipped>:<spell>:<trigger>
+    local bag, slot, entry, eq, spell, trig = rest:match("^(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
+    if bag then
+      local key = bag .. ":" .. slot
+      local it = state.exStaging[key]
+      if not it then
+        it = { bag = tonumber(bag), slot = tonumber(slot), entry = tonumber(entry),
+               equipped = tonumber(eq), procs = {} }
+        state.exStaging[key] = it
+      end
+      if tonumber(spell) > 0 then
+        tinsert(it.procs, { spell = tonumber(spell), trigger = tonumber(trig) })
+      end
+    end
+  elseif cmd == "ICEXIEND" then
+    commitExtractItems()
+  elseif cmd == "ICEXOK" then           -- <spell>  extraction succeeded
+    local sp = tonumber(rest)
+    msg("|cff9CC243Extracted|r " .. (sp and spellName(sp) or "the effect")
+        .. ". Soulbind duplicates into that item to upgrade it.")
+    state.exSelSrc = nil; state.exSelTgt = nil
+    PlaySoundFile(SND_SEAL)
   elseif cmd == "ICERR" then
     local op, reason = rest:match("^(%a+):(.+)$")
     if reason == "no_equipped_match" then
       msg("|cffff8040You can only soulbind a duplicate of an item you're wearing.|r")
     elseif reason == "nothing" then
       msg("|cffff8040No duplicates of your equipped gear were found.|r")
+    elseif op == "extract" then
+      local m = {
+        no_source = "The item to pull from is gone.", no_target = "The item to receive it is gone.",
+        same_item = "Pick two different items.", bad_target = "That item can't receive an effect.",
+        no_proc = "That item no longer has that effect.",
+      }
+      msg("|cffff8040Extraction failed:|r " .. (m[reason] or tostring(reason)))
     else
       msg("|cffff4040" .. tostring(op) .. " failed:|r " .. tostring(reason))
     end
@@ -709,6 +927,13 @@ SlashCmdList["SOULFORGE"] = function()
     UI:Show(); UI:Refresh()
     send("ICSF"); send("ICINV")
   end
+end
+
+SLASH_EXTRACT1 = "/extract"
+SLASH_EXTRACT2 = "/ex"
+SlashCmdList["EXTRACT"] = function()
+  BuildExtractor()
+  if EXT:IsShown() then EXT:Hide() else openExtractor() end
 end
 
 SLASH_ICDEBUG1 = "/sbdebug"
