@@ -296,7 +296,7 @@ local function BuildUI()
     r.icon = r:CreateTexture(nil,"ARTWORK"); r.icon:SetWidth(16); r.icon:SetHeight(16)
     r.icon:SetPoint("LEFT",2,0); r.icon:SetTexCoord(0.08,0.92,0.08,0.92)
     r.text = r:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
-    r.text:SetPoint("LEFT",22,0); r.text:SetWidth(330); r.text:SetJustifyH("LEFT")
+    r.text:SetPoint("LEFT",22,0); r.text:SetWidth(306); r.text:SetJustifyH("LEFT")
     -- per-power remove: strips just this bound stat/proc off the target
     r.removeBtn = CreateFrame("Button", nil, r)
     r.removeBtn:SetWidth(18); r.removeBtn:SetHeight(18); r.removeBtn:SetPoint("RIGHT", 0, 0)
@@ -311,6 +311,27 @@ local function BuildUI()
       if not e then return end
       local itemName = state.bench and (GetItemInfo(state.bench.entry) or ("Item "..state.bench.entry)) or "the target"
       StaticPopup_Show("UNCAPPED_IC_REMOVE", e.label or "this power", itemName, e)
+    end)
+    -- per-power blacklist: blocks just this effect from FUTURE soulbinds on the target
+    -- (gold "deny" symbol, to read apart from the red remove; sits just left of it)
+    r.blBtn = CreateFrame("Button", nil, r)
+    r.blBtn:SetWidth(18); r.blBtn:SetHeight(18); r.blBtn:SetPoint("RIGHT", r.removeBtn, "LEFT", -3, 0)
+    r.blBtn:SetNormalTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Up")
+    r.blBtn:SetHighlightTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Highlight")
+    r.blBtn:GetNormalTexture():SetVertexColor(1, 0.82, 0)
+    r.blBtn:SetScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:SetText("Blacklist this effect")
+      GameTooltip:AddLine("Future soulbinds on this item will skip it.", 0.8, 0.8, 0.8, true)
+      GameTooltip:Show()
+    end)
+    r.blBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    r.blBtn:SetScript("OnClick", function()
+      local e = r.detail
+      if not e then return end
+      if e.kind == "stat" then send("ICBLADD:0:"..e.statType)
+      elseif e.kind == "proc" then send("ICBLADD:1:"..e.spellId) end
+      msg("Blacklisted |cffffffff"..(e.label or "that effect").."|r — future soulbinds will skip it.")
     end)
     detailRows[i] = r; r:Hide()
   end
