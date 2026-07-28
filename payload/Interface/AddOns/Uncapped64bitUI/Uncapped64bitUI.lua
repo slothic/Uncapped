@@ -945,6 +945,45 @@ if not InstallStatTooltipStripper() then
 end
 
 -- ---------------------------------------------------------------------------
+-- Item tooltip: haste is Crit Damage now.
+--
+-- Haste no longer affects speed on this realm -- each point of haste RATING is
+-- worth 1/1000 % crit damage (90,000 haste = +90%), matching the character
+-- sheet. The client still prints item haste as "+N Haste Rating", which is now
+-- misleading, so rewrite those stat lines on item tooltips into the crit damage
+-- they actually grant. Descriptive lines ("Increases haste rating by...") are
+-- skipped -- only the "+N ... Haste Rating" stat line is matched.
+-- ---------------------------------------------------------------------------
+local function RewriteItemHaste(tt)
+    if not tt or not tt.GetName then return end
+    local name = tt:GetName()
+    if not name then return end
+    for i = 2, tt:NumLines() do
+        local fs = _G[name .. "TextLeft" .. i]
+        local t = fs and fs:GetText()
+        if t then
+            local numStr = t:match("^%s*%+?([%d,]+)[^%d]-[Hh]aste%s+[Rr]ating")
+            if numStr then
+                local n = tonumber((numStr:gsub(",", "")))
+                if n then
+                    local pct = n / 1000   -- haste rating -> crit damage %
+                    local pctStr = (pct == math.floor(pct)) and string.format("%d", pct)
+                                    or string.format("%.2f", pct)
+                    fs:SetText("+" .. pctStr .. "% Crit Damage")
+                end
+            end
+        end
+    end
+end
+
+for _, tname in ipairs({ "GameTooltip", "ItemRefTooltip", "ShoppingTooltip1", "ShoppingTooltip2" }) do
+    local tt = _G[tname]
+    if tt and tt.HookScript then
+        tt:HookScript("OnTooltipSetItem", RewriteItemHaste)
+    end
+end
+
+-- ---------------------------------------------------------------------------
 -- Spell tooltip: strip the computed damage / healing figures.
 --
 -- The client builds these itself from Spell.dbc tokens and its OWN capped stat
