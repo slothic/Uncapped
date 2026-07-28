@@ -951,8 +951,8 @@ end
 -- worth 1/1000 % crit damage (90,000 haste = +90%), matching the character
 -- sheet. The client still prints item haste as "+N Haste Rating", which is now
 -- misleading, so rewrite those stat lines on item tooltips into the crit damage
--- they actually grant. Descriptive lines ("Increases haste rating by...") are
--- skipped -- only the "+N ... Haste Rating" stat line is matched.
+-- they actually grant. Handles both client formats: the "Equip: Improves haste
+-- rating by N" line and the "+N Haste Rating" stat line.
 -- ---------------------------------------------------------------------------
 local function RewriteItemHaste(tt)
     if not tt or not tt.GetName then return end
@@ -961,15 +961,22 @@ local function RewriteItemHaste(tt)
     for i = 2, tt:NumLines() do
         local fs = _G[name .. "TextLeft" .. i]
         local t = fs and fs:GetText()
-        if t then
-            local numStr = t:match("^%s*%+?([%d,]+)[^%d]-[Hh]aste%s+[Rr]ating")
-            if numStr then
-                local n = tonumber((numStr:gsub(",", "")))
+        if t and t:lower():find("haste rating") then
+            -- Two client formats: "Equip: Improves haste rating by N" and "+N Haste Rating".
+            local byN   = t:match("[Bb]y%s+([%d,]+)")
+            local plusN = (not byN) and t:match("^%s*%+([%d,]+)")
+            local raw   = byN or plusN
+            if raw then
+                local n = tonumber((raw:gsub(",", "")))
                 if n then
                     local pct = n / 1000   -- haste rating -> crit damage %
                     local pctStr = (pct == math.floor(pct)) and string.format("%d", pct)
                                     or string.format("%.2f", pct)
-                    fs:SetText("+" .. pctStr .. "% Crit Damage")
+                    if byN then
+                        fs:SetText("Equip: Increases your critical hit damage by " .. pctStr .. "%.")
+                    else
+                        fs:SetText("+" .. pctStr .. "% Crit Damage")
+                    end
                 end
             end
         end
