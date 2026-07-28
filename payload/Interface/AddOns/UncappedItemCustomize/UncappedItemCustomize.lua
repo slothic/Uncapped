@@ -38,9 +38,9 @@ local STAT_NAMES = {
   [12]="Defense Rating",[13]="Dodge Rating",[14]="Parry Rating",[15]="Block Rating",
   [16]="Melee Hit Rating",[17]="Ranged Hit Rating",[18]="Spell Hit Rating",
   [19]="Melee Crit Rating",[20]="Ranged Crit Rating",[21]="Spell Crit Rating",
-  [28]="Melee Haste Rating",[29]="Ranged Haste Rating",[30]="Spell Haste Rating",
+  [28]="Crit Damage",[29]="Crit Damage",[30]="Crit Damage",
   [31]="Hit Rating",[32]="Crit Rating",[33]="Hit Avoidance",[34]="Crit Avoidance",
-  [35]="Resilience Rating",[36]="Haste Rating",[37]="Expertise Rating",
+  [35]="Resilience Rating",[36]="Crit Damage",[37]="Expertise Rating",
   [38]="Attack Power",[39]="Ranged Attack Power",[41]="Spell Healing",[42]="Spell Damage",
   [43]="Mana Regen",[44]="Armor Penetration",[45]="Spell Power",[46]="Health Regen",
   [47]="Spell Penetration",[48]="Block Value",
@@ -48,6 +48,18 @@ local STAT_NAMES = {
   [64]="Frost Resistance",[65]="Shadow Resistance",[66]="Arcane Resistance",
 }
 local function statName(t) return STAT_NAMES[t] or ("Stat #" .. tostring(t)) end
+
+-- Haste is Crit Damage now: haste-rating stat types show their crit-damage
+-- percent (rating / 1000), not the raw rating -- consistent with tooltips/sheet.
+local HASTE_TYPES = { [28]=true, [29]=true, [30]=true, [36]=true }
+local function statLineText(t, val)
+  if HASTE_TYPES[t] then
+    local pct = (tonumber(val) or 0) / 1000
+    local s = (pct == math.floor(pct)) and string.format("%d", pct) or string.format("%.2f", pct)
+    return "+" .. s .. "% Crit Damage"
+  end
+  return "+" .. tostring(val) .. " " .. statName(t)
+end
 
 local TRIGGER_LABEL = { [0]="On Use", [1]="Passive", [2]="On Hit", [3]="On Cast" }
 local function triggerLabel(t) return TRIGGER_LABEL[t] or ("Trigger " .. tostring(t)) end
@@ -848,7 +860,7 @@ local function Inject(tt, key)
 
   local lines = {}
   for _, s in ipairs(e.stats) do
-    lines[#lines+1] = { text = "+" .. tostring(s.value) .. " " .. statName(s.type), r = 0.12, g = 1, b = 0.12 }
+    lines[#lines+1] = { text = statLineText(s.type, s.value), r = 0.12, g = 1, b = 0.12 }
   end
   for _, p in ipairs(e.procs) do
     lines[#lines+1] = { text = spellName(p.spellId) .. " (" .. triggerLabel(p.trigger) .. ") \226\128\148 " .. procMechanic(p),

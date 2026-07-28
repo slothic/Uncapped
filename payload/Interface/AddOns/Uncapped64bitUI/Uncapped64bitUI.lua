@@ -991,6 +991,72 @@ for _, tname in ipairs({ "GameTooltip", "ItemRefTooltip", "ShoppingTooltip1", "S
 end
 
 -- ---------------------------------------------------------------------------
+-- Spell / talent tooltips: haste is Crit Damage now.
+--
+-- Rewrites POSITIVE haste on spell/talent tooltips into crit damage, on the
+-- rendered text (real numbers): "attack and casting speed by 3%" -> "critical
+-- strike damage by 3%" (1:1), and "haste rating by 340" -> "...by 0.34%" (/1000).
+-- Slows (Curse of Tongues, Thunderclap: "reduces ... speed") and movement speed
+-- are left untouched by the guard, so no debuff tooltip is mangled.
+-- ---------------------------------------------------------------------------
+local CDMG = "critical strike damage"
+local function fmtCd(n)
+    n = tonumber(n) or 0
+    if n == math.floor(n) then return string.format("%d", n) end
+    return string.format("%.2f", n)
+end
+local function rewriteHasteLine(t)
+    local low = t:lower()
+    if low:find("movement speed") or low:find("run speed") then return t end
+    if low:find("reduc") or low:find("slow") or low:find("decreas") or low:find("lower")
+       or low:find("cast time") or low:find("casting time") then return t end   -- slow -> leave
+    if not (low:find("increas") or low:find("improv") or low:find("grant") or low:find("gain")
+            or low:find("provid") or low:find("boost") or low:find("haste rating")) then return t end
+    local s = t
+    s = s:gsub("[Hh]aste [Rr]ating by (%d+)", function(n) return CDMG .. " by " .. fmtCd(tonumber(n)/1000) .. "%" end)
+    s = s:gsub("(%d+)%s+[Hh]aste [Rr]ating", function(n) return fmtCd(tonumber(n)/1000) .. "% " .. CDMG end)
+    s = s:gsub("(%d+%%)%s*[Mm]elee [Hh]aste", "%1 " .. CDMG)
+    s = s:gsub("(%d+%%)%s*[Ss]pell [Hh]aste",  "%1 " .. CDMG)
+    s = s:gsub("(%d+%%)%s*[Rr]anged [Hh]aste", "%1 " .. CDMG)
+    s = s:gsub("(%d+%%)%s*[Hh]aste",           "%1 " .. CDMG)
+    s = s:gsub("[Mm]elee, ranged, and spell casting speed", CDMG)
+    s = s:gsub("[Mm]elee and ranged attack speed", CDMG)
+    s = s:gsub("[Aa]ttack and casting speed", CDMG)
+    s = s:gsub("[Mm]elee attack speed", CDMG)
+    s = s:gsub("[Rr]anged attack speed", CDMG)
+    s = s:gsub("[Aa]ttack speed", CDMG)
+    s = s:gsub("[Cc]asting speed", CDMG)
+    s = s:gsub("[Ss]pell [Hh]aste", CDMG)
+    s = s:gsub("[Mm]elee [Hh]aste", CDMG)
+    s = s:gsub("[Rr]anged [Hh]aste", CDMG)
+    s = s:gsub("[Hh]aste [Rr]ating", CDMG)
+    s = s:gsub("[Hh]aste", CDMG)
+    return s
+end
+local function RewriteSpellHaste(tt)
+    if not tt or not tt.GetName then return end
+    local name = tt:GetName()
+    if not name then return end
+    for i = 1, tt:NumLines() do
+        local fs = _G[name .. "TextLeft" .. i]
+        local t = fs and fs:GetText()
+        if t then
+            local low = t:lower()
+            if low:find("haste") or low:find("attack speed") or low:find("casting speed") then
+                local nt = rewriteHasteLine(t)
+                if nt ~= t then fs:SetText(nt) end
+            end
+        end
+    end
+end
+for _, tname in ipairs({ "GameTooltip", "ItemRefTooltip" }) do
+    local tt = _G[tname]
+    if tt and tt.HookScript then
+        tt:HookScript("OnTooltipSetSpell", RewriteSpellHaste)
+    end
+end
+
+-- ---------------------------------------------------------------------------
 -- Spell tooltip: strip the computed damage / healing figures.
 --
 -- The client builds these itself from Spell.dbc tokens and its OWN capped stat
