@@ -102,6 +102,109 @@ local function procMechanic(p)
   return out
 end
 
+-- ---- big-number formatting -----------------------------------------------
+-- Soulbound procs ramp without a cap, so effect values run far past what a stock
+-- tooltip ever shows. Render them with a magnitude suffix instead of 13 digits.
+local NUM_SUFFIX = { "K", "M", "B", "T", "Q", "Qi", "Sx", "Sp", "Oc", "No", "Dc" }
+
+local function fmtBig(n)
+  n = tonumber(n) or 0
+  local neg = n < 0
+  if neg then n = -n end
+
+  local out
+  if n < 1000 then
+    -- Small values keep their exact form; a proc for "7" should not read "0K".
+    out = tostring(math.floor(n + 0.5))
+  else
+    local i, v = 0, n
+    while v >= 1000 and i < #NUM_SUFFIX do
+      v = v / 1000
+      i = i + 1
+    end
+    -- 2 significant decimals under 10, 1 under 100, none above -- keeps width steady.
+    local fmt = (v < 10 and "%.2f") or (v < 100 and "%.1f") or "%.0f"
+    local s = string.format(fmt, v)
+    -- Trim trailing zeros ONLY past a decimal point: a blanket "0+$" strip would
+    -- turn "100" into "1".
+    if s:find(".", 1, true) then
+      s = s:gsub("0+$", "")
+      s = s:gsub("%.$", "")
+    end
+    out = s .. NUM_SUFFIX[i]
+  end
+
+  if neg then out = "-" .. out end
+  return out
+end
+
+-- ---- spell description scraping ------------------------------------------
+-- 3.3.5a has no GetSpellDescription, but spell hyperlinks work: point a hidden
+-- tooltip at "spell:<id>" and read its lines. Same trick UncappedVault uses for
+-- items. Cached per spell -- the text never changes for a given id.
+local descScan = CreateFrame("GameTooltip", "UncappedICDescScan", UIParent, "GameTooltipTemplate")
+descScan:SetOwner(UIParent, "ANCHOR_NONE")
+local descCache = {}
+
+local function spellDescription(spellId)
+  if descCache[spellId] ~= nil then
+    return descCache[spellId] ~= false and descCache[spellId] or nil
+  end
+
+  descScan:SetOwner(UIParent, "ANCHOR_NONE")
+  descScan:ClearLines()
+  local ok = pcall(function() descScan:SetHyperlink("spell:" .. spellId) end)
+
+  local desc
+  if ok then
+    -- The description is the last non-empty left line; earlier lines are the
+    -- spell name, rank, cast time, range, cooldown and so on.
+    for i = descScan:NumLines(), 2, -1 do
+      local fs = _G["UncappedICDescScanTextLeft" .. i]
+      local txt = fs and fs:GetText()
+      if txt and txt:match("%S") then
+        desc = txt
+        break
+      end
+    end
+  end
+
+  descCache[spellId] = desc or false
+  return desc
+end
+
+-- Rewrite the base effect values inside a scraped description to OUR scaled values.
+--
+-- Only the numbers the server told us are real effect base points get touched, so a
+-- "for 5 sec" duration or "40 yd" range is left alone. Longest base value first, so
+-- replacing 1500 can't be pre-empted by a 500 that appears inside it. Returns nil if
+-- nothing matched, which lets the caller fall back to the old "Nx power" wording
+-- rather than print a description with misleading stock numbers.
+local function scaleDescription(desc, bases, mult)
+  if not desc or mult == 1 then return desc end
+
+  local ordered = {}
+  for _, b in ipairs(bases) do
+    if b and b > 0 then table.insert(ordered, b) end
+  end
+  if #ordered == 0 then return nil end
+  table.sort(ordered, function(a, b) return a > b end)
+
+  local out, hit = desc, false
+  for _, b in ipairs(ordered) do
+    local scaled = fmtBig(b * mult)
+    -- Frontier-bounded so 500 can't match inside 1500. %f matches an empty string,
+    -- so no captures are needed and the replacement is a literal.
+    local pattern = "%f[%d]" .. string.format("%d", b) .. "%f[%D]"
+    local replaced, n = out:gsub(pattern, (scaled:gsub("%%", "%%%%")))
+    if n > 0 then
+      out, hit = replaced, true
+    end
+  end
+
+  return hit and out or nil
+end
+
 local SND_SEAL = "Sound\\Spells\\SoulstoneResurrection_Base.wav"
 
 -- ---- state ---------------------------------------------------------------
@@ -680,7 +783,18 @@ local function OnLine(body)
     if sid and sbCurKey and sbStaging[sbCurKey] then
       table.insert(sbStaging[sbCurKey].procs,
         { spellId = tonumber(sid), trigger = tonumber(tr), chance = tonumber(ch), mag = tonumber(mg),
-          summonCap = tonumber(sc) or 0 })
+          summonCap = tonumber(sc) or 0, bases = { 0, 0, 0 } })
+    end
+  elseif cmd == "ICIPROCBP" then
+    -- <bp0>:<bp1>:<bp2> -- unscaled base values for the ICIPROC just before it. Sent as
+    -- its own line so older addon builds simply ignore it instead of losing the proc.
+    local b0, b1, b2 = rest:match("^(%d+):(%d+):(%d+)$")
+    if b0 and sbCurKey and sbStaging[sbCurKey] then
+      local procs = sbStaging[sbCurKey].procs
+      local last = procs[#procs]
+      if last then
+        last.bases = { tonumber(b0), tonumber(b1), tonumber(b2) }
+      end
     end
   elseif cmd == "ICINVEND" then
     sbInv = sbStaging
@@ -884,8 +998,19 @@ local function Inject(tt, key)
     lines[#lines+1] = { text = statLineText(s.type, s.value), r = 0.12, g = 1, b = 0.12 }
   end
   for _, p in ipairs(e.procs) do
+    -- Header: what it is, how it fires, and (for chance procs) how often.
     lines[#lines+1] = { text = spellName(p.spellId) .. " (" .. triggerLabel(p.trigger) .. ") \226\128\148 " .. procMechanic(p),
       r = 0.75, g = 0.5, b = 0.94 }
+
+    -- Body: the spell's own description with its numbers rewritten to what this
+    -- soulbound copy actually hits for. Falls back to no body line if the client
+    -- has no description for the spell, or if none of the server's base values
+    -- appear in it -- printing stock numbers next to a 367x multiplier would read
+    -- as a bug, and the header already carries the multiplier.
+    local scaled = scaleDescription(spellDescription(p.spellId), p.bases or {}, (p.mag or 100) / 100)
+    if scaled then
+      lines[#lines+1] = { text = "  " .. scaled, r = 0.62, g = 0.62, b = 0.72 }
+    end
   end
 
   tt:AddLine(" ")
