@@ -945,50 +945,12 @@ if not InstallStatTooltipStripper() then
 end
 
 -- ---------------------------------------------------------------------------
--- Item tooltip: haste is Crit Damage now.
---
--- Haste no longer affects speed on this realm -- each point of haste RATING is
--- worth 1/1000 % crit damage (90,000 haste = +90%), matching the character
--- sheet. The client still prints item haste as "+N Haste Rating", which is now
--- misleading, so rewrite those stat lines on item tooltips into the crit damage
--- they actually grant. Handles both client formats: the "Equip: Improves haste
--- rating by N" line and the "+N Haste Rating" stat line.
+-- Item tooltips (haste stat lines AND proc / equip-effect lines like Tempest
+-- Keep's "chance to increase attack speed by N%") are handled by the unified
+-- RewriteSpellHaste below, which also hooks OnTooltipSetItem. It substitutes
+-- in place, so proc text keeps its "chance on hit..." context (a whole-line
+-- rewrite would have destroyed it). See the spell / talent tooltip section.
 -- ---------------------------------------------------------------------------
-local function RewriteItemHaste(tt)
-    if not tt or not tt.GetName then return end
-    local name = tt:GetName()
-    if not name then return end
-    for i = 2, tt:NumLines() do
-        local fs = _G[name .. "TextLeft" .. i]
-        local t = fs and fs:GetText()
-        if t and t:lower():find("haste rating") then
-            -- Two client formats: "Equip: Improves haste rating by N" and "+N Haste Rating".
-            local byN   = t:match("[Bb]y%s+([%d,]+)")
-            local plusN = (not byN) and t:match("^%s*%+([%d,]+)")
-            local raw   = byN or plusN
-            if raw then
-                local n = tonumber((raw:gsub(",", "")))
-                if n then
-                    local pct = n / 1000   -- haste rating -> crit damage %
-                    local pctStr = (pct == math.floor(pct)) and string.format("%d", pct)
-                                    or string.format("%.2f", pct)
-                    if byN then
-                        fs:SetText("Equip: Increases your critical hit damage by " .. pctStr .. "%.")
-                    else
-                        fs:SetText("+" .. pctStr .. "% Crit Damage")
-                    end
-                end
-            end
-        end
-    end
-end
-
-for _, tname in ipairs({ "GameTooltip", "ItemRefTooltip", "ShoppingTooltip1", "ShoppingTooltip2" }) do
-    local tt = _G[tname]
-    if tt and tt.HookScript then
-        tt:HookScript("OnTooltipSetItem", RewriteItemHaste)
-    end
-end
 
 -- ---------------------------------------------------------------------------
 -- Spell / talent tooltips: haste is Crit Damage now.
@@ -1049,10 +1011,11 @@ local function RewriteSpellHaste(tt)
         end
     end
 end
-for _, tname in ipairs({ "GameTooltip", "ItemRefTooltip" }) do
+for _, tname in ipairs({ "GameTooltip", "ItemRefTooltip", "ShoppingTooltip1", "ShoppingTooltip2" }) do
     local tt = _G[tname]
     if tt and tt.HookScript then
         tt:HookScript("OnTooltipSetSpell", RewriteSpellHaste)
+        tt:HookScript("OnTooltipSetItem",  RewriteSpellHaste)   -- item stat + proc-effect lines
     end
 end
 
