@@ -77,14 +77,29 @@ local function fmtMult(magPct)
 end
 
 -- The mechanic clause for a proc.
+-- Summon procs (summonCap > 0) spend magnitude on the creatures' health and damage
+-- rather than on raw effect size, and are capped at summonCap live at once -- so they
+-- get their own wording instead of the generic "power" multiplier.
 local function procMechanic(p)
   local mult = fmtMult(p.mag)
-  if p.trigger == 2 or p.trigger == 3 then
-    if mult ~= "1" then return string.format("%d%% chance, %sx power", p.chance or 0, mult) end
-    return string.format("%d%% chance", p.chance or 0)
+  local cap = p.summonCap or 0
+  local power
+  if cap > 0 then
+    power = string.format("%sx summon health & damage", mult)
+  else
+    power = string.format("%sx power", mult)
   end
-  if mult ~= "1" then return string.format("%sx power", mult) end
-  return "base effect"
+
+  local out
+  if p.trigger == 2 or p.trigger == 3 then
+    if mult ~= "1" then out = string.format("%d%% chance, %s", p.chance or 0, power)
+    else out = string.format("%d%% chance", p.chance or 0) end
+  else
+    if mult ~= "1" then out = power else out = "base effect" end
+  end
+
+  if cap > 0 then out = out .. string.format(" (max %d out)", cap) end
+  return out
 end
 
 local SND_SEAL = "Sound\\Spells\\SoulstoneResurrection_Base.wav"
@@ -656,10 +671,16 @@ local function OnLine(body)
       table.insert(sbStaging[sbCurKey].stats, { type = tonumber(t), value = v })
     end
   elseif cmd == "ICIPROC" then
-    local sid, tr, ch, mg = rest:match("^(%d+):(%d+):(%d+):(%d+)$")
+    -- <spell>:<trig>:<chancePct>:<magPct>[:<summonCap>]. The cap field is newer than
+    -- the addon, so fall back to the 4-field form rather than dropping the line.
+    local sid, tr, ch, mg, sc = rest:match("^(%d+):(%d+):(%d+):(%d+):(%d+)$")
+    if not sid then
+      sid, tr, ch, mg = rest:match("^(%d+):(%d+):(%d+):(%d+)$")
+    end
     if sid and sbCurKey and sbStaging[sbCurKey] then
       table.insert(sbStaging[sbCurKey].procs,
-        { spellId = tonumber(sid), trigger = tonumber(tr), chance = tonumber(ch), mag = tonumber(mg) })
+        { spellId = tonumber(sid), trigger = tonumber(tr), chance = tonumber(ch), mag = tonumber(mg),
+          summonCap = tonumber(sc) or 0 })
     end
   elseif cmd == "ICINVEND" then
     sbInv = sbStaging
