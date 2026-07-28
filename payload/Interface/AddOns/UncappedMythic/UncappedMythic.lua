@@ -1,20 +1,33 @@
 -- UncappedMythic
 --
 -- The keystone run HUD. When the server starts a timed Mythic+ run it sends the
--- time limit, keystone level and total killable trash; this addon then shows a
--- movable panel with:
+-- time remaining, keystone level and the enemy-forces GOAL; this addon then shows
+-- a movable panel with:
 --   * a countdown timer (green -> red when the timer expires),
---   * an enemy-forces bar (killed / total, turns green at the 70% you need to
---     actually complete the run),
+--   * an enemy-forces bar that runs 0-100% of what you actually need to kill,
 --   * a boss log with engage markers and kill splits.
 --
 -- Rides the player's personal channel like the other Uncapped addons, and
--- filters the RBMS / RBMT / RBMB protocol lines out of chat.
+-- filters the RBMS / RBMT / RBMR / RBMB protocol lines out of chat.
+--
+-- Two things the server owns that this addon used to guess at, and must not
+-- guess at again -- both were real bugs:
+--
+--   * The enemy-forces GOAL. The bar used to run 0-100% of the dungeon's whole
+--     trash count with the completion mark at 70%, so players read "82%" as
+--     "not done" when the run was long since complete, and a Scarlet Monastery
+--     wing (whose gate counts only that wing) could read 35% on a finished key.
+--     The server now sends the required kill count and this bar treats it as
+--     100%. There is no client-side threshold any more.
+--
+--   * The TIME REMAINING. The countdown used to tick down the raw time limit
+--     while the server was charging a death penalty against it, so runs failed
+--     with time still showing. The server now sends remaining-after-penalty and
+--     re-sends it on every death.
 
 -- Defaults for every saved setting (persisted in UncappedMythicDB).
 local DEFAULTS = {
     bossLines     = 6,                   -- how many boss rows the log can show
-    trashGoal     = 0.70,                -- fraction of trash needed to complete
     scale         = 1.0,                 -- HUD frame scale
     pos           = nil,                 -- saved { point=, x=, y= } after dragging
     colComplete   = { 0.1, 0.8, 0.1 },   -- enemy-forces bar, goal reached
@@ -113,11 +126,12 @@ for i = 1, db.bossLines do EnsureBossRow(i) end
 local run = {
     active = false,
     timed = false,       -- dungeon keystone (has a countdown) vs untimed raid
-    startTime = 0,
-    limit = 0,
+    startTime = 0,       -- GetTime() when `limit` was last rebased by the server
+    limit = 0,           -- seconds remaining as of startTime (penalty already taken off)
     level = 0,
+    token = nil,         -- server run id; a resync carries the same one
     trashKilled = 0,
-    trashTotal = 0,
+    trashNeeded = 0,     -- kills required to complete == the bar's 100%
     bosses = {},      -- ordered list of { name=, done=, split= }
     bossIndex = {},   -- name -> index into bosses
 }
@@ -182,22 +196,29 @@ local function ApplyBossLines(n)
     RefreshBossLog()
 end
 
+-- The bar is 0-100% of what the run actually REQUIRES, not of the dungeon's
+-- whole trash count. Kills past the goal are surplus and are not shown -- the
+-- bar (and the count, and the percentage) all stop at the goal, so "100%" means
+-- exactly "this part of the run is done" with no 70% notch to interpret.
 local function RefreshBar()
+    local needed = run.trashNeeded
+    local shown = run.trashKilled
+    if needed > 0 and shown > needed then shown = needed end
+
     local frac = 0
-    if run.trashTotal > 0 then
-        frac = run.trashKilled / run.trashTotal
+    if needed > 0 then
+        frac = shown / needed
     end
-    if frac > 1 then frac = 1 end
     frame.bar:SetValue(frac)
-    if frac >= db.trashGoal then
-        local c = db.colComplete                     -- enough to complete
+    if frac >= 1 then
+        local c = db.colComplete                     -- goal reached
         frame.bar:SetStatusBarColor(c[1], c[2], c[3])
     else
         local c = db.colIncomplete                   -- not yet
         frame.bar:SetStatusBarColor(c[1], c[2], c[3])
     end
     frame.barText:SetText(string.format("Enemy Forces  %d / %d  (%d%%)",
-        run.trashKilled, run.trashTotal, math.floor(frac * 100 + 0.5)))
+        shown, needed, math.floor(frac * 100 + 0.5)))
 end
 
 frame:SetScript("OnUpdate", function(self)
@@ -220,23 +241,45 @@ end)
 -- ---------------------------------------------------------------------------
 -- Protocol
 -- ---------------------------------------------------------------------------
-local function StartRun(limit, level, trashTotal)
+-- `remaining` is seconds left with the death penalty already subtracted, and
+-- `token` identifies the run. A message carrying the SAME token as the run we are
+-- already showing is a resync -- a death, a reconnect, a re-entry after a
+-- worldserver restart -- and must keep the boss log and kill count it has already
+-- built. Only a different token is a new run and wipes them. Before the token
+-- existed every resync cleared the boss log, so reconnecting mid-key showed an
+-- empty boss list for a dungeon you were most of the way through.
+local function StartRun(remaining, level, trashNeeded, token)
+    local sameRun = (token ~= nil and run.token ~= nil and token == run.token)
+
     run.active = true
     -- Timed only for a real dungeon keystone with a limit; raids are untimed.
-    run.timed = (limit and limit > 0) and not InRaidInstance()
+    run.timed = (remaining and remaining > 0) and not InRaidInstance()
     run.startTime = GetTime()
-    run.limit = limit
+    run.limit = remaining
     run.level = level
-    run.trashKilled = 0
-    run.trashTotal = trashTotal
-    run.bosses = {}
-    run.bossIndex = {}
+    run.token = token
+    run.trashNeeded = trashNeeded
+
+    if not sameRun then
+        run.trashKilled = 0
+        run.bosses = {}
+        run.bossIndex = {}
+    end
 
     frame.title:SetText("Mythic+ Keystone +" .. level)
     ApplyTimerVisibility()
     RefreshBar()
     RefreshBossLog()
     frame:Show()
+end
+
+-- Timer-only resync (RBMR). Rebases the countdown without touching the bar or
+-- the boss log -- sent on every death, so the penalty shows up on the clock the
+-- instant it is charged instead of only being felt when the run fails.
+local function ResyncTimer(remaining)
+    if not run.active then return end
+    run.startTime = GetTime()
+    run.limit = remaining
 end
 
 local function EngageBoss(name)
@@ -258,15 +301,15 @@ local function KillBoss(name, split)
     RefreshBossLog()
 end
 
-local function UpdateTrash(killed, total)
+local function UpdateTrash(killed, needed)
     run.trashKilled = killed
-    run.trashTotal = total
+    run.trashNeeded = needed
     RefreshBar()
 end
 
 -- Hide the protocol lines from chat.
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and (msg:find("^RBMS:") or msg:find("^RBMT:") or msg:find("^RBMB:")) then
+    if msg and (msg:find("^RBMS:") or msg:find("^RBMT:") or msg:find("^RBMR:") or msg:find("^RBMB:")) then
         return true
     end
     return false
@@ -332,15 +375,32 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         return
     end
 
-    local limit, level, total = msg:match("^RBMS:(%d+):(%d+):(%d+)$")
-    if limit then
-        StartRun(tonumber(limit), tonumber(level), tonumber(total))
+    -- RBMS:<remainingSec>:<level>:<requiredKills>:<runToken>
+    local remaining, level, needed, token = msg:match("^RBMS:(%d+):(%d+):(%d+):(%d+)$")
+    if remaining then
+        StartRun(tonumber(remaining), tonumber(level), tonumber(needed), tonumber(token))
         return
     end
 
-    local killed, ttotal = msg:match("^RBMT:(%d+):(%d+)$")
+    -- Older 3-field form (a realm still on the previous worldserver). No run
+    -- token, so every one of these is treated as a fresh run.
+    local oldLimit, oldLevel, oldTotal = msg:match("^RBMS:(%d+):(%d+):(%d+)$")
+    if oldLimit then
+        StartRun(tonumber(oldLimit), tonumber(oldLevel), tonumber(oldTotal), nil)
+        return
+    end
+
+    -- RBMR:<remainingSec> -- timer rebase only (death penalty applied).
+    local resync = msg:match("^RBMR:(%d+)$")
+    if resync then
+        ResyncTimer(tonumber(resync))
+        return
+    end
+
+    -- RBMT:<killed>:<requiredKills>
+    local killed, needKills = msg:match("^RBMT:(%d+):(%d+)$")
     if killed then
-        UpdateTrash(tonumber(killed), tonumber(ttotal))
+        UpdateTrash(tonumber(killed), tonumber(needKills))
         return
     end
 
@@ -389,9 +449,7 @@ if UncappedUI then
 
     L:Gap(6)
     L:Header("Enemy forces")
-    track(L:Slider("Enemy-forces completion threshold", 0.5, 1.0, 0.05,
-        function() return db.trashGoal end,
-        function(v) db.trashGoal = v; RefreshBar() end, "%.2f"))
+    L:Note("|cff808080The bar runs 0-100% of what the run requires -- 100% means done. The goal comes from the server, so there is nothing to configure here.|r", 32)
     track(L:Color("Enemy-forces complete colour",   colGet("colComplete"),   colSet("colComplete", RefreshBar)))
     track(L:Color("Enemy-forces incomplete colour", colGet("colIncomplete"), colSet("colIncomplete", RefreshBar)))
 
@@ -424,17 +482,29 @@ SlashCmdList["UNCAPPEDMYTHIC"] = function(arg)
         return
     end
     if arg == "test" then
-        StartRun(1800, 7, 120)
+        -- 84 required (70% of a 120-mob dungeon); 61 killed -> ~73% of the goal.
+        StartRun(1800, 7, 84, 1)
         EngageBoss("Rhahk'Zor")
         KillBoss("Rhahk'Zor", 74)
-        UpdateTrash(88, 120)
+        UpdateTrash(61, 84)
         EngageBoss("Mr. Smite")
         return
     end
+    if arg == "testdeath" then
+        -- Same run token -> a resync: the boss log and bar must survive, only the
+        -- clock moves (this is what a death now does).
+        StartRun(1800, 7, 84, 1)
+        EngageBoss("Rhahk'Zor")
+        KillBoss("Rhahk'Zor", 74)
+        UpdateTrash(61, 84)
+        ResyncTimer(1650)
+        DEFAULT_CHAT_FRAME:AddMessage("|cffffcc00Uncapped Mythic+|r: timer resynced to 27:30 -- boss log should be intact.")
+        return
+    end
     if arg == "testraid" then
-        StartRun(0, 3, 200)   -- limit 0 -> untimed run, previews the no-timer raid HUD
+        StartRun(0, 3, 140, 2)   -- limit 0 -> untimed run, previews the no-timer raid HUD
         EngageBoss("Magtheridon")
-        UpdateTrash(140, 200)
+        UpdateTrash(140, 140)
         return
     end
     if frame:IsShown() then
