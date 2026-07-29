@@ -2641,6 +2641,24 @@
                       "size":  254
                   },
                   {
+                      "path":  "Interface/AddOns/UncappedTransmog/UncappedTransmog.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedTransmog/UncappedTransmog.lua",
+                      "sha256":  "de2f731cd5b754683440087bee8af5458cffc7014e1c7f4147a77b2e66fd72f2",
+                      "size":  48867
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedTransmog/UncappedTransmog.toc",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedTransmog/UncappedTransmog.toc",
+                      "sha256":  "e08f677cc48b71674d8a2ab6d274b63996a2027b7d9946fb32475f1a718c2a86",
+                      "size":  365
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedTransmog/UncappedTransmogData.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedTransmog/UncappedTransmogData.lua",
+                      "sha256":  "e5cb25c91f78e5ee4cc38c5cefad65912179767fac718780ad4829cc7876230b",
+                      "size":  822838
+                  },
+                  {
                       "path":  "Interface/AddOns/UncappedVault/UncappedVault.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVault/UncappedVault.lua",
                       "sha256":  "3d112ad0f3a39061cb9701987594a0e24b897d51a1db91d547f7101f7fc62b06",
@@ -2655,7 +2673,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "50034552c31180a1a796b2bd36ceadc1668c888165b51a4b291a0120db150593",
+                      "sha256":  "e047d26c93e20a63318f8a624c5a7a559a10dca412faffb6d5c20c766b0ce6dd",
                       "size":  3593
                   },
                   {
@@ -3363,7 +3381,8 @@
                               "UncappedVersion",
                               "UncappedGCD",
                               "UncappedOptions",
-                              "UncappedVault"
+                              "UncappedVault",
+                              "UncappedTransmog"
                           ],
     "forceDisableAddOns":  [
                                "QuestHelper"
@@ -3381,6 +3400,7 @@
                        "Interface/AddOns/Uncapped64bitUI",
                        "Interface/AddOns/UncappedOptions",
                        "Interface/AddOns/UncappedVault",
+                       "Interface/AddOns/UncappedTransmog",
                        "Interface/AddOns/devUncapped64"
                    ]
 }
