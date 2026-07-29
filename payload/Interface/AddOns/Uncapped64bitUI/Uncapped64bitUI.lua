@@ -10,15 +10,35 @@
 --   RBHP:U:<guidLow>:<realCur>:<realMax>           -- a group member (party/raid)
 --
 -- Health is proxied on the wire (proxy% == real%), so we reconstruct real from
--- the native bar: for an overflow boss (stacks>0) real = visible + stacks*(visMax/2);
--- otherwise real = (nativeCur/nativeMax) * realMax. Power is NOT proxied (it still
--- fits 32-bit), so those numbers are read straight from the client.
+-- the native bar: real = (nativeCur/nativeMax) * realMax. Power is NOT proxied
+-- (it still fits 32-bit), so those numbers are read straight from the client.
+--
+-- The <stacks> field is a retired mechanism, now always 0. It used to carry a
+-- boss's banked HP-overflow phases; creatures hold a true 64-bit pool instead.
+-- It stays on the wire only so an older addon build keeps parsing the line.
+--
+-- Targeting is deliberately NOT gated on the feed arriving. Below
+-- HEALTH_PROXY_BUDGET the client's own max-health field is the real number
+-- rather than a proxy, so for ordinary targets the readout is derived locally on
+-- the same frame the target changes and the push that follows merely confirms
+-- it. Only saturated units (deep-keystone creatures) and other players actually
+-- need the server, and those answer instantly on re-target from a session cache
+-- of what we last saw.
 
 local ADDON_NAME = "Uncapped64bitUI"
 
 -- Addon-message prefix for the server->client pipe. Must match
 -- ReagentBankChannelProtocol::ADDON_MESSAGE_PREFIX on the server.
 local ADDON_PIPE_PREFIX = "UNC"
+
+-- Must match Unit::HEALTH_PROXY_BUDGET on the server (Unit.h).
+--
+-- Below this figure the client's own max-health field is the REAL value, not a
+-- proxy -- HealthProxyOf passes it through untouched. At or above it the field
+-- is pinned to the budget and the true number only exists server-side. That
+-- boundary is what lets the target readout answer instantly in the common case
+-- without ever inventing a number in the uncommon one.
+local HEALTH_PROXY_BUDGET = 2000000000
 
 -- The dev-realm gate that used to sit here has been REMOVED (2026-07-23).
 --
@@ -126,6 +146,43 @@ local selfData   = nil   -- { max }
 local targetData = nil   -- { max, visMax, stacks }
 local byGuid     = {}    -- [guidLow] = { max }   (group members)
 
+-- What we last knew about a unit's real HP, keyed by full GUID string.
+--
+-- The server's target feed is a push, so on a fresh target there is always a
+-- window where we have nothing to draw -- which is what players experienced as
+-- "targeting is laggy". Re-targeting something we have already seen this session
+-- should never pay that cost twice, so the last known figures are kept here and
+-- restored the moment the target changes.
+--
+-- Creature GUIDs are per-spawn and a boss's stack count moves during a fight, so
+-- this is deliberately session-only (never saved) and wiped on a world change,
+-- where every cached creature GUID is dead anyway.
+local hpCacheByGuid  = {}
+local hpCacheCount   = 0
+local HP_CACHE_LIMIT = 500
+
+local function WipeHpCache()
+    hpCacheByGuid = {}
+    hpCacheCount = 0
+end
+
+local function RememberTargetHp(d)
+    local g = UnitGUID("target")
+    if not g then return end
+
+    -- A push that was in flight while the player switched target describes the
+    -- PREVIOUS unit. Storing it under the current GUID would mean confidently
+    -- painting one mob's numbers onto another, so require the visible max the
+    -- server measured to match the unit actually under the cursor now.
+    if UnitHealthMax("target") ~= d.visMax then return end
+
+    if hpCacheByGuid[g] == nil then
+        if hpCacheCount >= HP_CACHE_LIMIT then WipeHpCache() end
+        hpCacheCount = hpCacheCount + 1
+    end
+    hpCacheByGuid[g] = d
+end
+
 -- Player GUIDs carry no high bits, so the full 0x-hex string parses to the low
 -- counter -- the same number the server sends in RBHP:U.
 local function GuidLow(unit)
@@ -145,6 +202,29 @@ local function HpInfoFor(unit)
         if low then
             local d = byGuid[low]
             if d then return d.max, 0, nil end
+        end
+
+        -- Nothing from the server yet -- but often we do not need it.
+        --
+        -- The proxy in UNIT_FIELD_MAXHEALTH is not always an approximation. The
+        -- server's HealthProxyOf returns the real value UNCHANGED whenever the
+        -- real max fits under HEALTH_PROXY_BUDGET (2e9), and only compresses
+        -- above that, pinning the visible max to exactly the budget. So a visible
+        -- max strictly below 2e9 is not a proxy at all: it IS the real number,
+        -- already on the client, the instant the unit exists.
+        --
+        -- That covers essentially everything anyone targets outside a deep
+        -- keystone, and waiting on a push to be told a number we already hold is
+        -- the whole of the perceived delay.
+        --
+        -- At or above the budget the value is saturated and the real one is
+        -- unknowable here, so we show nothing and let the feed answer. Same for
+        -- players, whose health is proxied regardless of size. Guessing there
+        -- would paint a confidently wrong, far-too-small number, and a number
+        -- that is wrong without looking wrong is worse than a blank frame.
+        if not UnitIsPlayer(unit) then
+            local vmax = UnitHealthMax(unit)
+            if vmax and vmax > 0 and vmax < HEALTH_PROXY_BUDGET then return vmax, 0, nil end
         end
     else
         local low = GuidLow(unit)
@@ -366,6 +446,7 @@ local function OnLine(msg)
     local tCur, tMax, tVis, tStacks = msg:match("^RBHP:T:(%d+):(%d+):(%d+):(%d+)$")
     if tMax then
         targetData = { max = tonumber(tMax), visMax = tonumber(tVis), stacks = tonumber(tStacks) }
+        RememberTargetHp(targetData)
         return
     end
 
@@ -385,8 +466,32 @@ ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
 end)
 
 local function OnTargetChanged()
+    -- Restore what we already know about this unit instead of blanking and
+    -- waiting for the next push. A boss we have targeted before this fight comes
+    -- back with its real (overflow-inclusive) figures immediately; anything we
+    -- have not seen falls through to the creature path in HpInfoFor, which needs
+    -- no server data at all.
     targetData = nil
-    if UNITS[2] and UNITS[2].hpLabel then UNITS[2].hpLabel:SetText("") end
+
+    local g = UnitGUID("target")
+    if g then
+        local c = hpCacheByGuid[g]
+        -- Only trust the cached entry if the unit still measures the same. A
+        -- recycled GUID, or a mob rescaled by a different keystone level, must
+        -- not inherit stale numbers.
+        if c and UnitHealthMax("target") == c.visMax then
+            targetData = c
+        end
+    end
+
+    -- Paint on this frame. The driver would otherwise get to it up to 100ms
+    -- later, which is exactly the kind of small hitch this change exists to
+    -- remove -- there is no point sourcing the number instantly and then sitting
+    -- on it.
+    if UNITS[2] then
+        RenderHp("target", UNITS[2].hpLabel)
+        RenderPower("target", UNITS[2].ppLabel)
+    end
 end
 
 local listener = CreateFrame("Frame")
@@ -408,6 +513,10 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
 
     if event == "PLAYER_ENTERING_WORLD" or event == "PARTY_MEMBERS_CHANGED" then
         SuppressBlizzardText()  -- (re)hide Blizzard text as frames come/go
+        -- Creature GUIDs do not survive a world change, and a fresh keystone can
+        -- rescale the same mobs, so start the cache clean rather than carry
+        -- entries that can only ever be wrong or dead.
+        if event == "PLAYER_ENTERING_WORLD" then WipeHpCache() end
         return
     end
 
