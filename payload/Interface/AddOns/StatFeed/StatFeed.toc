@@ -1,8 +1,8 @@
 ## Interface: 30300
 ## Title: Stat Feed
-## Notes: Shows Dungeon Stats gains in their own window instead of spamming chat.
-## Author: Uncapped
-## Version: 1.0
+## Notes: Shows Dungeon Stats gains in their own window, with session totals and pace.
+## Author: MentalMonk
+## Version: 2.0
 ## OptionalDeps: UncappedOptions
 ## SavedVariablesPerCharacter: StatFeedDB
 

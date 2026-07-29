@@ -1,62 +1,439 @@
 --[[
-    Stat Feed -- a small movable window for Dungeon Stats gains.
+    Stat Feed -- the Dungeon Stats window.
 
-    The server sends these as ADDON messages rather than chat, so they never
-    touch the default chat frame. See lua_scripts/dungeonstats.lua, which
-    routes them through SendAddonMessage with the prefix below.
+    The server sends stat gains as ADDON messages rather than chat, so they
+    never touch the default chat frame. See lua_scripts/dungeonstats.lua, which
+    routes them through SendAddonMessage with the prefix below, in the form:
+
+        You received <n> <StatName> for killing <Creature>.
+        Your pet also received <n> <StatName>.
+
+    On top of the raw feed this tracks what you have earned THIS SESSION: a
+    running total, a per-hour pace, and a per-stat breakdown. Pet mirror lines
+    are shown in the feed but never counted -- they are the pet's stats, not
+    yours.
+
+    Session tracking, the pace counter and the collapse button are based on
+    Stat Feed Plus by MentalMonk, folded into the shipped addon.
 
     Written for the 3.3.5a client: no BackdropTemplate, no C_ namespace, and
-    event handlers can read either the arg1..argN globals or handler
---    parameters; 3.3.5 provides both.
+    event handlers can read either the arg1..argN globals or the handler
+    parameters; 3.3.5 provides both.
 
-    /statfeed         toggle the window
-    /statfeed clear   clear the log
-    /statfeed reset   put the window back in the middle of the screen
+    /statfeed          toggle the window          (/sfp is a short alias)
+    /statfeed clear    clear the feed log
+    /statfeed session  reset the session counters
+    /statfeed reset    put the window back in the middle of the screen
 ]]
 
+local ADDON_NAME   = "StatFeed"
 local ADDON_PREFIX = "DSTATS"
+local TICK_SECONDS = 1        -- how often the clock/pace repaint while shown
+
+-- ---------------------------------------------------------------------------
+-- Layout constants. Everything below the summary block is anchored, not
+-- hard-placed, so the window lays out correctly at any size the user drags it
+-- to.
+-- ---------------------------------------------------------------------------
+local PAD          = 12       -- left/right inset
+local HEADER_H     = 30       -- title bar
+local SUMMARY_ROW  = 22       -- one line of the "this session" block
+local STAT_ROW     = 18       -- one stat line
+local CREDIT_H     = 16       -- reserved strip at the bottom for the credit
+local COMPACT_H    = HEADER_H + (SUMMARY_ROW * 3) + CREDIT_H + 14
 
 local DEFAULTS = {
     point      = "CENTER",
     x          = 250,
     y          = 0,
-    width      = 320,
-    height     = 180,
+    width      = 340,
+    height     = 380,
     shown      = true,
+    collapsed  = false,
     maxLines   = 200,
-    bgAlpha    = 0.7,
+    bgAlpha    = 0.78,
+    showBars   = true,
     titleColor = { 0.61, 0.76, 0.26 }, -- |cff9CC243
+    layout     = 2,                    -- bump to force a one-time re-size
 }
 
-local frame
+-- Stat display order, matched to what dungeonstats.lua can award. Each entry
+-- carries its accent colour and how to read the player's current value, so the
+-- update loop is a table walk instead of a chain of comparisons.
+local STATS = {
+    { key = "Strength",       r = 1.00, g = 0.45, b = 0.38, unitStat = 1 },
+    { key = "Agility",        r = 0.58, g = 0.90, b = 0.45, unitStat = 2 },
+    { key = "Stamina",        r = 0.98, g = 0.72, b = 0.36, unitStat = 3 },
+    { key = "Intellect",      r = 0.45, g = 0.72, b = 1.00, unitStat = 4 },
+    { key = "Spirit",         r = 0.82, g = 0.74, b = 1.00, unitStat = 5 },
+    { key = "Spell Power",    r = 1.00, g = 0.55, b = 0.92, spellPower = true },
+    { key = "Defense Rating", r = 0.66, g = 0.82, b = 0.95, rating = "CR_DEFENSE_SKILL" },
+    { key = "Expertise",      r = 1.00, g = 0.86, b = 0.45, rating = "CR_EXPERTISE" },
+}
 
--- Merge saved settings over the defaults, so a new option added later does
--- not break an existing saved table.
+-- Spelling variants the server may send, mapped to the display name above.
+-- Keys are lower-cased with spaces/underscores/hyphens/dots removed.
+local STAT_ALIASES = {
+    str = "Strength",           strength = "Strength",
+    agi = "Agility",            agility = "Agility",
+    sta = "Stamina",            stam = "Stamina",             stamina = "Stamina",
+    int = "Intellect",          intellect = "Intellect",
+    spi = "Spirit",             spirit = "Spirit",
+    sp = "Spell Power",         spellpower = "Spell Power",   spellpowerrating = "Spell Power",
+    def = "Defense Rating",     defense = "Defense Rating",   defence = "Defense Rating",
+    defenserating = "Defense Rating",  defencerating = "Defense Rating",
+    exp = "Expertise",          expertise = "Expertise",      expertiserating = "Expertise",
+}
+
+local C_LABEL  = "|cffe9b518"   -- the server's own gold
+local C_AMOUNT = "|cff9CC243"   -- the server's own green
+local C_TARGET = "|cff5af304"
+local C_GAIN   = "|cff00e5ff"
+local C_OFF    = "|cff808080"
+local C_RESET  = "|r"
+
+-- Locals for the hot paths (upvalue lookups beat globals in 5.1).
+local floor, max, abs, format, gsub, match, lower = math.floor, math.max, math.abs,
+    string.format, string.gsub, string.match, string.lower
+
+local frame, log, statBlock
+local BuildOptions       -- forward declaration; defined at the bottom
+local rows        = {}   -- display name -> widget set
+local earned      = {}   -- display name -> gained this session
+local totalEarned = 0
+local peakStat    = 0    -- largest single-stat gain, for the share bars
+local sessionStart = 0
+local tickElapsed  = 0
+local dirty        = true  -- set when something changed; cleared by Repaint
+
+-- ---------------------------------------------------------------------------
+-- Saved variables
+-- ---------------------------------------------------------------------------
 local function GetDB()
     StatFeedDB = StatFeedDB or {}
+    local db = StatFeedDB
     for k, v in pairs(DEFAULTS) do
-        if StatFeedDB[k] == nil then
+        if db[k] == nil then
             if type(v) == "table" then
-                -- Copy, so we never mutate the DEFAULTS table in place.
                 local t = {}
                 for i, vv in pairs(v) do t[i] = vv end
-                StatFeedDB[k] = t
+                db[k] = t
             else
-                StatFeedDB[k] = v
+                db[k] = v
             end
         end
     end
-    return StatFeedDB
+    -- The window grew when the session block was added; resize saved layouts
+    -- from before that once, so an old install isn't left with a cramped frame.
+    if (db.layout or 0) < DEFAULTS.layout then
+        db.width  = DEFAULTS.width
+        db.height = DEFAULTS.height
+        db.layout = DEFAULTS.layout
+    end
+    return db
+end
+
+-- ---------------------------------------------------------------------------
+-- Formatting
+-- ---------------------------------------------------------------------------
+local function Commas(value)
+    local n = floor((tonumber(value) or 0) + 0.5)
+    local text = tostring(abs(n))
+    while true do
+        local count
+        text, count = gsub(text, "^(%d+)(%d%d%d)", "%1,%2")
+        if count == 0 then break end
+    end
+    if n < 0 then return "-" .. text end
+    return text
+end
+
+-- Compact form for the per-stat column, where totals can run long.
+local function Short(value)
+    local n = floor((tonumber(value) or 0) + 0.5)
+    local a = abs(n)
+    local sign = (n < 0) and "-" or ""
+    if a >= 1000000 then
+        return sign .. format("%.2fm", a / 1000000)
+    elseif a >= 10000 then
+        return sign .. floor(a / 1000) .. "k"
+    end
+    return Commas(n)
+end
+
+local function Clock(seconds)
+    seconds = max(0, floor(seconds or 0))
+    return format("%02d:%02d:%02d", floor(seconds / 3600), floor((seconds % 3600) / 60), seconds % 60)
+end
+
+local function StripColors(text)
+    text = gsub(tostring(text or ""), "|c%x%x%x%x%x%x%x%x", "")
+    return (gsub(text, "|r", ""))
+end
+
+local function Trim(text)
+    text = gsub(tostring(text or ""), "^%s+", "")
+    return (gsub(text, "%s+$", ""))
+end
+
+local function NormalizeStat(name)
+    return STAT_ALIASES[gsub(lower(tostring(name or "")), "[%s_%-%.]", "")]
+end
+
+-- Only touch the font string when the text actually changed: SetText on a
+-- FontString re-lays it out every call, and most ticks change nothing.
+local function SetTextCached(fs, text)
+    if fs.cachedText ~= text then
+        fs.cachedText = text
+        fs:SetText(text)
+    end
+end
+
+-- ---------------------------------------------------------------------------
+-- Reading the player's live stats (for the row totals and the tooltip)
+-- ---------------------------------------------------------------------------
+local function CurrentStat(info)
+    if info.unitStat then
+        local _, effective = UnitStat("player", info.unitStat)
+        return effective or 0
+    elseif info.spellPower then
+        local best = 0
+        if GetSpellBonusDamage then
+            for school = 2, 7 do
+                local v = GetSpellBonusDamage(school)
+                if v and v > best then best = v end
+            end
+        end
+        if best == 0 and GetSpellBonusHealing then
+            best = GetSpellBonusHealing() or 0
+        end
+        return best
+    elseif info.rating then
+        local index = _G[info.rating]
+        if GetCombatRating and index then
+            return GetCombatRating(index) or 0
+        end
+    end
+    return 0
+end
+
+-- ---------------------------------------------------------------------------
+-- Session bookkeeping
+-- ---------------------------------------------------------------------------
+local function ResetSession()
+    totalEarned = 0
+    peakStat    = 0
+    for i = 1, #STATS do
+        local info = STATS[i]
+        earned[info.key]    = 0
+        info.startValue     = CurrentStat(info)
+    end
+    sessionStart = GetTime()
+    dirty = true
+end
+
+local function CaptureBaseline()
+    for i = 1, #STATS do
+        local info = STATS[i]
+        if not info.startValue or info.startValue == 0 then
+            info.startValue = CurrentStat(info)
+        end
+    end
+end
+
+local function RecordGain(amount, statName)
+    amount = tonumber(amount)
+    local key = NormalizeStat(statName)
+    if not amount or amount <= 0 or not key or earned[key] == nil then return end
+
+    totalEarned  = totalEarned + amount
+    earned[key]  = earned[key] + amount
+    if earned[key] > peakStat then peakStat = earned[key] end
+    dirty = true
+end
+
+-- ---------------------------------------------------------------------------
+-- Painting
+-- ---------------------------------------------------------------------------
+local function Repaint(force)
+    if not frame or not frame:IsShown() then return end
+
+    local elapsed = max(1, GetTime() - sessionStart)
+    SetTextCached(frame.totalText, Commas(totalEarned))
+    -- Pace is meaningless in the first minute, so the divisor is floored there
+    -- rather than letting a single kill read as "180,000 an hour".
+    SetTextCached(frame.rateText, Commas(totalEarned * 3600 / max(60, elapsed)))
+    SetTextCached(frame.clockText, Clock(elapsed))
+
+    if not (dirty or force) then return end
+    dirty = false
+
+    if GetDB().collapsed then return end
+
+    local showBars = GetDB().showBars
+    for i = 1, #STATS do
+        local info = STATS[i]
+        local row  = rows[info.key]
+        local gain = earned[info.key] or 0
+
+        if gain > 0 then
+            SetTextCached(row.value, Short(CurrentStat(info)) .. "  " .. C_AMOUNT .. "+" .. Short(gain) .. C_RESET)
+        else
+            SetTextCached(row.value, Short(CurrentStat(info)) .. "  " .. C_OFF .. "+0" .. C_RESET)
+        end
+
+        if showBars and gain > 0 and peakStat > 0 then
+            row.bar:SetWidth(max(1, (statBlock:GetWidth() - 4) * (gain / peakStat)))
+            row.bar:Show()
+        else
+            row.bar:Hide()
+        end
+    end
+end
+
+-- ---------------------------------------------------------------------------
+-- Feed lines
+-- ---------------------------------------------------------------------------
+local function AddLine(text)
+    if log then log:AddMessage(text) end
+end
+
+-- Recolour the server's line so the number and the stat name stand out, and
+-- spell "DefenseRating" the way the rows do. Falls back to the raw line if the
+-- server ever sends something in a shape we don't know.
+local function FormatFeedLine(clean)
+    local prefix, amount, stat, middle, target =
+        match(clean, "^([Yy]ou received )(%d[%d,]*)%s+([%a%s]+)( for killing )(.*)$")
+    if prefix then
+        return C_LABEL .. prefix .. C_RESET .. C_AMOUNT .. amount .. C_RESET
+            .. " " .. C_GAIN .. (NormalizeStat(stat) or Trim(stat)) .. C_RESET
+            .. C_LABEL .. middle .. C_RESET .. C_TARGET .. target .. C_RESET
+    end
+
+    prefix, amount, stat = match(clean, "^([Yy]our pet a?l?s?o? ?received )(%d[%d,]*)%s+([%a%s]+%.?)$")
+    if prefix then
+        return C_OFF .. prefix .. C_RESET .. C_AMOUNT .. amount .. C_RESET
+            .. " " .. C_GAIN .. (NormalizeStat(gsub(stat, "%.$", "")) or Trim(stat)) .. C_RESET
+    end
+
+    return C_LABEL .. clean .. C_RESET
+end
+
+local function IsPetLine(clean)
+    local l = lower(clean)
+    return match(l, "^your pet a?l?s?o? ?received") ~= nil or match(l, "^pet received") ~= nil
+end
+
+local function HandleFeed(message)
+    local clean = Trim(StripColors(message))
+    if clean == "" then return end
+
+    AddLine(FormatFeedLine(clean))
+
+    -- Pet gains mirror to the owner's feed but are the pet's stats; showing
+    -- them is useful, counting them would inflate the session total.
+    if IsPetLine(clean) then return end
+
+    local amount, stat = match(clean, "^[Yy]ou received (%d[%d,]*) (.-) for killing .+$")
+    if amount then
+        -- Parenthesised: gsub returns (string, count), and the count would
+        -- otherwise slide into the statName argument.
+        RecordGain((gsub(amount, ",", "")), stat)
+        Repaint()
+    end
+end
+
+-- ---------------------------------------------------------------------------
+-- Collapse / expand
+-- ---------------------------------------------------------------------------
+local COLLAPSE_TEX = {
+    [true]  = { "Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Up",
+                "Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Down" },
+    [false] = { "Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Up",
+                "Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Down" },
+}
+
+local function ApplyCollapse()
+    if not frame then return end
+    local db = GetDB()
+    local c  = db.collapsed and true or false
+
+    local tex = COLLAPSE_TEX[c]
+    frame.collapseButton:SetNormalTexture(tex[1])
+    frame.collapseButton:SetPushedTexture(tex[2])
+
+    if c then
+        statBlock:Hide()
+        log:Hide()
+        frame.midDivider:Hide()
+        frame.lowDivider:Hide()
+        frame.grip:Hide()
+        frame:SetMinResize(240, COMPACT_H)
+        frame:SetHeight(COMPACT_H)
+    else
+        statBlock:Show()
+        log:Show()
+        frame.midDivider:Show()
+        frame.lowDivider:Show()
+        frame.grip:Show()
+        frame:SetMinResize(240, 320)
+        frame:SetHeight(db.height or DEFAULTS.height)
+        dirty = true
+        Repaint(true)
+    end
 end
 
 local function SavePosition()
+    if not frame then return end
     local db = GetDB()
     local point, _, _, x, y = frame:GetPoint()
-    db.point = point
-    db.x = x
-    db.y = y
+    db.point = point or DEFAULTS.point
+    db.x     = x or DEFAULTS.x
+    db.y     = y or DEFAULTS.y
     db.width = frame:GetWidth()
-    db.height = frame:GetHeight()
+    if not db.collapsed then
+        db.height = frame:GetHeight()
+    end
+end
+
+-- ---------------------------------------------------------------------------
+-- Window
+-- ---------------------------------------------------------------------------
+local function Divider(parent, yOffset, anchorTo)
+    local shadow = parent:CreateTexture(nil, "ARTWORK")
+    shadow:SetTexture(0, 0, 0, 0.85)
+    shadow:SetHeight(1)
+    local glow = parent:CreateTexture(nil, "ARTWORK")
+    glow:SetTexture(0.55, 0.55, 0.55, 0.5)
+    glow:SetHeight(1)
+    glow:SetPoint("TOPLEFT", shadow, "BOTTOMLEFT", 0, 0)
+    glow:SetPoint("TOPRIGHT", shadow, "BOTTOMRIGHT", 0, 0)
+
+    if anchorTo then
+        shadow:SetPoint("TOPLEFT", anchorTo, "BOTTOMLEFT", 0, yOffset)
+        shadow:SetPoint("TOPRIGHT", anchorTo, "BOTTOMRIGHT", 0, yOffset)
+    else
+        shadow:SetPoint("TOPLEFT", parent, "TOPLEFT", PAD + 2, yOffset)
+        shadow:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -(PAD + 2), yOffset)
+    end
+
+    -- One handle that hides/shows both halves.
+    return { Show = function() shadow:Show(); glow:Show() end,
+             Hide = function() shadow:Hide(); glow:Hide() end }
+end
+
+local function SummaryLine(parent, index, label, r, g, b)
+    local y = -(HEADER_H + 6 + (index - 1) * SUMMARY_ROW)
+
+    local caption = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    caption:SetPoint("TOPLEFT", PAD + 2, y)
+    caption:SetText(label)
+    caption:SetTextColor(0.75, 0.75, 0.75)
+
+    local value = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    value:SetPoint("TOPRIGHT", -(PAD + 4), y + 1)
+    value:SetTextColor(r, g, b)
+    return value
 end
 
 local function BuildWindow()
@@ -66,6 +443,8 @@ local function BuildWindow()
     frame:SetWidth(db.width)
     frame:SetHeight(db.height)
     frame:SetPoint(db.point, UIParent, db.point, db.x, db.y)
+    frame:SetFrameStrata("MEDIUM")
+    frame:SetClampedToScreen(true)
     frame:SetBackdrop({
         bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
         edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
@@ -74,20 +453,155 @@ local function BuildWindow()
     })
     frame:SetBackdropColor(0, 0, 0, db.bgAlpha)
 
-    -- Drag to move, from anywhere on the frame.
     frame:SetMovable(true)
+    frame:SetResizable(true)
+    frame:SetMinResize(240, 320)
     frame:EnableMouse(true)
     frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", function() frame:StartMoving() end)
-    frame:SetScript("OnDragStop", function()
-        frame:StopMovingOrSizing()
+    frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
+    frame:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
         SavePosition()
+        dirty = true
+    end)
+    -- Bars are sized off the frame width, so a resize has to repaint them.
+    frame:SetScript("OnSizeChanged", function() dirty = true end)
+
+    -- Title -----------------------------------------------------------------
+    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOPLEFT", PAD + 2, -11)
+    title:SetText("Stat Feed")
+    title:SetTextColor(db.titleColor[1], db.titleColor[2], db.titleColor[3])
+    frame.title = title
+
+    local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", 0, 1)
+    close:SetScript("OnClick", function()
+        frame:Hide()
+        GetDB().shown = false
     end)
 
-    -- Resize grip in the bottom-right, like the default chat frames.
-    frame:SetResizable(true)
-    frame:SetMinResize(200, 100)
+    local collapse = CreateFrame("Button", nil, frame)
+    collapse:SetWidth(26)
+    collapse:SetHeight(26)
+    collapse:SetPoint("TOPRIGHT", -22, -2)
+    collapse:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight")
+    collapse:GetHighlightTexture():SetBlendMode("ADD")
+    collapse:SetScript("OnClick", function()
+        local d = GetDB()
+        if not d.collapsed then d.height = frame:GetHeight() end
+        d.collapsed = not d.collapsed
+        ApplyCollapse()
+        SavePosition()
+    end)
+    collapse:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(GetDB().collapsed and "Expand" or "Collapse")
+        GameTooltip:Show()
+    end)
+    collapse:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    frame.collapseButton = collapse
 
+    -- A thin accent under the title, fading out to the right.
+    local accent = frame:CreateTexture(nil, "ARTWORK")
+    accent:SetTexture(1, 1, 1)
+    accent:SetHeight(2)
+    accent:SetPoint("TOPLEFT", PAD + 2, -(HEADER_H - 4))
+    accent:SetPoint("TOPRIGHT", -(PAD + 2), -(HEADER_H - 4))
+    if accent.SetGradientAlpha then
+        accent:SetGradientAlpha("HORIZONTAL",
+            db.titleColor[1], db.titleColor[2], db.titleColor[3], 0.85,
+            db.titleColor[1], db.titleColor[2], db.titleColor[3], 0.0)
+    else
+        accent:SetTexture(db.titleColor[1], db.titleColor[2], db.titleColor[3], 0.6)
+    end
+    frame.accent = accent
+
+    -- Session summary -------------------------------------------------------
+    frame.totalText = SummaryLine(frame, 1, "This session",  0.35, 1.00, 0.20)
+    frame.rateText  = SummaryLine(frame, 2, "Stats / hour",  0.30, 0.68, 1.00)
+    frame.clockText = SummaryLine(frame, 3, "Session time",  1.00, 0.82, 0.00)
+
+    frame.midDivider = Divider(frame, -(HEADER_H + 6 + SUMMARY_ROW * 3 + 4))
+
+    -- Per-stat rows ---------------------------------------------------------
+    statBlock = CreateFrame("Frame", nil, frame)
+    statBlock:SetPoint("TOPLEFT", PAD + 2, -(HEADER_H + 12 + SUMMARY_ROW * 3))
+    statBlock:SetPoint("TOPRIGHT", -(PAD + 2), -(HEADER_H + 12 + SUMMARY_ROW * 3))
+    statBlock:SetHeight(#STATS * STAT_ROW + 4)
+
+    for i = 1, #STATS do
+        local info = STATS[i]
+        local y    = -((i - 1) * STAT_ROW) - 2
+        local row  = {}
+
+        -- Share bar: how big this stat's gain is next to the biggest one.
+        -- Sits in BACKGROUND so the text reads over it.
+        row.bar = statBlock:CreateTexture(nil, "BACKGROUND")
+        row.bar:SetTexture(info.r, info.g, info.b, 0.16)
+        row.bar:SetHeight(STAT_ROW - 4)
+        row.bar:SetPoint("TOPLEFT", 0, y + 1)
+        row.bar:SetWidth(1)
+        row.bar:Hide()
+
+        row.name = statBlock:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.name:SetPoint("TOPLEFT", 2, y)
+        row.name:SetWidth(120)
+        row.name:SetJustifyH("LEFT")
+        row.name:SetText(info.key)
+        row.name:SetTextColor(info.r, info.g, info.b)
+
+        row.value = statBlock:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.value:SetPoint("TOPRIGHT", -2, y)
+        row.value:SetJustifyH("RIGHT")
+
+        -- Hover target spanning the row, for the starting/current/added detail.
+        row.hit = CreateFrame("Frame", nil, statBlock)
+        row.hit:SetPoint("TOPLEFT", 0, y + 2)
+        row.hit:SetPoint("TOPRIGHT", 0, y + 2)
+        row.hit:SetHeight(STAT_ROW)
+        row.hit:EnableMouse(true)
+        row.hit.info = info
+        row.hit:SetScript("OnEnter", function(self)
+            local s = self.info
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(s.key, s.r, s.g, s.b)
+            GameTooltip:AddLine("At login: " .. Commas(s.startValue or 0), 1, 1, 1)
+            GameTooltip:AddLine("Now: " .. Commas(CurrentStat(s)), 0, 0.9, 1)
+            GameTooltip:AddLine("Earned this session: +" .. Commas(earned[s.key] or 0), 0.35, 1, 0.2)
+            GameTooltip:Show()
+        end)
+        row.hit:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+        rows[info.key] = row
+    end
+
+    frame.lowDivider = Divider(frame, -4, statBlock)
+
+    -- Feed ------------------------------------------------------------------
+    log = CreateFrame("ScrollingMessageFrame", nil, frame)
+    log:SetPoint("TOPLEFT", statBlock, "BOTTOMLEFT", 0, -12)
+    log:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -(PAD + 2), PAD + CREDIT_H - 6)
+    log:SetFontObject(GameFontHighlightSmall)
+    log:SetJustifyH("LEFT")
+    log:SetFading(false)
+    log:SetMaxLines(db.maxLines)
+    log:EnableMouseWheel(true)
+    log:SetScript("OnMouseWheel", function(_, delta)
+        -- 3.3.5 passes delta as the global `arg1` in some paths; accept both.
+        local d = delta or arg1
+        if d and d > 0 then log:ScrollUp() else log:ScrollDown() end
+    end)
+    frame.log = log
+
+    -- Credit ----------------------------------------------------------------
+    local credit = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    credit:SetPoint("BOTTOMRIGHT", -26, 10)
+    credit:SetText("Made by MentalMonk")
+    credit:SetTextColor(0.45, 0.45, 0.45)
+    frame.credit = credit
+
+    -- Resize grip, like the default chat frames.
     local grip = CreateFrame("Button", nil, frame)
     grip:SetWidth(16)
     grip:SetHeight(16)
@@ -98,123 +612,128 @@ local function BuildWindow()
     grip:SetScript("OnMouseUp", function()
         frame:StopMovingOrSizing()
         SavePosition()
+        dirty = true
+        Repaint(true)
+    end)
+    frame.grip = grip
+
+    -- The tick lives on the window itself: a hidden frame gets no OnUpdate, so
+    -- a closed Stat Feed costs nothing per frame.
+    frame:SetScript("OnUpdate", function(self, elapsed)
+        tickElapsed = tickElapsed + (elapsed or arg1 or 0)
+        if tickElapsed >= TICK_SECONDS then
+            tickElapsed = 0
+            Repaint()
+        end
     end)
 
-    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    title:SetPoint("TOPLEFT", 12, -10)
-    title:SetText("Stat Feed")
-    title:SetTextColor(db.titleColor[1], db.titleColor[2], db.titleColor[3])
-    frame.title = title
-
-    local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", -2, -2)
-    close:SetScript("OnClick", function()
-        frame:Hide()
-        GetDB().shown = false
-    end)
-
-    -- ScrollingMessageFrame keeps the newest line at the bottom and drops the
-    -- oldest once the cap is reached, which is what we want for a feed.
-    local log = CreateFrame("ScrollingMessageFrame", nil, frame)
-    log:SetPoint("TOPLEFT", 12, -30)
-    log:SetPoint("BOTTOMRIGHT", -12, 10)
-    log:SetFontObject(GameFontHighlightSmall)
-    log:SetJustifyH("LEFT")
-    log:SetFading(false)
-    log:SetMaxLines(db.maxLines)
-    log:EnableMouseWheel(true)
-    log:SetScript("OnMouseWheel", function(_, delta)
-        -- 3.3.5 passes delta as the global `arg1` in some paths; accept both.
-        local d = delta or arg1
-        if d > 0 then log:ScrollUp() else log:ScrollDown() end
-    end)
-
-    frame.log = log
-
-    if not db.shown then
-        frame:Hide()
-    end
+    if not db.shown then frame:Hide() end
+    ApplyCollapse()
+    Repaint(true)
 end
 
-local function AddLine(msg)
-    if frame and frame.log then
-        frame.log:AddMessage(msg)
-    end
-end
-
+-- ---------------------------------------------------------------------------
+-- Events
+-- ---------------------------------------------------------------------------
 local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
+events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("CHAT_MSG_ADDON")
--- Reads the event and its arguments from PARAMETERS, falling back to the
--- globals.
---
 -- Both conventions work on 3.3.5: handlers set via SetScript receive
 -- (self, event, ...), and the older `event` / `arg1` / `argN` globals are also
--- still populated -- those were not dropped until Cataclysm. The original
--- global-only form was fine; the `or` fallbacks simply mean this keeps working
--- if the file is ever reused on a client where only one convention holds.
+-- still populated -- those were not dropped until Cataclysm.
 events:SetScript("OnEvent", function(self, evt, a1, a2)
-    local e = evt or event
+    local e  = evt or event
     local p1 = a1 or arg1
     local p2 = a2 or arg2
 
     if e == "ADDON_LOADED" then
-        if p1 == "StatFeed" then
+        if p1 == ADDON_NAME then
+            GetDB()
+            ResetSession()
             BuildWindow()
+            BuildOptions()
+            if RegisterAddonMessagePrefix then RegisterAddonMessagePrefix(ADDON_PREFIX) end
         end
         return
     end
 
-    if e == "CHAT_MSG_ADDON" then
-        -- p1 = prefix, p2 = message
-        if p1 == ADDON_PREFIX then
-            AddLine(p2)
-        end
+    if e == "PLAYER_ENTERING_WORLD" then
+        -- Stats read as 0 until the player object is fully loaded, so the
+        -- login baseline is taken (or corrected) here.
+        CaptureBaseline()
+        dirty = true
+        Repaint(true)
+        if RegisterAddonMessagePrefix then RegisterAddonMessagePrefix(ADDON_PREFIX) end
+        return
+    end
+
+    if e == "CHAT_MSG_ADDON" and p1 == ADDON_PREFIX then
+        HandleFeed(p2)
     end
 end)
 
--- Recenter and restore default size; shared by /statfeed reset and the
--- options-panel "Reset position & size" button.
+-- ---------------------------------------------------------------------------
+-- Slash commands
+-- ---------------------------------------------------------------------------
 local function ResetWindow()
     if not frame then return end
+    local db = GetDB()
     frame:ClearAllPoints()
     frame:SetPoint("CENTER", UIParent, "CENTER", DEFAULTS.x, DEFAULTS.y)
     frame:SetWidth(DEFAULTS.width)
-    frame:SetHeight(DEFAULTS.height)
+    db.height = DEFAULTS.height
+    frame:SetHeight(db.collapsed and COMPACT_H or DEFAULTS.height)
     frame:Show()
-    GetDB().shown = true
+    db.shown = true
     SavePosition()
+    dirty = true
+    Repaint(true)
+end
+
+local function Toggle()
+    if not frame then return end
+    if frame:IsShown() then
+        frame:Hide()
+        GetDB().shown = false
+    else
+        frame:Show()
+        GetDB().shown = true
+        dirty = true
+        Repaint(true)
+    end
 end
 
 SLASH_STATFEED1 = "/statfeed"
+SLASH_STATFEED2 = "/sfp"
 SlashCmdList["STATFEED"] = function(msg)
-    msg = string.lower(msg or "")
+    msg = Trim(lower(msg or ""))
 
     if msg == "clear" then
-        if frame and frame.log then frame.log:Clear() end
-        return
-    end
-
-    if msg == "reset" then
+        if log then log:Clear() end
+    elseif msg == "session" then
+        ResetSession()
+        AddLine("|cff9CC243Session counters reset.|r")
+        Repaint(true)
+    elseif msg == "reset" then
         ResetWindow()
-        return
-    end
-
-    if frame then
-        if frame:IsShown() then
-            frame:Hide()
-            GetDB().shown = false
-        else
-            frame:Show()
-            GetDB().shown = true
-        end
+    else
+        Toggle()
     end
 end
 
--- Settings page under ESC > Interface > AddOns > Uncapped > Stat Feed.
+-- ---------------------------------------------------------------------------
+-- Settings page: ESC > Interface > AddOns > Uncapped > Stat Feed.
 -- Guarded: the shared UncappedUI library is provided by another addon and may
 -- not be present.
-if UncappedUI then
+--
+-- Built from ADDON_LOADED rather than at file scope: SavedVariables are loaded
+-- after the addon's Lua runs, so a panel built here would read its widget
+-- states off the defaults instead of the player's saved ones.
+-- ---------------------------------------------------------------------------
+function BuildOptions()
+    if not UncappedUI then return end
+
     local panel, L = UncappedUI.CreatePanel("Stat Feed", "The Dungeon Stats feed window.")
 
     L:Header("Window")
@@ -224,22 +743,31 @@ if UncappedUI then
         function(v)
             GetDB().shown = v
             if frame then
-                if v then frame:Show() else frame:Hide() end
+                if v then frame:Show(); dirty = true; Repaint(true) else frame:Hide() end
             end
         end)
 
-    local widthSlider = L:Slider("Window width", 200, 600, 10,
+    L:Check("Collapse to the session summary",
+        function() return GetDB().collapsed end,
+        function(v)
+            local db = GetDB()
+            if frame and not db.collapsed then db.height = frame:GetHeight() end
+            db.collapsed = v
+            ApplyCollapse()
+        end)
+
+    local widthSlider = L:Slider("Window width", 240, 600, 10,
         function() return GetDB().width end,
         function(v)
             GetDB().width = v
-            if frame then frame:SetWidth(v) end
+            if frame then frame:SetWidth(v); dirty = true end
         end, "%d px")
 
-    local heightSlider = L:Slider("Window height", 100, 500, 10,
+    local heightSlider = L:Slider("Window height", 320, 700, 10,
         function() return GetDB().height end,
         function(v)
             GetDB().height = v
-            if frame then frame:SetHeight(v) end
+            if frame and not GetDB().collapsed then frame:SetHeight(v) end
         end, "%d px")
 
     L:Header("Feed")
@@ -248,10 +776,18 @@ if UncappedUI then
         function() return GetDB().maxLines end,
         function(v)
             GetDB().maxLines = v
-            if frame and frame.log then frame.log:SetMaxLines(v) end
+            if log then log:SetMaxLines(v) end
         end, "%d")
 
     L:Header("Appearance")
+
+    L:Check("Show per-stat share bars",
+        function() return GetDB().showBars end,
+        function(v)
+            GetDB().showBars = v
+            dirty = true
+            Repaint(true)
+        end)
 
     L:Slider("Background opacity", 0.0, 1.0, 0.05,
         function() return GetDB().bgAlpha end,
@@ -267,10 +803,22 @@ if UncappedUI then
         end,
         function(r, g, b)
             GetDB().titleColor = { r, g, b }
-            if frame and frame.title then frame.title:SetTextColor(r, g, b) end
+            if frame then
+                frame.title:SetTextColor(r, g, b)
+                if frame.accent.SetGradientAlpha then
+                    frame.accent:SetGradientAlpha("HORIZONTAL", r, g, b, 0.85, r, g, b, 0.0)
+                else
+                    frame.accent:SetTexture(r, g, b, 0.6)
+                end
+            end
         end)
 
     L:Gap(6)
+
+    L:Button("Reset session counters", function()
+        ResetSession()
+        Repaint(true)
+    end)
 
     L:Button("Reset position & size", function()
         ResetWindow()
