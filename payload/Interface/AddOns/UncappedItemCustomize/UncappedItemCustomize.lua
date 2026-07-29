@@ -183,9 +183,14 @@ end
 local function scaleDescription(desc, bases, mult)
   if not desc or mult == 1 then return desc end
 
-  local ordered = {}
+  -- Dedupe: an effect with no die sides reports min == max, and two effects can share
+  -- a value. Replacing the same number twice is wasted work.
+  local seen, ordered = {}, {}
   for _, b in ipairs(bases) do
-    if b and b > 0 then table.insert(ordered, b) end
+    if b and b > 0 and not seen[b] then
+      seen[b] = true
+      table.insert(ordered, b)
+    end
   end
   if #ordered == 0 then return nil end
   table.sort(ordered, function(a, b) return a > b end)
@@ -203,6 +208,37 @@ local function scaleDescription(desc, bases, mult)
   end
 
   return hit and out or nil
+end
+
+-- Wrap `s` into a list of lines of at most `width` characters, breaking on spaces.
+--
+-- Both tooltip paths need this done UP FRONT rather than by the renderer:
+-- GameTooltip:AddLine does not wrap, so one long spell description stretches the whole
+-- tooltip across the screen; and the scrollable companion panel lays out fixed-height
+-- rows, so text wrapped by the FontString would overlap the row below it. Pre-splitting
+-- gives both a list of short lines, and makes #lines an honest height for the
+-- inline-vs-panel decision.
+-- Chars per wrapped line. Sized to the narrower of the two targets: the companion
+-- panel's 248px rows in GameTooltipText, which is roughly this many characters.
+local TIP_WRAP_CHARS = 46
+
+local function wrapText(s, width)
+  local out = {}
+  for word in tostring(s or ""):gmatch("%S+") do
+    -- A single word longer than the line (a huge number, a long spell name) would
+    -- otherwise blow the width on its own, so hard-split it.
+    while #word > width do
+      table.insert(out, word:sub(1, width))
+      word = word:sub(width + 1)
+    end
+    local n = #out
+    if n == 0 or #out[n] + 1 + #word > width then
+      table.insert(out, word)
+    else
+      out[n] = out[n] .. " " .. word
+    end
+  end
+  return out
 end
 
 local SND_SEAL = "Sound\\Spells\\SoulstoneResurrection_Base.wav"
@@ -783,18 +819,18 @@ local function OnLine(body)
     if sid and sbCurKey and sbStaging[sbCurKey] then
       table.insert(sbStaging[sbCurKey].procs,
         { spellId = tonumber(sid), trigger = tonumber(tr), chance = tonumber(ch), mag = tonumber(mg),
-          summonCap = tonumber(sc) or 0, bases = { 0, 0, 0 } })
+          summonCap = tonumber(sc) or 0, bases = {} })
     end
   elseif cmd == "ICIPROCBP" then
-    -- <bp0>:<bp1>:<bp2> -- unscaled base values for the ICIPROC just before it. Sent as
-    -- its own line so older addon builds simply ignore it instead of losing the proc.
-    local b0, b1, b2 = rest:match("^(%d+):(%d+):(%d+)$")
-    if b0 and sbCurKey and sbStaging[sbCurKey] then
+    -- <lo0>:<hi0>:<lo1>:<hi1>:<lo2>:<hi2> -- unscaled min/max per effect for the ICIPROC
+    -- just before it. Sent as its own line so older addon builds ignore it rather than
+    -- losing the proc. Both ends are kept: "Deals X to Y damage" needs both rewritten.
+    local v = {}
+    for n in rest:gmatch("(%d+)") do v[#v+1] = tonumber(n) end
+    if #v >= 6 and sbCurKey and sbStaging[sbCurKey] then
       local procs = sbStaging[sbCurKey].procs
       local last = procs[#procs]
-      if last then
-        last.bases = { tonumber(b0), tonumber(b1), tonumber(b2) }
-      end
+      if last then last.bases = v end
     end
   elseif cmd == "ICINVEND" then
     sbInv = sbStaging
@@ -1009,7 +1045,12 @@ local function Inject(tt, key)
     -- as a bug, and the header already carries the multiplier.
     local scaled = scaleDescription(spellDescription(p.spellId), p.bases or {}, (p.mag or 100) / 100)
     if scaled then
-      lines[#lines+1] = { text = "  " .. scaled, r = 0.62, g = 0.62, b = 0.72 }
+      -- Pre-wrapped: a spell description is one long unbroken string, and neither render
+      -- path wraps it for us (GameTooltip:AddLine stretches the tooltip across the screen;
+      -- the companion panel's rows are fixed height and would overlap).
+      for _, seg in ipairs(wrapText(scaled, TIP_WRAP_CHARS)) do
+        lines[#lines+1] = { text = "  " .. seg, r = 0.62, g = 0.62, b = 0.72 }
+      end
     end
   end
 
