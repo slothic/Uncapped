@@ -2643,8 +2643,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedTransmog/UncappedTransmog.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedTransmog/UncappedTransmog.lua",
-                      "sha256":  "27ae884b8df744b6bc0d857fcbecef288ece67d1b8b768184ecfc80f256f261b",
-                      "size":  50523
+                      "sha256":  "42972c317e935cfcc7304e06450dbe976c60fad5d791fdcfea943dc99f4605df",
+                      "size":  51040
                   },
                   {
                       "path":  "Interface/AddOns/UncappedTransmog/UncappedTransmog.toc",

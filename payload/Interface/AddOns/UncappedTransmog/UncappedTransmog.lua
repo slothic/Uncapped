@@ -165,7 +165,7 @@ local maxSets        = 10
 
 local currentSlot  = 0
 local selected     = nil  -- selected row (a parsed appearance)
-local previewDisp  = nil  -- what the 3D model is currently showing
+local previewEntry = nil  -- item entry the 3D model is currently wearing
 local query        = ""
 local filterOwned  = "all"   -- all | collected | missing | favorites
 -- nil means "any". Poor gear is quality 0, so a numeric sentinel would
@@ -343,32 +343,36 @@ end
 -- =====================================================================
 -- 3D preview
 -- =====================================================================
-local function RefreshModel(disp, entry)
-    if not modelFrame then return end
-
-    -- SetUnit re-dresses the model from the live character, which is a full
-    -- model reload and visibly flickers. Sweeping the cursor across a grid
-    -- would otherwise trigger one per cell per frame, so repeats are dropped.
-    if previewDisp == disp then return end
-
-    modelFrame:SetUnit("player")
-
-    -- SetUnit resets camera and facing, so the framing has to be re-applied
-    -- every time or the model snaps back to its default off-centre pose.
+-- SetUnit resets camera and facing, so the framing has to be re-applied after
+-- every one or the model snaps back to its default off-centre pose.
+local function ApplyModelFraming()
     if modelFrame.SetPosition then modelFrame:SetPosition(modelFrame.zoom or 0, 0, -0.15) end
     if modelFrame.SetRotation then modelFrame:SetRotation(modelFrame.rotation or 0.35) end
+end
 
-    if disp == HIDDEN_DISPLAY then
-        -- Nothing to try on; the slot simply renders empty.
-        previewDisp = disp
-        return
-    end
+-- Put the model back in the character's real, currently-worn gear.
+local function ResetModel()
+    if not modelFrame then return end
+    modelFrame:SetUnit("player")
+    ApplyModelFraming()
+    previewEntry = nil
+end
 
-    if entry then
-        modelFrame:TryOn(entry)
-    end
-
-    previewDisp = disp
+-- Show one appearance on the model.
+--
+-- Deliberately NO SetUnit here. Every appearance in a slot tab targets the SAME
+-- equipment slot, so TryOn replaces that slot rather than stacking onto it --
+-- there is nothing to reset between previews.
+--
+-- Calling SetUnit first was actively wrong: it reloads the entire model, which
+-- is ASYNCHRONOUS, so the TryOn issued immediately afterwards was discarded
+-- when the reload completed. The model just snapped back to the player's real
+-- gear and hovering looked like it did nothing at all.
+local function PreviewItem(entry)
+    if not modelFrame or not entry then return end
+    if previewEntry == entry then return end
+    modelFrame:TryOn(entry)
+    previewEntry = entry
 end
 
 -- =====================================================================
@@ -522,7 +526,7 @@ end
 -- =====================================================================
 local function SelectRow(row)
     selected = row
-    RefreshModel(row.disp, row.entry)
+    PreviewItem(row.entry)
 
     -- Source lookup is throttled server-side, so ask only on an explicit
     -- selection -- never on hover.
@@ -625,7 +629,7 @@ local function SelectSlot(slotId)
 
     ResetScroll()
     RebuildSubFilter()
-    RefreshModel(nil, nil)
+    ResetModel()
     Refresh()
 end
 
@@ -947,15 +951,15 @@ local function BuildFrame()
         cell:SetScript("OnEnter", function(self)
             ShowCellTooltip(self)
             -- Hover previews the look without asking the server anything.
-            if self.row then RefreshModel(self.row.disp, self.row.entry) end
+            if self.row then PreviewItem(self.row.entry) end
         end)
         cell:SetScript("OnLeave", function()
             GameTooltip:Hide()
-            if selected then
-                RefreshModel(selected.disp, selected.entry)
-            else
-                RefreshModel(nil, nil)
-            end
+            -- Fall back to the selected look, but do NOT reset to real gear
+            -- otherwise: sweeping the cursor off a cell would reload the whole
+            -- model, and the wardrobe is meant to hold the last thing you
+            -- looked at, the way the retail one does.
+            if selected then PreviewItem(selected.entry) end
         end)
 
         cells[i] = cell
