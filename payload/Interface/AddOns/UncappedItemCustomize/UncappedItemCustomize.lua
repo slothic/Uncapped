@@ -295,6 +295,18 @@ local state = {
   exTargets = {},        -- one row per gear item (any -- with or without a proc)
   exSelSrc = nil,        -- selected source row (from exSources)
   exSelTgt = nil,        -- selected target row (from exTargets)
+  -- Sockets (Scroll of Socket). Sockets are virtual: the 3.3.5a client can only draw
+  -- an item's three template sockets plus the prismatic one, and this feature has no
+  -- limit, so the whole socket view lives in this window instead of the item tooltip.
+  sockStaging = {},      -- key "bag:slot" -> {bag,slot,entry,equipped,capacity,empty,gems={[entry]={count,active}}}
+  sockItems = {},        -- committed, sorted list of the above
+  sockSel = nil,         -- selected gear row
+  sockGems = {},         -- gems in your bags: {entry, held}
+  sockGemStaging = {},
+  sockFillGem = nil,     -- gem entry the Fill button pours in
+  sockScope = "Worn",    -- gear list filter: Worn / Bags / All
+  sockFilter = "",       -- gear list name filter
+  sockTally = { meta = 0, red = 0, yellow = 0, blue = 0 },  -- current gem colour counts
 }
 
 local function send(body)
@@ -809,6 +821,424 @@ local function openExtractor()
   send("ICEXSRC")
 end
 
+-- ---- Scroll of Socket ----------------------------------------------------
+--
+-- Sockets have no identity: every one is prismatic, they are interchangeable, and
+-- nothing ever refers to "socket 3". So an item's socket state is drawn as a capacity
+-- bar plus one row per DISTINCT gem -- an item with 500 sockets is still three rows.
+-- Gems go in by drag-and-drop (or in bulk with Fill), and come back out destroyed.
+local SOCK, sockGearRows, sockGemRows = nil, {}, {}
+local SG_ROWS, SG_H = 5, 30          -- gem rows in the right panel
+local SOCK_FILTERS = { "Worn", "Bags", "All" }
+
+-- Socket colours use the core's SocketColor bits, the same ones a gem's colour mask
+-- uses: a gem fits a socket when they share a bit. Meta gems carry only bit 1, so a
+-- meta socket is the only place they go -- and those roll rarely.
+local SOCK_COLORS = { [1] = "meta", [2] = "red", [4] = "yellow", [8] = "blue" }
+local SOCK_COLOR_ORDER = { 1, 2, 4, 8 }
+local SOCK_COLOR_HEX = { [1] = "ffd0c0ff", [2] = "ffff4040", [4] = "ffffd020", [8] = "ff4080ff" }
+
+local function colorName(c) return SOCK_COLORS[c] or ("colour " .. tostring(c)) end
+local function colorText(c)
+  return "|c" .. (SOCK_COLOR_HEX[c] or "ffffffff") .. colorName(c) .. "|r"
+end
+
+-- The gear row the panel is currently showing, refreshed in place by commitSocketItems.
+local function sockSel() return state.sockSel end
+
+local function sendFill(gemEntry, amount)
+  local s = sockSel()
+  if not s or not gemEntry then return end
+  send(string.format("ICSOCKSET:%d:%d:%d:%d", s.bag, s.slot, gemEntry, amount or 1))
+end
+
+local function BuildSocketUI()
+  if SOCK then return SOCK end
+  local f = CreateFrame("Frame", "UncappedSocketFrame", UIParent)
+  f:SetSize(620, 460)
+  f:SetPoint("CENTER")
+  f:SetFrameStrata("HIGH")
+  f:SetBackdrop({
+    bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", tile = true, tileSize = 32, edgeSize = 32,
+    insets = { left = 11, right = 12, top = 12, bottom = 11 } })
+  f:SetBackdropBorderColor(0.35, 0.75, 0.9, 1)
+  f:EnableMouse(true); f:SetMovable(true); f:RegisterForDrag("LeftButton")
+  f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
+  f:SetClampedToScreen(true); f:Hide()
+  tinsert(UISpecialFrames, "UncappedSocketFrame")   -- Esc closes it
+
+  local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  title:SetPoint("TOPLEFT", 22, -18); title:SetText("|cff59bfe6Sockets|r")
+
+  local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+  close:SetPoint("TOPRIGHT", -8, -8)
+
+  -- ---- left: your gear ---------------------------------------------------
+  local lh = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  lh:SetPoint("TOPLEFT", 22, -48); lh:SetText("YOUR GEAR")
+
+  local filter = CreateFrame("EditBox", "UncappedSocketFilter", f, "InputBoxTemplate")
+  filter:SetSize(140, 20); filter:SetPoint("TOPLEFT", 26, -64)
+  filter:SetAutoFocus(false)
+  filter:SetScript("OnTextChanged", function(self)
+    state.sockFilter = (self:GetText() or ""):lower()
+    if SOCK then SOCK:Refresh() end
+  end)
+  filter:SetScript("OnEscapePressed", function(self) self:SetText(""); self:ClearFocus() end)
+
+  local scope = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  scope:SetSize(56, 21); scope:SetPoint("LEFT", filter, "RIGHT", 8, 0)
+  scope:SetScript("OnClick", function()
+    local i = 1
+    for k, v in ipairs(SOCK_FILTERS) do if v == state.sockScope then i = k end end
+    state.sockScope = SOCK_FILTERS[(i % #SOCK_FILTERS) + 1]
+    SOCK:Refresh()
+  end)
+  f.scopeBtn = scope
+
+  local gearScroll = CreateFrame("ScrollFrame", "UncappedSocketGear", f, "FauxScrollFrameTemplate")
+  gearScroll:SetPoint("TOPLEFT", 22, -92)
+  gearScroll:SetSize(226, EXR_ROWS * EXR_H)
+  gearScroll:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, EXR_H, function() if SOCK then SOCK:Refresh() end end)
+  end)
+  gearScroll:SetScript("OnMouseWheel", function(self, delta)
+    FauxScrollFrame_OnVerticalScroll(self, (FauxScrollFrame_GetOffset(self) - delta) * EXR_H, EXR_H,
+      function() if SOCK then SOCK:Refresh() end end)
+  end)
+  for i = 1, EXR_ROWS do
+    local r = CreateFrame("Button", nil, f); r:SetSize(222, EXR_H - 2)
+    if i == 1 then r:SetPoint("TOPLEFT", gearScroll, "TOPLEFT", 0, 0)
+    else r:SetPoint("TOPLEFT", sockGearRows[i-1], "BOTTOMLEFT", 0, -2) end
+    r.sel = r:CreateTexture(nil, "BACKGROUND")
+    r.sel:SetAllPoints(); r.sel:SetTexture(0.25, 0.5, 0.7, 0.5); r.sel:Hide()
+    local hl = r:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetTexture(1, 1, 1, 0.12)
+    r.icon = r:CreateTexture(nil, "ARTWORK"); r.icon:SetSize(EXR_H - 8, EXR_H - 8)
+    r.icon:SetPoint("LEFT", 2, 0)
+    r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.name:SetPoint("LEFT", r.icon, "RIGHT", 4, 5); r.name:SetWidth(150); r.name:SetJustifyH("LEFT")
+    r.sub = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    r.sub:SetPoint("LEFT", r.icon, "RIGHT", 4, -7); r.sub:SetWidth(150); r.sub:SetJustifyH("LEFT")
+    r.count = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    r.count:SetPoint("RIGHT", -6, 0)
+    r:SetScript("OnClick", function() if r.data then state.sockSel = r.data; SOCK:Refresh() end end)
+    r:Hide()
+    sockGearRows[i] = r
+  end
+  f.gearScroll = gearScroll
+
+  -- ---- left footer: colour tally ----------------------------------------
+  f.tally = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  f.tally:SetPoint("TOPLEFT", 22, -104 - EXR_ROWS * EXR_H)
+  f.tally:SetWidth(226); f.tally:SetJustifyH("LEFT")
+
+  f.metaWarn = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  f.metaWarn:SetPoint("TOPLEFT", f.tally, "BOTTOMLEFT", 0, -6)
+  f.metaWarn:SetWidth(226); f.metaWarn:SetJustifyH("LEFT")
+  f.metaWarn:SetText("Each meta gem you wear multiplies EVERY meta's colour requirement.")
+
+  -- ---- right: the selected item -----------------------------------------
+  local RX = 268
+  f.itemIcon = f:CreateTexture(nil, "ARTWORK"); f.itemIcon:SetSize(32, 32)
+  f.itemIcon:SetPoint("TOPLEFT", RX, -48)
+  f.itemName = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  f.itemName:SetPoint("TOPLEFT", RX + 38, -50); f.itemName:SetWidth(290); f.itemName:SetJustifyH("LEFT")
+  f.itemSub = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  f.itemSub:SetPoint("TOPLEFT", RX + 38, -66); f.itemSub:SetWidth(290); f.itemSub:SetJustifyH("LEFT")
+
+  local bar = CreateFrame("StatusBar", nil, f)
+  bar:SetSize(328, 14); bar:SetPoint("TOPLEFT", RX, -90)
+  bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+  bar:SetStatusBarColor(0.25, 0.6, 0.85)
+  bar:SetMinMaxValues(0, 1); bar:SetValue(0)
+  local barBg = bar:CreateTexture(nil, "BACKGROUND"); barBg:SetAllPoints(); barBg:SetTexture(0, 0, 0, 0.5)
+  bar.text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  bar.text:SetPoint("CENTER")
+  f.bar = bar
+
+  -- Gem rows: one per distinct gem in the item, which is what keeps this readable
+  -- whether the item has 3 sockets or 500.
+  for i = 1, SG_ROWS do
+    local r = CreateFrame("Button", nil, f); r:SetSize(328, SG_H - 2)
+    if i == 1 then r:SetPoint("TOPLEFT", RX, -112)
+    else r:SetPoint("TOPLEFT", sockGemRows[i-1], "BOTTOMLEFT", 0, -2) end
+    local hl = r:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetTexture(1, 1, 1, 0.1)
+    r.icon = r:CreateTexture(nil, "ARTWORK"); r.icon:SetSize(SG_H - 8, SG_H - 8)
+    r.icon:SetPoint("LEFT", 4, 0)
+    r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.name:SetPoint("LEFT", r.icon, "RIGHT", 6, 0); r.name:SetWidth(196); r.name:SetJustifyH("LEFT")
+    r.count = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    r.count:SetPoint("RIGHT", -34, 0)
+
+    local minus = CreateFrame("Button", nil, r, "UIPanelButtonTemplate")
+    minus:SetSize(22, 20); minus:SetPoint("RIGHT", -4, 0); minus:SetText("-")
+    minus:SetScript("OnClick", function()
+      local d, s = r.data, sockSel()
+      if not d or not s then return end
+      local amount = IsShiftKeyDown() and d.count or 1
+      StaticPopup_Show("UNCAPPED_SOCKET_REMOVE", (itemDisplay(d.entry)), tostring(amount),
+        { bag = s.bag, slot = s.slot, entry = d.entry, amount = amount, color = d.color })
+    end)
+    r.minus = minus
+
+    r:SetScript("OnEnter", function(self)
+      if not self.data then return end
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:SetHyperlink("item:" .. self.data.entry)
+      if not self.data.active then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("|cffff8040INACTIVE|r", 1, 1, 1)
+        local t = state.sockTally
+        local mult = math.max(1, t.meta or 0)
+        GameTooltip:AddLine(("You wear %d meta gem%s, so every meta's colour requirement is |cffff8040x%d|r.")
+          :format(t.meta or 0, (t.meta == 1) and "" or "s", mult), 1, 0.82, 0, true)
+        GameTooltip:AddLine(("You have %d red, %d yellow, %d blue."):format(t.red or 0, t.yellow or 0, t.blue or 0),
+          0.7, 0.7, 0.7, true)
+      end
+      GameTooltip:Show()
+    end)
+    r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    r:Hide()
+    sockGemRows[i] = r
+  end
+
+  -- ---- drop zone ---------------------------------------------------------
+  local drop = CreateFrame("Button", nil, f)
+  drop:SetSize(328, 44); drop:SetPoint("TOPLEFT", RX, -112 - SG_ROWS * SG_H - 4)
+  drop:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12,
+                     bgFile = "Interface\\Tooltips\\UI-Tooltip-Background", tile = true, tileSize = 8,
+                     insets = { left = 3, right = 3, top = 3, bottom = 3 } })
+  drop:SetBackdropColor(0, 0, 0, 0.35)
+  drop:SetBackdropBorderColor(0.4, 0.6, 0.7, 0.8)
+  drop.label = drop:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  drop.label:SetPoint("CENTER")
+  drop.label:SetWidth(316); drop.label:SetJustifyH("CENTER")
+
+  -- Dropping a gem here sockets it. Shift held = pour in as many as you own, which is
+  -- the only sane way to fill an item that has a hundred empty sockets.
+  local function acceptCursorGem()
+    local kind, _, link = GetCursorInfo()
+    if kind ~= "item" or not link then return end
+    local entry = tonumber(link:match("item:(%d+)"))
+    ClearCursor()
+    if not entry then return end
+    sendFill(entry, IsShiftKeyDown() and 0 or 1)
+  end
+  drop:SetScript("OnReceiveDrag", acceptCursorGem)
+  drop:SetScript("OnClick", acceptCursorGem)
+  f.drop = drop
+
+  -- ---- bottom: add sockets / fill ---------------------------------------
+  local addBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  addBtn:SetSize(150, 26); addBtn:SetPoint("BOTTOMLEFT", RX, 44); addBtn:SetText("+ Add Socket")
+  addBtn:SetScript("OnClick", function()
+    local s = sockSel()
+    if s then send(string.format("ICSOCKADD:%d:%d:%d", s.bag, s.slot, 1)) end
+  end)
+  f.addBtn = addBtn
+
+  local function smallBtn(parent, text, w, amount)
+    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    b:SetSize(w, 20); b:SetText(text)
+    b:SetScript("OnClick", function()
+      local s = sockSel()
+      if s then send(string.format("ICSOCKADD:%d:%d:%d", s.bag, s.slot, amount)) end
+    end)
+    return b
+  end
+  f.add10 = smallBtn(f, "x10", 40, 10); f.add10:SetPoint("BOTTOMLEFT", RX, 18)
+  f.addAll = smallBtn(f, "x all", 48, 0); f.addAll:SetPoint("LEFT", f.add10, "RIGHT", 4, 0)
+
+  local fillBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  fillBtn:SetSize(150, 26); fillBtn:SetPoint("BOTTOMRIGHT", -22, 44); fillBtn:SetText("Fill Empty")
+  fillBtn:SetScript("OnClick", function() sendFill(state.sockFillGem, 0) end)
+  f.fillBtn = fillBtn
+
+  -- Which gem "Fill Empty" pours in. Populated from the gems in your bags.
+  local dd = CreateFrame("Frame", "UncappedSocketFillDrop", f, "UIDropDownMenuTemplate")
+  dd:SetPoint("BOTTOMRIGHT", -8, 8)
+  UIDropDownMenu_SetWidth(dd, 130)
+  UIDropDownMenu_Initialize(dd, function()
+    for _, g in ipairs(state.sockGems) do
+      local info = UIDropDownMenu_CreateInfo()
+      info.text = string.format("%s (%d)", (itemDisplay(g.entry)), g.held)
+      info.func = function()
+        state.sockFillGem = g.entry
+        UIDropDownMenu_SetText(dd, (itemDisplay(g.entry)))
+        CloseDropDownMenus()
+        SOCK:Refresh()
+      end
+      UIDropDownMenu_AddButton(info)
+    end
+  end)
+  UIDropDownMenu_SetText(dd, "choose a gem")
+  f.fillDrop = dd
+
+  f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  f.hint:SetPoint("BOTTOMLEFT", 22, 20); f.hint:SetWidth(226); f.hint:SetJustifyH("LEFT")
+
+  -- ---- render ------------------------------------------------------------
+  local function visibleGear()
+    local out = {}
+    local scope, filt = state.sockScope, state.sockFilter
+    for _, d in ipairs(state.sockItems) do
+      local okScope = (scope == "All")
+        or (scope == "Worn" and d.equipped == 1)
+        or (scope == "Bags" and d.equipped == 0)
+      local okFilt = (not filt or filt == "") or ((itemDisplay(d.entry)):lower():find(filt, 1, true) ~= nil)
+      if okScope and okFilt then tinsert(out, d) end
+    end
+    return out
+  end
+
+  function f:Refresh()
+    local gear = visibleGear()
+    FauxScrollFrame_Update(self.gearScroll, #gear, EXR_ROWS, EXR_H)
+    local go = FauxScrollFrame_GetOffset(self.gearScroll)
+    local sel = sockSel()
+    for i = 1, EXR_ROWS do
+      local d = gear[i + go]
+      local r = sockGearRows[i]
+      if d then
+        r.data = d
+        local nm, tex, cr, cg, cb = itemDisplay(d.entry)
+        r.icon:SetTexture(tex)
+        r.name:SetText(nm); r.name:SetTextColor(cr, cg, cb)
+        r.sub:SetText(d.equipped == 1 and "|cff40ff40worn|r" or "in bags")
+        if d.capacity > 0 then
+          r.count:SetText(string.format("|cff59bfe6%d|r/%d", d.capacity - d.empty, d.capacity))
+        else
+          r.count:SetText("|cff606060--|r")
+        end
+        if sel and sel.bag == d.bag and sel.slot == d.slot then r.sel:Show() else r.sel:Hide() end
+        r:Show()
+      else
+        r.data = nil; r:Hide()
+      end
+    end
+
+    self.scopeBtn:SetText(state.sockScope)
+
+    local t = state.sockTally
+    self.tally:SetText(string.format("YOUR GEMS   meta |cffffffff%d|r  |cffff4040red|r %d  |cffffd020yel|r %d  |cff4080ff blue|r %d",
+      t.meta or 0, t.red or 0, t.yellow or 0, t.blue or 0))
+    local mult = math.max(1, t.meta or 0)
+    self.metaWarn:SetText("Each meta gem you wear multiplies EVERY meta's colour requirement. "
+      .. ("Wearing %d |cff59bfe6-> x%d|r"):format(t.meta or 0, mult))
+
+    local scrolls = GetItemCount(500209) or 0
+    self.hint:SetText(("|cff59bfe6%d|r Scroll%s of Socket."):format(scrolls, scrolls == 1 and "" or "s"))
+
+    -- right panel
+    if not sel then
+      self.itemIcon:SetTexture(QUESTION)
+      self.itemName:SetText("|cff808080Choose an item on the left|r")
+      self.itemSub:SetText("")
+      self.bar:SetValue(0); self.bar.text:SetText("")
+      for i = 1, SG_ROWS do sockGemRows[i].data = nil; sockGemRows[i]:Hide() end
+      self.drop.label:SetText("|cff606060select an item first|r")
+      self.addBtn:Disable(); self.add10:Disable(); self.addAll:Disable(); self.fillBtn:Disable()
+      return
+    end
+
+    local nm, tex, cr, cg, cb = itemDisplay(sel.entry)
+    self.itemIcon:SetTexture(tex)
+    self.itemName:SetText(nm); self.itemName:SetTextColor(cr, cg, cb)
+    self.itemSub:SetText(sel.equipped == 1 and "Worn" or "In your bags")
+
+    local filled = sel.capacity - sel.empty
+    self.bar:SetMinMaxValues(0, math.max(1, sel.capacity))
+    self.bar:SetValue(filled)
+    self.bar.text:SetText(string.format("%d / %d sockets", filled, sel.capacity))
+
+    -- gem rows, biggest stack first
+    local rows = {}
+    for _, g in ipairs(sel.gems) do
+      tinsert(rows, { entry = g.entry, count = g.count, active = g.active, color = g.color })
+    end
+    table.sort(rows, function(a, b)
+      if a.count ~= b.count then return a.count > b.count end
+      return (itemDisplay(a.entry)) < (itemDisplay(b.entry))
+    end)
+    for i = 1, SG_ROWS do
+      local d = rows[i]
+      local r = sockGemRows[i]
+      if d then
+        r.data = d
+        local gnm, gtex, gr, gg, gb = itemDisplay(d.entry)
+        r.icon:SetTexture(gtex)
+        r.icon:SetDesaturated(not d.active)
+        local pip = "|c" .. (SOCK_COLOR_HEX[d.color] or "ffffffff") .. "*|r "
+        if d.active then
+          r.name:SetText(pip .. gnm); r.name:SetTextColor(gr, gg, gb)
+        else
+          r.name:SetText(pip .. gnm .. "  |cffff8040(inactive)|r"); r.name:SetTextColor(0.6, 0.6, 0.6)
+        end
+        r.count:SetText("|cffffffffx" .. d.count .. "|r")
+        r:Show()
+      else
+        r.data = nil; r:Hide()
+      end
+    end
+    -- The drop zone doubles as the empty-socket readout, broken out by colour: which
+    -- colours you have free is the only thing that decides what you can socket.
+    if #rows > SG_ROWS then
+      self.drop.label:SetText(("|cffff8040+%d more gem rows below|r"):format(#rows - SG_ROWS))
+    elseif sel.empty > 0 then
+      local parts = {}
+      for _, c in ipairs(SOCK_COLOR_ORDER) do
+        local n = sel.emptyBy[c]
+        if n and n > 0 then
+          tinsert(parts, ("|c%s%d %s|r"):format(SOCK_COLOR_HEX[c] or "ffffffff", n, colorName(c)))
+        end
+      end
+      self.drop.label:SetText(("drag a gem here -- empty: %s\n|cff606060(shift = fill)|r")
+        :format(table.concat(parts, "  ")))
+    else
+      self.drop.label:SetText("|cff606060no empty sockets|r")
+    end
+
+    if scrolls > 0 then self.addBtn:Enable(); self.add10:Enable(); self.addAll:Enable()
+    else self.addBtn:Disable(); self.add10:Disable(); self.addAll:Disable() end
+    if sel.empty > 0 and state.sockFillGem then self.fillBtn:Enable() else self.fillBtn:Disable() end
+  end
+
+  SOCK = f
+  return f
+end
+
+-- Rebuild the gear list from the staged ICSOCKI / ICSOCKG lines.
+local function commitSocketItems()
+  local items = {}
+  for _, it in pairs(state.sockStaging) do tinsert(items, it) end
+  table.sort(items, function(a, b)
+    if a.equipped ~= b.equipped then return a.equipped > b.equipped end   -- worn first
+    if a.capacity ~= b.capacity then return a.capacity > b.capacity end
+    return (itemDisplay(a.entry)) < (itemDisplay(b.entry))
+  end)
+  state.sockItems = items
+
+  -- Re-point the selection at the refreshed row so its gem list is the new one.
+  if state.sockSel then
+    local found
+    for _, d in ipairs(items) do
+      if d.bag == state.sockSel.bag and d.slot == state.sockSel.slot then found = d; break end
+    end
+    state.sockSel = found
+  end
+  if SOCK and SOCK:IsShown() then SOCK:Refresh() end
+end
+
+local function openSockets()
+  BuildSocketUI()
+  state.sockStaging = {}
+  SOCK:Show()
+  SOCK:Refresh()
+  send("ICSOCKLIST")
+  send("ICSOCKBAG")
+end
+
 -- ============================ receive =====================================
 local function OnLine(body)
   dbg("<- " .. body)
@@ -921,12 +1351,95 @@ local function OnLine(body)
         .. ". Soulbind duplicates into that item to upgrade it.")
     state.exSelSrc = nil; state.exSelTgt = nil
     PlaySoundFile(SND_SEAL)
+  elseif cmd == "ICSOCKOPEN" then       -- a Scroll of Socket was used -> open the panel
+    openSockets()
+  elseif cmd == "ICSOCKI" then          -- <bag>:<slot>:<entry>:<equipped>:<capacity>:<emptyTotal>
+    local bag, slot, entry, eq, cap, empty = rest:match("^(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
+    if bag then
+      state.sockStaging[bag .. ":" .. slot] = {
+        bag = tonumber(bag), slot = tonumber(slot), entry = tonumber(entry),
+        equipped = tonumber(eq), capacity = tonumber(cap), empty = tonumber(empty),
+        emptyBy = {}, gems = {} }
+    end
+  elseif cmd == "ICSOCKE" then          -- <bag>:<slot>:<socketColor>:<empty of that colour>
+    local bag, slot, col, n = rest:match("^(%d+):(%d+):(%d+):(%d+)$")
+    local it = bag and state.sockStaging[bag .. ":" .. slot]
+    if it then it.emptyBy[tonumber(col)] = tonumber(n) end
+  elseif cmd == "ICSOCKG" then          -- <bag>:<slot>:<socketColor>:<gemEntry>:<count>:<active>
+    local bag, slot, col, gem, n, act = rest:match("^(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
+    local it = bag and state.sockStaging[bag .. ":" .. slot]
+    if it then
+      -- Keyed by colour AND gem: the same gem in a red and a yellow socket is two rows
+      -- to look at, even though it is one effect at strength 2.
+      tinsert(it.gems, { color = tonumber(col), entry = tonumber(gem),
+                         count = tonumber(n), active = tonumber(act) == 1 })
+    end
+  elseif cmd == "ICSOCKTALLY" then      -- <meta>:<red>:<yellow>:<blue>
+    local m, r, y, b = rest:match("^(%d+):(%d+):(%d+):(%d+)$")
+    if m then
+      state.sockTally = { meta = tonumber(m), red = tonumber(r), yellow = tonumber(y), blue = tonumber(b) }
+    end
+  elseif cmd == "ICSOCKEND" then
+    commitSocketItems()
+  elseif cmd == "ICSOCKGEM" then        -- <entry>:<held>
+    local entry, held = rest:match("^(%d+):(%d+)$")
+    if entry then
+      tinsert(state.sockGemStaging, { entry = tonumber(entry), held = tonumber(held) })
+    end
+  elseif cmd == "ICSOCKGEMEND" then
+    state.sockGems = state.sockGemStaging
+    state.sockGemStaging = {}
+    table.sort(state.sockGems, function(a, b) return (itemDisplay(a.entry)) < (itemDisplay(b.entry)) end)
+    -- Keep the Fill selection pointing at a gem you still own.
+    local still = nil
+    for _, g in ipairs(state.sockGems) do if g.entry == state.sockFillGem then still = g.entry end end
+    state.sockFillGem = still
+    if SOCK and SOCK:IsShown() then
+      UIDropDownMenu_SetText(SOCK.fillDrop, still and (itemDisplay(still)) or "choose a gem")
+      SOCK:Refresh()
+    end
+  elseif cmd == "ICSOCKADDED" then      -- <added>:<colour>x<n>,<colour>x<n>...
+    local n, roll = rest:match("^(%d+):(.*)$")
+    n = tonumber(n) or 0
+    local parts = {}
+    for col, cnt in (roll or ""):gmatch("(%d+)x(%d+)") do
+      tinsert(parts, cnt .. " " .. colorText(tonumber(col)))
+    end
+    msg(string.format("|cff59bfe6Added %d socket%s:|r %s", n, n == 1 and "" or "s",
+      #parts > 0 and table.concat(parts, ", ") or "?"))
+    if roll and roll:find("^1x") or (roll or ""):find(",1x") then
+      msg("|cffd0c0ffA META socket!|r Meta gems fit nothing else.")
+    end
+    PlaySoundFile(SND_SEAL)
+  elseif cmd == "ICSOCKSET" then        -- <gemEntry>:<inserted>
+    local e, n = rest:match("^(%d+):(%d+)$")
+    e, n = tonumber(e), tonumber(n) or 0
+    msg(string.format("|cff9CC243Socketed|r %s |cffffffffx%d|r.", e and (itemDisplay(e)) or "gem", n))
+    PlaySoundFile(SND_SEAL)
+  elseif cmd == "ICSOCKDEL" then        -- <gemEntry>:<removed>
+    local e, n = rest:match("^(%d+):(%d+)$")
+    e, n = tonumber(e), tonumber(n) or 0
+    msg(string.format("|cffff8040Removed and destroyed|r %s |cffffffffx%d|r.",
+      e and (itemDisplay(e)) or "gem", n))
   elseif cmd == "ICERR" then
     local op, reason = rest:match("^(%a+):(.+)$")
     if reason == "no_equipped_match" then
       msg("|cffff8040You can only soulbind a duplicate of an item you're wearing.|r")
     elseif reason == "nothing" then
       msg("|cffff8040No duplicates of your equipped gear were found.|r")
+    elseif op == "socket" then
+      local m = {
+        no_scroll = "You have no Scroll of Socket.", no_item = "That item is gone.",
+        not_gear = "Only weapons and armour can be socketed.",
+        no_socket = "That item has no empty sockets.",
+        no_fit = "No empty socket of a colour that gem fits.",
+        need_meta_socket = "Meta gems only fit a META socket, and you have none empty.",
+        no_gem = "That gem is gone.",
+        not_gem = "That isn't a gem.", cant_use = "You can't use that gem.",
+        limit = "You already carry as many of that kind of gem as you may.",
+        same_item = "Pick a different item.",
+      }
+      msg("|cffff8040Socketing failed:|r " .. (m[reason] or tostring(reason)))
     elseif op == "extract" then
       local m = {
         no_source = "The item to pull from is gone.", no_target = "The item to receive it is gone.",
@@ -941,6 +1454,19 @@ local function OnLine(body)
     dbg("unhandled:", body)
   end
 end
+
+-- ---- StaticPopup: confirm gem removal ------------------------------------
+StaticPopupDialogs["UNCAPPED_SOCKET_REMOVE"] = {
+  text = "Remove %s x%s?\n\nThe gems are destroyed. The sockets stay empty and reusable.",
+  button1 = ACCEPT, button2 = CANCEL,
+  -- 3.3.5a hands the payload through differently depending on how the dialog was
+  -- shown, so accept it either way rather than depending on one.
+  OnAccept = function(self, data)
+    local d = data or (self and self.data)
+    if d then send(string.format("ICSOCKDEL:%d:%d:%d:%d:%d", d.bag, d.slot, d.entry, d.amount, d.color or 0)) end
+  end,
+  timeout = 0, whileDead = 1, hideOnEscape = 1, showAlert = 1,
+}
 
 -- ---- StaticPopup: confirm Soulbind Duplicates ----------------------------
 StaticPopupDialogs["UNCAPPED_SF_SOULBIND_ALL"] = {
@@ -1184,6 +1710,13 @@ SLASH_EXTRACT2 = "/ex"
 SlashCmdList["EXTRACT"] = function()
   BuildExtractor()
   if EXT:IsShown() then EXT:Hide() else openExtractor() end
+end
+
+SLASH_SOCKET1 = "/socket"
+SLASH_SOCKET2 = "/sock"
+SlashCmdList["SOCKET"] = function()
+  BuildSocketUI()
+  if SOCK:IsShown() then SOCK:Hide() else openSockets() end
 end
 
 SLASH_ICDEBUG1 = "/sbdebug"
