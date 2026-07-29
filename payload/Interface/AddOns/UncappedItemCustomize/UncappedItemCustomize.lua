@@ -68,6 +68,44 @@ local function spellName(id)
   return n or ("Spell #" .. tostring(id))
 end
 
+-- Blizzard shipped ~211 developer-facing names in Spell.dbc -- "Item - Chamber of Aspects
+-- 25 Heroic Nuker Trinket", plus [DND]/[PH]/zzOLD families -- and GetSpellInfo returns
+-- them verbatim, so procs were displaying as internal build notes.
+--
+-- Anchored on the PREFIX deliberately: "Create Item - Fizzcrank Practice Parachute" is a
+-- real, player-facing name that a substring match would mangle.
+local function isDevSpellName(n)
+  if not n then return false end
+  return n:find("^Item %- ") ~= nil
+      or n:find("^zz") ~= nil
+      or n:find("%[DND%]") ~= nil
+      or n:find("%[PH%]") ~= nil
+end
+
+-- Best-effort tidy for a dev name when we can't do better: drop the "Item - " prefix and
+-- the internal markers, leaving e.g. "Sunwell Dungeon Melee Trinket".
+local function tidyDevSpellName(n)
+  n = n:gsub("^Item %- ", ""):gsub("^zzOLD%s*", ""):gsub("^zz%s*", "")
+  n = n:gsub("%s*%[DND%]", ""):gsub("%s*%[PH%]", ""):gsub("%s+DND$", ""):gsub("%s+Base$", "")
+  n = n:gsub("^%s+", ""):gsub("%s+$", "")
+  return n ~= "" and n or nil
+end
+
+-- What to actually label a proc with.
+--
+-- A developer-named spell is bespoke to one item, so the server sends that item's entry
+-- and its name is the one a player recognises ("Charred Twilight Scale"). Shared procs
+-- like Drain Life sit on dozens of items, resolve to no entry, and keep their own name.
+local function procDisplayName(p)
+  local n = spellName(p.spellId)
+  if not isDevSpellName(n) then return n end
+  if p.srcItem and p.srcItem > 0 then
+    local itemName = GetItemInfo(p.srcItem)
+    if itemName then return itemName end
+  end
+  return tidyDevSpellName(n) or n
+end
+
 -- magnitude percent (100 = 1.0x) -> tidy "1.5" style multiplier string
 local function fmtMult(magPct)
   local m = (tonumber(magPct) or 100) / 100
@@ -688,7 +726,8 @@ local function BuildExtractor()
     r.icon:SetTexture(tex)
     if isSource then
       r.name:SetText(nm); r.name:SetTextColor(cr, cg, cb)
-      r.sub:SetText("|cffb384ff" .. spellName(d.spell) .. "|r  (" .. triggerLabel(d.trigger) .. ")")
+      r.sub:SetText("|cffb384ff" .. procDisplayName({ spellId = d.spell })
+        .. "|r  (" .. triggerLabel(d.trigger) .. ")")
     else
       r.name:SetText(nm .. (d.equipped == 1 and "  |cff40ff40[Worn]|r" or ""))
       r.name:SetTextColor(cr, cg, cb)
@@ -831,6 +870,15 @@ local function OnLine(body)
       local procs = sbStaging[sbCurKey].procs
       local last = procs[#procs]
       if last then last.bases = v end
+    end
+  elseif cmd == "ICIPROCSRC" then
+    -- <itemEntry> -- the sole item carrying the ICIPROC just before it. Only sent when
+    -- unambiguous, and only useful for developer-named spells (see procDisplayName).
+    local e = rest:match("^(%d+)$")
+    if e and sbCurKey and sbStaging[sbCurKey] then
+      local procs = sbStaging[sbCurKey].procs
+      local last = procs[#procs]
+      if last then last.srcItem = tonumber(e) end
     end
   elseif cmd == "ICINVEND" then
     sbInv = sbStaging
@@ -1035,8 +1083,10 @@ local function Inject(tt, key)
   end
   for _, p in ipairs(e.procs) do
     -- Header: what it is, how it fires, and (for chance procs) how often.
-    lines[#lines+1] = { text = spellName(p.spellId) .. " (" .. triggerLabel(p.trigger) .. ") \226\128\148 " .. procMechanic(p),
-      r = 0.75, g = 0.5, b = 0.94 }
+    for _, seg in ipairs(wrapText(procDisplayName(p) .. " (" .. triggerLabel(p.trigger)
+        .. ") \226\128\148 " .. procMechanic(p), TIP_WRAP_CHARS)) do
+      lines[#lines+1] = { text = seg, r = 0.75, g = 0.5, b = 0.94 }
+    end
 
     -- Body: the spell's own description with its numbers rewritten to what this
     -- soulbound copy actually hits for. Falls back to no body line if the client
