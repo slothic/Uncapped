@@ -2595,8 +2595,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedItemCustomize/UncappedItemCustomize.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedItemCustomize/UncappedItemCustomize.lua",
-                      "sha256":  "b5b221c8f76b43d38cc3d17673e1690e7094201bde5f2f1374c358b9ee63d51f",
-                      "size":  76447
+                      "sha256":  "8e108f6cc03718181c53dca26276bcec7287f8863caeeeaa3fa75dcc2acb60b4",
+                      "size":  79530
                   },
                   {
                       "path":  "Interface/AddOns/UncappedItemCustomize/UncappedItemCustomize.toc",

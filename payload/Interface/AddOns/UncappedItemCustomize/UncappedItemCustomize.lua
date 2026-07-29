@@ -306,6 +306,7 @@ local state = {
   sockFillGem = nil,     -- gem entry the Fill button pours in
   sockScope = "Worn",    -- gear list filter: Worn / Bags / All
   sockFilter = "",       -- gear list name filter
+  sockGemOffset = 0,     -- first visible gem row (the gem list is windowed, not a scrollframe)
   sockTally = { meta = 0, red = 0, yellow = 0, blue = 0 },  -- current gem colour counts
 }
 
@@ -653,6 +654,36 @@ local function itemDisplay(entry)
   return name or ("Item #" .. tostring(entry)), tex or QUESTION, r, g, b
 end
 
+-- Wheel-scroll a FauxScrollFrame, CLAMPED.
+--
+-- Blizzard's FauxScrollFrame_OnVerticalScroll sets frame.offset from the raw value it is
+-- handed, not from the scrollbar's clamped value, and FauxScrollFrame_Update sets the
+-- scrollbar's min/max without ever resetting frame.offset. So a wheel handler that feeds
+-- its own previous offset back in ("GetOffset() - delta") climbs forever once it passes
+-- the end, and the list scrolls off into blank rows. Every wheel scroll here goes through
+-- this instead, which clamps against the number of rows there actually are.
+local function wheelScroll(frame, delta, count, rows, height, updateFn)
+  local maxOffset = math.max(0, (count or 0) - rows)
+  local offset = FauxScrollFrame_GetOffset(frame) - delta
+  if offset < 0 then offset = 0 elseif offset > maxOffset then offset = maxOffset end
+  FauxScrollFrame_OnVerticalScroll(frame, offset * height, height, updateFn)
+end
+
+-- Pull a stale offset back into range after the list has SHRUNK (filter typed, item
+-- socketed away). Same reason: nothing in the template does this for us. Returns the
+-- offset that should actually be rendered.
+local function clampOffset(frame, count, rows)
+  local maxOffset = math.max(0, (count or 0) - rows)
+  local offset = FauxScrollFrame_GetOffset(frame)
+  if offset > maxOffset then
+    FauxScrollFrame_SetOffset(frame, maxOffset)
+    local bar = _G[frame:GetName() .. "ScrollBar"]
+    if bar then bar:SetValue(maxOffset * (frame.uncappedRowH or 1)) end
+    offset = maxOffset
+  end
+  return offset
+end
+
 local function BuildExtractor()
   if EXT then return EXT end
   local f = CreateFrame("Frame", "UncappedExtractorFrame", UIParent)
@@ -692,8 +723,10 @@ local function BuildExtractor()
     scroll:SetScript("OnVerticalScroll", function(self, offset)
       FauxScrollFrame_OnVerticalScroll(self, offset, EXR_H, function() if EXT then EXT:Refresh() end end)
     end)
+    scroll.uncappedRowH = EXR_H
     scroll:SetScript("OnMouseWheel", function(self, delta)
-      FauxScrollFrame_OnVerticalScroll(self, (FauxScrollFrame_GetOffset(self) - delta) * EXR_H, EXR_H,
+      -- Clamped: see wheelScroll. This column had the same runaway as the socket list.
+      wheelScroll(self, delta, self.uncappedCount or 0, EXR_ROWS, EXR_H,
         function() if EXT then EXT:Refresh() end end)
     end)
     for i = 1, EXR_ROWS do
@@ -753,10 +786,12 @@ local function BuildExtractor()
 
   function f:Refresh()
     local src, tgt = state.exSources, state.exTargets
+    self.srcScroll.uncappedCount = #src
+    self.tgtScroll.uncappedCount = #tgt
     FauxScrollFrame_Update(self.srcScroll, #src, EXR_ROWS, EXR_H)
     FauxScrollFrame_Update(self.tgtScroll, #tgt, EXR_ROWS, EXR_H)
-    local so = FauxScrollFrame_GetOffset(self.srcScroll)
-    local to = FauxScrollFrame_GetOffset(self.tgtScroll)
+    local so = clampOffset(self.srcScroll, #src, EXR_ROWS)
+    local to = clampOffset(self.tgtScroll, #tgt, EXR_ROWS)
     for i = 1, EXR_ROWS do
       local ds = src[i + so]; if ds then fillRow(exSrcRows[i], ds, true) else exSrcRows[i].data = nil; exSrcRows[i]:Hide() end
       local dt = tgt[i + to]; if dt then fillRow(exTgtRows[i], dt, false) else exTgtRows[i].data = nil; exTgtRows[i]:Hide() end
@@ -843,8 +878,23 @@ local function colorText(c)
   return "|c" .. (SOCK_COLOR_HEX[c] or "ffffffff") .. colorName(c) .. "|r"
 end
 
+
 -- The gear row the panel is currently showing, refreshed in place by commitSocketItems.
 local function sockSel() return state.sockSel end
+
+-- The gem list is a plain windowed list rather than a FauxScrollFrame (no scrollbar to
+-- draw, and it is only ever a few rows tall). An item with a hundred sockets can still
+-- hold far more than SG_ROWS distinct gems, so it has to be scrollable -- without this
+-- the rows past the fifth simply could not be reached.
+local function scrollGems(delta)
+  local sel = sockSel()
+  if not sel then return end
+  local maxOff = math.max(0, #sel.gems - SG_ROWS)
+  local o = (state.sockGemOffset or 0) - delta
+  if o < 0 then o = 0 elseif o > maxOff then o = maxOff end
+  state.sockGemOffset = o
+  if SOCK then SOCK:Refresh() end
+end
 
 local function sendFill(gemEntry, amount)
   local s = sockSel()
@@ -903,8 +953,9 @@ local function BuildSocketUI()
   gearScroll:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, EXR_H, function() if SOCK then SOCK:Refresh() end end)
   end)
+  gearScroll.uncappedRowH = EXR_H
   gearScroll:SetScript("OnMouseWheel", function(self, delta)
-    FauxScrollFrame_OnVerticalScroll(self, (FauxScrollFrame_GetOffset(self) - delta) * EXR_H, EXR_H,
+    wheelScroll(self, delta, SOCK and SOCK.gearCount or 0, EXR_ROWS, EXR_H,
       function() if SOCK then SOCK:Refresh() end end)
   end)
   for i = 1, EXR_ROWS do
@@ -922,7 +973,13 @@ local function BuildSocketUI()
     r.sub:SetPoint("LEFT", r.icon, "RIGHT", 4, -7); r.sub:SetWidth(150); r.sub:SetJustifyH("LEFT")
     r.count = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     r.count:SetPoint("RIGHT", -6, 0)
-    r:SetScript("OnClick", function() if r.data then state.sockSel = r.data; SOCK:Refresh() end end)
+    r:SetScript("OnClick", function()
+      if r.data then
+        state.sockSel = r.data
+        state.sockGemOffset = 0   -- a new item starts at the top of its gem list
+        SOCK:Refresh()
+      end
+    end)
     r:Hide()
     sockGearRows[i] = r
   end
@@ -999,6 +1056,8 @@ local function BuildSocketUI()
       GameTooltip:Show()
     end)
     r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    r:EnableMouseWheel(true)
+    r:SetScript("OnMouseWheel", function(_, delta) scrollGems(delta) end)
     r:Hide()
     sockGemRows[i] = r
   end
@@ -1094,8 +1153,10 @@ local function BuildSocketUI()
 
   function f:Refresh()
     local gear = visibleGear()
+    -- The wheel handler needs the rendered count to clamp against.
+    self.gearCount = #gear
     FauxScrollFrame_Update(self.gearScroll, #gear, EXR_ROWS, EXR_H)
-    local go = FauxScrollFrame_GetOffset(self.gearScroll)
+    local go = clampOffset(self.gearScroll, #gear, EXR_ROWS)
     local sel = sockSel()
     for i = 1, EXR_ROWS do
       local d = gear[i + go]
@@ -1161,8 +1222,13 @@ local function BuildSocketUI()
       if a.count ~= b.count then return a.count > b.count end
       return (itemDisplay(a.entry)) < (itemDisplay(b.entry))
     end)
+    -- Window the gem rows, clamping a stale offset after the list shrank.
+    local gemMax = math.max(0, #rows - SG_ROWS)
+    if (state.sockGemOffset or 0) > gemMax then state.sockGemOffset = gemMax end
+    local gemOff = state.sockGemOffset or 0
+
     for i = 1, SG_ROWS do
-      local d = rows[i]
+      local d = rows[i + gemOff]
       local r = sockGemRows[i]
       if d then
         r.data = d
@@ -1184,7 +1250,8 @@ local function BuildSocketUI()
     -- The drop zone doubles as the empty-socket readout, broken out by colour: which
     -- colours you have free is the only thing that decides what you can socket.
     if #rows > SG_ROWS then
-      self.drop.label:SetText(("|cffff8040+%d more gem rows below|r"):format(#rows - SG_ROWS))
+      self.drop.label:SetText(("|cffb0b0b0showing gems %d-%d of %d -- scroll the list|r")
+        :format(gemOff + 1, math.min(gemOff + SG_ROWS, #rows), #rows))
     elseif sel.empty > 0 then
       local parts = {}
       for _, c in ipairs(SOCK_COLOR_ORDER) do
