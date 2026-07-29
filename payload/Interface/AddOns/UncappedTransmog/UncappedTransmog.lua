@@ -42,13 +42,20 @@ local TRANSPORT_PREFIX  = "REAGENTBANK"  -- client -> server (shared addon trans
 local HIDDEN_DISPLAY = 1   -- reserved displayid meaning "hide this slot"
 
 -- ---- layout -----------------------------------------------------------
-local COLS       = 6
-local ROWS       = 5
+-- The grid is sized so the filter row fits inside it: three dropdowns need
+-- ~470px, and a 6-column grid was only 306 wide, which pushed the third
+-- dropdown clean outside the frame.
+local COLS       = 9
+local ROWS       = 6
 local CELL       = 46
 local CELL_GAP   = 6
 local CELL_STEP  = CELL + CELL_GAP
 local PREVIEW_W  = 232
 local PAD        = 16
+local TAB        = 28   -- slot tab button size
+local TAB_STEP   = TAB + 2
+local SCROLLBAR  = 24   -- reserved so the scrollbar sits inside the frame
+local HEADER     = 78   -- title band above the search row
 
 local QCOLOR = ITEM_QUALITY_COLORS
 
@@ -346,6 +353,11 @@ local function RefreshModel(disp, entry)
 
     modelFrame:SetUnit("player")
 
+    -- SetUnit resets camera and facing, so the framing has to be re-applied
+    -- every time or the model snaps back to its default off-centre pose.
+    if modelFrame.SetPosition then modelFrame:SetPosition(modelFrame.zoom or 0, 0, -0.15) end
+    if modelFrame.SetRotation then modelFrame:SetRotation(modelFrame.rotation or 0.35) end
+
     if disp == HIDDEN_DISPLAY then
         -- Nothing to try on; the slot simply renders empty.
         previewDisp = disp
@@ -624,8 +636,10 @@ local function BuildFrame()
     if frame then return end
 
     local gridW = COLS * CELL_STEP - CELL_GAP
-    local W = PAD * 2 + PREVIEW_W + 16 + gridW + 30
-    local H = 150 + ROWS * CELL_STEP + 96
+    local W = PAD + TAB + 8 + PREVIEW_W + 16 + gridW + SCROLLBAR + PAD
+    -- Tall enough that all 14 slot tabs clear the buttons along the bottom.
+    local H = math.max(HEADER + 56 + ROWS * CELL_STEP + 92,
+                       HEADER + #SLOTS * TAB_STEP + 56)
 
     frame = CreateFrame("Frame", "UncappedTransmogFrame", UIParent)
     frame:SetWidth(W)
@@ -681,14 +695,14 @@ local function BuildFrame()
     local firstTab
     for i, def in ipairs(SLOTS) do
         local btn = CreateFrame("CheckButton", "UncappedTransmogSlot" .. def.slot, frame)
-        btn:SetWidth(30); btn:SetHeight(30)
+        btn:SetWidth(TAB); btn:SetHeight(TAB)
         btn.slotId = def.slot
 
         if i == 1 then
-            btn:SetPoint("TOPLEFT", PAD, -44)
+            btn:SetPoint("TOPLEFT", PAD, -HEADER)
             firstTab = btn
         else
-            btn:SetPoint("TOPLEFT", slotButtons[i - 1], "BOTTOMLEFT", 0, -3)
+            btn:SetPoint("TOPLEFT", slotButtons[i - 1], "BOTTOMLEFT", 0, -(TAB_STEP - TAB))
         end
 
         local icon = btn:CreateTexture(nil, "ARTWORK")
@@ -731,9 +745,15 @@ local function BuildFrame()
     modelFrame:EnableMouse(true)
     modelFrame:EnableMouseWheel(true)
 
+    -- Explicit framing. Left to its own devices the model sits off-centre and
+    -- oddly cropped; this squares it up and turns the character slightly so the
+    -- silhouette reads, the way the dressing room does.
+    if modelFrame.SetPosition then modelFrame:SetPosition(0, 0, -0.15) end
+    if modelFrame.SetRotation then modelFrame:SetRotation(0.35) end
+
     -- Drag to spin, wheel to zoom. Both guarded: Model methods vary between
     -- 3.3.5a builds and a missing one would otherwise error every frame.
-    modelFrame.rotation = 0
+    modelFrame.rotation = 0.35
     modelFrame:SetScript("OnMouseDown", function(self)
         self.dragging = true
         self.lastX = GetCursorPosition()
@@ -752,7 +772,7 @@ local function BuildFrame()
     modelFrame:SetScript("OnMouseWheel", function(self, delta)
         if not self.SetPosition then return end
         self.zoom = math.max(-1.5, math.min(2.5, (self.zoom or 0) + delta * 0.25))
-        self:SetPosition(self.zoom, 0, 0)
+        self:SetPosition(self.zoom, 0, -0.15)
     end)
 
     -- ---- action buttons under the preview ------------------------------
@@ -776,8 +796,8 @@ local function BuildFrame()
 
     -- ---- search + filters ----------------------------------------------
     local search = CreateFrame("EditBox", "UncappedTransmogSearch", frame, "InputBoxTemplate")
-    search:SetPoint("TOPLEFT", modelFrame, "TOPRIGHT", 16, 0)
-    search:SetWidth(170); search:SetHeight(20)
+    search:SetPoint("TOPLEFT", modelFrame, "TOPRIGHT", 22, 0)
+    search:SetWidth(200); search:SetHeight(20)
     search:SetAutoFocus(false)
     local ph = search:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     ph:SetPoint("LEFT", 4, 0)
@@ -791,14 +811,14 @@ local function BuildFrame()
     search:SetScript("OnEscapePressed", function(self) self:SetText(""); self:ClearFocus() end)
 
     local ownedDD = CreateFrame("Frame", "UncappedTransmogOwnedDD", frame, "UIDropDownMenuTemplate")
-    ownedDD:SetPoint("TOPLEFT", search, "BOTTOMLEFT", -16, -4)
+    ownedDD:SetPoint("TOPLEFT", search, "BOTTOMLEFT", -20, -6)
     local OWNED_CHOICES = {
         { value = "all",        text = "All appearances" },
         { value = "collected",  text = "Collected" },
         { value = "missing",    text = "Not collected" },
         { value = "favorites",  text = "Favourites" },
     }
-    UIDropDownMenu_SetWidth(ownedDD, 120)
+    UIDropDownMenu_SetWidth(ownedDD, 108)
     UIDropDownMenu_Initialize(ownedDD, function()
         for _, choice in ipairs(OWNED_CHOICES) do
             local info = UIDropDownMenu_CreateInfo()
@@ -825,7 +845,7 @@ local function BuildFrame()
         { value = 1,   text = "Common" },
         { value = 0,   text = "Poor" },
     }
-    UIDropDownMenu_SetWidth(qualityDD, 96)
+    UIDropDownMenu_SetWidth(qualityDD, 86)
     UIDropDownMenu_Initialize(qualityDD, function()
         for _, choice in ipairs(QUALITY_CHOICES) do
             local info = UIDropDownMenu_CreateInfo()
@@ -846,14 +866,17 @@ local function BuildFrame()
     -- no useful single list, so it is rebuilt whenever the slot changes.
     subDD = CreateFrame("Frame", "UncappedTransmogSubDD", frame, "UIDropDownMenuTemplate")
     subDD:SetPoint("LEFT", qualityDD, "RIGHT", -12, 0)
-    UIDropDownMenu_SetWidth(subDD, 110)
+    UIDropDownMenu_SetWidth(subDD, 100)
 
     countText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    countText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD - 8, -50)
+    countText:SetPoint("RIGHT", frame, "TOPRIGHT", -PAD - SCROLLBAR, -HEADER - 10)
+    countText:SetJustifyH("RIGHT")
 
     -- ---- grid ----------------------------------------------------------
+    -- Anchored off the model rather than off a dropdown, so the grid's left
+    -- edge does not drift when a dropdown's width changes.
     grid = CreateFrame("Frame", nil, frame)
-    grid:SetPoint("TOPLEFT", ownedDD, "BOTTOMLEFT", 16, -8)
+    grid:SetPoint("TOPLEFT", modelFrame, "TOPRIGHT", 22, -56)
     grid:SetWidth(gridW)
     grid:SetHeight(ROWS * CELL_STEP)
 
@@ -941,7 +964,7 @@ local function BuildFrame()
     -- ---- source panel --------------------------------------------------
     sourceText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     sourceText:SetPoint("TOPLEFT", grid, "BOTTOMLEFT", 0, -10)
-    sourceText:SetPoint("RIGHT", frame, "RIGHT", -PAD, 0)
+    sourceText:SetPoint("RIGHT", frame, "RIGHT", -PAD - SCROLLBAR, 0)
     sourceText:SetJustifyH("LEFT")
     sourceText:SetJustifyV("TOP")
     sourceText:SetHeight(60)
@@ -949,7 +972,9 @@ local function BuildFrame()
 
     local outfitsBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     outfitsBtn:SetWidth(90); outfitsBtn:SetHeight(22)
-    outfitsBtn:SetPoint("BOTTOMLEFT", PAD, PAD - 4)
+    -- Bottom RIGHT, not bottom left: the slot-tab column runs the full height of
+    -- the left edge and a button there sits on top of the last tab.
+    outfitsBtn:SetPoint("BOTTOMRIGHT", -PAD - SCROLLBAR, PAD - 4)
     outfitsBtn:SetText("Outfits")
     outfitsBtn:SetScript("OnClick", function()
         Send("TMSETS")
