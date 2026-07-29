@@ -861,12 +861,13 @@ local function OnLine(body)
           summonCap = tonumber(sc) or 0, bases = {} })
     end
   elseif cmd == "ICIPROCBP" then
-    -- <lo0>:<hi0>:<lo1>:<hi1>:<lo2>:<hi2> -- unscaled min/max per effect for the ICIPROC
-    -- just before it. Sent as its own line so older addon builds ignore it rather than
-    -- losing the proc. Both ends are kept: "Deals X to Y damage" needs both rewritten.
+    -- <v1>:<v2>:... -- variable-length list of unscaled values that may appear in the
+    -- rendered tooltip for the ICIPROC just before it, gathered by the server across the
+    -- spell's own effects and the ones it triggers. Sent as its own line so older addon
+    -- builds ignore it rather than losing the proc.
     local v = {}
     for n in rest:gmatch("(%d+)") do v[#v+1] = tonumber(n) end
-    if #v >= 6 and sbCurKey and sbStaging[sbCurKey] then
+    if #v >= 1 and sbCurKey and sbStaging[sbCurKey] then
       local procs = sbStaging[sbCurKey].procs
       local last = procs[#procs]
       if last then last.bases = v end
