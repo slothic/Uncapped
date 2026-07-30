@@ -202,6 +202,7 @@ end
 -- Server comms
 -- ===========================================================================
 local staging = { profs = {}, recs = {}, steps = {}, needs = {}, proc = {} }
+local syncNeedsFull = false   -- a rank row for an unknown profession forces a full fetch
 
 local function ApplyFilter()
     filtered = {}
@@ -244,6 +245,38 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
         for skill, rank, max, name in body:gmatch("(%d+),(%d+),(%d+),([^;]*);") do
             staging.profs[#staging.profs + 1] = {
                 skill = tonumber(skill), rank = tonumber(rank), max = tonumber(max), name = name }
+        end
+
+    elseif body:find("^FRGSYNC:") then
+        -- Rank-only update. Applied in place so difficulty colours re-shade after a
+        -- skill-up without refetching hundreds of recipe rows.
+        for skill, rank, max in body:gmatch("(%d+),(%d+),(%d+);") do
+            skill, rank, max = tonumber(skill), tonumber(rank), tonumber(max)
+            local found = false
+            for _, prof in ipairs(professions) do
+                if prof.skill == skill then
+                    prof.rank, prof.max = rank, max
+                    found = true
+                    break
+                end
+            end
+            -- A profession we have never seen means a brand new one was learned;
+            -- the count check below will pull the full list.
+            if not found then syncNeedsFull = true end
+        end
+
+    elseif body:find("^FRGSYNCEND:") then
+        local count = tonumber(body:match("^FRGSYNCEND:(%d+)$"))
+        if count and (syncNeedsFull or count ~= #recipes) then
+            -- The known-recipe set actually changed: now it is worth the full list.
+            syncNeedsFull = false
+            Send("FRGGET")
+        else
+            -- Ranks only. Re-render so colours and the profession label update.
+            BuildProfessionTabs()
+            ApplyFilter()
+            RefreshList()
+            RefreshDetail()
         end
 
     elseif body:find("^FRGREC:") then
@@ -388,9 +421,11 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
                 Commafy(crafted), db.outputToVault and " into your Vault" or ""))
         end
 
-        -- Counts moved; re-ask rather than guessing at them locally.
+        -- Counts moved; re-ask rather than guessing at them locally. A craft is
+        -- also the main way skill goes up, so re-check ranks and the recipe count.
         if selectedSpell then Send("FRGMATS:" .. selectedSpell) end
         Send("FRGPROCLIST")
+        Send("FRGSYNC")
 
     elseif body:find("^FRGPROCROW:") then
         for item, count, kinds, name in body:gmatch("(%d+),(%d+),(%d+),([^;]*);") do
@@ -1139,9 +1174,40 @@ local watcher = CreateFrame("Frame")
 watcher:RegisterEvent("ADDON_LOADED")
 watcher:RegisterEvent("PLAYER_LOGIN")
 watcher:RegisterEvent("TRADE_SKILL_SHOW")
+
+-- Keeping the window current.
+--
+-- The recipe list and the skill ranks behind the difficulty colours were read
+-- ONCE when the window opened, so learning a recipe or gaining a skill point left
+-- the list stale until it was closed and reopened.
+--
+-- These events ask the server for a rank/count summary (FRGSYNC), not the whole
+-- list -- a full profession is hundreds of rows and a bulk craft gains skill
+-- continuously, so refetching everything on each point would flood the pipe. The
+-- server replies with the full list only when the recipe COUNT actually moved.
+watcher:RegisterEvent("SKILL_LINES_CHANGED")     -- a skill point, incl. from crafting
+watcher:RegisterEvent("LEARNED_SPELL_IN_TAB")    -- trained or discovered a recipe
+watcher:RegisterEvent("CHAT_MSG_SKILL")          -- backstop; some gains only surface here
+
+local lastSync = 0
+
 watcher:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" and arg1 == "UncappedForge" then
         InitDB()
+        return
+    end
+
+    if event == "SKILL_LINES_CHANGED" or event == "LEARNED_SPELL_IN_TAB"
+        or event == "CHAT_MSG_SKILL" then
+        -- Only while the window is open, and at most once a second: these fire in
+        -- bursts (every point of a bulk craft) and the reply is a round trip.
+        if frame and frame:IsShown() then
+            local now = GetTime()
+            if now - lastSync > 1 then
+                lastSync = now
+                Send("FRGSYNC")
+            end
+        end
         return
     end
 
