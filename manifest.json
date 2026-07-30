@@ -2463,8 +2463,8 @@
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
-                      "sha256":  "2dfa4dd3def2cf32392d3f54706f16ac6b045bc666b29d7cf1b98b89bf3428a7",
-                      "size":  68182
+                      "sha256":  "25130c7473887b83c0baae0ca5d2fc8c00fcbde063ae86f15e3e608df1484d63",
+                      "size":  70467
                   },
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.toc",
@@ -2571,8 +2571,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedForge/UncappedForge.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedForge/UncappedForge.lua",
-                      "sha256":  "79e058a4f6331a066e200670d2ff5581a46ce3f9b61c9228092a2d0cea9422e6",
-                      "size":  52096
+                      "sha256":  "7718434fdb74da9e14c42c8ebf1e4957551b1b76927489760e163185d8557f02",
+                      "size":  54700
                   },
                   {
                       "path":  "Interface/AddOns/UncappedForge/UncappedForge.toc",
@@ -2619,8 +2619,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/UncappedMythic.lua",
-                      "sha256":  "3dc384a0a7b2cfc5c310c909d7c32bf466d4cc3d043cda6cf9ed27f975e99a2e",
-                      "size":  43850
+                      "sha256":  "4846d6c1be5ed184dd4c951daab8aad1476f1c12414cd16f04ed874155d65b08",
+                      "size":  57438
                   },
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.toc",
@@ -2635,10 +2635,28 @@
                       "size":  117126
                   },
                   {
+                      "path":  "Interface/AddOns/UncappedMythic/Sounds/bulwark.wav",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/Sounds/bulwark.wav",
+                      "sha256":  "3b8cd20cb23a6cc8c2a844c83046b75960894e1bd9ac81665d8ab3f4d0c28f34",
+                      "size":  159278
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedMythic/Sounds/cursed.wav",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/Sounds/cursed.wav",
+                      "sha256":  "edbf14db8ce6a7b6875ac04a7b971d6c95b48ea5b98c60cc262581f85ac2d114",
+                      "size":  232346
+                  },
+                  {
                       "path":  "Interface/AddOns/UncappedMythic/Sounds/decay.wav",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/Sounds/decay.wav",
                       "sha256":  "03a37d91fe0a0c30c17855b6a0f3e20a44c9583c0dcff29777f0f4c6e0a51945",
                       "size":  152446
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedMythic/Sounds/duplicate.wav",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/Sounds/duplicate.wav",
+                      "sha256":  "54b770edfa1bc9d50289cbde6cf16c6a5ff66c21195b8e52d230f9bb2b1382a6",
+                      "size":  347576
                   },
                   {
                       "path":  "Interface/AddOns/UncappedMythic/Sounds/endlesstide.wav",
@@ -2653,10 +2671,22 @@
                       "size":  191392
                   },
                   {
+                      "path":  "Interface/AddOns/UncappedMythic/Sounds/frenzy.wav",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/Sounds/frenzy.wav",
+                      "sha256":  "caf274ff22b31b1bb0a86c4c65a293407ef0100b1d06320892717b067802b99d",
+                      "size":  156500
+                  },
+                  {
                       "path":  "Interface/AddOns/UncappedMythic/Sounds/hubris.wav",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/Sounds/hubris.wav",
                       "sha256":  "340ebd45c9b91cc3590ed6bbe13563fbfc073e1889a7fb223786bd5b12ab1247",
                       "size":  230478
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedMythic/Sounds/storm.wav",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/Sounds/storm.wav",
+                      "sha256":  "e57079e5d7f29e9e16dc34cfbfc36ecf02627e751d919e901d48a00c5c1e7d8a",
+                      "size":  137946
                   },
                   {
                       "path":  "Interface/AddOns/UncappedMythic/Sounds/sundered.wav",
@@ -2675,6 +2705,12 @@
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/Sounds/vengeance.wav",
                       "sha256":  "7fd8b4ac68584b0ef10f152211b6022d0eada2471bbd36b88369d6d5f0790e47",
                       "size":  94094
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedMythic/Sounds/wardingorbs.wav",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/Sounds/wardingorbs.wav",
+                      "sha256":  "446181b9c83d726d6bede2d33d2bd33a7dbb6ac1f991972c7809587b3fa94767",
+                      "size":  209712
                   },
                   {
                       "path":  "Interface/AddOns/UncappedMythic/Sounds/weakenedflesh.wav",

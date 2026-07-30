@@ -32,6 +32,7 @@ local DEFAULTS = {
     outputToVault     = true,   -- finished items go to the vault
     autoIntermediates = true,   -- craft missing sub-components automatically
     craftableOnly     = false,  -- list filter
+    sortMode          = "name",  -- "name" or "difficulty"
     lastAmount        = 1,
 }
 
@@ -167,12 +168,22 @@ local function SkillRank(skillLine)
     return 0
 end
 
-local function DifficultyColor(recipe)
+-- Difficulty as a sortable rank, hardest first, mirroring the colour ladder the
+-- default tradeskill window uses: optimal (orange/red) -> medium (yellow) ->
+-- easy (green) -> trivial (grey). Kept in lockstep with DifficultyColor below --
+-- if the two ever disagree the list sorts into an order its own colours contradict.
+local DIFFICULTY_RANK = { optimal = 1, medium = 2, easy = 3, trivial = 4 }
+
+local function DifficultyTier(recipe)
     local rank = SkillRank(recipe.skill)
-    if recipe.tlow > 0 and rank >= recipe.tlow then return DIFFICULTY.trivial end
-    if recipe.thigh > 0 and rank >= recipe.thigh then return DIFFICULTY.easy end
-    if rank >= recipe.min + 25 then return DIFFICULTY.medium end
-    return DIFFICULTY.optimal
+    if recipe.tlow > 0 and rank >= recipe.tlow then return "trivial" end
+    if recipe.thigh > 0 and rank >= recipe.thigh then return "easy" end
+    if rank >= recipe.min + 25 then return "medium" end
+    return "optimal"
+end
+
+local function DifficultyColor(recipe)
+    return DIFFICULTY[DifficultyTier(recipe)]
 end
 
 -- How many of this recipe the stored materials support.
@@ -227,9 +238,19 @@ local function ApplyFilter()
         if ok then filtered[#filtered + 1] = recipe end
     end
 
-    table.sort(filtered, function(a, b)
-        return (RecipeName(a) or "") < (RecipeName(b) or "")
-    end)
+    if db.sortMode == "difficulty" then
+        -- Hardest first (the ones still granting skill), then alphabetical inside
+        -- each tier so the order is stable rather than arbitrary within a colour.
+        table.sort(filtered, function(a, b)
+            local ra, rb = DIFFICULTY_RANK[DifficultyTier(a)], DIFFICULTY_RANK[DifficultyTier(b)]
+            if ra ~= rb then return ra < rb end
+            return (RecipeName(a) or "") < (RecipeName(b) or "")
+        end)
+    else
+        table.sort(filtered, function(a, b)
+            return (RecipeName(a) or "") < (RecipeName(b) or "")
+        end)
+    end
 end
 
 -- Forward locals: the comms handler below fires before these are defined, and
@@ -870,6 +891,48 @@ local function BuildFrame()
     local onlyLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     onlyLabel:SetPoint("LEFT", onlyCheck, "RIGHT", 2, 0)
     onlyLabel:SetText("Craftable only")
+
+    -- Sort mode. Difficulty sorts hardest first, in the same order as the colour
+    -- ladder (orange -> yellow -> green -> grey), which puts everything still
+    -- worth skill points at the top of the list.
+    local SORTS = {
+        { value = "name",       text = "Name" },
+        { value = "difficulty", text = "Difficulty" },
+    }
+
+    local sortDrop = CreateFrame("Frame", "UncappedForgeSortDrop", frame, "UIDropDownMenuTemplate")
+    sortDrop:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 8, -40)
+    frame.sortDrop = sortDrop
+
+    local function sortText(value)
+        for _, entry in ipairs(SORTS) do
+            if entry.value == value then return entry.text end
+        end
+        return "Name"
+    end
+
+    UIDropDownMenu_Initialize(sortDrop, function(_, level)
+        for _, entry in ipairs(SORTS) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = entry.text
+            info.value = entry.value
+            info.checked = (db.sortMode == entry.value)
+            info.func = function()
+                db.sortMode = entry.value
+                UIDropDownMenu_SetText(sortDrop, entry.text)
+                ApplyFilter()
+                ResetScroll()
+                RefreshList()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    UIDropDownMenu_SetWidth(sortDrop, 90)
+    UIDropDownMenu_SetText(sortDrop, sortText(db.sortMode))
+
+    local sortLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    sortLabel:SetPoint("RIGHT", sortDrop, "LEFT", -2, 0)
+    sortLabel:SetText("Sort")
 
     -- Recipe list
     local listFrame = CreateFrame("Frame", nil, frame)

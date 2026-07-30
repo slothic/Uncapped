@@ -563,7 +563,6 @@ local ICON_DIR  = "Interface\\Icons\\"
 -- simply finishes early and the card sits a moment longer. Driving the card off a
 -- fixed beat rather than clip length keeps every affix feeling the same weight.
 local GROW, HOLD, FLY = 0.25, 1.70, 0.55
-local CARD_SCALE_END = 0.32
 
 -- ---------------------------------------------------------------------------
 -- Catalogue
@@ -587,8 +586,8 @@ local AFFIX = {
     finecorpse = {
         name = "Fine Corpses",
         tag  = "You will make a fine corpse.",
-        desc = "Slain enemies detonate a few seconds after they fall, marking the\nground before they go off.",
-        counter = "Step off the corpse. The marker is the warning.",
+        desc = "Slain enemies detonate a few seconds after they fall, marking the\nground first. Anyone still standing there is left at 1% health and\nlaunched skyward -- and the fall will finish the job.",
+        counter = "Step off the corpse. Caught anyway, the airtime is yours --\ninstant heal, Divine Shield, or a potion before you land.",
         icon = "Spell_Shadow_AnimateDead", sound = "finecorpse",
         color = { 0.90, 0.45, 0.15 },
     },
@@ -603,16 +602,16 @@ local AFFIX = {
     endlesstide = {
         name = "Endless Tide",
         tag  = "Break beneath the endless tide!",
-        desc = "The ground heaves at a fixed interval, hitting everyone and\ninterrupting anyone standing too close to an ally.",
-        counter = "Spread before the next wave. Watch the timer, not the ground.",
+        desc = "Stone falls without end. A patch of ground is marked near you,\nand four seconds later it collapses for 80% of your health.",
+        counter = "Walk out of the marked ground. Four seconds is plenty --\nif you are looking down.",
         icon = "Spell_Nature_Earthquake", sound = "endlesstide",
         color = { 0.40, 0.70, 0.95 },
     },
     bloodletting = {
         name = "Bloodletting",
         tag  = "Bleed, you filth!",
-        desc = "The dead leave pools of blood. Enemies standing in one heal;\nyou take damage.",
-        counter = "Drag the pack off its own dead.",
+        desc = "Every enemy you kill opens a wound. You bleed for 5% of your\nmaximum health over 5 seconds, and each kill adds another.",
+        counter = "Stagger your kills instead of cleaving a whole pack down at once.",
         icon = "Ability_Rogue_Rupture", sound = "bloodletting",
         color = { 0.85, 0.15, 0.20 },
     },
@@ -627,8 +626,8 @@ local AFFIX = {
     weakenedflesh = {
         name = "Weakened Flesh",
         tag  = "Your flesh is weak!",
-        desc = "Melee hits stack a debuff that cuts the healing you receive.",
-        counter = "Let it fall off. Rotate cooldowns instead of out-healing it.",
+        desc = "Taking damage sears the wound shut. For 4 seconds afterwards you\nreceive 90% less healing from every source.",
+        counter = "You will not be healed through this -- break contact, or\nmitigate instead of leaning on the healer.",
         icon = "Spell_Shadow_UnholyFrenzy", sound = "weakenedflesh",
         color = { 0.70, 0.75, 0.55 },
     },
@@ -643,18 +642,80 @@ local AFFIX = {
     hubris = {
         name = "Hubris",
         tag  = "I am so good I astound myself.",
-        desc = "Running ahead of the clock empowers what is left of the dungeon.\nThe better you are doing, the harder it pushes back.",
-        counter = "Nothing -- this is the price of a fast run.",
+        desc = "Showing off pays. Your damage climbs for every second you stand\nperfectly still, and collapses the instant you move.",
+        counter = "None needed -- this one is a temptation, not a threat. Every\nother affix in the run wants you moving.",
         icon = "Ability_Warrior_InnerRage", sound = "hubris",
         color = { 0.95, 0.90, 0.60 },
+    },
+    -- The five below draw their voice line from D_Hero_Taunt rather than CriticalHit,
+    -- so they are a different set of speakers from the first ten. Wording confirmed by
+    -- ear 2026-07-30 and checked against Conv_Hero_Taunt.stl.
+    wardingorbs = {
+        name = "Warding Orbs",
+        tag  = "Are you bent on self-destruction?",   -- Taunt 0053
+        desc = "An unstable orb forms near a player in combat and lights up at once.\nSix seconds later it detonates for 30-40% of the health of anyone\nwithin 15 yards who can see it.",
+        counter = "Destroy it. Any spec can, in a cast or two -- and killing it\nmeans nothing happens at all.",
+        icon = "Spell_Nature_WispSplode", sound = "wardingorbs",
+        color = { 0.45, 0.80, 0.95 },
+    },
+    duplicate = {
+        name = "Twinned",
+        tag  = "The darkness in you cannot match what's within me.",   -- Taunt 0144
+        desc = "Some trash enemies arrive alongside a duplicate of themselves.",
+        counter = "Nothing to dodge -- the pack is simply bigger than it looks.\nPull accordingly.",
+        icon = "Spell_Magic_LesserInvisibilty", sound = "duplicate",
+        color = { 0.70, 0.70, 0.80 },
+    },
+    cursed = {
+        name = "Cursed",
+        tag  = "Your blood will fall like rain.",   -- Taunt 0067
+        desc = "A curse lands on a random player and detonates 8 seconds later,\nhitting the whole group.",
+        counter = "Cleanse it. With nobody who can, it falls off on its own after\n3 seconds of taking no damage.",
+        icon = "Spell_Shadow_CurseOfSargeras", sound = "cursed",
+        color = { 0.60, 0.30, 0.70 },
+    },
+    frenzy = {
+        name = "Frenzy",
+        tag  = "You're almost not worth it.",   -- Taunt 0099
+        desc = "Past 60% of the run timer, bosses gain stacking haste and damage\nfor the rest of the fight.",
+        counter = "A kill window, not a healing check. Hold burst for it.",
+        icon = "Ability_Racial_BloodRage", sound = "frenzy",
+        color = { 0.95, 0.30, 0.20 },
+    },
+    bulwark = {
+        name = "Bulwark",
+        tag  = "I am too much for you.",   -- Taunt 0091
+        desc = "Bosses periodically shield themselves for 5% of their maximum\nhealth. Fail to break it within 8 seconds and they heal that much.",
+        counter = "Burst the shield down. This is a damage check on a timer.",
+        icon = "Spell_Holy_PowerWordShield", sound = "bulwark",
+        color = { 0.85, 0.85, 0.45 },
+    },
+    storm = {
+        name = "Storm",
+        tag  = "The storm breaks!",
+        desc = "Lightning marks a player, then strikes three seconds later.\nAnyone else within 8 yards is chained for 60% as much.",
+        counter = "Spread. You get the three seconds the mark is on you -- use them.",
+        icon = "Spell_Nature_Lightning", sound = "storm",
+        color = { 0.55, 0.75, 1.00 },
     },
 }
 
 -- Fixed display order, so the strip never reshuffles between runs.
+-- Fixed display order, so the strip never reshuffles between runs. Roughly grouped:
+-- environmental hazards, then debuffs, then death-triggered, then boss-only.
 local ORDER = {
-    "endlesstide", "sundered", "weakenedflesh", "bloodletting",
-    "decay", "finecorpse", "thecycle", "vengeance", "hubris",
+    "endlesstide", "storm", "wardingorbs",
+    "sundered", "weakenedflesh", "cursed",
+    "bloodletting", "decay", "finecorpse", "thecycle", "duplicate", "vengeance",
+    "frenzy", "bulwark", "hubris",
 }
+
+-- Hard cap on simultaneous affixes. Three is a set you can hold in your head and
+-- plan around; more becomes noise, and the intro that introduces them has to fit in
+-- the opening freeze (3 x 2.85s of animation = 8.55s, inside a 10s window).
+-- Enforced here as a backstop -- the server also has to respect it, because the
+-- affix count comes from the DB and a config mistake must not be able to exceed it.
+local MAX_ACTIVE = 3
 
 -- ---------------------------------------------------------------------------
 -- Settings
@@ -697,7 +758,11 @@ local function EnsureSlot(i)
         if not a then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine(a.name, a.color[1], a.color[2], a.color[3])
-        GameTooltip:AddLine('"' .. a.tag .. '"', 0.6, 0.6, 0.6, true)
+        -- `tag` is the spoken words. Some affixes have a clip whose exact wording is
+        -- not transcribed yet; show nothing rather than a guess.
+        if a.tag and a.tag ~= "" then
+            GameTooltip:AddLine('"' .. a.tag .. '"', 0.6, 0.6, 0.6, true)
+        end
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine(a.desc, 1, 1, 1, true)
         if a.counter then
@@ -741,6 +806,10 @@ local function LayoutStrip()
             local a = AFFIX[active[i]]
             b.affixKey = active[i]
             b.icon:SetTexture(ICON_DIR .. a.icon)
+            -- Reset alpha explicitly: an announcement dims its destination icon and
+            -- only restores it on landing, so an interrupted one must not leave the
+            -- slot permanently dimmed.
+            b.icon:SetAlpha(1)
             b.border:SetVertexColor(a.color[1], a.color[2], a.color[3], 0.9)
             b:ClearAllPoints()
             b:SetPoint("LEFT", strip, "LEFT", 8 + (i - 1) * 26, 0)
@@ -792,12 +861,79 @@ card.tag:SetTextColor(0.72, 0.68, 0.58)
 -- Offset of a frame's centre from UIParent's centre, in UIParent units.
 -- Both frames can sit at different effective scales (the HUD is user-scalable),
 -- so normalise through effective scale or the card lands short of the strip.
-local function OffsetFromUIParentCenter(f)
-    local fx, fy = f:GetCenter()
-    local px, py = UIParent:GetCenter()
-    if not fx or not px then return 0, 0 end
-    local fs, ps = f:GetEffectiveScale(), UIParent:GetEffectiveScale()
-    return (fx * fs - px * ps) / ps, (fy * fs - py * ps) / ps
+-- A frame's centre in UIParent coordinate units, measured from UIParent's
+-- BOTTOM-LEFT. GetCenter() reports in the frame's own scale, so convert up to real
+-- pixels and back down into UIParent units -- the HUD is user-scalable, so its
+-- scale and UIParent's are usually different.
+local function CenterInUIParent(f)
+    if not f then return nil end
+    local x, y = f:GetCenter()
+    if not x then return nil end
+    -- TEXTURES ARE NOT FRAMES. card.icon and slot.icon are LayoutFrames: they have
+    -- GetCenter() but GetEffectiveScale() only exists on Frame, so calling it on a
+    -- texture errors -- and because that threw from inside OnUpdate it aborted the
+    -- handler before the phase advanced, so it re-threw every single frame (1026
+    -- errors in one demo). Read the scale off the nearest Frame instead.
+    local scaler = f.GetEffectiveScale and f or f:GetParent()
+    if not scaler or not scaler.GetEffectiveScale then return nil end
+    local s = scaler:GetEffectiveScale() / UIParent:GetEffectiveScale()
+    return x * s, y * s
+end
+
+-- The flying icon.
+--
+-- This is a SEPARATE frame from the card, and it animates with SetSize rather than
+-- SetScale, for one reason that cost a rewrite: **a frame's SetPoint offsets are
+-- expressed in that frame's own scale units.** Shrinking the card with SetScale
+-- therefore shrank its anchor offsets too, dragging it back toward UIParent's
+-- centre instead of out to the strip -- which looked like the card sliding
+-- sideways and fading out mid-screen. SetSize leaves the anchor maths alone, so
+-- the flyer goes exactly where it is told and arrives at icon size.
+local flyer = CreateFrame("Frame", nil, UIParent)
+flyer:SetFrameStrata("TOOLTIP")
+flyer:SetSize(46, 46)
+flyer:Hide()
+flyer.icon = flyer:CreateTexture(nil, "ARTWORK")
+flyer.icon:SetAllPoints(flyer)
+flyer.ring = flyer:CreateTexture(nil, "BACKGROUND")
+flyer.ring:SetPoint("TOPLEFT", flyer, "TOPLEFT", -2, 2)
+flyer.ring:SetPoint("BOTTOMRIGHT", flyer, "BOTTOMRIGHT", 2, -2)
+flyer.ring:SetTexture("Interface\\Buttons\\WHITE8X8")
+
+-- ---------------------------------------------------------------------------
+-- The opening freeze
+-- ---------------------------------------------------------------------------
+-- The server roots everyone for a few seconds at run start so the affix intro can
+-- play before anyone pulls. It has to be the server that freezes: movement is
+-- server-authoritative and an addon cannot hold a player in place. All this frame
+-- does is explain the pause, so nobody reads a frozen character as a bug.
+local intro = CreateFrame("Frame", nil, UIParent)
+intro:SetSize(360, 46)
+intro:SetPoint("CENTER", UIParent, "CENTER", 0, 28)
+intro:SetFrameStrata("DIALOG")
+intro:Hide()
+
+intro.label = intro:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+intro.label:SetPoint("TOP", intro, "TOP", 0, 0)
+intro.label:SetText("Affixes for this run")
+intro.label:SetTextColor(0.70, 0.65, 0.55)
+
+intro.count = intro:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+intro.count:SetPoint("TOP", intro.label, "BOTTOM", 0, -2)
+
+local introEnd = nil        -- GetTime() the freeze lifts, or nil
+
+local CARD_Y = 140          -- card's resting height above screen centre, UIParent units
+local FLY_END_SIZE = 22     -- matches a strip slot
+local LAND = 0.35           -- settle flash
+
+-- Keep the card visually pinned while it scales. Offsets are in the card's own
+-- scale units, so they have to be divided by the scale or the card drifts upward
+-- as it grows.
+local function PlaceCard(scale)
+    card:SetScale(scale)
+    card:ClearAllPoints()
+    card:SetPoint("CENTER", UIParent, "CENTER", 0, CARD_Y / scale)
 end
 
 local queue = {}
@@ -812,7 +948,7 @@ local function BeginNext()
     card.icon:SetTexture(ICON_DIR .. a.icon)
     card.name:SetText(a.name)
     card.name:SetTextColor(a.color[1], a.color[2], a.color[3])
-    card.tag:SetText('"' .. a.tag .. '"')
+    card.tag:SetText((a.tag and a.tag ~= "") and ('"' .. a.tag .. '"') or "")
     card:SetBackdropBorderColor(a.color[1], a.color[2], a.color[3])
 
     -- Target the slot this affix will occupy, so the card flies to where its icon
@@ -823,52 +959,123 @@ local function BeginNext()
         if k == key and slots[i] then target = slots[i] end
     end
 
-    anim = { key = key, t = 0, phase = "grow", target = target }
-    card:SetScale(1)
+    anim = { key = key, t = 0, phase = "grow", target = target, color = a.color }
+    -- Dim the destination icon for the duration. The strip icon already exists by
+    -- the time an announcement plays, so without this the flyer lands on top of an
+    -- identical icon and vanishing reads as nothing happening. Dimmed, the arrival
+    -- is what lights it up.
+    if target and target.icon then target.icon:SetAlpha(0.25) end
     card:SetAlpha(0)
-    card:ClearAllPoints()
-    card:SetPoint("CENTER", UIParent, "CENTER", 0, 140)
+    PlaceCard(0.7)
     card:Show()
 
     if cfg.sound then PlaySoundFile(SOUND_DIR .. a.sound .. ".wav") end
 end
 
-card:SetScript("OnUpdate", function(self, elapsed)
+-- The animation is driven by its own always-shown, contentless frame, NOT by the
+-- card: a hidden frame's OnUpdate does not run in this client, and the card gets
+-- hidden the moment the flyer takes over. Driving from the card meant the fly and
+-- land phases never ticked at all.
+local driver = CreateFrame("Frame", nil, UIParent)
+driver:SetSize(1, 1)
+driver:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
+
+driver:SetScript("OnUpdate", function(_, elapsed)
+    -- Countdown first, and outside the `anim` guard: the freeze outlasts the last
+    -- announcement by a second or so, so it has to keep ticking after the queue
+    -- drains or the number would freeze on screen while the player still cannot move.
+    if introEnd then
+        local left = introEnd - GetTime()
+        if left > 0 then
+            intro.count:SetText(string.format("%.0f", math.ceil(left)))
+            -- Amber, going red over the last two seconds.
+            if left <= 2 then
+                intro.count:SetTextColor(1.0, 0.35, 0.25)
+            else
+                intro.count:SetTextColor(1.0, 0.82, 0.0)
+            end
+        else
+            introEnd = nil
+            intro:Hide()
+        end
+    end
+
     if not anim then return end
     anim.t = anim.t + elapsed
 
     if anim.phase == "grow" then
         local p = math.min(anim.t / GROW, 1)
-        self:SetAlpha(p)
-        self:SetScale(0.7 + 0.3 * p)
+        card:SetAlpha(p)
+        PlaceCard(0.7 + 0.3 * p)
         if p >= 1 then anim.phase, anim.t = "hold", 0 end
 
     elseif anim.phase == "hold" then
-        self:SetAlpha(1)
-        self:SetScale(1)
+        card:SetAlpha(1)
+        PlaceCard(1)
         if anim.t >= HOLD then
-            -- Capture the flight target now: the strip has finished laying out by
-            -- this point, so the slot position is final.
-            anim.tx, anim.ty = OffsetFromUIParentCenter(anim.target)
-            anim.phase, anim.t = "fly", 0
+            -- Hand off to the flyer. Both endpoints are captured NOW: the strip has
+            -- finished laying out, so the slot's position is final, and the card is
+            -- about to be hidden so its icon's position must be read first.
+            local sx, sy = CenterInUIParent(card.icon)
+            local tx, ty = CenterInUIParent(anim.target)
+            if sx and tx then
+                anim.sx, anim.sy, anim.tx, anim.ty = sx, sy, tx, ty
+                flyer.icon:SetTexture(card.icon:GetTexture())
+                local c = anim.color
+                flyer.ring:SetVertexColor(c[1], c[2], c[3], 0.9)
+                flyer:SetSize(46, 46)
+                flyer:ClearAllPoints()
+                flyer:SetPoint("CENTER", UIParent, "BOTTOMLEFT", sx, sy)
+                flyer:SetAlpha(1)
+                flyer:Show()
+                anim.phase, anim.t = "fly", 0
+            else
+                -- No usable target (strip hidden, or laid out after this fired).
+                -- Skip the flight rather than animate to a garbage coordinate.
+                anim.phase, anim.t = "done", 0
+            end
+            card:Hide()
         end
 
     elseif anim.phase == "fly" then
         local p = math.min(anim.t / FLY, 1)
         local e = p * p * (3 - 2 * p)               -- smoothstep
-        local x = 0 + (anim.tx or 0) * e
-        local y = 140 + ((anim.ty or 0) - 140) * e
-        self:ClearAllPoints()
-        self:SetPoint("CENTER", UIParent, "CENTER", x, y)
-        self:SetScale(1 + (CARD_SCALE_END - 1) * e)
-        self:SetAlpha(1 - e * 0.9)
+        local x = anim.sx + (anim.tx - anim.sx) * e
+        local y = anim.sy + (anim.ty - anim.sy) * e
+        local size = 46 + (FLY_END_SIZE - 46) * e
+        flyer:ClearAllPoints()
+        flyer:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
+        flyer:SetSize(size, size)
         if p >= 1 then
-            self:Hide()
-            self:SetScale(1)
-            self:SetAlpha(1)
-            anim = nil
-            BeginNext()
+            flyer:Hide()
+            anim.phase, anim.t = "land", 0
         end
+
+    elseif anim.phase == "land" then
+        -- Settle: flash the slot's border white and ease it back to the affix
+        -- colour, so the icon that just arrived is the one your eye lands on.
+        local p = math.min(anim.t / LAND, 1)
+        local c = anim.color
+        local slot = anim.target
+        if slot then
+            if slot.border then
+                local w = 1 - p          -- white at impact, easing to the affix colour
+                slot.border:SetVertexColor(c[1] + (1 - c[1]) * w,
+                                           c[2] + (1 - c[2]) * w,
+                                           c[3] + (1 - c[3]) * w, 0.9)
+            end
+            if slot.icon then slot.icon:SetAlpha(0.25 + 0.75 * p) end
+        end
+        if p >= 1 then anim.phase = "done" end
+
+    elseif anim.phase == "done" then
+        card:Hide()
+        card:SetAlpha(1)
+        -- Never leave a slot dimmed, including when the flight was skipped for a
+        -- missing target.
+        if anim.target and anim.target.icon then anim.target.icon:SetAlpha(1) end
+        anim = nil
+        BeginNext()
     end
 end)
 
@@ -900,7 +1107,7 @@ function UncappedMythicAffix_SetActive(keys, announce)
         if AFFIX[k] then want[k] = true end
     end
     for _, k in ipairs(ORDER) do
-        if want[k] then active[#active + 1] = k end
+        if want[k] and #active < MAX_ACTIVE then active[#active + 1] = k end
     end
     LayoutStrip()
 
@@ -928,6 +1135,25 @@ local function ShowHudForDemo()
     end
 end
 
+-- The run-start sequence: set this run's affixes, show the freeze countdown, and
+-- introduce each affix in turn. `seconds` is how long the server is holding everyone
+-- still, so the countdown matches the actual root rather than guessing.
+function UncappedMythicAffix_RunIntro(keys, seconds)
+    seconds = tonumber(seconds) or 10
+    UncappedMythicAffix_SetActive(keys, false)      -- capped to MAX_ACTIVE
+    ShowHudForDemo()
+
+    introEnd = GetTime() + seconds
+    intro.count:SetText(string.format("%.0f", math.ceil(seconds)))
+    intro:Show()
+
+    -- Announce all of them back to back. The queue already serialises, and three
+    -- affixes take 8.55s against a 10s freeze, so the last one lands with room spare.
+    for _, k in ipairs(active) do
+        UncappedMythicAffix_Announce(k)
+    end
+end
+
 function UncappedMythicAffix_Preview()
     local list = active
     if #list == 0 then list = ORDER end
@@ -950,7 +1176,7 @@ end
 -- Keys are the catalogue keys above, not numeric ids, so a server-side reorder
 -- cannot silently repoint an affix at the wrong card.
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and (msg:find("^RBMA:") or msg:find("^RBMX:")) then return true end
+    if msg and (msg:find("^RBMA:") or msg:find("^RBMX:") or msg:find("^RBMI:")) then return true end
     return false
 end)
 
@@ -983,6 +1209,16 @@ affixListener:SetScript("OnEvent", function(self, event, a1, a2)
         msg = a1
     end
     if not msg then return end
+
+    -- RBMI:<freezeSeconds>:<key>,<key>,... -- run start. Sent once, when the server
+    -- has just rooted the group; drives the countdown and the full intro sequence.
+    local secs, ilist = msg:match("^RBMI:(%d+):(.*)$")
+    if secs then
+        local keys = {}
+        for k in ilist:gmatch("[^,]+") do keys[#keys + 1] = k end
+        UncappedMythicAffix_RunIntro(keys, tonumber(secs))
+        return
+    end
 
     local list = msg:match("^RBMA:(.*)$")
     if list then
@@ -1047,10 +1283,24 @@ SLASH_UNCAPPEDMYTHICAFFIX2 = "/mpa"
 SlashCmdList["UNCAPPEDMYTHICAFFIX"] = function(arg)
     arg = (arg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
 
-    if arg == "" or arg == "demo" then
+    -- The default demo simulates a REAL run start: three affixes drawn at random,
+    -- the freeze countdown, and the intro sequence. Use `all` to audition every line.
+    if arg == "" or arg == "intro" or arg == "demo" then
+        local pool, pick = {}, {}
+        for _, k in ipairs(ORDER) do pool[#pool + 1] = k end
+        for _ = 1, MAX_ACTIVE do
+            if #pool == 0 then break end
+            pick[#pick + 1] = table.remove(pool, math.random(#pool))
+        end
+        UncappedMythicAffix_RunIntro(pick, 10)
+        return
+    end
+    if arg == "all" then
+        -- Audition every line. Deliberately does NOT touch the active set: SetActive
+        -- caps at MAX_ACTIVE, so pushing 10 through it would silently drop 7. The
+        -- announcements just queue, and the ones with no slot fly to the strip itself.
         ShowHudForDemo()
-        UncappedMythicAffix_SetActive(ORDER, false)
-        UncappedMythicAffix_Preview()
+        for _, k in ipairs(ORDER) do UncappedMythicAffix_Announce(k, true) end
         return
     end
     if arg == "strip" then
@@ -1078,5 +1328,6 @@ SlashCmdList["UNCAPPEDMYTHICAFFIX"] = function(arg)
         return
     end
 
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffcc00Uncapped Mythic+|r: /mpa [demo | strip | clear | list | <affix key>]")
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffcc00Uncapped Mythic+|r: /mpa [intro | all | strip | clear | list | <affix key>]")
+    DEFAULT_CHAT_FRAME:AddMessage("  |cff808080intro|r = simulate a run start (3 random affixes + freeze countdown), |cff808080all|r = hear every line")
 end

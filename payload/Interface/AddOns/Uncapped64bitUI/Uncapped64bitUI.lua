@@ -366,10 +366,23 @@ local function EnsureAllStatsHook()
     allStatsHooked = true
 end
 
+-- [deep-keystone] The RBHP real* fields are a MANTISSA; the server appends a health
+-- EXPONENT so effective HP == mantissa * 2^exponent. Past keystone ~+45 the mantissa
+-- alone reads as a boss at a small fraction of its real health.
+--
+-- The exponent field is OPTIONAL on the wire: an older worldserver omits it, so every
+-- pattern below matches ":?(%d*)" and this treats an empty capture as 0. That keeps one
+-- addon build working against both server versions.
+local function ApplyHpExponent(value, exponent)
+    local e = tonumber(exponent)
+    if not e or e <= 0 then return value end
+    return value * (2 ^ e)
+end
+
 local function OnLine(msg)
-    local sCur, sMax = msg:match("^RBHP:S:(%d+):(%d+)$")
+    local sCur, sMax, sExp = msg:match("^RBHP:S:(%d+):(%d+):?(%d*)$")
     if sMax then
-        selfData = { max = tonumber(sMax) }
+        selfData = { max = ApplyHpExponent(tonumber(sMax), sExp) }
         return
     end
 
@@ -443,16 +456,16 @@ local function OnLine(msg)
         return
     end
 
-    local tCur, tMax, tVis, tStacks = msg:match("^RBHP:T:(%d+):(%d+):(%d+):(%d+)$")
+    local tCur, tMax, tVis, tStacks, tExp = msg:match("^RBHP:T:(%d+):(%d+):(%d+):(%d+):?(%d*)$")
     if tMax then
-        targetData = { max = tonumber(tMax), visMax = tonumber(tVis), stacks = tonumber(tStacks) }
+        targetData = { max = ApplyHpExponent(tonumber(tMax), tExp), visMax = tonumber(tVis), stacks = tonumber(tStacks) }
         RememberTargetHp(targetData)
         return
     end
 
-    local uLow, uCur, uMax = msg:match("^RBHP:U:(%d+):(%d+):(%d+)$")
+    local uLow, uCur, uMax, uExp = msg:match("^RBHP:U:(%d+):(%d+):(%d+):?(%d*)$")
     if uMax then
-        byGuid[tonumber(uLow)] = { max = tonumber(uMax) }
+        byGuid[tonumber(uLow)] = { max = ApplyHpExponent(tonumber(uMax), uExp) }
         return
     end
 end
