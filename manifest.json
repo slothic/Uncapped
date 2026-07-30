@@ -2571,8 +2571,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedForge/UncappedForge.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedForge/UncappedForge.lua",
-                      "sha256":  "3ca989d77171a9f7192027cd32dc8ec3ef7b929704c4e93617f11048f3419326",
-                      "size":  46476
+                      "sha256":  "26fd25ac93410c0990fde627a0e969201545bf52413ebd3916bd96c8d0b9983f",
+                      "size":  47985
                   },
                   {
                       "path":  "Interface/AddOns/UncappedForge/UncappedForge.toc",

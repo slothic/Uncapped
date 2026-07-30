@@ -863,13 +863,40 @@ local function BuildFrame()
             end
         end)
 
+        -- Hovering used to always ask for the ITEM tooltip, which rendered as a
+        -- bare red "Retrieving item information" for anything the client had not
+        -- cached -- i.e. most of a crafter's own products, since they never sit
+        -- in a bag. The item tooltip is still the best answer when it can
+        -- actually be drawn, so: use it when the item IS cached, otherwise fall
+        -- back to the SPELL tooltip, which comes from Spell.dbc and so always
+        -- renders (and for a recipe it describes what the craft produces).
+        --
+        -- Asking for the item link also warms the cache, so a second hover
+        -- usually upgrades to the full item tooltip with stats.
         button:SetScript("OnEnter", function(self)
-            local itemId = self.entry and self.entry.item or (self.spell and recipesBySpell[self.spell] and recipesBySpell[self.spell].item)
-            if itemId and itemId > 0 then
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            local recipe = self.spell and recipesBySpell[self.spell]
+            local itemId = (self.entry and self.entry.item) or (recipe and recipe.item)
+            local cached = itemId and itemId > 0 and GetItemInfo(itemId)
+
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+
+            if cached then
                 GameTooltip:SetHyperlink("item:" .. itemId)
-                GameTooltip:Show()
+            elseif self.spell then
+                GameTooltip:SetHyperlink("spell:" .. self.spell)
+                if itemId and itemId > 0 then ItemName(itemId) end   -- warm for next hover
+            elseif self.entry then
+                -- Processing rows are plain items with no spell to fall back on;
+                -- show what the server already told us rather than a red stub.
+                GameTooltip:SetText(self.entry.name or ("item " .. tostring(self.entry.item)), 1, 1, 1)
+                GameTooltip:AddLine("In your Vault: " .. Commafy(self.entry.count), 0.7, 0.85, 1)
+                if itemId and itemId > 0 then ItemName(itemId) end
+            else
+                GameTooltip:Hide()
+                return
             end
+
+            GameTooltip:Show()
         end)
         button:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
