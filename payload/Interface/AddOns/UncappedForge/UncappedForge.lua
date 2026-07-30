@@ -285,10 +285,12 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
             -- this is re-requested after every craft, so accumulating into a
             -- staged list would double the reagent rows each time round.
             local list = {}
-            for item, per, have, icon in body:gmatch("(%d+),(%d+),(%d+),([^;]*);") do
+            -- The NAME is last and parsed as "everything up to the ;", so an item
+            -- name containing a comma cannot shift the fields after it.
+            for item, per, have, icon, name in body:gmatch("(%d+),(%d+),(%d+),([^,]*),([^;]*);") do
                 list[#list + 1] = { item = tonumber(item), per = tonumber(per), have = tonumber(have),
-                    icon = (icon ~= "" and ("Interface\\Icons\\" .. icon)) or nil }
-                ItemName(tonumber(item))
+                    icon = (icon ~= "" and ("Interface\\Icons\\" .. icon)) or nil,
+                    name = (name ~= "" and name) or nil }
             end
             mats[spellId] = list
             if spellId == selectedSpell then
@@ -314,9 +316,9 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
         end
 
     elseif body:find("^FRGPLANNEED:") then
-        for item, missing in body:gmatch("(%d+),(%d+);") do
-            staging.needs[#staging.needs + 1] = { item = tonumber(item), missing = tonumber(missing) }
-            ItemName(tonumber(item))
+        for item, missing, name in body:gmatch("(%d+),(%d+),([^;]*);") do
+            staging.needs[#staging.needs + 1] = { item = tonumber(item), missing = tonumber(missing),
+                name = (name ~= "" and name) or nil }
         end
 
     elseif body:find("^FRGPLANEND:") then
@@ -373,10 +375,9 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
         Send("FRGPROCLIST")
 
     elseif body:find("^FRGPROCROW:") then
-        for item, count, kinds in body:gmatch("(%d+),(%d+),(%d+);") do
+        for item, count, kinds, name in body:gmatch("(%d+),(%d+),(%d+),([^;]*);") do
             staging.proc[#staging.proc + 1] = { item = tonumber(item), count = tonumber(count),
-                kinds = tonumber(kinds) }
-            ItemName(tonumber(item))
+                kinds = tonumber(kinds), name = (name ~= "" and name) or nil }
         end
 
     elseif body:find("^FRGPROCEND:") then
@@ -487,7 +488,7 @@ function RefreshList()
             button:Show()
 
             if isProcess then
-                local name = ItemName(entry.item) or ("item " .. entry.item)
+                local name = entry.name or ItemName(entry.item) or ("item " .. entry.item)
                 button.icon:SetTexture(ItemIcon(entry.item))
                 button.label:SetText(string.format("%s |cff808080x%s|r", name, Commafy(entry.count)))
                 button.label:SetTextColor(1, 1, 1)
@@ -550,7 +551,7 @@ function RefreshDetail()
         AddLine(" ")
         local selected = detail.processEntry
         if selected then
-            local name = ItemName(selected.item) or ("item " .. selected.item)
+            local name = selected.name or ItemName(selected.item) or ("item " .. selected.item)
             AddLine(name .. "  |cff808080x" .. Commafy(selected.count) .. "|r", 1, 0.82, 0)
             if bit.band(selected.kinds, 1) ~= 0 then AddLine("Millable (5 per operation)", 0.6, 1, 0.6) end
             if bit.band(selected.kinds, 2) ~= 0 then AddLine("Prospectable (5 per operation)", 0.6, 1, 0.6) end
@@ -597,7 +598,7 @@ function RefreshDetail()
         AddLine("...", 0.6, 0.6, 0.6)
     else
         for _, mat in ipairs(list) do
-            local matName = ItemName(mat.item) or ("item " .. mat.item)
+            local matName = mat.name or ItemName(mat.item) or ("item " .. mat.item)
             local need = mat.per * amount
             local enough = mat.have >= need
             AddLine(string.format("%s  %s / %s", matName, Commafy(mat.have), Commafy(need)),
@@ -629,7 +630,8 @@ function RefreshDetail()
             AddLine("Will also make first:", 1, 0.82, 0)
             for _, step in ipairs(plan.steps) do
                 if step.spell ~= recipe.spell then
-                    local stepName = ItemName(step.item) or ("item " .. step.item)
+                    local stepName = GetSpellInfo(step.spell) or ItemName(step.item)
+                        or ("item " .. step.item)
                     AddLine(string.format("%s x%s", stepName, Commafy(step.crafts)), 0.7, 0.85, 1, 8)
                 end
             end
@@ -637,7 +639,7 @@ function RefreshDetail()
         if #plan.needs > 0 then
             AddLine("Still missing:", 1, 0.4, 0.4)
             for _, need in ipairs(plan.needs) do
-                local needName = ItemName(need.item) or ("item " .. need.item)
+                local needName = need.name or ItemName(need.item) or ("item " .. need.item)
                 AddLine(string.format("%s x%s", needName, Commafy(need.missing)), 1, 0.5, 0.5, 8)
             end
         end
