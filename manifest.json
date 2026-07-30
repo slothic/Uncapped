@@ -2451,13 +2451,13 @@
                   {
                       "path":  "Interface/AddOns/StatFeed/StatFeed.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/StatFeed/StatFeed.lua",
-                      "sha256":  "fdfe30b07e0aad3653e049da39e61bfffd74cae5c935c4ec8f382f7097d11452",
-                      "size":  30240
+                      "sha256":  "4216ea11e19d260fcd3b692d5ef7f55f65f7b0b5e8260408d4be9c3bd3b6e837",
+                      "size":  31816
                   },
                   {
                       "path":  "Interface/AddOns/StatFeed/StatFeed.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/StatFeed/StatFeed.toc",
-                      "sha256":  "516cc5ec458025e775515b4320e7dcff7697138c5006929927680aa23b6df7f3",
+                      "sha256":  "e4e96892d0925658dd7ca7c86516d03cddbfac842439e79943bec81e2a3e7be1",
                       "size":  254
                   },
                   {

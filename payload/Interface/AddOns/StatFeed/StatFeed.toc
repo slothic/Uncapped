@@ -2,7 +2,7 @@
 ## Title: Stat Feed
 ## Notes: Shows Dungeon Stats gains in their own window, with session totals and pace.
 ## Author: MentalMonk
-## Version: 2.0
+## Version: 2.1
 ## OptionalDeps: UncappedOptions
 ## SavedVariablesPerCharacter: StatFeedDB
 

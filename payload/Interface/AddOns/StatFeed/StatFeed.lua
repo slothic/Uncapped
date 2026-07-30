@@ -41,6 +41,9 @@ local SUMMARY_ROW  = 22       -- one line of the "this session" block
 local STAT_ROW     = 18       -- one stat line
 local CREDIT_H     = 16       -- reserved strip at the bottom for the credit
 local COMPACT_H    = HEADER_H + (SUMMARY_ROW * 3) + CREDIT_H + 14
+local MIN_WIDTH    = 240      -- narrower than this and the stat rows collide
+local LOG_MIN_H    = 42       -- ~3 feed lines; below this the feed is pointless
+local EXPANDED_MIN            -- smallest usable expanded height; derived below
 
 local DEFAULTS = {
     point      = "CENTER",
@@ -54,7 +57,7 @@ local DEFAULTS = {
     bgAlpha    = 0.78,
     showBars   = true,
     titleColor = { 0.61, 0.76, 0.26 }, -- |cff9CC243
-    layout     = 2,                    -- bump to force a one-time re-size
+    layout     = 3,                    -- bump to force a one-time re-size
 }
 
 -- Stat display order, matched to what dungeonstats.lua can award. Each entry
@@ -70,6 +73,16 @@ local STATS = {
     { key = "Defense Rating", r = 0.66, g = 0.82, b = 0.95, rating = "CR_DEFENSE_SKILL" },
     { key = "Expertise",      r = 1.00, g = 0.86, b = 0.45, rating = "CR_EXPERTISE" },
 }
+
+-- Smallest height that still fits the whole expanded window: summary block,
+-- every stat row, the divider gap, a usable feed and the credit strip. Derived
+-- from the constants above (and from #STATS) so adding a stat or changing a row
+-- height can't silently push content out through the bottom of the frame.
+EXPANDED_MIN = HEADER_H + 12 + (SUMMARY_ROW * 3)        -- top of the stat block
+             + (#STATS * STAT_ROW + 4)                  -- the stat block
+             + 12 + LOG_MIN_H                           -- gap + feed
+             + (PAD + CREDIT_H - 6)                     -- bottom inset
+EXPANDED_MIN = math.ceil(EXPANDED_MIN / 10) * 10
 
 -- Spelling variants the server may send, mapped to the display name above.
 -- Keys are lower-cased with spaces/underscores/hyphens/dots removed.
@@ -112,6 +125,12 @@ local dirty        = true  -- set when something changed; cleared by Repaint
 local function GetDB()
     StatFeedDB = StatFeedDB or {}
     local db = StatFeedDB
+
+    -- Read the saved layout version BEFORE the defaults are filled in: the loop
+    -- below would stamp the current version onto an old DB, and the migration
+    -- that follows would then think it had already run.
+    local savedLayout = db.layout or 0
+
     for k, v in pairs(DEFAULTS) do
         if db[k] == nil then
             if type(v) == "table" then
@@ -123,13 +142,21 @@ local function GetDB()
             end
         end
     end
+
     -- The window grew when the session block was added; resize saved layouts
     -- from before that once, so an old install isn't left with a cramped frame.
-    if (db.layout or 0) < DEFAULTS.layout then
+    if savedLayout < DEFAULTS.layout then
         db.width  = DEFAULTS.width
         db.height = DEFAULTS.height
         db.layout = DEFAULTS.layout
     end
+
+    -- Belt and braces: the rows, dividers and feed are anchored to the top of
+    -- the frame, so a height smaller than the content draws them below the
+    -- window's bottom edge. Never trust a saved size that can't hold it.
+    if (db.height or 0) < EXPANDED_MIN then db.height = DEFAULTS.height end
+    if (db.width or 0) < MIN_WIDTH then db.width = MIN_WIDTH end
+
     return db
 end
 
@@ -368,7 +395,7 @@ local function ApplyCollapse()
         frame.midDivider:Hide()
         frame.lowDivider:Hide()
         frame.grip:Hide()
-        frame:SetMinResize(240, COMPACT_H)
+        frame:SetMinResize(MIN_WIDTH, COMPACT_H)
         frame:SetHeight(COMPACT_H)
     else
         statBlock:Show()
@@ -376,7 +403,7 @@ local function ApplyCollapse()
         frame.midDivider:Show()
         frame.lowDivider:Show()
         frame.grip:Show()
-        frame:SetMinResize(240, 320)
+        frame:SetMinResize(MIN_WIDTH, EXPANDED_MIN)
         frame:SetHeight(db.height or DEFAULTS.height)
         dirty = true
         Repaint(true)
@@ -455,7 +482,7 @@ local function BuildWindow()
 
     frame:SetMovable(true)
     frame:SetResizable(true)
-    frame:SetMinResize(240, 320)
+    frame:SetMinResize(MIN_WIDTH, EXPANDED_MIN)
     frame:EnableMouse(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
@@ -756,14 +783,14 @@ function BuildOptions()
             ApplyCollapse()
         end)
 
-    local widthSlider = L:Slider("Window width", 240, 600, 10,
+    local widthSlider = L:Slider("Window width", MIN_WIDTH, 600, 10,
         function() return GetDB().width end,
         function(v)
             GetDB().width = v
             if frame then frame:SetWidth(v); dirty = true end
         end, "%d px")
 
-    local heightSlider = L:Slider("Window height", 320, 700, 10,
+    local heightSlider = L:Slider("Window height", EXPANDED_MIN, 700, 10,
         function() return GetDB().height end,
         function(v)
             GetDB().height = v
