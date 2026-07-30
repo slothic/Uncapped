@@ -309,10 +309,28 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
         end
 
     elseif body:find("^FRGPLANROW:") then
-        for spell, item, crafts, depth in body:gmatch("(%d+),(%d+),(%d+),(%d+);") do
+        -- 6-field rows carry the step kind and a preset label (harvest steps have
+        -- no spell to name themselves from); label is last and may contain commas,
+        -- so it is parsed as "up to the ;".
+        --
+        -- Falls back to the legacy 4-field row, so this addon keeps working against
+        -- a server that has not been updated yet -- otherwise publishing the client
+        -- ahead of the server empties the "Will also make first" list. Same
+        -- backward-compatible parse the Vault window uses for its row format.
+        local any6 = false
+        for spell, item, crafts, depth, kind, label in
+            body:gmatch("(%d+),(%d+),(%d+),(%d+),(%d+),([^;]*);") do
+            any6 = true
             staging.steps[#staging.steps + 1] = { spell = tonumber(spell), item = tonumber(item),
-                crafts = tonumber(crafts), depth = tonumber(depth) }
-            ItemName(tonumber(item))
+                crafts = tonumber(crafts), depth = tonumber(depth), kind = tonumber(kind),
+                label = (label ~= "" and label) or nil }
+        end
+
+        if not any6 then
+            for spell, item, crafts, depth in body:gmatch("(%d+),(%d+),(%d+),(%d+);") do
+                staging.steps[#staging.steps + 1] = { spell = tonumber(spell), item = tonumber(item),
+                    crafts = tonumber(crafts), depth = tonumber(depth), kind = 0 }
+            end
         end
 
     elseif body:find("^FRGPLANNEED:") then
@@ -630,8 +648,10 @@ function RefreshDetail()
             AddLine("Will also make first:", 1, 0.82, 0)
             for _, step in ipairs(plan.steps) do
                 if step.spell ~= recipe.spell then
-                    local stepName = GetSpellInfo(step.spell) or ItemName(step.item)
-                        or ("item " .. step.item)
+                    -- Harvest steps arrive pre-labelled ("Mill Silverleaf -> Alabaster
+                    -- Pigment"); they have no spell to name them from.
+                    local stepName = step.label or GetSpellInfo(step.spell)
+                        or ItemName(step.item) or ("item " .. step.item)
                     AddLine(string.format("%s x%s", stepName, Commafy(step.crafts)), 0.7, 0.85, 1, 8)
                 end
             end

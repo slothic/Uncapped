@@ -843,6 +843,8 @@ local function BuildFrame()
     local QUALITY_CHOICES = {
         { value = nil, text = "Any quality" },
         { value = 7,   text = "Heirloom" },
+        { value = 6,   text = "Artifact" },
+        { value = 5,   text = "Legendary" },
         { value = 4,   text = "Epic" },
         { value = 3,   text = "Rare" },
         { value = 2,   text = "Uncommon" },
