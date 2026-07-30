@@ -2787,8 +2787,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "eb417cd127124c0492f167fc182cc0f02e66043ebad5bda987319a52bbe1cfa5",
-                      "size":  3593
+                      "sha256":  "df2fe5843f990b33a6ab1f28957a279219f432c001ffb2c7be37077e6956a7e5",
+                      "size":  3695
                   },
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.toc",
