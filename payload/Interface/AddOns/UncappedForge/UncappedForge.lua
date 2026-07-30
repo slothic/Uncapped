@@ -102,6 +102,26 @@ local function ItemName(itemId)
     return nil
 end
 
+-- The display name for a RECIPE row.
+--
+-- Uses the crafting spell's own name, not the produced item's. GetItemInfo needs
+-- the item to be in the client's cache, and a crafter's products routinely are
+-- NOT: they go straight from the craft into the Vault without ever sitting in a
+-- bag, so the list rendered as "item 10001", "item 10002" for a whole profession.
+-- GetSpellInfo reads Spell.dbc, which ships with the client and is always
+-- present, so a recipe name resolves on the first frame with no cache and no
+-- round trip. For crafting spells the spell name IS the product name ("Black
+-- Mageweave Robe"); for enchants it is the enchant ("Enchant Bracer - ..."),
+-- which reads better than the scroll's name anyway.
+local function RecipeName(recipe)
+    if not recipe then return nil end
+
+    local spellName = GetSpellInfo(recipe.spell)
+    if spellName and spellName ~= "" then return spellName end
+
+    return ItemName(recipe.item) or ("item " .. tostring(recipe.item))
+end
+
 local function ItemIcon(itemId, serverIcon)
     if serverIcon and serverIcon ~= "" then return serverIcon end
     if itemId and itemId ~= 0 and GetItemIcon then
@@ -192,7 +212,7 @@ local function ApplyFilter()
         local ok = (not selectedSkill) or recipe.skill == selectedSkill
 
         if ok and search ~= "" then
-            local name = ItemName(recipe.item)
+            local name = RecipeName(recipe)
             ok = name and name:lower():find(search, 1, true) ~= nil or false
         end
 
@@ -207,8 +227,7 @@ local function ApplyFilter()
     end
 
     table.sort(filtered, function(a, b)
-        local an, bn = ItemName(a.item) or tostring(a.item), ItemName(b.item) or tostring(b.item)
-        return an < bn
+        return (RecipeName(a) or "") < (RecipeName(b) or "")
     end)
 end
 
@@ -402,7 +421,12 @@ end)
 -- ===========================================================================
 -- UI
 -- ===========================================================================
-local ROWS, ROW_HEIGHT = 16, 22
+-- 14 rows at 22px starting at -76 ends at -384, clearing the bottom controls in
+-- a 500-tall frame. The first version used 16 rows in a 460-tall frame, which ran
+-- the list straight down through the amount box and the checkboxes.
+local ROWS, ROW_HEIGHT = 14, 22
+local FRAME_WIDTH, FRAME_HEIGHT = 720, 500
+local LIST_TOP = -76
 
 -- FauxScrollFrame's scrollbar is a GLOBAL named "<frameName>ScrollBar" in 3.3.5.
 -- There is no `.ScrollBar` field on the frame -- that is a later-expansion thing,
@@ -471,7 +495,7 @@ function RefreshList()
                 button.entry = entry
                 button.spell = nil
             else
-                local name = ItemName(entry.item) or ("item " .. entry.item)
+                local name = RecipeName(entry)
                 if entry.yield > 1 then name = name .. " |cff808080x" .. entry.yield .. "|r" end
 
                 local colour = DifficultyColor(entry)
@@ -561,7 +585,7 @@ function RefreshDetail()
         return
     end
 
-    local name = ItemName(recipe.item) or ("item " .. recipe.item)
+    local name = RecipeName(recipe)
     detail.title:SetText(recipe.yield > 1 and (name .. " x" .. recipe.yield) or name)
     detail.productIcon:SetTexture(ItemIcon(recipe.item, prodIcon[recipe.spell]))
 
@@ -661,49 +685,78 @@ function RefreshProgress()
         Commafy(job.done), Commafy(job.total), Commafy(job.crafted)))
 end
 
-function BuildProfessionTabs()
-    if not frame then return end
+-- The profession picker.
+--
+-- This was a row of buttons, one per profession, laid out left to right. With a
+-- character who has levelled everything -- Tailoring, Enchanting, Leatherworking,
+-- Blacksmithing, Alchemy, Cooking, First Aid, Mining, Engineering, Jewelcrafting,
+-- Inscription -- the row was several times wider than the window and ran off the
+-- side of the screen, so the last professions were simply unreachable. A dropdown
+-- is a fixed width whatever the character knows.
+--
+-- Bulk processing lives in the same dropdown rather than as a separate button:
+-- it is another view of the same window, and one control that always says what
+-- you are looking at beats two that can disagree.
+local function ProfessionLabel()
+    if frame and frame.mode == "process" then return "Bulk processing" end
 
-    for _, tab in ipairs(frame.tabs) do tab:Hide() end
-
-    local x = 12
-    for i, prof in ipairs(professions) do
-        local tab = frame.tabs[i]
-        if not tab then
-            tab = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-            tab:SetHeight(20)
-            frame.tabs[i] = tab
+    for _, prof in ipairs(professions) do
+        if prof.skill == selectedSkill then
+            local name = prof.name ~= "" and prof.name or ("skill " .. prof.skill)
+            return string.format("%s (%d)", name, prof.rank)
         end
-
-        local label = string.format("%s (%d)", prof.name ~= "" and prof.name or ("skill " .. prof.skill), prof.rank)
-        tab:SetText(label)
-        tab:SetWidth(math.max(70, tab:GetFontString():GetStringWidth() + 20))
-        tab:ClearAllPoints()
-        tab:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -52)
-        tab:SetScript("OnClick", function()
-            frame.mode = "craft"
-            selectedSkill = prof.skill
-            ApplyFilter()
-            ResetScroll()
-            RefreshList()
-            RefreshDetail()
-        end)
-        tab:Show()
-        x = x + tab:GetWidth() + 4
     end
 
-    -- The processing tab always exists, even with no professions.
-    local procTab = frame.processTab
-    procTab:ClearAllPoints()
-    procTab:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -52)
+    return "Select a profession"
+end
+
+function BuildProfessionTabs()
+    if not frame or not frame.profDrop then return end
+
+    UIDropDownMenu_Initialize(frame.profDrop, function(_, level)
+        for _, prof in ipairs(professions) do
+            local name = prof.name ~= "" and prof.name or ("skill " .. prof.skill)
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = string.format("%s (%d/%d)", name, prof.rank, prof.max)
+            info.value = prof.skill
+            info.checked = (frame.mode == "craft" and prof.skill == selectedSkill)
+            info.func = function()
+                frame.mode = "craft"
+                selectedSkill = prof.skill
+                ApplyFilter()
+                ResetScroll()
+                UIDropDownMenu_SetText(frame.profDrop, ProfessionLabel())
+                RefreshList()
+                RefreshDetail()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+
+        local sep = UIDropDownMenu_CreateInfo()
+        sep.text = "Bulk processing"
+        sep.value = "process"
+        sep.checked = (frame.mode == "process")
+        sep.func = function()
+            frame.mode = "process"
+            Send("FRGPROCLIST")
+            ResetScroll()
+            UIDropDownMenu_SetText(frame.profDrop, ProfessionLabel())
+            RefreshList()
+            RefreshDetail()
+        end
+        UIDropDownMenu_AddButton(sep, level)
+    end)
+
+    UIDropDownMenu_SetWidth(frame.profDrop, 190)
+    UIDropDownMenu_SetText(frame.profDrop, ProfessionLabel())
 end
 
 local function BuildFrame()
     if frame then return end
 
     frame = CreateFrame("Frame", "UncappedForgeFrame", UIParent)
-    frame:SetWidth(720)
-    frame:SetHeight(460)
+    frame:SetWidth(FRAME_WIDTH)
+    frame:SetHeight(FRAME_HEIGHT)
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     frame:SetBackdrop({
         bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -719,7 +772,6 @@ local function BuildFrame()
     frame:SetFrameStrata("HIGH")
     frame:Hide()
     frame.mode = "craft"
-    frame.tabs = {}
 
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOP", frame, "TOP", 0, -16)
@@ -728,11 +780,17 @@ local function BuildFrame()
     local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -8)
 
+    -- Profession picker (see BuildProfessionTabs). Populated once the server's
+    -- profession list lands, which is after this frame is built.
+    local profDrop = CreateFrame("Frame", "UncappedForgeProfDrop", frame, "UIDropDownMenuTemplate")
+    profDrop:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -40)
+    frame.profDrop = profDrop
+
     -- Search box
     local search = CreateFrame("EditBox", "UncappedForgeSearch", frame, "InputBoxTemplate")
     search:SetWidth(150)
     search:SetHeight(20)
-    search:SetPoint("TOPLEFT", frame, "TOPLEFT", 24, -78)
+    search:SetPoint("TOPLEFT", frame, "TOPLEFT", 240, -46)
     search:SetAutoFocus(false)
     search:SetScript("OnTextChanged", function()
         ApplyFilter()
@@ -740,10 +798,6 @@ local function BuildFrame()
     end)
     search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     frame.search = search
-
-    local searchLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    searchLabel:SetPoint("BOTTOMLEFT", search, "TOPLEFT", 0, 2)
-    searchLabel:SetText("Search")
 
     -- Craftable-only filter
     local onlyCheck = CreateFrame("CheckButton", "UncappedForgeOnly", frame, "UICheckButtonTemplate")
@@ -760,23 +814,9 @@ local function BuildFrame()
     onlyLabel:SetPoint("LEFT", onlyCheck, "RIGHT", 2, 0)
     onlyLabel:SetText("Craftable only")
 
-    -- Processing tab button
-    local processTab = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    processTab:SetHeight(20)
-    processTab:SetWidth(90)
-    processTab:SetText("Processing")
-    processTab:SetScript("OnClick", function()
-        frame.mode = "process"
-        Send("FRGPROCLIST")
-        ResetScroll()
-        RefreshList()
-        RefreshDetail()
-    end)
-    frame.processTab = processTab
-
     -- Recipe list
     local listFrame = CreateFrame("Frame", nil, frame)
-    listFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -104)
+    listFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, LIST_TOP)
     listFrame:SetWidth(330)
     listFrame:SetHeight(ROWS * ROW_HEIGHT)
 
@@ -837,7 +877,7 @@ local function BuildFrame()
 
     -- Detail pane
     detail = CreateFrame("Frame", nil, frame)
-    detail:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -18, -104)
+    detail:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -18, LIST_TOP)
     detail:SetWidth(340)
     detail:SetHeight(ROWS * ROW_HEIGHT)
     detail.lines = {}
