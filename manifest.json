@@ -2619,14 +2619,14 @@
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/UncappedMythic.lua",
-                      "sha256":  "17f19d88a5bb3782485dfa1c5f097cf114962898157ce5018337e7e722f092fc",
-                      "size":  19809
+                      "sha256":  "3dc384a0a7b2cfc5c310c909d7c32bf466d4cc3d043cda6cf9ed27f975e99a2e",
+                      "size":  43850
                   },
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/UncappedMythic.toc",
-                      "sha256":  "ebed47ff489f8899a942511b641448d0ce4bb7f311b8cc46a142a8f3eb5b5a9e",
-                      "size":  252
+                      "sha256":  "9616763deed11292700de42924b587dda2772ce51829ff5a3b981db8d5801402",
+                      "size":  269
                   },
                   {
                       "path":  "Interface/AddOns/UncappedMythic/Sounds/bloodletting.wav",
