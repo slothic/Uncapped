@@ -1461,8 +1461,8 @@
                   {
                       "path":  "Interface/AddOns/ReagentBankCraft/ReagentBankCraft.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/ReagentBankCraft/ReagentBankCraft.lua",
-                      "sha256":  "17482508249c50d60658edbf20c8538c504767f72ede1d98332f7c5bf3e8a93e",
-                      "size":  27358
+                      "sha256":  "9c9b52e33fbc2ee01c1026e0765c6bbdf4f5e104fcc6010abac2c8c7c6e6365b",
+                      "size":  20173
                   },
                   {
                       "path":  "Interface/AddOns/ReagentBankCraft/ReagentBankCraft.toc",
@@ -2577,8 +2577,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedChat/UncappedChat.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedChat/UncappedChat.lua",
-                      "sha256":  "a4471f2bbfa7e6967f26ef41e53edb1c08afed2773ee67c0f5430fd981a33d36",
-                      "size":  12129
+                      "sha256":  "a7fa3f44f61b4c4628f42211a94a622e62f9007366d4d763c2625444af8ba9c3",
+                      "size":  15875
                   },
                   {
                       "path":  "Interface/AddOns/UncappedChat/UncappedChat.toc",
@@ -2589,8 +2589,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedForge/UncappedForge.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedForge/UncappedForge.lua",
-                      "sha256":  "7718434fdb74da9e14c42c8ebf1e4957551b1b76927489760e163185d8557f02",
-                      "size":  54700
+                      "sha256":  "793f71d589582b134e90b03986646834723b625e101fd909d6ef080c3eb1197b",
+                      "size":  65904
                   },
                   {
                       "path":  "Interface/AddOns/UncappedForge/UncappedForge.toc",
@@ -2817,8 +2817,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "b926391c7c62c7be903ccaf359ff2f229a04ce2119457fce11e7c8db177af1f3",
-                      "size":  3593
+                      "sha256":  "31357bd8bac803869d8d32023ad758ab65ab74eaf100c2806d6b857a4f2e3d03",
+                      "size":  3695
                   },
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.toc",
@@ -3527,7 +3527,8 @@
                               "UncappedOptions",
                               "UncappedVault",
                               "UncappedTransmog",
-                              "UncappedForge"
+                              "UncappedForge",
+                              "UncappedChat"
                           ],
     "forceDisableAddOns":  [
                                "QuestHelper"
@@ -3551,6 +3552,7 @@
                        "Interface/AddOns/UncappedItemCustomize",
                        "Interface/AddOns/UncappedPanel",
                        "Interface/AddOns/UncappedAnima",
+                       "Interface/AddOns/UncappedChat",
                        "Interface/AddOns/devUncapped64",
                        "Interface/AddOns/UncappedTempo"
                    ]

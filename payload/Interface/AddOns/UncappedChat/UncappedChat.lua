@@ -27,12 +27,17 @@ local MAX_LINES = 300
 
 local defaults = {
   shown = true,
-  point = { "CENTER", "UIParent", "CENTER", 0, -180 },
-  width = 520,
-  height = 280,
+  point = { "BOTTOMLEFT", "UIParent", "BOTTOMLEFT", 20, 200 },
+  width = 420,
+  height = 200,
+  scale = 0.9,
   tab = 1,
   timestamps = true,
+  compact = false,
 }
+
+local MIN_W, MIN_H = 260, 120
+local COMPACT_H = 100       -- tab row + two lines + input box
 
 local TABS = {
   { key = "world",   label = "World"   },
@@ -115,32 +120,24 @@ local function buildUI()
   if ui.frame then return end
   local d = db()
 
-  local f
-  if UncappedUI and UncappedUI.CreatePanel then
-    f = UncappedUI.CreatePanel(ADDON .. "Panel", "Uncapped Chat", d.width, d.height)
-  end
-  if not f then
-    -- Standalone fallback so the addon still works if UncappedOptions is absent.
-    f = CreateFrame("Frame", ADDON .. "Panel", UIParent)
-    f:SetBackdrop({
-      bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-      edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-      tile = true, tileSize = 32, edgeSize = 32,
-      insets = { left = 11, right = 12, top = 12, bottom = 11 },
-    })
-    local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    title:SetPoint("TOP", 0, -14)
-    title:SetText("Uncapped Chat")
-    local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", -6, -6)
-  end
-
-  f:SetSize(d.width, d.height)
-  f:ClearAllPoints()
-  f:SetPoint(unpack(d.point))
-  f:SetMovable(true)
-  f:SetResizable(true)
-  f:EnableMouse(true)
+  -- NOT UncappedUI.CreatePanel -- that builds an ESC>Interface settings PAGE
+  -- (CreatePanel(displayName, subtitle)), not a movable window. Using it here
+  -- produced a bordlerless panel titled with the frame name. This is the same
+  -- backdrop the Vault and Forge windows use.
+  local f = CreateFrame("Frame", ADDON .. "Panel", UIParent)
+  f:SetFrameStrata("MEDIUM")
+  f:SetBackdrop({
+    bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
+    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+    tile = true, tileSize = 32, edgeSize = 32,
+    insets = { left = 11, right = 12, top = 12, bottom = 11 },
+  })
+  f:SetWidth(d.width); f:SetHeight(d.height)
+  f:SetScale(d.scale or 1)
+  f:ClearAllPoints(); f:SetPoint(unpack(d.point))
+  f:SetMovable(true); f:SetResizable(true); f:EnableMouse(true)
+  f:SetClampedToScreen(true)
+  f:SetMinResize(MIN_W, MIN_H)
   f:RegisterForDrag("LeftButton")
   f:SetScript("OnDragStart", f.StartMoving)
   f:SetScript("OnDragStop", function(self)
@@ -148,13 +145,29 @@ local function buildUI()
     local p, _, rp, x, y = self:GetPoint()
     db().point = { p, "UIParent", rp, x, y }
   end)
-  f:SetClampedToScreen(true)
+  tinsert(UISpecialFrames, ADDON .. "Panel")     -- Esc closes it
   ui.frame = f
 
-  -- scrolling message area
+  local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  title:SetPoint("TOPLEFT", 14, -13)
+  title:SetText("Uncapped Chat")
+  ui.title = title
+
+  local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+  close:SetPoint("TOPRIGHT", -4, -4)
+  close:SetScript("OnClick", function() UC.Toggle() end)
+
+  -- compact toggle: collapse to the last two lines
+  local compact = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  compact:SetWidth(60); compact:SetHeight(18)
+  compact:SetPoint("TOPRIGHT", -34, -8)   -- clear of the close button
+  compact:SetText(d.compact and "Expand" or "Compact")
+  compact:SetScript("OnClick", function() UC.ToggleCompact() end)
+  ui.compactBtn = compact
+
   local sf = CreateFrame("ScrollingMessageFrame", ADDON .. "Scroll", f)
-  sf:SetPoint("TOPLEFT", 16, -58)
-  sf:SetPoint("BOTTOMRIGHT", -16, 46)
+  sf:SetPoint("TOPLEFT", 14, -52)
+  sf:SetPoint("BOTTOMRIGHT", -14, 38)
   sf:SetFontObject(ChatFontNormal)
   sf:SetJustifyH("LEFT")
   sf:SetFading(false)
@@ -169,61 +182,62 @@ local function buildUI()
   end)
   ui.scroll = sf
 
-  -- tabs
   ui.tabs = {}
   for i, tab in ipairs(TABS) do
     local b = CreateFrame("Button", nil, f)
-    b:SetSize(84, 22)
-    b:SetPoint("TOPLEFT", 16 + (i - 1) * 88, -34)
-    b:SetNormalFontObject(GameFontNormalSmall)
+    b:SetWidth(62); b:SetHeight(18)
+    b:SetPoint("TOPLEFT", 14 + (i - 1) * 64, -32)
+    -- A bare CreateFrame("Button") has no font string, so SetText is a no-op
+    -- until one is attached. This is why the tabs must not use a template.
+    local fs = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    fs:SetAllPoints()
+    b:SetFontString(fs)
     b:SetHighlightFontObject(GameFontHighlightSmall)
     b:SetText(tab.label)
     local bg = b:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetTexture(0, 0, 0, 0.35)
+    bg:SetAllPoints(); bg:SetTexture(0, 0, 0, 0.35)
     b.bg = bg
     b:SetScript("OnClick", function()
-      db().tab = i
-      unread[tab.key] = 0
-      ui.Render()
+      db().tab = i; unread[tab.key] = 0; ui.Render()
     end)
     ui.tabs[i] = b
   end
 
-  -- input
   local eb = CreateFrame("EditBox", ADDON .. "Input", f, "InputBoxTemplate")
-  eb:SetPoint("BOTTOMLEFT", 20, 16)
-  eb:SetPoint("BOTTOMRIGHT", -74, 16)
-  eb:SetHeight(20)
+  eb:SetPoint("BOTTOMLEFT", 18, 14)
+  eb:SetPoint("BOTTOMRIGHT", -62, 14)
+  eb:SetHeight(18)
   eb:SetAutoFocus(false)
   eb:SetMaxLetters(255)
+  eb:SetFontObject(ChatFontNormal)
   eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
   eb:SetScript("OnEnterPressed", function(self)
     local text = strtrim(self:GetText() or "")
     if text ~= "" then UC.Send(text) end
-    self:SetText("")
-    self:ClearFocus()
+    self:SetText(""); self:ClearFocus()
   end)
   ui.input = eb
 
   local send = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  send:SetSize(52, 22)
-  send:SetPoint("BOTTOMRIGHT", -16, 15)
+  send:SetWidth(44); send:SetHeight(20)
+  send:SetPoint("BOTTOMRIGHT", -14, 13)
   send:SetText("Send")
   send:SetScript("OnClick", function() eb:GetScript("OnEnterPressed")(eb) end)
 
-  -- resize grip
   local grip = CreateFrame("Button", nil, f)
-  grip:SetSize(16, 16)
-  grip:SetPoint("BOTTOMRIGHT", -4, 4)
+  grip:SetWidth(16); grip:SetHeight(16)
+  grip:SetPoint("BOTTOMRIGHT", -2, 2)
   grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
   grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
-  grip:SetScript("OnMouseDown", function() f:StartSizing("BOTTOMRIGHT") end)
+  grip:SetScript("OnMouseDown", function()
+    if not db().compact then f:StartSizing("BOTTOMRIGHT") end
+  end)
   grip:SetScript("OnMouseUp", function()
     f:StopMovingOrSizing()
     db().width, db().height = f:GetWidth(), f:GetHeight()
     ui.Render()
   end)
+  ui.grip = grip
 
   function ui.UpdateTabs()
     for i, tab in ipairs(TABS) do
@@ -247,7 +261,33 @@ local function buildUI()
     ui.UpdateTabs()
   end
 
-  ui.Render()
+  --- Compact = the window shrunk to the tab row, the latest two lines, and the
+  --- input box. The ScrollingMessageFrame does the "last two" part for free:
+  --- it only draws what fits and we hold it pinned to the bottom, so the two
+  --- most recent lines are exactly what's on screen.
+  function ui.ApplyCompact()
+    local d, f = db(), ui.frame
+    local tabY  = d.compact and -12 or -32
+    local topY  = d.compact and -32 or -52
+
+    if d.compact then ui.title:Hide() else ui.title:Show() end
+    if d.compact then ui.grip:Hide()  else ui.grip:Show()  end
+    ui.compactBtn:SetText(d.compact and "Expand" or "Compact")
+
+    for i, b in ipairs(ui.tabs) do
+      b:ClearAllPoints()
+      b:SetPoint("TOPLEFT", 14 + (i - 1) * 64, tabY)
+    end
+    ui.scroll:ClearAllPoints()
+    ui.scroll:SetPoint("TOPLEFT", 14, topY)
+    ui.scroll:SetPoint("BOTTOMRIGHT", -14, 38)
+
+    -- Only the expanded height is remembered; COMPACT_H is fixed by content.
+    f:SetHeight(d.compact and COMPACT_H or d.height)
+    ui.Render()
+  end
+
+  ui.ApplyCompact()
 end
 
 -- --------------------------------------------------------------------------
@@ -268,6 +308,25 @@ function UC.Send(text)
     return
   end
   SendChatMessage(text, "CHANNEL", nil, id)
+end
+
+--- Collapse to / expand from the two-line view.
+function UC.ToggleCompact()
+  buildUI()
+  db().compact = not db().compact
+  ui.ApplyCompact()
+end
+
+--- Whole-window scale. The frame is anchored to UIParent, so scaling it does
+--- not move it -- the anchor point scales with it.
+function UC.SetScale(v)
+  v = tonumber(v)
+  if not v then return db().scale end
+  if v < 0.5 then v = 0.5 elseif v > 1.5 then v = 1.5 end
+  db().scale = v
+  buildUI()
+  ui.frame:SetScale(v)
+  return v
 end
 
 function UC.Toggle()
@@ -357,6 +416,22 @@ SlashCmdList["UNCAPPEDCHAT"] = function(arg)
   if arg == "join" then
     ensureWorldChannel()
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[Uncapped Chat]|r rejoining World channel.")
+  elseif arg == "compact" then
+    UC.ToggleCompact()
+  elseif arg:match("^scale") then
+    local v = UC.SetScale(arg:match("([%d%.]+)"))
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[Uncapped Chat]|r scale " .. tostring(v)
+      .. " |cff888888(/uchat scale 0.5 - 1.5)|r")
+  elseif arg == "reset" then
+    local d = db()
+    d.point, d.width, d.height, d.scale, d.compact =
+      defaults.point, defaults.width, defaults.height, defaults.scale, false
+    if ui.frame then
+      ui.frame:ClearAllPoints(); ui.frame:SetPoint(unpack(d.point))
+      ui.frame:SetWidth(d.width); ui.frame:SetScale(d.scale)
+      ui.ApplyCompact()
+    end
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[Uncapped Chat]|r window reset.")
   elseif arg == "time" then
     db().timestamps = not db().timestamps
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[Uncapped Chat]|r timestamps "

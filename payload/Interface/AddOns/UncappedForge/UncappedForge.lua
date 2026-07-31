@@ -34,6 +34,11 @@ local DEFAULTS = {
     craftableOnly     = false,  -- list filter
     sortMode          = "name",  -- "name" or "difficulty"
     lastAmount        = 1,
+    sourceRows        = 14,     -- "where to farm" visible rows
+    sourceRowHeight   = 20,     -- "where to farm" row height (px)
+    savePos           = true,   -- remember the dragged "where to farm" position
+    -- db.sourcePos is written on drag; absent until then, so no default here
+    -- (a nil value in this table would not be stored as a key anyway).
 }
 
 local db
@@ -475,6 +480,31 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
             kinds or "?", Money(cost)))
         quote = nil
         if selectedSpell then Send("FRGMATS:" .. selectedSpell) end
+
+    -- "Where do I farm this?" replies. These use the older RB* protocol rather
+    -- than FRG*, because the server handler is shared with the reagent-bank
+    -- channel and predates the Forge -- see the source-panel block near the
+    -- bottom of this file. Buffer until the terminator, then draw once.
+    --
+    -- RBSRC:<itemId>:<kind>:<chanceTenths>:<spawns>:<dungeon>:<name>|<zone>|<via>
+    elseif body:find("^RBSRC:") then
+        local kind, chance, spawns, dungeon, rest =
+            body:match("^RBSRC:%d+:(%d+):(%d+):(%d+):(%d+):(.*)$")
+        if rest then
+            local name, zone, via = rest:match("^(.-)|(.-)|(.*)$")
+            UncappedForge_SourceBufferAdd({
+                kind = tonumber(kind) or 1,
+                chance = tonumber(chance) or 0,
+                spawns = tonumber(spawns) or 0,
+                dungeon = (tonumber(dungeon) or 0) ~= 0,
+                name = name or rest,
+                zone = zone or "",
+                via = via or "",
+            })
+        end
+
+    elseif body:find("^RBSRCEND:") then
+        UncappedForge_ShowSources(UncappedForge_SourcePendingName())
     end
 end)
 
@@ -600,22 +630,53 @@ function RefreshDetail()
     if not frame or not detail then return end
 
     for _, line in ipairs(detail.lines) do line:Hide() end
+    for _, btn in ipairs(detail.clicks) do btn:Hide() end
     detail.lineCount = 0
 
-    local function AddLine(text, r, g, b, indent)
+    -- clickItem/clickName make the row a "where do I farm this?" target.
+    local function AddLine(text, r, g, b, indent, clickItem, clickName)
         detail.lineCount = detail.lineCount + 1
-        local line = detail.lines[detail.lineCount]
+        local index = detail.lineCount
+        local top = -34 - (index - 1) * 14
+        local left = 10 + (indent or 0)
+
+        local line = detail.lines[index]
         if not line then
             line = detail:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             line:SetJustifyH("LEFT")
-            detail.lines[detail.lineCount] = line
+            detail.lines[index] = line
         end
         line:ClearAllPoints()
-        line:SetPoint("TOPLEFT", detail, "TOPLEFT", 10 + (indent or 0), -34 - (detail.lineCount - 1) * 14)
+        line:SetPoint("TOPLEFT", detail, "TOPLEFT", left, top)
         line:SetPoint("RIGHT", detail, "RIGHT", -10, 0)
         line:SetText(text)
         line:SetTextColor(r or 1, g or 1, b or 1)
         line:Show()
+
+        if clickItem then
+            local btn = detail.clicks[index]
+            if not btn then
+                btn = CreateFrame("Button", nil, detail)
+                btn:SetHeight(14)
+                btn:SetScript("OnClick", function(self)
+                    UncappedForge_QuerySources(self.item, self.itemName)
+                end)
+                btn:SetScript("OnEnter", function(self)
+                    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+                    GameTooltip:SetText(self.itemName or "Material")
+                    GameTooltip:AddLine("Click to see where this drops -- the creature or node, "
+                        .. "the drop chance and the zone.", 1, 1, 1, true)
+                    GameTooltip:Show()
+                end)
+                btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                detail.clicks[index] = btn
+            end
+            btn.item, btn.itemName = clickItem, clickName
+            btn:ClearAllPoints()
+            btn:SetPoint("TOPLEFT", detail, "TOPLEFT", left, top)
+            btn:SetPoint("RIGHT", detail, "RIGHT", -10, 0)
+            btn:Show()
+        end
     end
 
     if frame.mode == "process" then
@@ -666,7 +727,7 @@ function RefreshDetail()
 
     local amount = RequestedAmount()
 
-    AddLine("Materials (Vault + bags)", 1, 0.82, 0)
+    AddLine("Materials (Vault + bags)  |cff808080-- click one to find it|r", 1, 0.82, 0)
     local list = mats[recipe.spell]
     if not list then
         AddLine("...", 0.6, 0.6, 0.6)
@@ -676,7 +737,7 @@ function RefreshDetail()
             local need = mat.per * amount
             local enough = mat.have >= need
             AddLine(string.format("%s  %s / %s", matName, Commafy(mat.have), Commafy(need)),
-                enough and 0.4 or 1, enough and 1 or 0.4, 0.4, 8)
+                enough and 0.4 or 1, enough and 1 or 0.4, 0.4, 8, mat.item, matName)
         end
     end
 
@@ -713,10 +774,11 @@ function RefreshDetail()
             end
         end
         if #plan.needs > 0 then
-            AddLine("Still missing:", 1, 0.4, 0.4)
+            AddLine("Still missing:  |cff808080-- click one to find it|r", 1, 0.4, 0.4)
             for _, need in ipairs(plan.needs) do
                 local needName = need.name or ItemName(need.item) or ("item " .. need.item)
-                AddLine(string.format("%s x%s", needName, Commafy(need.missing)), 1, 0.5, 0.5, 8)
+                AddLine(string.format("%s x%s", needName, Commafy(need.missing)),
+                    1, 0.5, 0.5, 8, need.item, needName)
             end
         end
     end
@@ -1029,6 +1091,9 @@ local function BuildFrame()
     detail:SetHeight(ROWS * ROW_HEIGHT)
     detail.lines = {}
     detail.lineCount = 0
+    -- Invisible click targets laid over material rows ("where do I farm this?").
+    -- Pooled by line index alongside detail.lines.
+    detail.clicks = {}
 
     detail.productIcon = detail:CreateTexture(nil, "ARTWORK")
     detail.productIcon:SetWidth(28)
@@ -1286,6 +1351,182 @@ watcher:SetScript("OnEvent", function(_, event, arg1)
     end
 end)
 
+-- ---------------------------------------------------------------------------
+-- "Where do I farm this?"
+--
+-- Ported out of ReagentBankCraft 2026-07-31. It used to hang off Blizzard's
+-- TradeSkill reagent buttons, which the Forge replaces -- so for anyone using
+-- the Forge (the default) it had quietly become unreachable.
+--
+-- Server side is unchanged and needs no rebuild: RBSOURCE goes out on the same
+-- REAGENTBANK transport the Forge already uses, and the RBSRC/RBSRCEND replies
+-- arrive as UNC addon messages, which the comms handler above already receives.
+--
+-- Sources arrive one line at a time (RBSRC) followed by a terminator
+-- (RBSRCEND), so lines accumulate in sourceBuffer and the window only redraws
+-- once the terminator lands. Redrawing per line would flicker and, worse, show
+-- a half-populated list as if it were complete.
+-- ---------------------------------------------------------------------------
+local SOURCE_KIND = {
+    [1] = "Drops from", [2] = "Gathered from", [3] = "Fished in",
+    [4] = "Skinned from", [5] = "Crafted from",
+}
+local SOURCE_DEFAULT_POS = { "CENTER", "CENTER", 260, 0 }
+
+local sourceFrame = CreateFrame("Frame", "UncappedForgeSourceFrame", UIParent)
+sourceFrame:SetSize(430, 340)
+sourceFrame:SetFrameStrata("DIALOG")
+sourceFrame:SetBackdrop({
+    bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+    tile = true, tileSize = 32, edgeSize = 32,
+    insets = { left = 11, right = 12, top = 12, bottom = 11 },
+})
+sourceFrame:SetMovable(true)
+sourceFrame:EnableMouse(true)
+sourceFrame:RegisterForDrag("LeftButton")
+sourceFrame:SetScript("OnDragStart", sourceFrame.StartMoving)
+sourceFrame:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    if db and db.savePos then
+        local point, _, relPoint, x, y = self:GetPoint()
+        db.sourcePos = { point, relPoint, x, y }
+    end
+end)
+sourceFrame:Hide()
+tinsert(UISpecialFrames, "UncappedForgeSourceFrame")   -- Escape closes it
+
+local function RestoreSourceWindow()
+    local p = (db and db.savePos) and db.sourcePos or nil
+    sourceFrame:ClearAllPoints()
+    if p then
+        sourceFrame:SetPoint(p[1], UIParent, p[2], p[3], p[4])
+    else
+        sourceFrame:SetPoint(SOURCE_DEFAULT_POS[1], UIParent,
+            SOURCE_DEFAULT_POS[2], SOURCE_DEFAULT_POS[3], SOURCE_DEFAULT_POS[4])
+    end
+end
+
+sourceFrame.title = sourceFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+sourceFrame.title:SetPoint("TOPLEFT", 20, -18)
+sourceFrame.title:SetText("Where to farm")
+
+sourceFrame.close = CreateFrame("Button", nil, sourceFrame, "UIPanelCloseButton")
+sourceFrame.close:SetPoint("TOPRIGHT", -8, -8)
+
+-- Visible rows. The full result set lives in the buffer and this window scrolls
+-- through it -- common materials have dozens of sources and a fixed short panel
+-- simply hid most of them. Re-read from the DB on each open so the settings
+-- sliders take effect next time; RenderSources and the scroll handler capture
+-- them as upvalues, so reassigning here updates every closure.
+local SOURCE_VISIBLE_ROWS = 14
+local SOURCE_ROW_HEIGHT = 20
+local sourceBuffer = {}
+local pendingSourceName
+
+sourceFrame.lines = {}
+
+-- (Re)creates and repositions the visible rows to match the current DB sizing.
+-- Extra rows from a previous, larger build are hidden rather than destroyed.
+local function RebuildSourceRows()
+    SOURCE_VISIBLE_ROWS = (db and db.sourceRows) or 14
+    SOURCE_ROW_HEIGHT = (db and db.sourceRowHeight) or 20
+    for i = 1, SOURCE_VISIBLE_ROWS do
+        local fs = sourceFrame.lines[i]
+        if not fs then
+            fs = sourceFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            fs:SetWidth(365)
+            fs:SetJustifyH("LEFT")
+            sourceFrame.lines[i] = fs
+        end
+        fs:ClearAllPoints()
+        fs:SetPoint("TOPLEFT", 22, -38 - (i - 1) * SOURCE_ROW_HEIGHT)
+        fs:Show()
+    end
+    for i = SOURCE_VISIBLE_ROWS + 1, #sourceFrame.lines do
+        sourceFrame.lines[i]:SetText("")
+        sourceFrame.lines[i]:Hide()
+    end
+end
+
+RebuildSourceRows()
+
+-- FauxScrollFrame is the 3.3.5 way to scroll a fixed set of rows over a longer
+-- list: the rows never move, the offset into the data changes.
+sourceFrame.scroll = CreateFrame("ScrollFrame", "UncappedForgeSourceScroll", sourceFrame, "FauxScrollFrameTemplate")
+sourceFrame.scroll:SetPoint("TOPLEFT", 16, -34)
+sourceFrame.scroll:SetPoint("BOTTOMRIGHT", -34, 14)
+
+local function RenderSources()
+    local offset = FauxScrollFrame_GetOffset(sourceFrame.scroll) or 0
+
+    for i = 1, SOURCE_VISIBLE_ROWS do
+        sourceFrame.lines[i]:SetText("")
+    end
+
+    if #sourceBuffer == 0 then
+        sourceFrame.lines[1]:SetText("|cffff8800No known source -- it may come from a quest, a nested loot table, or crafting.|r")
+        FauxScrollFrame_Update(sourceFrame.scroll, 0, SOURCE_VISIBLE_ROWS, SOURCE_ROW_HEIGHT)
+        return
+    end
+
+    for row = 1, SOURCE_VISIBLE_ROWS do
+        local src = sourceBuffer[row + offset]
+        if src then
+            if src.kind == 5 then
+                -- Crafted: no drop chance or location, just what it is made
+                -- from and which profession makes it.
+                local prof = (src.zone ~= "") and (" (" .. src.zone .. ")") or ""
+                sourceFrame.lines[row]:SetText(string.format("|cffffd100Crafted from|r %s%s", src.name, prof))
+            else
+                -- Chance arrives in tenths of a percent; 0 means genuinely
+                -- unknown (an equal-chance loot group), so show "?" not "0%".
+                local chanceText = (src.chance > 0) and string.format("%.1f%%", src.chance / 10) or "?"
+                local where = (src.zone ~= "" and src.zone) or "unknown area"
+                local spawns = (src.spawns > 0) and (" x" .. src.spawns) or ""
+                local via = (src.via ~= "") and ("|cff888888 [" .. src.via .. "]|r") or ""
+                -- Dungeon sources are marked and sorted to the top.
+                local tag = src.dungeon and "|cff66bbff[Dungeon]|r " or ""
+                sourceFrame.lines[row]:SetText(string.format("%s|cffffd100%s|r %s - |cff00ff00%s|r in %s%s%s",
+                    tag, SOURCE_KIND[src.kind] or "From", src.name, chanceText, where, spawns, via))
+            end
+        end
+    end
+
+    FauxScrollFrame_Update(sourceFrame.scroll, #sourceBuffer, SOURCE_VISIBLE_ROWS, SOURCE_ROW_HEIGHT)
+end
+
+sourceFrame.scroll:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, SOURCE_ROW_HEIGHT, RenderSources)
+end)
+
+-- Called from the comms handler when RBSRCEND lands.
+function UncappedForge_ShowSources(itemName)
+    RebuildSourceRows()
+    RestoreSourceWindow()
+    sourceFrame.title:SetText("Where to farm: " .. (itemName or "item"))
+    FauxScrollFrame_SetOffset(sourceFrame.scroll, 0)
+    sourceFrame.scroll:SetVerticalScroll(0)
+    RenderSources()
+    sourceFrame:Show()
+end
+
+function UncappedForge_QuerySources(itemId, itemName)
+    if not itemId then return end
+    sourceBuffer = {}
+    pendingSourceName = itemName
+    Send("RBSOURCE:" .. itemId)
+end
+
+-- Exposed for the comms handler, which is defined above this block.
+function UncappedForge_SourceBufferAdd(entry)
+    tinsert(sourceBuffer, entry)
+end
+
+function UncappedForge_SourcePendingName()
+    return pendingSourceName
+end
+
 SLASH_UNCAPPEDFORGE1 = "/forge"
 SLASH_UNCAPPEDFORGE2 = "/uncappedforge"
 SlashCmdList["UNCAPPEDFORGE"] = Toggle
@@ -1311,6 +1552,21 @@ if UncappedUI then
     L:Check("Automatically make missing components",
         function() return db.autoIntermediates end,
         function(value) db.autoIntermediates = value end)
+
+    L:Gap()
+    L:Header("Where to farm")
+    L:Note("Click any material in a recipe to see what drops it. Sizing takes " ..
+           "effect the next time the window is opened.", 28)
+    L:Slider("Visible rows", 5, 30, 1,
+        function() return db.sourceRows end,
+        function(value) db.sourceRows = value end, "%d")
+    L:Slider("Row height", 12, 28, 1,
+        function() return db.sourceRowHeight end,
+        function(value) db.sourceRowHeight = value end, "%d")
+    L:Check("Remember its window position",
+        function() return db.savePos end,
+        function(value) db.savePos = value end)
+    L:Button("Reset its position", function() db.sourcePos = nil end, 180)
 
     L:Gap()
     L:Button("Open the Forge", function() Open() end)
