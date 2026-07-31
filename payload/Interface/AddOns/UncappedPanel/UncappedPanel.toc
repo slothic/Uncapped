@@ -1,0 +1,9 @@
+## Interface: 30300
+## Title: Uncapped Panel
+## Notes: Small toolbox for common Uncapped commands.
+## Author(s): Slothic, MentalMonk
+## Version: 1.2
+## OptionalDeps: UncappedOptions
+## SavedVariablesPerCharacter: UncappedPanelDB
+
+UncappedPanel.lua

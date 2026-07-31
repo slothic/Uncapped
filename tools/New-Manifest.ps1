@@ -285,10 +285,20 @@ $manifest = [ordered]@{
         'Interface/AddOns/UncappedVault',
         'Interface/AddOns/UncappedTransmog',
         'Interface/AddOns/UncappedForge',
+        # These three were shipping WITHOUT being listed here, which meant they could
+        # never be pruned or renamed -- the list had drifted behind the payload.
+        'Interface/AddOns/UncappedScrolls',
+        'Interface/AddOns/UncappedItemCustomize',
+        'Interface/AddOns/UncappedPanel',
+        'Interface/AddOns/UncappedAnima',
         # devUncapped64 was renamed to Uncapped64bitUI. It has to stay listed so the
         # old folder is actually deleted from players' clients -- otherwise both copies
         # load side by side and every overlay, filter and hook runs twice.
-        'Interface/AddOns/devUncapped64'
+        'Interface/AddOns/devUncapped64',
+        # UncappedTempo was renamed to UncappedAnima one release after it shipped, so
+        # the same rule applies: listed purely so the old folder is removed. Leaving it
+        # behind would register /tempo a second time and build a duplicate window.
+        'Interface/AddOns/UncappedTempo'
     )
 }
 

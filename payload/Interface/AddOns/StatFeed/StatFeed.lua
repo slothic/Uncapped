@@ -27,8 +27,11 @@
 ]]
 
 local ADDON_NAME   = "StatFeed"
+local BUNDLE_ADDON_NAME = "Uncapped"
 local ADDON_PREFIX = "DSTATS"
 local TICK_SECONDS = 1        -- how often the clock/pace repaint while shown
+local BASELINE_RETRY_SECONDS = 8
+local BASELINE_RETRY_INTERVAL = 0.5
 
 -- ---------------------------------------------------------------------------
 -- Layout constants. Everything below the summary block is anchored, not
@@ -39,25 +42,34 @@ local PAD          = 12       -- left/right inset
 local HEADER_H     = 30       -- title bar
 local SUMMARY_ROW  = 22       -- one line of the "this session" block
 local STAT_ROW     = 18       -- one stat line
+local STAT_TOP_GAP = 17       -- gap from the summary divider to Strength
 local CREDIT_H     = 16       -- reserved strip at the bottom for the credit
-local COMPACT_H    = HEADER_H + (SUMMARY_ROW * 3) + CREDIT_H + 14
-local MIN_WIDTH    = 240      -- narrower than this and the stat rows collide
-local LOG_MIN_H    = 42       -- ~3 feed lines; below this the feed is pointless
+local COMPACT_H    = HEADER_H + (SUMMARY_ROW * 3) + 14
+local MIN_WIDTH    = 220      -- narrower than this and the stat rows collide
+local MAX_WIDTH    = 400
+local BAR_WIDTH_BONUS = 50    -- minimum visual weight added to earned stat bars
+local LOG_MIN_H    = 32       -- ~2 feed lines; below this the feed is pointless
+local STAT_BLOCK_TOP          -- top offset for the stat rows
+local FEED_ONLY_TOP           -- top offset for the feed when stat rows are hidden
+local FEED_TOP_GAP = 12
+local FEED_BOTTOM_INSET       -- bottom offset for the feed
 local EXPANDED_MIN            -- smallest usable expanded height; derived below
+local FEED_ONLY_MIN           -- expanded minimum when the stat rows are hidden
 
 local DEFAULTS = {
-    point      = "CENTER",
-    x          = 250,
-    y          = 0,
-    width      = 340,
-    height     = 380,
+    point      = "BOTTOMRIGHT",
+    x          = -20,
+    y          = 20,
+    width      = 220,
+    height     = 330,
     shown      = true,
     collapsed  = false,
     maxLines   = 200,
     bgAlpha    = 0.78,
     showBars   = true,
+    showStats  = true,
     titleColor = { 0.61, 0.76, 0.26 }, -- |cff9CC243
-    layout     = 3,                    -- bump to force a one-time re-size
+    layout     = 7,                    -- bump to force a one-time re-size
 }
 
 -- Stat display order, matched to what dungeonstats.lua can award. Each entry
@@ -78,11 +90,23 @@ local STATS = {
 -- every stat row, the divider gap, a usable feed and the credit strip. Derived
 -- from the constants above (and from #STATS) so adding a stat or changing a row
 -- height can't silently push content out through the bottom of the frame.
-EXPANDED_MIN = HEADER_H + 12 + (SUMMARY_ROW * 3)        -- top of the stat block
+-- [Uncapped] These five were plain globals as submitted, which leaks them into the
+-- shared _G namespace where any other addon can read or clobber them. Localised on
+-- intake; behaviour is unchanged.
+local STAT_BLOCK_TOP = HEADER_H + STAT_TOP_GAP + (SUMMARY_ROW * 3)
+local FEED_ONLY_TOP = HEADER_H + 6 + (SUMMARY_ROW * 3) + 14
+local FEED_BOTTOM_INSET = PAD + CREDIT_H - 6
+local EXPANDED_MIN = STAT_BLOCK_TOP                           -- top of the stat block
              + (#STATS * STAT_ROW + 4)                  -- the stat block
-             + 12 + LOG_MIN_H                           -- gap + feed
-             + (PAD + CREDIT_H - 6)                     -- bottom inset
+             + FEED_TOP_GAP + LOG_MIN_H                 -- gap + feed
+             + FEED_BOTTOM_INSET                        -- bottom inset
 EXPANDED_MIN = math.ceil(EXPANDED_MIN / 10) * 10
+local FEED_ONLY_MIN = FEED_ONLY_TOP + LOG_MIN_H + FEED_BOTTOM_INSET
+FEED_ONLY_MIN = math.ceil(FEED_ONLY_MIN / 10) * 10
+
+local function ExpandedMinHeight(showStats)
+    return showStats and EXPANDED_MIN or FEED_ONLY_MIN
+end
 
 -- Spelling variants the server may send, mapped to the display name above.
 -- Keys are lower-cased with spaces/underscores/hyphens/dots removed.
@@ -106,22 +130,68 @@ local C_OFF    = "|cff808080"
 local C_RESET  = "|r"
 
 -- Locals for the hot paths (upvalue lookups beat globals in 5.1).
-local floor, max, abs, format, gsub, match, lower = math.floor, math.max, math.abs,
-    string.format, string.gsub, string.match, string.lower
+local floor, min, max, abs, format, gsub, match, lower = math.floor, math.min, math.max,
+    math.abs, string.format, string.gsub, string.match, string.lower
 
 local frame, log, statBlock
 local BuildOptions       -- forward declaration; defined at the bottom
 local rows        = {}   -- display name -> widget set
 local earned      = {}   -- display name -> gained this session
 local totalEarned = 0
-local peakStat    = 0    -- largest single-stat gain, for the share bars
 local sessionStart = 0
 local tickElapsed  = 0
 local dirty        = true  -- set when something changed; cleared by Repaint
+local baselineCorrectionPending = false
+local baselineCorrectionStarted = 0
+local baselineRetryElapsed = 0
+local lastStatBlockWidth = 0
 
 -- ---------------------------------------------------------------------------
 -- Saved variables
 -- ---------------------------------------------------------------------------
+local VALID_POINTS = {
+    CENTER = true,
+    TOP = true, BOTTOM = true, LEFT = true, RIGHT = true,
+    TOPLEFT = true, TOPRIGHT = true, BOTTOMLEFT = true, BOTTOMRIGHT = true,
+}
+
+local function CopyDefault(value)
+    if type(value) ~= "table" then return value end
+    local t = {}
+    for i, v in pairs(value) do t[i] = v end
+    return t
+end
+
+local function SavedNumber(value, fallback, minValue, maxValue)
+    local n = tonumber(value)
+    if not n then n = fallback end
+    if minValue and n < minValue then n = minValue end
+    if maxValue and n > maxValue then n = maxValue end
+    return n
+end
+
+local function SavedBoolean(value, fallback)
+    if type(value) == "boolean" then return value end
+    if value == 1 or value == "1" or value == "true" then return true end
+    if value == 0 or value == "0" or value == "false" then return false end
+    return fallback
+end
+
+local function SavedColor(value, fallback)
+    if type(value) ~= "table" then return CopyDefault(fallback) end
+
+    local r = tonumber(value[1])
+    local g = tonumber(value[2])
+    local b = tonumber(value[3])
+    if not r or not g or not b then return CopyDefault(fallback) end
+
+    return {
+        SavedNumber(r, fallback[1], 0, 1),
+        SavedNumber(g, fallback[2], 0, 1),
+        SavedNumber(b, fallback[3], 0, 1),
+    }
+end
+
 local function GetDB()
     StatFeedDB = StatFeedDB or {}
     local db = StatFeedDB
@@ -129,17 +199,11 @@ local function GetDB()
     -- Read the saved layout version BEFORE the defaults are filled in: the loop
     -- below would stamp the current version onto an old DB, and the migration
     -- that follows would then think it had already run.
-    local savedLayout = db.layout or 0
+    local savedLayout = tonumber(db.layout) or 0
 
     for k, v in pairs(DEFAULTS) do
         if db[k] == nil then
-            if type(v) == "table" then
-                local t = {}
-                for i, vv in pairs(v) do t[i] = vv end
-                db[k] = t
-            else
-                db[k] = v
-            end
+            db[k] = CopyDefault(v)
         end
     end
 
@@ -148,14 +212,36 @@ local function GetDB()
     if savedLayout < DEFAULTS.layout then
         db.width  = DEFAULTS.width
         db.height = DEFAULTS.height
+        db.point = DEFAULTS.point
+        db.x = DEFAULTS.x
+        db.y = DEFAULTS.y
+        db.collapsed = DEFAULTS.collapsed
+        db.shown = DEFAULTS.shown
         db.layout = DEFAULTS.layout
     end
+
+    db.point = VALID_POINTS[db.point] and db.point or DEFAULTS.point
+    db.x = SavedNumber(db.x, DEFAULTS.x)
+    db.y = SavedNumber(db.y, DEFAULTS.y)
+    db.width = SavedNumber(db.width, DEFAULTS.width, MIN_WIDTH, MAX_WIDTH)
+    db.shown = SavedBoolean(db.shown, DEFAULTS.shown)
+    db.collapsed = SavedBoolean(db.collapsed, DEFAULTS.collapsed)
+    db.maxLines = floor(SavedNumber(db.maxLines, DEFAULTS.maxLines, 50, 500))
+    db.bgAlpha = SavedNumber(db.bgAlpha, DEFAULTS.bgAlpha, 0, 1)
+    db.showBars = SavedBoolean(db.showBars, DEFAULTS.showBars)
+    db.showStats = SavedBoolean(db.showStats, DEFAULTS.showStats)
+    db.height = SavedNumber(db.height, DEFAULTS.height, ExpandedMinHeight(db.showStats))
+    db.titleColor = SavedColor(db.titleColor, DEFAULTS.titleColor)
+    db.layout = floor(SavedNumber(db.layout, DEFAULTS.layout, DEFAULTS.layout))
 
     -- Belt and braces: the rows, dividers and feed are anchored to the top of
     -- the frame, so a height smaller than the content draws them below the
     -- window's bottom edge. Never trust a saved size that can't hold it.
-    if (db.height or 0) < EXPANDED_MIN then db.height = DEFAULTS.height end
+    if (db.height or 0) < ExpandedMinHeight(db.showStats) then
+        db.height = ExpandedMinHeight(db.showStats)
+    end
     if (db.width or 0) < MIN_WIDTH then db.width = MIN_WIDTH end
+    if (db.width or 0) > MAX_WIDTH then db.width = MAX_WIDTH end
 
     return db
 end
@@ -213,6 +299,37 @@ local function SetTextCached(fs, text)
     if fs.cachedText ~= text then
         fs.cachedText = text
         fs:SetText(text)
+        return true
+    end
+    return false
+end
+
+local function LayoutStatColumns()
+    if not statBlock then return end
+
+    local width = statBlock:GetWidth()
+    local addedW = 48
+
+    for i = 1, #STATS do
+        local row = rows[STATS[i].key]
+        if row and row.added then
+            local textW = row.added:GetStringWidth() or 0
+            if textW + 12 > addedW then addedW = textW + 12 end
+        end
+    end
+
+    addedW = min(max(addedW, 48), max(48, floor(width * 0.38)))
+
+    local startW = max(44, floor((width - addedW - 16) * 0.32))
+    local nameW = max(60, width - startW - addedW - 16)
+
+    for i = 1, #STATS do
+        local row = rows[STATS[i].key]
+        if row then
+            row.name:SetWidth(nameW)
+            row.start:SetWidth(startW)
+            row.added:SetWidth(addedW)
+        end
     end
 end
 
@@ -247,25 +364,46 @@ end
 -- ---------------------------------------------------------------------------
 -- Session bookkeeping
 -- ---------------------------------------------------------------------------
-local function ResetSession()
+local function ResetSession(correctOnNextWorld)
     totalEarned = 0
-    peakStat    = 0
     for i = 1, #STATS do
         local info = STATS[i]
         earned[info.key]    = 0
         info.startValue     = CurrentStat(info)
     end
     sessionStart = GetTime()
+    baselineCorrectionPending = correctOnNextWorld and true or false
+    baselineCorrectionStarted = baselineCorrectionPending and sessionStart or 0
+    baselineRetryElapsed = 0
     dirty = true
 end
 
 local function CaptureBaseline()
+    if not baselineCorrectionPending then return false end
+
+    local changed = false
+    local waitingForStats = false
     for i = 1, #STATS do
         local info = STATS[i]
         if not info.startValue or info.startValue == 0 then
-            info.startValue = CurrentStat(info)
+            local current = CurrentStat(info)
+            if current ~= 0 then
+                info.startValue = current
+                changed = true
+            else
+                waitingForStats = true
+            end
         end
     end
+
+    if not waitingForStats or (GetTime() - baselineCorrectionStarted) >= BASELINE_RETRY_SECONDS then
+        baselineCorrectionPending = false
+        baselineCorrectionStarted = 0
+        baselineRetryElapsed = 0
+    end
+
+    if changed then dirty = true end
+    return changed
 end
 
 local function RecordGain(amount, statName)
@@ -275,7 +413,6 @@ local function RecordGain(amount, statName)
 
     totalEarned  = totalEarned + amount
     earned[key]  = earned[key] + amount
-    if earned[key] > peakStat then peakStat = earned[key] end
     dirty = true
 end
 
@@ -295,22 +432,39 @@ local function Repaint(force)
     if not (dirty or force) then return end
     dirty = false
 
-    if GetDB().collapsed then return end
+    local db = GetDB()
+    if db.collapsed or not db.showStats then return end
 
-    local showBars = GetDB().showBars
+    local showBars = db.showBars
+    local blockWidth = statBlock:GetWidth()
+    local textChanged = force or blockWidth ~= lastStatBlockWidth
     for i = 1, #STATS do
         local info = STATS[i]
         local row  = rows[info.key]
         local gain = earned[info.key] or 0
 
         if gain > 0 then
-            SetTextCached(row.value, Short(CurrentStat(info)) .. "  " .. C_AMOUNT .. "+" .. Short(gain) .. C_RESET)
+            if SetTextCached(row.added, C_AMOUNT .. "+" .. Short(gain) .. C_RESET) then textChanged = true end
         else
-            SetTextCached(row.value, Short(CurrentStat(info)) .. "  " .. C_OFF .. "+0" .. C_RESET)
+            if SetTextCached(row.added, C_OFF .. "+0" .. C_RESET) then textChanged = true end
         end
+        if SetTextCached(row.start, Short(info.startValue or 0)) then textChanged = true end
+    end
 
-        if showBars and gain > 0 and peakStat > 0 then
-            row.bar:SetWidth(max(1, (statBlock:GetWidth() - 4) * (gain / peakStat)))
+    if textChanged then
+        LayoutStatColumns()
+        lastStatBlockWidth = blockWidth
+    end
+
+    local barMaxWidth = blockWidth - 4
+    for i = 1, #STATS do
+        local info = STATS[i]
+        local row  = rows[info.key]
+        local gain = earned[info.key] or 0
+
+        if showBars and gain > 0 and totalEarned > 0 then
+            local share = min(1, max(0, gain / totalEarned))
+            row.bar:SetWidth(min(barMaxWidth, (barMaxWidth * share) + BAR_WIDTH_BONUS))
             row.bar:Show()
         else
             row.bar:Hide()
@@ -380,6 +534,40 @@ local COLLAPSE_TEX = {
                 "Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Down" },
 }
 
+local function LayoutFeed(showStats)
+    if not frame or not statBlock or not log then return end
+
+    log:ClearAllPoints()
+    if showStats then
+        log:SetPoint("TOPLEFT", statBlock, "BOTTOMLEFT", 0, -FEED_TOP_GAP)
+    else
+        log:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD + 2, -FEED_ONLY_TOP)
+    end
+    log:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -(PAD + 2), FEED_BOTTOM_INSET)
+end
+
+local function ApplyStatVisibility()
+    if not frame or not statBlock or not log then return end
+
+    local db = GetDB()
+    local showStats = db.showStats and true or false
+
+    if frame.statToggle then frame.statToggle:SetChecked(showStats) end
+
+    LayoutFeed(showStats)
+    if showStats then
+        statBlock:Show()
+        frame.lowDivider:Show()
+        frame:SetMinResize(MIN_WIDTH, EXPANDED_MIN)
+        if frame:GetHeight() < EXPANDED_MIN then frame:SetHeight(EXPANDED_MIN) end
+    else
+        statBlock:Hide()
+        frame.lowDivider:Hide()
+        frame:SetMinResize(MIN_WIDTH, FEED_ONLY_MIN)
+        if frame:GetHeight() < FEED_ONLY_MIN then frame:SetHeight(FEED_ONLY_MIN) end
+    end
+end
+
 local function ApplyCollapse()
     if not frame then return end
     local db = GetDB()
@@ -395,16 +583,19 @@ local function ApplyCollapse()
         frame.midDivider:Hide()
         frame.lowDivider:Hide()
         frame.grip:Hide()
+        if frame.credit then frame.credit:Hide() end
         frame:SetMinResize(MIN_WIDTH, COMPACT_H)
         frame:SetHeight(COMPACT_H)
     else
-        statBlock:Show()
         log:Show()
         frame.midDivider:Show()
-        frame.lowDivider:Show()
         frame.grip:Show()
-        frame:SetMinResize(MIN_WIDTH, EXPANDED_MIN)
+        if frame.credit then frame.credit:Show() end
+        ApplyStatVisibility()
         frame:SetHeight(db.height or DEFAULTS.height)
+        if frame:GetHeight() < ExpandedMinHeight(db.showStats) then
+            frame:SetHeight(ExpandedMinHeight(db.showStats))
+        end
         dirty = true
         Repaint(true)
     end
@@ -483,6 +674,7 @@ local function BuildWindow()
     frame:SetMovable(true)
     frame:SetResizable(true)
     frame:SetMinResize(MIN_WIDTH, EXPANDED_MIN)
+    if frame.SetMaxResize then frame:SetMaxResize(MAX_WIDTH, 700) end
     frame:EnableMouse(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
@@ -492,7 +684,13 @@ local function BuildWindow()
         dirty = true
     end)
     -- Bars are sized off the frame width, so a resize has to repaint them.
-    frame:SetScript("OnSizeChanged", function() dirty = true end)
+    frame:SetScript("OnSizeChanged", function(self)
+        if self:GetWidth() > MAX_WIDTH then
+            self:SetWidth(MAX_WIDTH)
+            SavePosition()
+        end
+        dirty = true
+    end)
 
     -- Title -----------------------------------------------------------------
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -529,6 +727,25 @@ local function BuildWindow()
     collapse:SetScript("OnLeave", function() GameTooltip:Hide() end)
     frame.collapseButton = collapse
 
+    local statsToggle = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
+    statsToggle:SetWidth(20)
+    statsToggle:SetHeight(20)
+    statsToggle:SetPoint("RIGHT", collapse, "LEFT", -5, 0)
+    statsToggle:SetChecked(db.showStats and true or false)
+    statsToggle:SetScript("OnClick", function(self)
+        local d = GetDB()
+        d.showStats = self:GetChecked() and true or false
+        ApplyCollapse()
+        SavePosition()
+    end)
+    statsToggle:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText((GetDB().showStats and "Hide" or "Show") .. " Stats")
+        GameTooltip:Show()
+    end)
+    statsToggle:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    frame.statToggle = statsToggle
+
     -- A thin accent under the title, fading out to the right.
     local accent = frame:CreateTexture(nil, "ARTWORK")
     accent:SetTexture(1, 1, 1)
@@ -553,8 +770,8 @@ local function BuildWindow()
 
     -- Per-stat rows ---------------------------------------------------------
     statBlock = CreateFrame("Frame", nil, frame)
-    statBlock:SetPoint("TOPLEFT", PAD + 2, -(HEADER_H + 12 + SUMMARY_ROW * 3))
-    statBlock:SetPoint("TOPRIGHT", -(PAD + 2), -(HEADER_H + 12 + SUMMARY_ROW * 3))
+    statBlock:SetPoint("TOPLEFT", PAD + 2, -STAT_BLOCK_TOP)
+    statBlock:SetPoint("TOPRIGHT", -(PAD + 2), -STAT_BLOCK_TOP)
     statBlock:SetHeight(#STATS * STAT_ROW + 4)
 
     for i = 1, #STATS do
@@ -562,7 +779,7 @@ local function BuildWindow()
         local y    = -((i - 1) * STAT_ROW) - 2
         local row  = {}
 
-        -- Share bar: how big this stat's gain is next to the biggest one.
+        -- Share bar: this stat's share of the whole session's stat gains.
         -- Sits in BACKGROUND so the text reads over it.
         row.bar = statBlock:CreateTexture(nil, "BACKGROUND")
         row.bar:SetTexture(info.r, info.g, info.b, 0.16)
@@ -573,14 +790,19 @@ local function BuildWindow()
 
         row.name = statBlock:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         row.name:SetPoint("TOPLEFT", 2, y)
-        row.name:SetWidth(120)
         row.name:SetJustifyH("LEFT")
         row.name:SetText(info.key)
         row.name:SetTextColor(info.r, info.g, info.b)
 
-        row.value = statBlock:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.value:SetPoint("TOPRIGHT", -2, y)
-        row.value:SetJustifyH("RIGHT")
+        row.start = statBlock:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.start:SetPoint("TOPLEFT", row.name, "TOPRIGHT", 8, 0)
+        row.start:SetJustifyH("RIGHT")
+        row.start:SetTextColor(0.78, 0.78, 0.78)
+
+        row.added = statBlock:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.added:SetPoint("TOPLEFT", row.start, "TOPRIGHT", 8, 0)
+        row.added:SetPoint("TOPRIGHT", -2, y)
+        row.added:SetJustifyH("RIGHT")
 
         -- Hover target spanning the row, for the starting/current/added detail.
         row.hit = CreateFrame("Frame", nil, statBlock)
@@ -607,8 +829,7 @@ local function BuildWindow()
 
     -- Feed ------------------------------------------------------------------
     log = CreateFrame("ScrollingMessageFrame", nil, frame)
-    log:SetPoint("TOPLEFT", statBlock, "BOTTOMLEFT", 0, -12)
-    log:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -(PAD + 2), PAD + CREDIT_H - 6)
+    LayoutFeed(db.showStats)
     log:SetFontObject(GameFontHighlightSmall)
     log:SetJustifyH("LEFT")
     log:SetFading(false)
@@ -666,6 +887,13 @@ local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("CHAT_MSG_ADDON")
+events:SetScript("OnUpdate", function(self, elapsed)
+    if not baselineCorrectionPending then return end
+    baselineRetryElapsed = baselineRetryElapsed + (elapsed or arg1 or 0)
+    if baselineRetryElapsed < BASELINE_RETRY_INTERVAL then return end
+    baselineRetryElapsed = 0
+    if CaptureBaseline() then Repaint(true) end
+end)
 -- Both conventions work on 3.3.5: handlers set via SetScript receive
 -- (self, event, ...), and the older `event` / `arg1` / `argN` globals are also
 -- still populated -- those were not dropped until Cataclysm.
@@ -675,9 +903,9 @@ events:SetScript("OnEvent", function(self, evt, a1, a2)
     local p2 = a2 or arg2
 
     if e == "ADDON_LOADED" then
-        if p1 == ADDON_NAME then
+        if p1 == ADDON_NAME or p1 == BUNDLE_ADDON_NAME then
             GetDB()
-            ResetSession()
+            ResetSession(true)
             BuildWindow()
             BuildOptions()
             if RegisterAddonMessagePrefix then RegisterAddonMessagePrefix(ADDON_PREFIX) end
@@ -707,10 +935,11 @@ local function ResetWindow()
     if not frame then return end
     local db = GetDB()
     frame:ClearAllPoints()
-    frame:SetPoint("CENTER", UIParent, "CENTER", DEFAULTS.x, DEFAULTS.y)
+    frame:SetPoint(DEFAULTS.point, UIParent, DEFAULTS.point, DEFAULTS.x, DEFAULTS.y)
     frame:SetWidth(DEFAULTS.width)
     db.height = DEFAULTS.height
-    frame:SetHeight(db.collapsed and COMPACT_H or DEFAULTS.height)
+    db.collapsed = false
+    frame:SetHeight(DEFAULTS.height)
     frame:Show()
     db.shown = true
     SavePosition()
@@ -762,6 +991,7 @@ function BuildOptions()
     if not UncappedUI then return end
 
     local panel, L = UncappedUI.CreatePanel("Stat Feed", "The Dungeon Stats feed window.")
+    local heightSlider
 
     L:Header("Window")
 
@@ -783,18 +1013,32 @@ function BuildOptions()
             ApplyCollapse()
         end)
 
-    local widthSlider = L:Slider("Window width", MIN_WIDTH, 600, 10,
+    L:Check("Show Stats",
+        function() return GetDB().showStats end,
+        function(v)
+            GetDB().showStats = v
+            ApplyCollapse()
+            SavePosition()
+            if heightSlider then heightSlider.uncappedRefresh() end
+        end)
+
+    local widthSlider = L:Slider("Window width", MIN_WIDTH, MAX_WIDTH, 10,
         function() return GetDB().width end,
         function(v)
             GetDB().width = v
             if frame then frame:SetWidth(v); dirty = true end
         end, "%d px")
 
-    local heightSlider = L:Slider("Window height", EXPANDED_MIN, 700, 10,
-        function() return GetDB().height end,
+    heightSlider = L:Slider("Window height", FEED_ONLY_MIN, 700, 10,
+        function()
+            local db = GetDB()
+            return max(db.height, ExpandedMinHeight(db.showStats))
+        end,
         function(v)
-            GetDB().height = v
-            if frame and not GetDB().collapsed then frame:SetHeight(v) end
+            local db = GetDB()
+            v = max(v, ExpandedMinHeight(db.showStats))
+            db.height = v
+            if frame and not db.collapsed then frame:SetHeight(v) end
         end, "%d px")
 
     L:Header("Feed")
@@ -808,7 +1052,7 @@ function BuildOptions()
 
     L:Header("Appearance")
 
-    L:Check("Show per-stat share bars",
+    L:Check("Show stat bars",
         function() return GetDB().showBars end,
         function(v)
             GetDB().showBars = v
@@ -853,3 +1097,6 @@ function BuildOptions()
         heightSlider.uncappedRefresh()
     end)
 end
+
+
+

@@ -1,8 +1,0 @@
-## Interface: 30300
-## Title: Uncapped Tempo
-## Notes: Buy and track Cooldown Reduction, Time Manipulation, Alacrity and Swiftness -- the four stats that replace haste on this realm. /tempo
-## Author: Uncapped
-## OptionalDeps: UncappedOptions
-## SavedVariables: UncappedTempoDB
-
-UncappedTempo.lua
