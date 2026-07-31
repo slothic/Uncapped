@@ -32,17 +32,17 @@
 local ADDON_PIPE_PREFIX = "UNC"
 
 -- ---------------------------------------------------------------------------
--- SavedVariables (ReagentBankCraftDB). Account-wide. A single shared global
--- table drives both this file and Wishlist.lua (they are one addon, loaded in
--- order). Defaults are filled for every key at load and again at ADDON_LOADED
--- once the client has restored the saved table, so callers can always index it.
+-- SavedVariables (ReagentBankCraftDB). Account-wide. Defaults are filled for
+-- every key at load and again at ADDON_LOADED once the client has restored the
+-- saved table, so callers can always index it.
+--
+-- Keys left behind in an existing saved table by the retired /wishlist tracker
+-- (wishlistRows, wishlistPos, haveColor, needColor) are simply ignored -- the
+-- filler only ever adds missing keys, it never prunes.
 local RBC_DEFAULTS = {
     sourceRows = 14,                    -- "where to farm" visible rows
     sourceRowHeight = 20,               -- "where to farm" row height (px)
-    wishlistRows = 22,                  -- /wishlist visible rows
     savePos = true,                     -- remember dragged window positions
-    haveColor = { 0.0, 1.0, 0.0 },      -- wishlist "have enough" colour
-    needColor = { 1.0, 0.333, 0.333 },  -- wishlist "still short" colour
 }
 
 -- Ensures ReagentBankCraftDB is a table and every default key is present.
@@ -69,7 +69,7 @@ end
 
 ReagentBankCraft_InitDB()
 
--- Window position persistence, shared with Wishlist.lua. Saved only while
+-- Window position persistence. Saved only while
 -- db.savePos is on; restore falls back to the given default center offset when
 -- there is no saved position or the feature is off.
 function ReagentBankCraft_SavePos(f, key)
@@ -129,8 +129,7 @@ end
 local function ReagentBankChatFilter(self, event, msg, ...)
     if msg:find("^RBWITHDRAWN:") or msg:find("^RBREDEPOSITED:") or msg:find("^RBMAX:")
         or msg:find("^RBQUOTE:") or msg:find("^RBBOUGHT:") or msg:find("^RBBUYFAIL:")
-        or msg:find("^RBSRC:") or msg:find("^RBSRCEND:")
-        or msg:find("^RBWL:") or msg:find("^RBWLM:") or msg:find("^RBWLEND:") then
+        or msg:find("^RBSRC:") or msg:find("^RBSRCEND:") then
         return true
     end
     return false
@@ -208,7 +207,7 @@ StaticPopupDialogs["REAGENTBANK_BUY_CONFIRM"] = {
     hideOnEscape = 1,
 }
 
--- The wishlist tracks the ITEM a recipe produces, not the recipe spell, so this
+-- Resolves the ITEM a recipe produces, not the recipe spell, so this
 -- deliberately uses GetTradeSkillItemLink -- GetTradeSkillRecipeLink would give
 -- the enchant/spell link instead, which is the wrong id entirely.
 function ReagentBankCraft_GetSelectedProducedItem()
@@ -223,45 +222,6 @@ function ReagentBankCraft_GetSelectedProducedItem()
     local name = link:match("%[(.-)%]")
     return id and tonumber(id) or nil, name
 end
-
--- Asks how many of the item you want before tracking it.
-StaticPopupDialogs["REAGENTBANK_TRACK_COUNT"] = {
-    text = "How many do you want to make?",
-    button1 = ACCEPT,
-    button2 = CANCEL,
-    hasEditBox = 1,
-    maxLetters = 5,
-    OnShow = function(self)
-        local box = self.editBox or getglobal(self:GetName() .. "EditBox")
-        if box then
-            box:SetText("1")
-            box:HighlightText()
-            box:SetFocus()
-        end
-    end,
-    OnAccept = function(self)
-        local box = self.editBox or getglobal(self:GetName() .. "EditBox")
-        local count = tonumber(box and box:GetText() or "")
-        if not count or count < 1 then
-            return
-        end
-        local itemId = ReagentBankCraft_GetSelectedProducedItem()
-        if itemId then
-            ReagentBankWishlist_Track(itemId, count)
-        end
-    end,
-    EditBoxOnEnterPressed = function(self)
-        local parent = self:GetParent()
-        StaticPopupDialogs["REAGENTBANK_TRACK_COUNT"].OnAccept(parent)
-        parent:Hide()
-    end,
-    EditBoxOnEscapePressed = function(self)
-        self:GetParent():Hide()
-    end,
-    timeout = 0,
-    whileDead = 1,
-    hideOnEscape = 1,
-}
 
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", ReagentBankChatFilter)
 
@@ -483,27 +443,6 @@ local function OnEvent(self, event, ...)
             GameTooltip:Hide()
         end)
 
-        local trackButton = CreateFrame("Button", "ReagentBankTrackButton", TradeSkillCreateButton, "UIPanelButtonTemplate")
-        trackButton:SetSize(150, 22)
-        trackButton:SetPoint("TOP", buyButton, "BOTTOM", 0, -3)
-        trackButton:SetText("Track")
-
-        trackButton:SetScript("OnClick", function()
-            if ReagentBankCraft_GetSelectedRecipeSpellId() then
-                StaticPopup_Show("REAGENTBANK_TRACK_COUNT")
-            end
-        end)
-
-        trackButton:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-            GameTooltip:SetText("Track this recipe")
-            GameTooltip:AddLine("Adds it to your wishlist for a chosen quantity. The wishlist window shows every material you still need, counting bags, bank and reagent bank, and updates itself as you farm. Open it any time with /wishlist.", 1, 1, 1, true)
-            GameTooltip:Show()
-        end)
-        trackButton:SetScript("OnLeave", function()
-            GameTooltip:Hide()
-        end)
-
         -- Click any reagent in the recipe to ask where it comes from.
         -- The reagent buttons are Blizzard's own (TradeSkillReagent1..8) and
         -- already exist by the time Blizzard_TradeSkillUI has loaded, so they
@@ -564,11 +503,6 @@ local function OnEvent(self, event, ...)
             text = a1
         end
         if not text then
-            return
-        end
-
-        -- Wishlist traffic lives in Wishlist.lua; hand it straight over.
-        if ReagentBankWishlist_OnMessage and ReagentBankWishlist_OnMessage(text) then
             return
         end
 
@@ -663,7 +597,7 @@ frame:SetScript("OnEvent", OnEvent)
 -- not be present. Every knob reads/writes ReagentBankCraftDB directly.
 if UncappedUI then
     local panel, L = UncappedUI.CreatePanel("Reagent Bank",
-        "Row sizing, wishlist colours and window behaviour for the reagent-bank crafting helper, the 'where to farm' panel and the /wishlist tracker.")
+        "Row sizing and window behaviour for the reagent-bank crafting helper and the 'where to farm' panel.")
 
     local refreshers = {}
     local function track(w)
@@ -681,9 +615,6 @@ if UncappedUI then
     track(L:Slider("Farm-source row height", 12, 28, 1,
         function() return ReagentBankCraftDB.sourceRowHeight end,
         function(v) ReagentBankCraftDB.sourceRowHeight = v end, "%d"))
-    track(L:Slider("Wishlist visible rows", 5, 40, 1,
-        function() return ReagentBankCraftDB.wishlistRows end,
-        function(v) ReagentBankCraftDB.wishlistRows = v end, "%d"))
 
     L:Gap(6)
     L:Header("Windows")
@@ -692,26 +623,8 @@ if UncappedUI then
         function(v) ReagentBankCraftDB.savePos = v end))
     L:Button("Reset window positions", function()
         ReagentBankCraftDB.sourcePos = nil
-        ReagentBankCraftDB.wishlistPos = nil
         if ReagentBankCraft_RestoreSourceWindow then ReagentBankCraft_RestoreSourceWindow() end
-        if ReagentBankWishlist_RestoreWindow then ReagentBankWishlist_RestoreWindow() end
     end, 180)
-
-    L:Gap(6)
-    L:Header("Wishlist colours")
-    L:Note("Colours the have/need totals in the /wishlist tracker: the first once you have enough of a material, the second while you are still short.", 40)
-    track(L:Color("Wishlist 'have' colour",
-        function() local c = ReagentBankCraftDB.haveColor; return c[1], c[2], c[3] end,
-        function(r, g, b)
-            ReagentBankCraftDB.haveColor = { r, g, b }
-            if ReagentBankWishlist_Rerender then ReagentBankWishlist_Rerender() end
-        end))
-    track(L:Color("Wishlist 'need' colour",
-        function() local c = ReagentBankCraftDB.needColor; return c[1], c[2], c[3] end,
-        function(r, g, b)
-            ReagentBankCraftDB.needColor = { r, g, b }
-            if ReagentBankWishlist_Rerender then ReagentBankWishlist_Rerender() end
-        end))
 
     -- Called from ADDON_LOADED once SavedVariables are restored, so the widgets
     -- reflect the persisted values rather than the load-time defaults.

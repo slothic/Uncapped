@@ -1,0 +1,9 @@
+## Interface: 30300
+## Title: Uncapped Chat
+## Notes: World chat, Discord relay and a loot log in one window.
+## Author: Uncapped
+## Version: 1.0.0
+## SavedVariablesPerCharacter: UncappedChatDB
+## OptionalDeps: UncappedOptions
+
+UncappedChat.lua
