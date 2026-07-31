@@ -1,7 +1,11 @@
 --[[
-    Uncapped stat display -- shows Time Manipulation, Cooldown Reduction and
-    Multicast inside the AllStats character-sheet panel, styled like the other
-    rows, on an extended grey background so the section stays inside the box.
+    Uncapped stat display -- shows Time Manipulation, Cooldown Reduction,
+    Multicast, Alacrity and Swiftness inside the AllStats character-sheet panel,
+    styled like the other rows, on an extended grey background so the section
+    stays inside the box.
+
+    Alacrity (cast speed) and Swiftness (attack speed) are bought in the Tempo
+    window (/tempo, UncappedTempo); this only displays them.
 
     Values come from the server (lua_scripts/time_stats_feed) over the "UTS"
     addon channel. We post-hook PrintStats so it refreshes with the panel.
@@ -17,9 +21,10 @@
 local PREFIX = "UTS"
 
 local tmPct, cdrPct, mcPct = 0, 0, 0
+local alPct, swPct = 0, 0
 local built  = false
 local hooked = false
-local tmVal, cdrVal, mcVal
+local tmVal, cdrVal, mcVal, alVal, swVal
 local hdr
 local rows = {}
 local panelRefreshers = {}
@@ -30,6 +35,8 @@ local db = {
     showTime  = true,
     showCd    = true,
     showMulti = true,
+    showAlac  = true,
+    showSwift = true,
     color     = { 0.3, 1.0, 0.3 },   -- green value colour
 }
 
@@ -59,11 +66,11 @@ local function ExtendBox()
     ext:SetTexture("Interface\\PaperDollInfoFrame\\UI-Character-StatBackground")
     ext:SetTexCoord(0, 0.8984375, 0.125, 0.1953125)     -- the repeatable middle slice
     ext:SetWidth(115)
-    ext:SetHeight(64)
+    ext:SetHeight(104)
     ext:SetPoint("TOPLEFT", AllStatsFrameMiddle7, "BOTTOMLEFT", 0, 0)
     AllStatsFrameBottom:ClearAllPoints()
     AllStatsFrameBottom:SetPoint("TOPLEFT", ext, "BOTTOMLEFT", 0, 0)
-    AllStatsFrame:SetHeight(AllStatsFrame:GetHeight() + 64)
+    AllStatsFrame:SetHeight(AllStatsFrame:GetHeight() + 104)
 end
 
 -- Apply the configured value colour to every injected value fontstring.
@@ -121,12 +128,16 @@ local function Build()
 
     local r2, v2 = MakeRow("Cooldown:")
     local r3, v3 = MakeRow("Multicast:")
+    local r4, v4 = MakeRow("Alacrity:")
+    local r5, v5 = MakeRow("Swiftness:")
 
-    tmVal, cdrVal, mcVal = v1, v2, v3
+    tmVal, cdrVal, mcVal, alVal, swVal = v1, v2, v3, v4, v5
     rows = {
         { frame = r1, val = v1, get = function() return db.showTime  end },
         { frame = r2, val = v2, get = function() return db.showCd    end },
         { frame = r3, val = v3, get = function() return db.showMulti end },
+        { frame = r4, val = v4, get = function() return db.showAlac  end },
+        { frame = r5, val = v5, get = function() return db.showSwift end },
     }
 
     Relayout()   -- apply row visibility on load
@@ -138,6 +149,8 @@ local function Refresh()
     if tmVal  then tmVal:SetText(string.format("%d%%",  math.floor(tmPct  * 100 + 0.5))) end
     if cdrVal then cdrVal:SetText(string.format("%d%%", math.floor(cdrPct * 100 + 0.5))) end
     if mcVal  then mcVal:SetText(string.format("%d%%",  mcPct)) end
+    if alVal  then alVal:SetText(string.format("%d%%",  math.floor(alPct  * 100 + 0.5))) end
+    if swVal  then swVal:SetText(string.format("%d%%",  math.floor(swPct  * 100 + 0.5))) end
 end
 
 local function TryHook()
@@ -168,6 +181,12 @@ if UncappedUI then
     panelRefreshers[#panelRefreshers + 1] = L:Check("Show Multicast %",
         function() return db.showMulti end,
         function(v) db.showMulti = v; Relayout() end).uncappedRefresh
+    panelRefreshers[#panelRefreshers + 1] = L:Check("Show Alacrity (cast speed)",
+        function() return db.showAlac end,
+        function(v) db.showAlac = v; Relayout() end).uncappedRefresh
+    panelRefreshers[#panelRefreshers + 1] = L:Check("Show Swiftness (attack speed)",
+        function() return db.showSwift end,
+        function(v) db.showSwift = v; Relayout() end).uncappedRefresh
 
     L:Gap(6)
     L:Header("Appearance")
@@ -195,6 +214,8 @@ ev:SetScript("OnEvent", function(self, e, a1, a2)
                 if s.showTime  ~= nil then db.showTime  = s.showTime  end
                 if s.showCd    ~= nil then db.showCd    = s.showCd    end
                 if s.showMulti ~= nil then db.showMulti = s.showMulti end
+                if s.showAlac  ~= nil then db.showAlac  = s.showAlac  end
+                if s.showSwift ~= nil then db.showSwift = s.showSwift end
                 if type(s.color) == "table" and s.color[1] then
                     db.color = { s.color[1], s.color[2], s.color[3] }
                 end
@@ -214,9 +235,13 @@ ev:SetScript("OnEvent", function(self, e, a1, a2)
             local c = tonumber(string.match(a2, "CDR:([%d%.]+)"))
             local t = tonumber(string.match(a2, "TM:([%d%.]+)"))
             local m = tonumber(string.match(a2, "MC:(%d+)"))
+            local al = tonumber(string.match(a2, "AL:([%d%.]+)"))
+            local sw = tonumber(string.match(a2, "SW:([%d%.]+)"))
             if c then cdrPct = c end
             if t then tmPct = t end
             if m then mcPct = m end
+            if al then alPct = al end
+            if sw then swPct = sw end
             Refresh()
         end
     end
