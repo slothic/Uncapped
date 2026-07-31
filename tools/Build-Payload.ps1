@@ -56,11 +56,25 @@ $temporarilyDisabled = @{
     'QuestHelper' = 'throws Lua errors in-game (2026-07-20); may be fixed upstream later'
 }
 
+# Addons retired from the realm for good. Same mechanism as $temporarilyDisabled, kept
+# separate because these are not coming back and the reason is not "broken upstream".
+# They must ALSO appear in forceDisableAddOns in the manifest: dropping an addon from the
+# payload never uninstalls it from a client that already has it.
+$retired = @{
+    '!Astrolabe' = 'redundant - WDM embeds its own Astrolabe under libs\Astrolabe (2026-07-31)'
+    'Recount'    = 'pruned to cut the shipped addon footprint (2026-07-31)'
+}
+
 function Add-AddonFolder {
     param([string]$Name, [string]$SourceLabel)
 
     if ($temporarilyDisabled.ContainsKey($Name)) {
         Write-Host "  - $Name (disabled: $($temporarilyDisabled[$Name]))" -ForegroundColor Yellow
+        return $false
+    }
+
+    if ($retired.ContainsKey($Name)) {
+        Write-Host "  - $Name (retired: $($retired[$Name]))" -ForegroundColor Yellow
         return $false
     }
 

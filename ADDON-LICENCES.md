@@ -124,6 +124,28 @@ where they stand — but it blocks nothing.
 These two are also the only addons the launcher will ever delete (`ownedPaths` in the
 manifest), which is correct precisely because they are ours.
 
+### UncappedQuests — ours, except the arrow (2026-07-31)
+
+`UncappedQuests` is first-party, with one deliberate exception: the waypoint arrow.
+`arrow_image.blp`, `arrow_image_down.blp`, and the frame-selection and colour-gradient logic
+in `UncappedQuestsArrow.lua` are **TomTom's**, taken via QuestHelper's `arrow.lua`.
+
+That is the one part of QuestHelper with a licence we can actually rely on. Per the table
+above, QuestHelper as a whole is unresolved and stays excluded — but `arrow.lua:7` carries a
+full 3-clause BSD notice, © 2006-2007 James N. Whitehead II, and the file itself states it is
+"ganked from TomTom" under it. BSD permits redistribution in source and binary form provided
+the notice, conditions and disclaimer travel with it, which they do:
+`client_addons\UncappedQuests\LICENSE-arrow.txt`.
+
+**Honest caveat on the art.** The BSD header sits in `arrow.lua` and strictly covers that
+file. The two `.blp` sprite sheets carry no header of their own — they are TomTom's art, and
+TomTom ships under the same BSD terms, so the same permission covers them. Recorded here
+because it is an inference rather than something stamped on the files, and anyone auditing
+this later should see it stated rather than have to reconstruct it.
+
+The third BSD condition also binds us: the copyright holder's name must not be used to
+endorse or promote the realm. Do not credit the arrow in a way that implies endorsement.
+
 ---
 
 ## Standing position

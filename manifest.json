@@ -37,42 +37,6 @@
                       "size":  9234284
                   },
                   {
-                      "path":  "Interface/AddOns/!Astrolabe/!Astrolabe.toc",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/!Astrolabe/!Astrolabe.toc",
-                      "sha256":  "4d29690dd0a0364a16c62b23522c9fdc36a8f9771c1b4798f9ac3ba0d51a9c8d",
-                      "size":  278
-                  },
-                  {
-                      "path":  "Interface/AddOns/!Astrolabe/Astrolabe.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/!Astrolabe/Astrolabe.lua",
-                      "sha256":  "4ee2926490b3fbc032eaab428ed7aa8cb1c129d8d217c5e8e333825806940692",
-                      "size":  69266
-                  },
-                  {
-                      "path":  "Interface/AddOns/!Astrolabe/AstrolabeMapMonitor.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/!Astrolabe/AstrolabeMapMonitor.lua",
-                      "sha256":  "821ed678c4bd9b8d71353dfa2fafb383411b6d6bd301aba51475401050d59de7",
-                      "size":  8301
-                  },
-                  {
-                      "path":  "Interface/AddOns/!Astrolabe/DongleStub.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/!Astrolabe/DongleStub.lua",
-                      "sha256":  "458ee96128433dc7dfd468bdca5e56db2e1bf5c23493a76124949a2ddd7850f0",
-                      "size":  4194
-                  },
-                  {
-                      "path":  "Interface/AddOns/!Astrolabe/lgpl.txt",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/!Astrolabe/lgpl.txt",
-                      "sha256":  "319daefe38ebeead3df178e5937898a52d67c0c795f54f1c0bb10ac3b9cffb63",
-                      "size":  26940
-                  },
-                  {
-                      "path":  "Interface/AddOns/!Astrolabe/Load.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/!Astrolabe/Load.xml",
-                      "sha256":  "a79803199adfbffa0a2d495d672f4aa69c59e77e46178b5ad4af3195b5f9de8a",
-                      "size":  290
-                  },
-                  {
                       "path":  "Interface/AddOns/AllStats/AllStats.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/AllStats/AllStats.lua",
                       "sha256":  "70f18b40015bf74f87be9cf847fd301505097c54bff833f13af48882728fdebf",
@@ -1471,798 +1435,6 @@
                       "size":  404
                   },
                   {
-                      "path":  "Interface/AddOns/Recount/Bindings.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Bindings.xml",
-                      "sha256":  "4f7374c60b5330334c9ba2fc197810bcfcebad9faebfdfe72657c30740afb9b5",
-                      "size":  2765
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Changelog-Recount-r1127.txt",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Changelog-Recount-r1127.txt",
-                      "sha256":  "0a35746d897815894bf3bbca86debe1a8ac529103f9c020531814930777ea075",
-                      "size":  1827
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/colors.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/colors.lua",
-                      "sha256":  "31fc94b960e243bad2c710f60be5036da7d0991d030ffc6445d50f37e70a29f2",
-                      "size":  9670
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/debug.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/debug.lua",
-                      "sha256":  "fd4efe8d76d7d00776cbe32ec0beba5098537fd80e8fd3076828980a242c9b83",
-                      "size":  1450
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/deletion.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/deletion.lua",
-                      "sha256":  "3f0a3dddfd92df93d48979c3145f5f548d572e83f57577dba7c3ebf4214c5bfa",
-                      "size":  4745
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/embeds.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/embeds.xml",
-                      "sha256":  "41a65119bf40eb7d118144c40efcd67a0d5873da87b51f4d78f88605f5c9315f",
-                      "size":  1071
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Fights.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Fights.lua",
-                      "sha256":  "96e8431eeb63bd2de8c5b20d538d9d1c789ee7b226fa1530a4dd7a25204a63e6",
-                      "size":  2826
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Fonts.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Fonts.lua",
-                      "sha256":  "083da0d24daf9f04a1f53f0ead499234859e607fcfcc31866df29398ec6b4cef",
-                      "size":  1090
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/GUI_Config.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/GUI_Config.lua",
-                      "sha256":  "9bd6922e95691cc906a35674ece54a1664314c8dee2ec6a350f73c769b7960b3",
-                      "size":  69152
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/GUI_DeathGraph.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/GUI_DeathGraph.lua",
-                      "sha256":  "0ca98cc94f312601bc06c14a214684f221fdefcd35567de06fc9ffda56e62c09",
-                      "size":  1613
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/GUI_Detail.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/GUI_Detail.lua",
-                      "sha256":  "43603b5efaf5c18d5341354578201dd40c75fdfb487e1c18ecb6ae7b980253e3",
-                      "size":  69963
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/GUI_Graph.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/GUI_Graph.lua",
-                      "sha256":  "38c4e61fad44a9f45a9fdcefb2f755c1c1803577d1066ad96d4ba16c7b74f2a6",
-                      "size":  38851
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/GUI_Main.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/GUI_Main.lua",
-                      "sha256":  "b6592aa3d28d7339b30219e1fc32d94c28562774511ac10546dbd60884531769",
-                      "size":  45548
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/GUI_Realtime.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/GUI_Realtime.lua",
-                      "sha256":  "0dedcec070266dfff5f0c8cdafcc2d017faea8cc189cb7a6a80de6801e011aee",
-                      "size":  14791
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/GUI_Report.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/GUI_Report.lua",
-                      "sha256":  "29546a15ac6261255678cc6e5bd09e5cc71c2ee3d9265897f630b9601b517d9e",
-                      "size":  6084
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/GUI_Reset.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/GUI_Reset.lua",
-                      "sha256":  "6ac7a24ae1d407f18b4572a2a9f39e7bd016c432fa34085ba95881af5d98c830",
-                      "size":  3248
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/LazySync.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/LazySync.lua",
-                      "sha256":  "a7efa05cc06fa7642349685513830b60efd5d63e2fac46165c7242cc5e57c342",
-                      "size":  24445
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Recount.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Recount.lua",
-                      "sha256":  "dd37eac55d84d7006884c0927df5e37416ed9db662169984b114c4bd9bddce77",
-                      "size":  67078
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Recount.toc",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Recount.toc",
-                      "sha256":  "b65005613d28ba347c32bfe75757d3b65f034d46ad3b1ee3339339f96df0c981",
-                      "size":  1545
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Recount_Modes.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Recount_Modes.lua",
-                      "sha256":  "5f153ab26429229a214ae5738b1fb8143a3a9c74c3c56ea3d22009bb35e8fa53",
-                      "size":  24228
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/roster.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/roster.lua",
-                      "sha256":  "2001c3213f5ad341374269c61d8cde6295c6e4eedce1f56fc4f8898140dbda8c",
-                      "size":  4724
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Tracker.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Tracker.lua",
-                      "sha256":  "f662ac85399ebbd496d0bf52a964f13655e7ec05e5d5a97a699637a0c8a8bb94",
-                      "size":  78930
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Widgets.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Widgets.lua",
-                      "sha256":  "5949015206718c79b7de109c241d4f39717062a80d8687871504bc3ffacf3cd7",
-                      "size":  6564
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/WindowOrder.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/WindowOrder.lua",
-                      "sha256":  "a2e5031e3f9466399d082f4f48e8c48323581b96286a52719f1f818415d3d25b",
-                      "size":  4186
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/zonefilters.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/zonefilters.lua",
-                      "sha256":  "762d666468d60fcf1fddc46ea7f0f9672a299102fd9a3e442c4431fd03a17f3d",
-                      "size":  3001
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceAddon-3.0/AceAddon-3.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceAddon-3.0/AceAddon-3.0.lua",
-                      "sha256":  "047158727b4e8aa95da677c2ad6f7117f58c695057f54d20be23bea8efa88660",
-                      "size":  25421
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceAddon-3.0/AceAddon-3.0.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceAddon-3.0/AceAddon-3.0.xml",
-                      "sha256":  "39d218f94f9abe9a3f9a474e3ac6aab119f4bbf5c9a45eb7e33e380e5e5606f3",
-                      "size":  214
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceComm-3.0/AceComm-3.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceComm-3.0/AceComm-3.0.lua",
-                      "sha256":  "29bc8da0ab6f3afba19dc0fac26b6c7392c14cfb366fc46f08a623168f3bbd63",
-                      "size":  11747
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceComm-3.0/AceComm-3.0.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceComm-3.0/AceComm-3.0.xml",
-                      "sha256":  "a79e85e5d4889d01bcf38a0944636ff4c74b085b4aabd880497bffb79deb6a43",
-                      "size":  252
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceComm-3.0/ChatThrottleLib.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceComm-3.0/ChatThrottleLib.lua",
-                      "sha256":  "3ea1ec3b3107ecd90f2c7ad86e2862a90705eb0bf143bfa47bd78a3fa2390e83",
-                      "size":  14937
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceConfig-3.0/AceConfig-3.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceConfig-3.0/AceConfig-3.0.lua",
-                      "sha256":  "51d43213ef5c9340e511339facd76657cce9abf60e2901dd342b8c9e02d2c997",
-                      "size":  2165
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceConfig-3.0/AceConfig-3.0.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceConfig-3.0/AceConfig-3.0.xml",
-                      "sha256":  "edbd83772e15d26a318137bc9bcd3e027a109897a3aca60182fd192ae2e7312d",
-                      "size":  480
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceConfig-3.0/AceConfigCmd-3.0/AceConfigCmd-3.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceConfig-3.0/AceConfigCmd-3.0/AceConfigCmd-3.0.lua",
-                      "sha256":  "b4bc51f9fbd0f493309394ca07215c1fbef75640ba19b2a84c1c07cf13a306d8",
-                      "size":  24069
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceConfig-3.0/AceConfigCmd-3.0/AceConfigCmd-3.0.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceConfig-3.0/AceConfigCmd-3.0/AceConfigCmd-3.0.xml",
-                      "sha256":  "356cb017a78284e76ff62b6f677a2f380b9cad4d5fb2034a7eeaac8316d20a13",
-                      "size":  218
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceConfig-3.0/AceConfigDialog-3.0/AceConfigDialog-3.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceConfig-3.0/AceConfigDialog-3.0/AceConfigDialog-3.0.lua",
-                      "sha256":  "693fd970ac8be3782d71f330bb5dc20ce39820663ce43cf9c5438c8d98b19c99",
-                      "size":  56737
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceConfig-3.0/AceConfigDialog-3.0/AceConfigDialog-3.0.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceConfig-3.0/AceConfigDialog-3.0/AceConfigDialog-3.0.xml",
-                      "sha256":  "c2af74760e12602c51534d43f8bc741f5be981c7da66cdffb5282aef2e2f0812",
-                      "size":  221
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceConfig-3.0/AceConfigRegistry-3.0/AceConfigRegistry-3.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceConfig-3.0/AceConfigRegistry-3.0/AceConfigRegistry-3.0.lua",
-                      "sha256":  "de922ccefe8c2dd0c4f1e6c60372d0be3590d09d5c25058fd423e5cd3946eaab",
-                      "size":  12156
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceConfig-3.0/AceConfigRegistry-3.0/AceConfigRegistry-3.0.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceConfig-3.0/AceConfigRegistry-3.0/AceConfigRegistry-3.0.xml",
-                      "sha256":  "3a49acf5f0158fd769a2f461f6176a5cd126da6fed33e38f0a10a2ad12d9cd2d",
-                      "size":  223
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceConsole-3.0/AceConsole-3.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceConsole-3.0/AceConsole-3.0.lua",
-                      "sha256":  "c078f6a8d247037444023f8de5ab57f5174432bc96fb28bf3f5a21c89471de0e",
-                      "size":  8589
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceConsole-3.0/AceConsole-3.0.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceConsole-3.0/AceConsole-3.0.xml",
-                      "sha256":  "00f05946fcbb73fb31ad17effb9aa2fb2b42e0d4b1eebcb546c8104f0e2bb68f",
-                      "size":  216
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceDB-3.0/AceDB-3.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceDB-3.0/AceDB-3.0.lua",
-                      "sha256":  "26e89d611775cd8e0fa2139118e686b4154afb8518a76709f055975be2ec5d4f",
-                      "size":  24844
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceDB-3.0/AceDB-3.0.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceDB-3.0/AceDB-3.0.xml",
-                      "sha256":  "474da5baa67888d6440de73f27705ed2e75c8dce240d9ba2848cfa9583f16e49",
-                      "size":  211
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceDBOptions-3.0/AceDBOptions-3.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceDBOptions-3.0/AceDBOptions-3.0.lua",
-                      "sha256":  "d6b968c7ea65937aaa7edfbf27d0c588e49b0931df22800516588e0977b3d77c",
-                      "size":  18921
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceDBOptions-3.0/AceDBOptions-3.0.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceDBOptions-3.0/AceDBOptions-3.0.xml",
-                      "sha256":  "3b761587cc17f1c1e8c5265c9ac49e88a91c002c5c1e5fe79f8ba6cd7db30532",
-                      "size":  218
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceEvent-3.0/AceEvent-3.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceEvent-3.0/AceEvent-3.0.lua",
-                      "sha256":  "d72c68fcfc6da14bbf60fadbaba884d387c1146acd35c98e126b8b4e1cfdc225",
-                      "size":  4824
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceEvent-3.0/AceEvent-3.0.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceEvent-3.0/AceEvent-3.0.xml",
-                      "sha256":  "be26f49ff449ef5cf5071c8b278c0627662daef3e73cb278bdd07f1236026e9c",
-                      "size":  214
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/AceGUI-3.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/AceGUI-3.0.lua",
-                      "sha256":  "fb96080909c28aa927f17c5589d512a62c2ee6feeddf04093123321d08a4b39a",
-                      "size":  24227
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/AceGUI-3.0.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/AceGUI-3.0.xml",
-                      "sha256":  "96d56ab2c6bc60c718246b80fddcfcc59820728d85dca3654413279214932e9f",
-                      "size":  1479
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-BlizOptionsGroup.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-BlizOptionsGroup.lua",
-                      "sha256":  "846ed599f4d9647d2980a266ad8394ad8590a49a337c8dc88577eb5a7672d7ce",
-                      "size":  3624
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-DropDownGroup.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-DropDownGroup.lua",
-                      "sha256":  "f46bd68fb1d1f90cd1587b2432493c513743c0aff71c7b83a99115d7c58be92a",
-                      "size":  4660
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-Frame.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-Frame.lua",
-                      "sha256":  "4f3f2ebed26639952af38506365edbbdeea95f7790fde69274d33e7b4453df68",
-                      "size":  9122
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-InlineGroup.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-InlineGroup.lua",
-                      "sha256":  "6def8502138dc8502e7e6bdac8000071d53127d56d2dbe9ebb97569f0c2dd5f7",
-                      "size":  3048
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-ScrollFrame.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-ScrollFrame.lua",
-                      "sha256":  "0b7ad2231bf5cb2f3ce20966f373053324446e3c33faf85ffafb6ee1562b5be3",
-                      "size":  6541
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-SimpleGroup.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-SimpleGroup.lua",
-                      "sha256":  "4694e8b2047da47ee34f395d6d7ca0c2124c9835576df6a07f8fd93166388c14",
-                      "size":  1959
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-TabGroup.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-TabGroup.lua",
-                      "sha256":  "14af85d2f41c61badc1ae747b3cacd5a349a6d15a2f73f97c5dd26df0e6bcfdc",
-                      "size":  10410
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-TreeGroup.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-TreeGroup.lua",
-                      "sha256":  "1584f845e7ce81847fd61fd101d3f7ae0e3909f0e0f7621c45b7903396cf57f0",
-                      "size":  19434
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-Window.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIContainer-Window.lua",
-                      "sha256":  "764f98c1b7352e2dd6e575bd0381eab9eb0f9b5fb5e112fec9b7c5ffe8e0f92f",
-                      "size":  10057
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-Button.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-Button.lua",
-                      "sha256":  "6f68da3253ba622075c18827f111ce5ba6eb4b47756d9a78d67cf9875be6cf91",
-                      "size":  2552
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-CheckBox.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-CheckBox.lua",
-                      "sha256":  "cdcad2e05ca909e506de74f1c5297fb9845fca160ae01f29f733e00e25e953d8",
-                      "size":  8088
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-ColorPicker.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-ColorPicker.lua",
-                      "sha256":  "b2740fe2c3f592ce382f4d8004ef4894f5a2d9084b586d2115e17c1477f8d730",
-                      "size":  5513
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-DropDown-Items.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-DropDown-Items.lua",
-                      "sha256":  "af3f9fbf250d45c6e2e074a54c443906aa86c3a02e96302c90ac6788ecccc894",
-                      "size":  10825
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-DropDown.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-DropDown.lua",
-                      "sha256":  "adb0ef5ca03fbc8f9bce3cec329dedad0d09e39c06d06b6be0d7c8895585981a",
-                      "size":  18251
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-EditBox.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-EditBox.lua",
-                      "sha256":  "2e2bd66f8fe816f9861cb0968b85031095042eeb17a33e187d7e199e69c4c58e",
-                      "size":  6799
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-Heading.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-Heading.lua",
-                      "sha256":  "fd9167efd4548fb4474256286b9711f5ef09980e0283c62a3289f3f404f3aabe",
-                      "size":  2294
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-Icon.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-Icon.lua",
-                      "sha256":  "f23645a1a168e5a88f6e975304c89db100f7ab3429458aacc079e698403874ac",
-                      "size":  4136
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-InteractiveLabel.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-InteractiveLabel.lua",
-                      "sha256":  "309345b5d5142a051e262853be6296e196632e14ab597bf8e0abf9b618ef1d59",
-                      "size":  2915
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-Keybinding.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-Keybinding.lua",
-                      "sha256":  "4f57aa1c8e657d0763cba19cbc3c62fcb0ad6e47c17b8dce8c864f84f3a2c8cf",
-                      "size":  6515
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-Label.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-Label.lua",
-                      "sha256":  "53afd7157615e0d7c76bc32fa6fcdaf2a6e4624801e3b8bc0910da2b020d4ad2",
-                      "size":  4489
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-MultiLineEditBox.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-MultiLineEditBox.lua",
-                      "sha256":  "7a6dbb589220f7e58db88457ba8486dc98a62bc82ec8f455ab2fd958ce20114c",
-                      "size":  9703
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-Slider.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceGUI-3.0/widgets/AceGUIWidget-Slider.lua",
-                      "sha256":  "231fc8686626f7f8b51a026ef8c62d0b3cb79b1d77c05d7edaead28828232201",
-                      "size":  8255
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceLocale-3.0/AceLocale-3.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceLocale-3.0/AceLocale-3.0.lua",
-                      "sha256":  "2ec88c3a4f974795db2d3f084294eb24cbc5f171987c0538837fab0198bbd7e9",
-                      "size":  5893
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceLocale-3.0/AceLocale-3.0.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceLocale-3.0/AceLocale-3.0.xml",
-                      "sha256":  "6f903f251cc531bbcd7e8106478f795a2e8650216904eb95ff7a63a59b72b06a",
-                      "size":  215
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceSerializer-3.0/AceSerializer-3.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceSerializer-3.0/AceSerializer-3.0.lua",
-                      "sha256":  "d17293bf6d30b1835e65c4b01308a2a778dc48b68650ef7420283033ff48db3b",
-                      "size":  9066
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceSerializer-3.0/AceSerializer-3.0.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceSerializer-3.0/AceSerializer-3.0.xml",
-                      "sha256":  "de1ec9e6d77039f669997e1dba09dbf1748138424a079054bcbc98ce0bc2ba7f",
-                      "size":  219
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceTimer-3.0/AceTimer-3.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceTimer-3.0/AceTimer-3.0.lua",
-                      "sha256":  "f2aa82da114c25a3237123d86042ec3b5e9d7543a6c22dc90d1253be1654bfcb",
-                      "size":  17981
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/AceTimer-3.0/AceTimer-3.0.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/AceTimer-3.0/AceTimer-3.0.xml",
-                      "sha256":  "0d7db07cae9dcae62cb79d2071dd31460b561b3915c0187989ec6d2f40c2b60a",
-                      "size":  214
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/CallbackHandler-1.0/CallbackHandler-1.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/CallbackHandler-1.0/CallbackHandler-1.0.lua",
-                      "sha256":  "e73aecd70ba61ba6d91f65fd653f28691921dc23100c4d0dbc98c5860618039e",
-                      "size":  9245
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/CallbackHandler-1.0/CallbackHandler-1.0.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/CallbackHandler-1.0/CallbackHandler-1.0.xml",
-                      "sha256":  "5fc06440452a82be9554fc9650fa7de0b6df786c6d188d05d7d0ec4aa3e002fd",
-                      "size":  221
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibBossIDs-1.0/lib.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibBossIDs-1.0/lib.xml",
-                      "sha256":  "02c8b5207b5b1a5611cca0af198434dceff7cff34eb99d0c4048b7a0a43b239b",
-                      "size":  217
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibBossIDs-1.0/LibBossIDs-1.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibBossIDs-1.0/LibBossIDs-1.0.lua",
-                      "sha256":  "d3329c53d48e3cb11b9b3fdc5821d0978b9eba99f525d4be55186dfb22bd8bf9",
-                      "size":  33850
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibBossIDs-1.0/LibBossIDs-1.0.toc",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibBossIDs-1.0/LibBossIDs-1.0.toc",
-                      "sha256":  "09157c1ee8f5b9c506fe3507015ebf50dad2826df418c2eab997101bfb6d6c13",
-                      "size":  395
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibGraph-2.0/1-1.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibGraph-2.0/1-1.tga",
-                      "sha256":  "0f1ab7c4a7d2337dbf52602c8e5a01509f15bf135e8d796840578b91479e956c",
-                      "size":  21663
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibGraph-2.0/1-128.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibGraph-2.0/1-128.tga",
-                      "sha256":  "8cd3e2565d0e839fa2f0fac76450153e730eb76861b62b06ef48bf9477d5d552",
-                      "size":  13781
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibGraph-2.0/1-16.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibGraph-2.0/1-16.tga",
-                      "sha256":  "57269af377bd61b22c76fd1fa2114e613872a58062c863e910f11045e865a0c8",
-                      "size":  14332
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibGraph-2.0/1-2.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibGraph-2.0/1-2.tga",
-                      "sha256":  "1efa63a6e8ac9fe88df9476e81601a5b6586862af23e967ff069601c0f12c214",
-                      "size":  18611
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibGraph-2.0/1-32.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibGraph-2.0/1-32.tga",
-                      "sha256":  "6775aedca8c18c1769b57916e66df79621f0a5395794b7fece797b4ecdaf7525",
-                      "size":  13995
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibGraph-2.0/1-4.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibGraph-2.0/1-4.tga",
-                      "sha256":  "073452f9500b4ff226b96d1152ccb4bf8fcd658ffd015c6b8eae22e401929664",
-                      "size":  14824
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibGraph-2.0/1-64.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibGraph-2.0/1-64.tga",
-                      "sha256":  "41eaa9379e2b0cfea0c84618a002a4ddd7fb4a384e04b4633d7cf225b535e93d",
-                      "size":  13859
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibGraph-2.0/1-8.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibGraph-2.0/1-8.tga",
-                      "sha256":  "324a86838b6d085c409c444f117559655a05e91cfc9f69d6efea402dc36b009e",
-                      "size":  14863
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibGraph-2.0/LibGraph-2.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibGraph-2.0/LibGraph-2.0.lua",
-                      "sha256":  "82d562085e027cdce75d6c55a692b7cbec78ace4f96bdafd32aee1e0f8de6de3",
-                      "size":  58462
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibGraph-2.0/line.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibGraph-2.0/line.tga",
-                      "sha256":  "ca58e58ac890f6d27cf542b9a5158467d7680739cd2ea36dd098528d125584a0",
-                      "size":  764
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibGraph-2.0/sline.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibGraph-2.0/sline.tga",
-                      "sha256":  "2e29c147eb68e6678c0cbada07b4b5de2499d571074cfe4a313fbe2b0c93e06b",
-                      "size":  684
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibGraph-2.0/triangle.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibGraph-2.0/triangle.tga",
-                      "sha256":  "56267df8302725ec28b5bc7ea3da132d5eb787f137d7be73db6f23fa7a153918",
-                      "size":  6152
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibSharedMedia-3.0/lib.xml",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibSharedMedia-3.0/lib.xml",
-                      "sha256":  "b4de98e3097db71406927fe7dcca508911bfd6e871b1bb744049fb4201f983cf",
-                      "size":  221
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibSharedMedia-3.0/LibSharedMedia-3.0.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibSharedMedia-3.0/LibSharedMedia-3.0.lua",
-                      "sha256":  "82a924ee0fff8db80f9eb2d75a870dc89f55918e256332be5a3b24e8938e27d3",
-                      "size":  8416
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/Libs/LibStub/LibStub.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/Libs/LibStub/LibStub.lua",
-                      "sha256":  "6000f58d740eaa2b4a006c1dabb0366f0321fc687bab9e85d97d040a1fd42dab",
-                      "size":  1397
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/locales/Recount-deDE.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/locales/Recount-deDE.lua",
-                      "sha256":  "efcc6b877c85879d5f53d6dcbdcd92f999b3cf92244692caa1f36f466ee2d52d",
-                      "size":  18162
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/locales/Recount-enUS.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/locales/Recount-enUS.lua",
-                      "sha256":  "034f4cf77f2210119de8a766a69e16d92c97fbf29a2df74c66d6fb7e553cb61a",
-                      "size":  11853
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/locales/Recount-esES.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/locales/Recount-esES.lua",
-                      "sha256":  "7441140ef5f36f344e222f1a487cf18ad054747da416c153713a38b66cced68d",
-                      "size":  18089
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/locales/Recount-frFR.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/locales/Recount-frFR.lua",
-                      "sha256":  "3169210852968e8d6d6046bbacfb6e19dd815d9374264de3601aad73f1e835f1",
-                      "size":  18939
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/locales/Recount-koKR.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/locales/Recount-koKR.lua",
-                      "sha256":  "280abf1da3ad095c69b87e85c22429032a1cd242f7b7769e566934a3e2c68023",
-                      "size":  17876
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/locales/Recount-ruRU.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/locales/Recount-ruRU.lua",
-                      "sha256":  "42ddcd79f3897b3549f43383a7e08fdba251c37392c16b3e8a0c488ded53cfb2",
-                      "size":  23947
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/locales/Recount-zhCN.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/locales/Recount-zhCN.lua",
-                      "sha256":  "d54f0d3e4986c8254322fa0fb485367e13f763881712dc4f57a72e6d69c9a28b",
-                      "size":  17169
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/locales/Recount-zhTW.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/locales/Recount-zhTW.lua",
-                      "sha256":  "e5322b9aeb8c308315d976c92824bac830f8ff71708eae787c4a03c13f9e6969",
-                      "size":  17104
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/arrow.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/arrow.tga",
-                      "sha256":  "a249908281e7e84c92c19c254e506a2760edc86c724c3c1f5d514730e3c41cdf",
-                      "size":  4140
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/icon-config.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/icon-config.tga",
-                      "sha256":  "d88685bc72aafc546868a69a6c2c782a376bfb0ca7292087a2d04ea78caab47e",
-                      "size":  4140
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/icon-reset.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/icon-reset.tga",
-                      "sha256":  "02841e10d258c6fb874ab1cdf7fc157b96ca7e07172cee5a9634d4b907e32aab",
-                      "size":  1068
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/icon-summary.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/icon-summary.tga",
-                      "sha256":  "21eca4d8e16f862f29e14258faedd9bdf293a5afcd8299edb5d5a58aa0b64954",
-                      "size":  2033
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/otravi-semi-full-border.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/otravi-semi-full-border.tga",
-                      "sha256":  "f43dc3c06bb6909030bc0b4efc2785cb3727ba8c85930f1bf1d5537ac000f6dc",
-                      "size":  3286
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/ResizeGripLeft.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/ResizeGripLeft.tga",
-                      "sha256":  "8a3e12954b2e34ec24422082b6ca410838cdcdb6f0de6639fada604e72021841",
-                      "size":  1068
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/ResizeGripRight.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/ResizeGripRight.tga",
-                      "sha256":  "f17e6620869ab39c230f860d13e5e9cda42b03938b27b922c99a6e4109bcf5cf",
-                      "size":  2085
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-Knob.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-Knob.tga",
-                      "sha256":  "7713b3992cc6f2038d6675db3e995f2ac75aeceff2a1f8e724c1d7316e85d54c",
-                      "size":  4140
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-ScrollDownButton-Disabled.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-ScrollDownButton-Disabled.tga",
-                      "sha256":  "3c33339693bd7c31715c9d19ee75086380f5682988c15b885b41f9c09c170058",
-                      "size":  4140
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-ScrollDownButton-Highlight.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-ScrollDownButton-Highlight.tga",
-                      "sha256":  "4f51dc7176dc260ec2104b8849834f7d96f6bb3692a9c744a6969c54729a6bf2",
-                      "size":  1622
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-ScrollDownButton-Overlay.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-ScrollDownButton-Overlay.tga",
-                      "sha256":  "0a32fd3489afb3b0499311eb4ddec51f5acf91e5eb19d8c2f06287245fcbbc7e",
-                      "size":  494
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-ScrollDownButton-Up.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-ScrollDownButton-Up.tga",
-                      "sha256":  "598070a90722724f976ad4a9b47b28c341acdd12762af62e2e336813f194ccfd",
-                      "size":  4140
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-ScrollUpButton-Disabled.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-ScrollUpButton-Disabled.tga",
-                      "sha256":  "2a5a098cd8f5a366444a38c57ccea606215997a90da8d49aa30c7bcc322bfd89",
-                      "size":  4140
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-ScrollUpButton-Highlight.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-ScrollUpButton-Highlight.tga",
-                      "sha256":  "baa547ad034ddec22b35d4bf2d2a2531620e011923cb62ba1728fadc69aafda2",
-                      "size":  1622
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-ScrollUpButton-Overlay.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-ScrollUpButton-Overlay.tga",
-                      "sha256":  "0a5b1beaab890427bb3ea8f073edcddd23ea07a9ca57919dea8bd4e14827570e",
-                      "size":  494
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-ScrollUpButton-Up.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/scrollbar/UI-ScrollBar-ScrollUpButton-Up.tga",
-                      "sha256":  "9ea8778d966f63d31cbb4ac9f665a9c55ece45b12c2682706b6bbf3ccb347199",
-                      "size":  4140
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/statusbar/Aluminium.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/statusbar/Aluminium.tga",
-                      "sha256":  "6eea80a38a4053d9f09d733a567fd793886ebc22bf615562f910e41dd75c37c0",
-                      "size":  4352
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/statusbar/Armory.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/statusbar/Armory.tga",
-                      "sha256":  "7f5d7718082fc4f2bfda40f264d550eb6cc141922acfc7e1554aebad4744015e",
-                      "size":  812
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/statusbar/BantoBar.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/statusbar/BantoBar.tga",
-                      "sha256":  "b7a65b7390353695b45f3099a59e3cee549a06bf5e64e9693b200a7153512c97",
-                      "size":  25356
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/statusbar/Empty.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/statusbar/Empty.tga",
-                      "sha256":  "30ec60c4c46018611d4f3f7dabd85c568cf577b1e5b920d196363c365d0f84a3",
-                      "size":  189
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/statusbar/Flat.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/statusbar/Flat.tga",
-                      "sha256":  "ad18a6f9850a8202f4cdf7f57e3a46a91e0613041f8ddfbcb0cc665bcb1ca583",
-                      "size":  338
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/statusbar/Minimalist.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/statusbar/Minimalist.tga",
-                      "sha256":  "97976977031766d707a34121ac13c5ab6b7e9d204be2efaa395c717aeb1dc7ab",
-                      "size":  1304
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/textures/statusbar/Otravi.tga",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/textures/statusbar/Otravi.tga",
-                      "sha256":  "02d5c5f33bca5635a901faca2efbbad5b4c6d254d87c43c9a9b81f04fdfce3e8",
-                      "size":  2220
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/TrackerModules/TrackerModule_CCBreakers.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/TrackerModules/TrackerModule_CCBreakers.lua",
-                      "sha256":  "d3932ae2e071de0431375695cd5905531da55bf96b618997cc6d6f50b9ded486",
-                      "size":  4816
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/TrackerModules/TrackerModule_Dispels.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/TrackerModules/TrackerModule_Dispels.lua",
-                      "sha256":  "ec1ec8734e94ca877c699b2e407f45357143b0ac12b2cbafdd657ca1884e799b",
-                      "size":  5377
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/TrackerModules/TrackerModule_Interrupts.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/TrackerModules/TrackerModule_Interrupts.lua",
-                      "sha256":  "c266602b9a738443b904306ac90fb84f5d65e5edc5f47b7300c07c376f490d71",
-                      "size":  4410
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/TrackerModules/TrackerModule_PowerGains.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/TrackerModules/TrackerModule_PowerGains.lua",
-                      "sha256":  "4f5de65a0fe2e02bccaca717017269d03d41e0b6bcac9d5b304fa66676a7d164",
-                      "size":  8351
-                  },
-                  {
-                      "path":  "Interface/AddOns/Recount/TrackerModules/TrackerModule_Resurrection.lua",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Recount/TrackerModules/TrackerModule_Resurrection.lua",
-                      "sha256":  "2e6a96670b6a7e22e42799cdb0bba6d2c059488fb789987bc7baee3cd5aa7ec9",
-                      "size":  2659
-                  },
-                  {
                       "path":  "Interface/AddOns/Scrap/License.url",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Scrap/License.url",
                       "sha256":  "eb9e16cdd81413c37daed7aa89c458207338a52d52f912010ac08243e3bf021a",
@@ -2577,8 +1749,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedChat/UncappedChat.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedChat/UncappedChat.lua",
-                      "sha256":  "1019fc92120f68b3fac71f599634c58b0724a67c1001d781d1d4dafb5f5618f8",
-                      "size":  16698
+                      "sha256":  "259d3aa7309696e51751c6c6b1b8c61de64066b4c025ba6cb90cac6f4301cbf6",
+                      "size":  21221
                   },
                   {
                       "path":  "Interface/AddOns/UncappedChat/UncappedChat.toc",
@@ -2761,6 +1933,66 @@
                       "size":  248
                   },
                   {
+                      "path":  "Interface/AddOns/UncappedQuests/arrow_image.blp",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/arrow_image.blp",
+                      "sha256":  "2d48d1e085071956f576fbac6c7e94c9a1dbdde7d95821587b165a5ca3d15486",
+                      "size":  350724
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedQuests/arrow_image_down.blp",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/arrow_image_down.blp",
+                      "sha256":  "9b42f3e36a6dbdbf9701c2c43df503730127fdfae97506f605e2c566efb51017",
+                      "size":  350724
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedQuests/blob_circle.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/blob_circle.tga",
+                      "sha256":  "0c2c80939d508e32b7c4599ff83a3b8d6aca88776b586c438ff012fd2fc41bd5",
+                      "size":  65554
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedQuests/LICENSE-arrow.txt",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/LICENSE-arrow.txt",
+                      "sha256":  "b690f5bc4e9e67eec105d1b281b8b4ea8d0f8b5b056d293b5ba3a0704a2be3b8",
+                      "size":  2170
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedQuests/UncappedQuestGivers.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/UncappedQuestGivers.lua",
+                      "sha256":  "6a399d8f828fd428e18821cb339ab229ba77ad060f7cf1c43a252915067df147",
+                      "size":  707890
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedQuests/UncappedQuests.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/UncappedQuests.lua",
+                      "sha256":  "355bad1b33abb30cf5385749d3c6e48489689410af7467561345aae8b69bcc21",
+                      "size":  34372
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedQuests/UncappedQuests.toc",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/UncappedQuests.toc",
+                      "sha256":  "f3937802c89a1a2c5b69f07186c6b2b55c0abc6516887944e0d32e4b0c5f3b85",
+                      "size":  371
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedQuests/UncappedQuestsArrow.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/UncappedQuestsArrow.lua",
+                      "sha256":  "540c6ca0297eca4099aad6bafa958ceb7642e831b74a1d2375af062265a24c5d",
+                      "size":  24243
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedQuests/UncappedQuestsAvailable.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/UncappedQuestsAvailable.lua",
+                      "sha256":  "7b927857f6235763de2e807089f5b9da06711402b76c78f8ecce342bcef88529",
+                      "size":  23249
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedQuests/UncappedQuestsLedger.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/UncappedQuestsLedger.lua",
+                      "sha256":  "29bd426e0e8d11464f530647a43a4ec950f7dd0fe3ca8da0a27469b9cfb9bfb7",
+                      "size":  30244
+                  },
+                  {
                       "path":  "Interface/AddOns/UncappedRewards/UncappedRewards.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedRewards/UncappedRewards.lua",
                       "sha256":  "707376d66a5b74a7fa8e78db8c3f97160a64a80ce0df74dc69c4bbbbf78aed8b",
@@ -2817,8 +2049,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "4baa7594d83488a15a0ca6c188f14c56e6f94dbb6a11595cb265cbf7bdef37bc",
-                      "size":  3695
+                      "sha256":  "35ea7bf63a208281c075f52f0c8e4d73d453b924f004d37a5ddf53ba7f85f991",
+                      "size":  3593
                   },
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.toc",
@@ -3528,10 +2760,14 @@
                               "UncappedVault",
                               "UncappedTransmog",
                               "UncappedForge",
-                              "UncappedChat"
+                              "UncappedChat",
+                              "UncappedQuests"
                           ],
     "forceDisableAddOns":  [
-                               "QuestHelper"
+                               "QuestHelper",
+                               "!Astrolabe",
+                               "AckisRecipeList",
+                               "Recount"
                            ],
     "ownedPaths":  [
                        "Data/enUS",
@@ -3553,6 +2789,7 @@
                        "Interface/AddOns/UncappedPanel",
                        "Interface/AddOns/UncappedAnima",
                        "Interface/AddOns/UncappedChat",
+                       "Interface/AddOns/UncappedQuests",
                        "Interface/AddOns/devUncapped64",
                        "Interface/AddOns/UncappedTempo"
                    ]

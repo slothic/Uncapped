@@ -455,3 +455,106 @@ SlashCmdList["UNCAPPEDCHAT"] = function(arg)
     UC.Toggle()
   end
 end
+
+-- --------------------------------------------------------------------------
+-- ArkInventory translation loader
+-- --------------------------------------------------------------------------
+-- ArkInventory rebuilds its enUS locale at login by reading item types, spell
+-- names and tooltip text back out of the client. On this realm it reliably ran
+-- out of attempts and printed six lines of chatter ending in a warning that
+-- item categorisation and menu text may be wrong.
+--
+-- The warning is not spurious, so this fixes the load rather than hiding it.
+-- Upstream's ArkInventoryTranslate.lua chains the three passes with `and`:
+--
+--     ok = ok and GetItemBasedTranslations( )
+--     ok = ok and GetSpellBasedTranslations( )
+--     ok = ok and GetTooltipBasedTranslations( )
+--
+-- Lua short-circuits `and`, so while ANY item is still uncached the spell and
+-- tooltip passes never run -- and running them is what queues the client's
+-- queries for that data in the first place. So the passes are forced to be
+-- strictly sequential: several rounds to cache the items, then a round before
+-- spells are even asked for, then another before tooltips are. That is more
+-- than the 5 attempts the loader budgets itself, so it always gave up.
+--
+-- ArkInventory exposes TranslateTryAgain() for exactly this; we top the budget
+-- up on failure until it succeeds, and swallow the progress spam meanwhile. If
+-- it is still failing after ARK_MAX_NUDGES we say so ONCE -- a real breakage
+-- should still surface, just not six lines of it every login.
+--
+-- ArkInventory is optional (the launcher installs it from the author's own
+-- upload, see archives.json), so every step here no-ops when it is absent.
+
+local ARK_MAX_NUDGES = 6
+
+-- Leading argument of each line ArkInventory's translate module prints. The
+-- warning variants arrive one slot later, behind OutputWarning's colour prefix.
+local ARK_TRANSLATE_LINES = {
+  ["Loading Translations for "] = true,
+  ["Translations for "]         = true,
+  ["Updating "]                 = true,
+}
+
+local function installArkTranslateFix()
+  if not ArkInventory or type(ArkInventory.Output) ~= "function" then return end
+  if ArkInventory.uncappedTranslateShim then return end
+  ArkInventory.uncappedTranslateShim = true
+
+  local realOutput = ArkInventory.Output
+  local nudges, gaveUp = 0, false
+
+  ArkInventory.Output = function(...)
+    local n = select("#", ...)
+    local isTranslate, failed = false, false
+
+    -- Only the first few arguments carry the prefix and the verb; the rest is
+    -- the locale name and prose.
+    for i = 1, (n < 4 and n or 4) do
+      local v = select(i, ...)
+      if type(v) == "string" then
+        if ARK_TRANSLATE_LINES[v] then isTranslate = true end
+        if v:find("failed to load", 1, true) then failed = true end
+      end
+    end
+
+    if not isTranslate then return realOutput(...) end
+
+    if failed then
+      if nudges < ARK_MAX_NUDGES and type(ArkInventory.TranslateTryAgain) == "function" then
+        nudges = nudges + 1
+        -- Re-shows the loader frame and extends loopmax. Safe to call from in
+        -- here: the OnUpdate handler has already hidden the frame by this point.
+        ArkInventory.TranslateTryAgain()
+      elseif not gaveUp then
+        gaveUp = true
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[Uncapped Chat]|r ArkInventory translations "
+          .. "still failed after " .. ARK_MAX_NUDGES .. " extra attempts -- item categorisation "
+          .. "may be off. |cff888888/arkfix to retry|r")
+      end
+    end
+  end
+end
+
+local arkFrame = CreateFrame("Frame")
+arkFrame:RegisterEvent("PLAYER_LOGIN")
+arkFrame:RegisterEvent("ADDON_LOADED")
+arkFrame:SetScript("OnEvent", function(_, event, name)
+  -- Whichever comes first: ArkInventory's loader does not print until roughly
+  -- five seconds in, so either hook point lands well ahead of the first line.
+  if event == "ADDON_LOADED" and name ~= "ArkInventory" then return end
+  installArkTranslateFix()
+end)
+
+SLASH_ARKFIX1 = "/arkfix"
+SlashCmdList["ARKFIX"] = function()
+  if not ArkInventory then
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[Uncapped Chat]|r ArkInventory is not installed.")
+    return
+  end
+  installArkTranslateFix()
+  if type(ArkInventory.TranslateTryAgain) == "function" then
+    ArkInventory.TranslateTryAgain()
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[Uncapped Chat]|r retrying ArkInventory translations.")
+  end
+end

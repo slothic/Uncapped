@@ -36,8 +36,10 @@ param(
     # its address space from 2 GB to 4 GB on 64-bit Windows. No code is modified.
     [bool]  $LargeAddressAware = $true,
     # Addons to switch off on clients that already have them, for ones we shipped and then
-    # pulled. Keep in step with $temporarilyDisabled in Build-Payload.ps1.
-    [string[]]$ForceDisableAddOns = @('QuestHelper'),
+    # pulled. Keep in step with $temporarilyDisabled, $retired and $licenceExcluded in
+    # Build-Payload.ps1 - anything excluded from the payload that players may already have
+    # installed belongs here, or it keeps loading forever on their client.
+    [string[]]$ForceDisableAddOns = @('QuestHelper', '!Astrolabe', 'AckisRecipeList', 'Recount'),
     # Empty by default: a regen that omits these inherits whatever the current manifest
     # already advertises (see below) instead of resetting the pointer. Pass explicitly to
     # publish a new launcher release.
@@ -254,7 +256,7 @@ $manifest = [ordered]@{
 
     # Force-ticked in AddOns.txt on every launch. StatFeed is the reason the launcher exists;
     # without it players see no stat-gain messages at all.
-    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedVault', 'UncappedTransmog', 'UncappedForge', 'UncappedChat')
+    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedVault', 'UncappedTransmog', 'UncappedForge', 'UncappedChat', 'UncappedQuests')
 
     # Switched off in AddOns.txt on clients that already have them. Needed because dropping
     # an addon from the payload does not uninstall it - the launcher never deletes
@@ -292,6 +294,7 @@ $manifest = [ordered]@{
         'Interface/AddOns/UncappedPanel',
         'Interface/AddOns/UncappedAnima',
         'Interface/AddOns/UncappedChat',
+        'Interface/AddOns/UncappedQuests',
         # devUncapped64 was renamed to Uncapped64bitUI. It has to stay listed so the
         # old folder is actually deleted from players' clients -- otherwise both copies
         # load side by side and every overlay, filter and hook runs twice.
