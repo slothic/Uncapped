@@ -1461,8 +1461,8 @@
                   {
                       "path":  "Interface/AddOns/ReagentBankCraft/ReagentBankCraft.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/ReagentBankCraft/ReagentBankCraft.lua",
-                      "sha256":  "9c9b52e33fbc2ee01c1026e0765c6bbdf4f5e104fcc6010abac2c8c7c6e6365b",
-                      "size":  20173
+                      "sha256":  "e2a6406515dea90e04f173f31bcfc519f368719bd05e7caab178ebff2c46ae5b",
+                      "size":  14545
                   },
                   {
                       "path":  "Interface/AddOns/ReagentBankCraft/ReagentBankCraft.toc",
@@ -2577,8 +2577,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedChat/UncappedChat.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedChat/UncappedChat.lua",
-                      "sha256":  "a7fa3f44f61b4c4628f42211a94a622e62f9007366d4d763c2625444af8ba9c3",
-                      "size":  15875
+                      "sha256":  "1019fc92120f68b3fac71f599634c58b0724a67c1001d781d1d4dafb5f5618f8",
+                      "size":  16698
                   },
                   {
                       "path":  "Interface/AddOns/UncappedChat/UncappedChat.toc",
@@ -2817,7 +2817,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "31357bd8bac803869d8d32023ad758ab65ab74eaf100c2806d6b857a4f2e3d03",
+                      "sha256":  "4baa7594d83488a15a0ca6c188f14c56e6f94dbb6a11595cb265cbf7bdef37bc",
                       "size":  3695
                   },
                   {

@@ -36,14 +36,12 @@ local ADDON_PIPE_PREFIX = "UNC"
 -- every key at load and again at ADDON_LOADED once the client has restored the
 -- saved table, so callers can always index it.
 --
--- Keys left behind in an existing saved table by the retired /wishlist tracker
--- (wishlistRows, wishlistPos, haveColor, needColor) are simply ignored -- the
--- filler only ever adds missing keys, it never prunes.
-local RBC_DEFAULTS = {
-    sourceRows = 14,                    -- "where to farm" visible rows
-    sourceRowHeight = 20,               -- "where to farm" row height (px)
-    savePos = true,                     -- remember dragged window positions
-}
+-- Now empty: this addon's own settings all belonged to features that moved out
+-- 2026-07-31 -- the /wishlist tracker (retired) and the "where to farm" panel
+-- (ported into UncappedForge, which owns its sizing now). Stale keys left in a
+-- player's saved table are simply ignored; the filler only adds, never prunes.
+-- Kept as a table so adding a setting back needs no scaffolding.
+local RBC_DEFAULTS = {}
 
 -- Ensures ReagentBankCraftDB is a table and every default key is present.
 -- Idempotent: only ever fills gaps, so it is safe to call before AND after the
@@ -68,29 +66,6 @@ function ReagentBankCraft_InitDB()
 end
 
 ReagentBankCraft_InitDB()
-
--- Window position persistence. Saved only while
--- db.savePos is on; restore falls back to the given default center offset when
--- there is no saved position or the feature is off.
-function ReagentBankCraft_SavePos(f, key)
-    local db = ReagentBankCraftDB
-    if not (db and db.savePos) then return end
-    local point, _, relPoint, x, y = f:GetPoint()
-    if point then
-        db[key] = { point = point, relPoint = relPoint or point, x = x or 0, y = y or 0 }
-    end
-end
-
-function ReagentBankCraft_RestorePos(f, key, dPoint, dRel, dX, dY)
-    local db = ReagentBankCraftDB
-    local p = db and db.savePos and db[key]
-    f:ClearAllPoints()
-    if p then
-        f:SetPoint(p.point or dPoint, UIParent, p.relPoint or dRel, p.x or dX, p.y or dY)
-    else
-        f:SetPoint(dPoint, UIParent, dRel, dX, dY)
-    end
-end
 
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
@@ -129,7 +104,7 @@ end
 local function ReagentBankChatFilter(self, event, msg, ...)
     if msg:find("^RBWITHDRAWN:") or msg:find("^RBREDEPOSITED:") or msg:find("^RBMAX:")
         or msg:find("^RBQUOTE:") or msg:find("^RBBOUGHT:") or msg:find("^RBBUYFAIL:")
-        or msg:find("^RBSRC:") or msg:find("^RBSRCEND:") then
+        then
         return true
     end
     return false
@@ -207,22 +182,6 @@ StaticPopupDialogs["REAGENTBANK_BUY_CONFIRM"] = {
     hideOnEscape = 1,
 }
 
--- Resolves the ITEM a recipe produces, not the recipe spell, so this
--- deliberately uses GetTradeSkillItemLink -- GetTradeSkillRecipeLink would give
--- the enchant/spell link instead, which is the wrong id entirely.
-function ReagentBankCraft_GetSelectedProducedItem()
-    if not TradeSkillFrame or not TradeSkillFrame.selectedSkill then
-        return nil, nil
-    end
-    local link = GetTradeSkillItemLink(TradeSkillFrame.selectedSkill)
-    if not link then
-        return nil, nil
-    end
-    local id = link:match("item:(%d+)")
-    local name = link:match("%[(.-)%]")
-    return id and tonumber(id) or nil, name
-end
-
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", ReagentBankChatFilter)
 
 
@@ -231,11 +190,8 @@ local function OnEvent(self, event, ...)
         local addonName = ...
         if addonName == "ReagentBankCraft" then
             -- Our own load: the client has now restored ReagentBankCraftDB (if
-            -- any), so re-fill any missing keys and sync the settings page.
+            -- any), so re-fill any missing keys.
             ReagentBankCraft_InitDB()
-            if ReagentBankCraft_RefreshPanel then
-                ReagentBankCraft_RefreshPanel()
-            end
             return
         end
         if addonName ~= "Blizzard_TradeSkillUI" then
@@ -294,33 +250,6 @@ local function OnEvent(self, event, ...)
             GameTooltip:Hide()
         end)
 
-        -- Click any reagent in the recipe to ask where it comes from.
-        -- The reagent buttons are Blizzard's own (TradeSkillReagent1..8) and
-        -- already exist by the time Blizzard_TradeSkillUI has loaded, so they
-        -- can be hooked directly rather than recreated.
-        for i = 1, 8 do
-            local reagentButton = getglobal("TradeSkillReagent" .. i)
-            if reagentButton then
-                reagentButton:HookScript("OnClick", function()
-                    local skillIndex = TradeSkillFrame and TradeSkillFrame.selectedSkill
-                    if not skillIndex then
-                        return
-                    end
-
-                    local link = GetTradeSkillReagentItemLink(skillIndex, i)
-                    if not link then
-                        return
-                    end
-
-                    local itemId = link:match("item:(%d+)")
-                    local itemName = link:match("%[(.-)%]")
-                    if itemId then
-                        ReagentBankCraft_QuerySources(tonumber(itemId), itemName)
-                    end
-                end)
-            end
-        end
-
         -- Auto-redeposit leftovers when the window closes, regardless of
         -- how it was closed (Exit button, Escape, clicking away, etc --
         -- OnHide fires for all of these).
@@ -354,29 +283,6 @@ local function OnEvent(self, event, ...)
             text = a1
         end
         if not text then
-            return
-        end
-
-        -- RBSRC:<itemId>:<kind>:<chanceTenths>:<spawns>:<name>|<zone>
-        if text:find("^RBSRC:") then
-            local kind, chance, spawns, dungeon, rest = text:match("^RBSRC:%d+:(%d+):(%d+):(%d+):(%d+):(.*)$")
-            if rest then
-                local name, zone, via = rest:match("^(.-)|(.-)|(.*)$")
-                table.insert(ReagentBankCraft_SourceBuffer, {
-                    kind = tonumber(kind) or 1,
-                    chance = tonumber(chance) or 0,
-                    spawns = tonumber(spawns) or 0,
-                    dungeon = (dungeon == "1"),
-                    name = name or rest,
-                    zone = zone or "",
-                    via = via or "",
-                })
-            end
-            return
-        end
-
-        if text:find("^RBSRCEND:") then
-            ReagentBankCraft_ShowSources(ReagentBankCraft_PendingSourceName)
             return
         end
 
@@ -441,47 +347,3 @@ end
 
 frame:SetScript("OnEvent", OnEvent)
 
-
--- ---------------------------------------------------------------------------
--- Settings page, nested under the "Uncapped" hub (ESC > Interface > AddOns).
--- Guarded: the shared UncappedUI library comes from UncappedOptions, which may
--- not be present. Every knob reads/writes ReagentBankCraftDB directly.
-if UncappedUI then
-    local panel, L = UncappedUI.CreatePanel("Reagent Bank",
-        "Row sizing and window behaviour for the reagent-bank crafting helper and the 'where to farm' panel.")
-
-    local refreshers = {}
-    local function track(w)
-        if w and w.uncappedRefresh then
-            refreshers[#refreshers + 1] = w.uncappedRefresh
-        end
-        return w
-    end
-
-    L:Header("List sizing")
-    L:Note("Row counts and heights take effect the next time each window is opened.", 28)
-    track(L:Slider("Farm-source list rows", 5, 30, 1,
-        function() return ReagentBankCraftDB.sourceRows end,
-        function(v) ReagentBankCraftDB.sourceRows = v end, "%d"))
-    track(L:Slider("Farm-source row height", 12, 28, 1,
-        function() return ReagentBankCraftDB.sourceRowHeight end,
-        function(v) ReagentBankCraftDB.sourceRowHeight = v end, "%d"))
-
-    L:Gap(6)
-    L:Header("Windows")
-    track(L:Check("Remember window positions",
-        function() return ReagentBankCraftDB.savePos end,
-        function(v) ReagentBankCraftDB.savePos = v end))
-    L:Button("Reset window positions", function()
-        ReagentBankCraftDB.sourcePos = nil
-        if ReagentBankCraft_RestoreSourceWindow then ReagentBankCraft_RestoreSourceWindow() end
-    end, 180)
-
-    -- Called from ADDON_LOADED once SavedVariables are restored, so the widgets
-    -- reflect the persisted values rather than the load-time defaults.
-    function ReagentBankCraft_RefreshPanel()
-        for _, r in ipairs(refreshers) do r() end
-    end
-
-    ReagentBankCraftPanel = panel
-end

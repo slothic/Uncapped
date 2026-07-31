@@ -3,12 +3,19 @@
 
   Design: C:\Wotlk\docs\design\DISCORD_SERVER.md
 
-  Three tabs:
-    World    the "World" custom channel, captured from CHAT_MSG_CHANNEL
-    Discord  relay traffic, pushed by the server on the shared "UNC" addon pipe
-             (CHATD:<sender>:<text>) -- deliberately NOT in the world channel,
-             so players without this addon never see Discord chatter
-    Loot     purely client-side capture of CHAT_MSG_LOOT. No server involvement.
+  Tabs:
+    Chat  ONE stream carrying both sides of the same conversation:
+            * the "World" custom channel, captured from CHAT_MSG_CHANNEL
+            * Discord relay traffic, pushed by the server on the shared "UNC"
+              addon pipe (CHATD:<sender>:<text>) -- deliberately NOT put in the
+              world channel, so players without this addon never see Discord
+              chatter. Tagged [D:name] and coloured blurple so the source is
+              still obvious.
+          They were separate tabs at first, which meant half the conversation
+          was always in the tab you weren't looking at.
+    Loot  purely client-side capture of CHAT_MSG_LOOT. No server involvement.
+
+  Damage log and friends get added to TABS as further entries.
 
   Transport (matches the rest of the UNC pipe):
     RECEIVE : CHAT_MSG_ADDON, arg1 == "UNC", arg2 == body
@@ -39,10 +46,12 @@ local defaults = {
 local MIN_W, MIN_H = 260, 120
 local COMPACT_H = 100       -- tab row + two lines + input box
 
+-- World and Discord share ONE stream: they are the same conversation, and
+-- splitting them meant half of it was always in the tab you weren't looking at.
+-- Source is carried by colour + tag instead. More tabs (damage, etc.) go here.
 local TABS = {
-  { key = "world",   label = "World"   },
-  { key = "discord", label = "Discord" },
-  { key = "loot",    label = "Loot"    },
+  { key = "chat", label = "Chat" },
+  { key = "loot", label = "Loot" },
 }
 
 local COLOURS = {
@@ -52,8 +61,8 @@ local COLOURS = {
   system  = "ff888888",
 }
 
-local buffers = { world = {}, discord = {}, loot = {} }
-local unread  = { world = 0, discord = 0, loot = 0 }
+local buffers = { chat = {}, loot = {} }
+local unread  = { chat = 0, loot = 0 }
 local UC = CreateFrame("Frame", "UncappedChatFrame")
 local ui = {}
 
@@ -65,6 +74,12 @@ local function db()
   if type(UncappedChatDB) ~= "table" then UncappedChatDB = {} end
   for k, v in pairs(defaults) do
     if UncappedChatDB[k] == nil then UncappedChatDB[k] = v end
+  end
+  -- The tab list shrank from 3 to 2 when World and Discord merged; a saved
+  -- index of 3 would index past the end and error on the first render.
+  if type(UncappedChatDB.tab) ~= "number" or UncappedChatDB.tab < 1
+     or UncappedChatDB.tab > #TABS then
+    UncappedChatDB.tab = 1
   end
   return UncappedChatDB
 end
@@ -304,7 +319,7 @@ function UC.Send(text)
     id = worldChannelIndex()
   end
   if not id then
-    push("world", "|cffff5555Not in the World channel yet -- try again in a moment.|r")
+    push("chat", "|cffff5555Not in the World channel yet -- try again in a moment.|r")
     return
   end
   SendChatMessage(text, "CHANNEL", nil, id)
@@ -376,7 +391,7 @@ UC:SetScript("OnEvent", function(_, event, ...)
   elseif event == "CHAT_MSG_CHANNEL" then
     local msg, author, _, _, _, _, _, _, channelName = ...
     if channelName and channelName:lower() == WORLD_CHANNEL:lower() then
-      push("world", string.format("|c%s[%s]|r %s", COLOURS.world, author or "?", msg or ""))
+      push("chat", string.format("|c%s[%s]|r %s", COLOURS.world, author or "?", msg or ""))
     end
 
   elseif event == "CHAT_MSG_CHANNEL_NOTICE" then
@@ -384,7 +399,7 @@ UC:SetScript("OnEvent", function(_, event, ...)
     if channelName and channelName:lower() == WORLD_CHANNEL:lower()
        and (kind == "YOU_LEFT" or kind == "SUSPENDED") then
       -- Someone or something removed us. Rejoin rather than sit silent.
-      push("world", "|c" .. COLOURS.system .. "Rejoining World...|r")
+      push("chat", "|c" .. COLOURS.system .. "Rejoining World...|r")
       ensureWorldChannel()
     end
 
@@ -396,7 +411,7 @@ UC:SetScript("OnEvent", function(_, event, ...)
       -- Server swapped any colon in player text for U+00B7; put it back.
       sender = sender:gsub("\194\183", ":")
       text = text:gsub("\194\183", ":")
-      push("discord", string.format("|c%s[%s]|r %s", COLOURS.discord, sender, text))
+      push("chat", string.format("|c%s[D:%s]|r %s", COLOURS.discord, sender, text))
     end
 
   elseif event == "CHAT_MSG_LOOT" then
