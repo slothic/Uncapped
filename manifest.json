@@ -1749,8 +1749,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedChat/UncappedChat.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedChat/UncappedChat.lua",
-                      "sha256":  "259d3aa7309696e51751c6c6b1b8c61de64066b4c025ba6cb90cac6f4301cbf6",
-                      "size":  21221
+                      "sha256":  "61353867bcdf572650390c639f58999900466f10aea1f530bc1129c156775df8",
+                      "size":  25093
                   },
                   {
                       "path":  "Interface/AddOns/UncappedChat/UncappedChat.toc",

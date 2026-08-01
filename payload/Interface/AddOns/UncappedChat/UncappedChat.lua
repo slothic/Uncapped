@@ -24,7 +24,10 @@
   addon-message event), so the input box posts to the World channel and the
   server relays that onward to Discord. One box, both destinations.
 
-  Blizzard's chat frame is left completely alone.
+  Blizzard's chat frame is left alone with ONE exception: the third-party noise
+  filter at the bottom of this file, which suppresses a small list of repeated
+  debug lines shipped addons print into it. See that block for why the hook has
+  to be there rather than in a message-event filter.
 ]]
 
 local ADDON = "UncappedChat"
@@ -41,6 +44,7 @@ local defaults = {
   tab = 1,
   timestamps = true,
   compact = false,
+  hideAddonNoise = true,
 }
 
 local MIN_W, MIN_H = 260, 120
@@ -557,4 +561,91 @@ SlashCmdList["ARKFIX"] = function()
     ArkInventory.TranslateTryAgain()
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[Uncapped Chat]|r retrying ArkInventory translations.")
   end
+end
+
+-- ===========================================================================
+-- Third-party chat noise
+--
+-- Two shipped addons print debug chatter into the default chat frame on a loop:
+--
+--   WDM's embedded Astrolabe  "Astrolabe is missing data for <zone>."
+--                             (libs/Astrolabe/Astrolabe.lua, one line per zone
+--                             it has no data for -- a burst of them at login)
+--   QuestCompletist           "Crosscheck was not successful."
+--
+-- Neither is actionable by the player and neither indicates anything broken.
+--
+-- WHY THIS IS A HOOK AND NOT A MESSAGE FILTER
+--
+-- ChatFrame_AddMessageEventFilter only sees CHAT_MSG_* events. Both of these
+-- go straight to ChatFrame1:AddMessage / print(), which never enter the chat
+-- event system at all, so a filter cannot see them. Wrapping AddMessage is the
+-- only interception point.
+--
+-- WHY NOT JUST EDIT THOSE ADDONS
+--
+-- We ship them but do not own them. WDM comes from Trimitor's releases and is
+-- refreshed by Update-Upstream.ps1; QuestCompletist is extracted from a zip.
+-- Build-Payload -Clean re-extracts both from source on every build, so an edit
+-- to either would be silently reverted the next time the payload is built --
+-- the fix has to live in an addon that is ours.
+--
+-- Patterns are anchored and specific. A broad match here would eat real
+-- messages, and a chat line that vanishes for no reason is far worse than a
+-- chat line too many.
+-- ===========================================================================
+
+local NOISE_PATTERNS = {
+    "^Astrolabe is missing data for ",
+    "^Crosscheck was not successful%.",
+}
+
+local function IsNoise(msg)
+    if type(msg) ~= "string" then
+        return false
+    end
+    for _, pattern in ipairs(NOISE_PATTERNS) do
+        if msg:find(pattern) then
+            return true
+        end
+    end
+    return false
+end
+
+-- Hook every chat window, not just ChatFrame1: a player can move an addon's
+-- output to another tab, and print() follows DEFAULT_CHAT_FRAME wherever that
+-- points.
+local function InstallNoiseFilter()
+    for i = 1, NUM_CHAT_WINDOWS do
+        local frame = _G["ChatFrame" .. i]
+        -- The guard makes this idempotent. Without it a /reload-time re-run
+        -- would wrap the wrapper, and the chain would grow every time.
+        if frame and not frame.uncappedNoiseHooked then
+            frame.uncappedNoiseHooked = true
+            local original = frame.AddMessage
+            frame.AddMessage = function(self, msg, ...)
+                -- db() is a FUNCTION in this file, not a table -- it lazily
+                -- initialises UncappedChatDB and returns it. Indexing it
+                -- directly errors, and an error raised inside AddMessage would
+                -- break every chat line in the game, not just the noisy ones.
+                if IsNoise(msg) and db().hideAddonNoise then
+                    return
+                end
+                return original(self, msg, ...)
+            end
+        end
+    end
+end
+
+local noiseLoader = CreateFrame("Frame")
+noiseLoader:RegisterEvent("PLAYER_LOGIN")
+noiseLoader:SetScript("OnEvent", InstallNoiseFilter)
+
+SLASH_UNCAPPEDCHATNOISE1 = "/uncappednoise"
+SlashCmdList["UNCAPPEDCHATNOISE"] = function()
+    local d = db()
+    d.hideAddonNoise = not d.hideAddonNoise
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[Uncapped Chat]|r third-party debug spam "
+        .. (d.hideAddonNoise and "hidden" or "shown")
+        .. " (Astrolabe / QuestCompletist).")
 end
