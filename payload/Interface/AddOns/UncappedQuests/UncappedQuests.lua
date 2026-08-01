@@ -317,8 +317,31 @@ end
 -- GameTooltip does not -- so a GameTooltip opened over the FULLSCREEN map draws
 -- BEHIND it and looks like nothing happened. FrameXML ships WorldMapTooltip for
 -- exactly this; Zygor uses it for the same reason.
+-- OUR OWN tooltip frame, not GameTooltip and not WorldMapTooltip.
+--
+-- Both of those are owned by Blizzard's map code, which sets, re-owns and hides
+-- them from its own OnUpdate as the cursor moves over the map -- so a tooltip we
+-- populate can be cleared before it is ever drawn, which is exactly what
+-- "hovering a pin shows nothing" looked like. An earlier fix chased the TEXT
+-- being wrong; the text was fine, the frame was being taken away.
+--
+-- A private GameTooltip-templated frame cannot be reclaimed by anyone else. It
+-- is parented to WorldMapFrame so it inherits the map's strata (the fullscreen
+-- map sits above almost everything) and then raised above it explicitly.
+local uqTooltip
 local function MapTooltip()
-    return _G.WorldMapTooltip or GameTooltip
+    if not uqTooltip then
+        uqTooltip = CreateFrame("GameTooltip", "UncappedQuestTooltip", UIParent, "GameTooltipTemplate")
+    end
+
+    -- Re-parented on every use: WorldMapFrame may not exist when this file runs,
+    -- and the map switches between windowed and fullscreen, which changes the
+    -- strata it needs to sit above.
+    local host = _G.WorldMapFrame or UIParent
+    uqTooltip:SetParent(host)
+    uqTooltip:SetFrameStrata("TOOLTIP")
+    uqTooltip:SetFrameLevel((host:GetFrameLevel() or 0) + 50)
+    return uqTooltip
 end
 
 local function PinTooltip(pin)

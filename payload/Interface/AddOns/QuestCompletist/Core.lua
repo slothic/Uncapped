@@ -201,7 +201,7 @@ local function addQuest(questLogIndex, questID) -- Adds a quest to file. Returns
 			return true
 		end
 	else
-		print("Crosscheck was not successful.")
+--[[ silenced by Build-Payload: QuestCompletist status line, fires on a normal scan ]] --		print("Crosscheck was not successful.")
 		-- Crosscheck was not successful --
 		return false
 	end

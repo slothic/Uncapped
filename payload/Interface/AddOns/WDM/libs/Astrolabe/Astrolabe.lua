@@ -1888,7 +1888,7 @@ for continent, zones in pairs(Astrolabe.ContinentList) do
     for index, mapName in pairs(zones) do
         if not (mapData.zoneData[mapName]) then
             -- WE HAVE A PROBLEM!!!
-            ChatFrame1:AddMessage("Astrolabe is missing data for " .. select(index, GetMapZones(continent)) .. ".");
+--[[ silenced by Build-Payload: Astrolabe login burst, one line per zone with no map data ]] --            ChatFrame1:AddMessage("Astrolabe is missing data for " .. select(index, GetMapZones(continent)) .. ".");
             mapData.zoneData[mapName] = zeroData;
         end
         mapData[index] = mapData.zoneData[mapName];

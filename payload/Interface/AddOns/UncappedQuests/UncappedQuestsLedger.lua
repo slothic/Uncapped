@@ -985,6 +985,33 @@ listener:RegisterEvent("CHAT_MSG_ADDON")
 listener:RegisterEvent("PLAYER_ENTERING_WORLD")
 listener:RegisterEvent("QUEST_LOG_UPDATE")
 
+-- Looting a quest ITEM has to refresh the ledger too.
+--
+-- Item objective counts are computed SERVER-side from the player's bags (see
+-- the QLO item loop), so the client cannot recount them itself -- and
+-- QUEST_LOG_UPDATE does not fire for a quest with no log slot, which is every
+-- ledger quest. Without this, picking up the tenth boar liver left the map pin,
+-- the arrow and the ledger all reading 9/10 until some unrelated refresh
+-- happened along.
+--
+-- DEBOUNCED rather than put on the shared 4-second throttle below: that would
+-- mean up to four seconds of staring at a stale count after looting the thing,
+-- which is the complaint. This fires shortly after bag activity STOPS, so
+-- emptying a full corpse still costs exactly one request.
+local bagDebounce = CreateFrame("Frame")
+local bagPending = nil
+
+bagDebounce:RegisterEvent("BAG_UPDATE")
+bagDebounce:SetScript("OnEvent", function()
+    bagPending = GetTime() + 0.4
+end)
+bagDebounce:SetScript("OnUpdate", function()
+    if bagPending and GetTime() >= bagPending then
+        bagPending = nil
+        Send("QLGET")
+    end
+end)
+
 -- The map pins and the arrow both read the ledger now, so it has to stay fresh
 -- even when the window is shut. QUEST_LOG_UPDATE fires often, hence the
 -- throttle: one refresh per few seconds is plenty for objective counts.
