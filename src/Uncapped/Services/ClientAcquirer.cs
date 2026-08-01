@@ -109,12 +109,18 @@ public sealed class ClientAcquirer
          */
         var httpArchives = source.HttpArchives();
 
+        Log.Write($"client acquire: target={targetDir} magnet={(string.IsNullOrWhiteSpace(source.Magnet) ? "no" : "yes")} " +
+                  $"httpParts={httpArchives.Count}");
+
         if (!string.IsNullOrWhiteSpace(source.Magnet))
         {
             try
             {
+                Log.Write("client acquire: trying BitTorrent");
                 var archive = await DownloadViaTorrentAsync(source, progress, ct);
+                Log.Write($"client acquire: torrent finished -> {archive}");
                 await ExtractAndDeleteAsync(archive, targetDir, progress, ct);
+                Log.Write("client acquire: done via torrent");
                 return targetDir;
             }
             catch (OperationCanceledException) { throw; }
@@ -122,6 +128,7 @@ public sealed class ClientAcquirer
             {
                 // Some ISPs and most corporate/university networks throttle or block
                 // BitTorrent outright. Say so plainly, then try the mirror.
+                Log.Write($"client acquire: torrent failed ({ex.GetType().Name}: {ex.Message}) -- falling back to HTTP");
                 progress.Report(new AcquireProgress(
                     "BitTorrent did not work — trying the direct download instead.", 0, ex.Message));
             }
@@ -146,10 +153,16 @@ public sealed class ClientAcquirer
             var part = httpArchives[i];
             var label = httpArchives.Count > 1 ? $" (part {i + 1} of {httpArchives.Count})" : "";
 
+            Log.Write($"client acquire: HTTP part {i + 1}/{httpArchives.Count} " +
+                      $"({part.Bytes} bytes expected) {part.Url}");
+
             var archive = await DownloadOneAsync(part, label, progress, ct);
             await ExtractAndDeleteAsync(archive, targetDir, progress, ct);
+
+            Log.Write($"client acquire: HTTP part {i + 1}/{httpArchives.Count} extracted");
         }
 
+        Log.Write("client acquire: done via HTTP");
         return targetDir;
     }
 
@@ -287,6 +300,7 @@ public sealed class ClientAcquirer
     private async Task ExtractAndDeleteAsync(
         string archive, string targetDir, IProgress<AcquireProgress> progress, CancellationToken ct)
     {
+        Log.Write($"client acquire: extracting {archive}");
         progress.Report(new AcquireProgress("Extracting the client… this takes a while.", 0, archive));
         await Task.Run(() => ExtractTo(archive, targetDir, progress, ct), ct);
 
@@ -330,6 +344,24 @@ public sealed class ClientAcquirer
             }
         }
 
+        /*
+         * A short file is the failure that would otherwise pass silently.
+         *
+         * A mirror that drops the connection mid-transfer still leaves a valid-looking .zip
+         * on disk; extraction of a truncated archive can even partially succeed. That ends as
+         * a client missing files, which looks like our bug rather than a broken download, and
+         * with nothing in the log to say otherwise.
+         */
+        var actual = new FileInfo(destination).Length;
+        if (expected > 0 && actual != expected)
+        {
+            Log.Write($"client acquire: SHORT DOWNLOAD {name} got {actual} of {expected} bytes");
+            throw new IOException(
+                $"The download of {name} stopped early ({Gb(actual)} of {Gb(expected)}). " +
+                "The mirror may have dropped the connection; try again.");
+        }
+
+        Log.Write($"client acquire: downloaded {name} ({actual} bytes)");
         return destination;
     }
 
