@@ -331,8 +331,20 @@ local function PinTooltip(pin)
     -- rather than from GetQuestLogTitle.
     local title, level, isComplete = pin.pinTitle, nil, pin.pinComplete
     if pin.questIndex then
-        title, level = GetQuestLogTitle(pin.questIndex)
-        isComplete = select(6, GetQuestLogTitle(pin.questIndex))
+        local logTitle, logLevel = GetQuestLogTitle(pin.questIndex)
+        -- GetQuestLogTitle returns nil for a header row or a stale index. Only
+        -- take it when it actually answered, or a good pinTitle gets replaced
+        -- with UNKNOWN -- which is what "hovering a pin shows no quest name"
+        -- looked like.
+        if logTitle and logTitle ~= "" then
+            title, level = logTitle, logLevel
+            isComplete = select(6, GetQuestLogTitle(pin.questIndex))
+        end
+    end
+
+    -- Last resort: the ledger knows every held quest by id, log slot or not.
+    if not title or title == "" then
+        title = (UQ.QuestTitle and UQ.QuestTitle(pin.questID)) or nil
     end
 
     tip:AddLine(title or UNKNOWN, 1, 1, 1)
@@ -360,6 +372,22 @@ local function PinTooltip(pin)
                 end
             end
         end
+    elseif UQ.QuestObjectives then
+        -- A LEDGER quest has no log slot, so GetQuestLogLeaderBoard above
+        -- answers nothing for it and the tooltip used to show a bare title with
+        -- no objectives at all. The server already sent them; read them here.
+        local objectives = UQ.QuestObjectives(pin.questID)
+        if #objectives > 0 then
+            tip:AddLine(" ")
+            for _, obj in ipairs(objectives) do
+                local line = string.format(" - %s: %d/%d", obj.label or "?", obj.have or 0, obj.need or 0)
+                if obj.done then
+                    tip:AddLine(line, 0.4, 0.8, 0.4)
+                else
+                    tip:AddLine(line, 0.9, 0.9, 0.9)
+                end
+            end
+        end
     end
 
     if isComplete then
@@ -370,6 +398,32 @@ local function PinTooltip(pin)
     tip:AddLine(" ")
     tip:AddLine("|cff808080Click to select in the quest log.|r")
     tip:Show()
+end
+
+-- Paint EVERY area belonging to one quest, not just the pin under the cursor.
+--
+-- A quest with several objective areas -- "kill 10 of these, spread over three
+-- camps" -- gets one pin and one blob per area, and hovering used to light only
+-- the single area you happened to be pointing at. That is actively misleading:
+-- it reads as "this is where the quest is" when two more camps count just as
+-- much. Matching on questID lights all of them together.
+local function SetQuestBlobs(questID, shown)
+    if not questID then return end
+
+    for i = 1, #pins do
+        local other = pins[i]
+        -- Only pins currently on the map: the pool is reused between draws and
+        -- a retired pin keeps its old questID, so a stale one would light a blob
+        -- for a quest that is no longer shown.
+        if other and other:IsShown() and other.questID == questID and other.blobReady then
+            if shown then
+                other.blob:SetAlpha(1)
+                other.blob:Show()
+            else
+                other.blob:Hide()
+            end
+        end
+    end
 end
 
 local function CreatePin(i)
@@ -411,14 +465,13 @@ local function CreatePin(i)
         PinTooltip(self)
         -- Show THIS quest's area while you are pointing at it. One blob at a
         -- time is the whole reason Blizzard's map stays legible.
-        if db.showBlobs and db.blobsOnHover and self.blobReady then
-            self.blob:SetAlpha(1)
-            self.blob:Show()
+        if db.showBlobs and db.blobsOnHover then
+            SetQuestBlobs(self.questID, true)
         end
     end)
     pin:SetScript("OnLeave", function(self)
         MapTooltip():Hide()
-        if db.blobsOnHover then self.blob:Hide() end
+        if db.blobsOnHover then SetQuestBlobs(self.questID, false) end
     end)
     pin:SetScript("OnClick", function(self, button)
         if button == "RightButton" then

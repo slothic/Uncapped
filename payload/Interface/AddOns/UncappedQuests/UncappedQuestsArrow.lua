@@ -317,8 +317,129 @@ arrow.title:SetPoint("BOTTOM", arrow, "TOP", 0, 2)
 arrow.dist = arrow:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 arrow.dist:SetPoint("TOP", arrow, "BOTTOM", 0, -2)
 
+-- What you are actually meant to DO, under the distance. The arrow used to show
+-- only the quest's title, which tells you where to stand but not what to do once
+-- you are there.
+arrow.objective = arrow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+arrow.objective:SetPoint("TOP", arrow.dist, "BOTTOM", 0, -2)
+arrow.objective:SetWidth(220)
+arrow.objective:SetJustifyH("CENTER")
+
+-- The quest's usable item, clickable straight from the arrow.
+--
+-- SecureActionButtonTemplate with type="item": the click runs through the
+-- secure code path, which is the only way an addon may use an item at all.
+-- That also means the attributes CANNOT be changed in combat -- Blizzard locks
+-- secure frames down -- so RefreshItem below skips the update rather than
+-- erroring, and picks it up on the next refresh once combat ends.
+arrow.itemButton = CreateFrame("Button", "UncappedQuestArrowItem", arrow, "SecureActionButtonTemplate")
+arrow.itemButton:SetWidth(36)
+arrow.itemButton:SetHeight(36)
+arrow.itemButton:SetPoint("TOP", arrow.objective, "BOTTOM", 0, -4)
+arrow.itemButton:RegisterForClicks("AnyUp")
+arrow.itemButton:SetAttribute("type", "item")
+arrow.itemButton:Hide()
+
+arrow.itemButton.icon = arrow.itemButton:CreateTexture(nil, "ARTWORK")
+arrow.itemButton.icon:SetAllPoints()
+
+arrow.itemButton.border = arrow.itemButton:CreateTexture(nil, "OVERLAY")
+arrow.itemButton.border:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+arrow.itemButton.border:SetPoint("CENTER")
+arrow.itemButton.border:SetWidth(58)
+arrow.itemButton.border:SetHeight(58)
+
+arrow.itemButton.count = arrow.itemButton:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+arrow.itemButton.count:SetPoint("BOTTOMRIGHT", -2, 2)
+
+arrow.itemButton:SetScript("OnEnter", function(self)
+    if not self.itemLink then return end
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetHyperlink(self.itemLink)
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("|cff808080Click to use.|r")
+    GameTooltip:Show()
+end)
+arrow.itemButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
 arrow.next = arrow:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-arrow.next:SetPoint("TOP", arrow.dist, "BOTTOM", 0, -2)
+arrow.next:SetPoint("TOP", arrow.itemButton, "BOTTOM", 0, -2)
+
+-- What to do at the destination, under the distance readout.
+--
+-- Prefers the LEDGER's own objective list, which covers every held quest; the
+-- client's GetQuestLogLeaderBoard only answers for the 25 with a log slot, and
+-- those are exactly the quests the ledger exists to supplement.
+local function RefreshObjective(self, target)
+    if not target then
+        self.objective:SetText("")
+        return
+    end
+
+    if target.isTurnIn or target.isComplete then
+        self.objective:SetText("|cff40ff40Ready to turn in|r")
+        return
+    end
+
+    local obj = UQ.FirstIncompleteObjective and UQ.FirstIncompleteObjective(target.questID)
+    if obj then
+        self.objective:SetText(string.format("%s  |cff808080%d/%d|r",
+            obj.label or "?", obj.have or 0, obj.need or 0))
+        return
+    end
+
+    -- Fall back to the client log for a quest the ledger has not answered for.
+    local n = target.questIndex and (GetNumQuestLeaderBoards(target.questIndex) or 0) or 0
+    for j = 1, n do
+        local text, _, finished = GetQuestLogLeaderBoard(j, target.questIndex)
+        if text and not finished then
+            self.objective:SetText(text)
+            return
+        end
+    end
+
+    self.objective:SetText("")
+end
+
+-- The quest's usable item, if it has one.
+--
+-- GetQuestLogSpecialItemInfo is the same source the default quest tracker uses
+-- for its item button, and it needs a LOG INDEX -- so a ledger quest past the
+-- 25-slot wall has no item here. That is a client limitation, not an oversight:
+-- nothing client-side can resolve an item for a quest the client does not know
+-- it has.
+local function RefreshItem(self, target)
+    local button = self.itemButton
+
+    -- Secure frames are locked during combat. Leave whatever is already there
+    -- rather than erroring; the next target change out of combat fixes it.
+    if InCombatLockdown() then
+        return
+    end
+
+    -- Guarded: this API is the quest tracker's own, but a missing global here
+    -- would throw on every target change, and a hard error in an OnUpdate path
+    -- takes the whole addon down with it.
+    local link, texture, charges
+    if target and target.questIndex and type(GetQuestLogSpecialItemInfo) == "function" then
+        link, texture, charges = GetQuestLogSpecialItemInfo(target.questIndex)
+    end
+
+    if not link or not texture then
+        button.itemLink = nil
+        button:SetAttribute("item", nil)
+        button:Hide()
+        return
+    end
+
+    button.itemLink = link
+    button.icon:SetTexture(texture)
+    button.count:SetText((charges and charges > 1) and charges or "")
+    -- The link works as the attribute value and is unambiguous where a plain
+    -- name is not (two items can share a name across item levels).
+    button:SetAttribute("item", link)
+    button:Show()
+end
 
 -- Frame selection for the TomTom-derived arrow art. See LICENSE-arrow.txt --
 -- the textures and this logic come from TomTom via QuestHelper's arrow.lua,
@@ -556,6 +677,9 @@ driver:SetScript("OnUpdate", function(_, elapsed)
         else
             self.title:SetTextColor(1, 0.82, 0)
         end
+
+        RefreshObjective(self, target)
+        RefreshItem(self, target)
 
         local after = route[2]
         self.next:SetText(after and ("next: " .. (after.title or "")) or "")

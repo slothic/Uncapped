@@ -112,6 +112,44 @@ end
 
 -- Zone filter is applied LAST so the sidebar counts reflect the current tab and
 -- search -- otherwise a category would advertise rows the list refuses to show.
+-- Sort keys, in the order the header button cycles through them.
+local SORTS = {
+    { key = "name",  label = "Name" },
+    { key = "area",  label = "Area" },
+    { key = "level", label = "Level" },
+    { key = "id",    label = "ID" },
+}
+
+local function SortValue(q, key)
+    if key == "area" then
+        return tostring(ZoneName(q.zone) or ""):lower()
+    elseif key == "level" then
+        return tonumber(q.level) or 0
+    elseif key == "id" then
+        return tonumber(q.id) or 0
+    end
+    return tostring(q.title or ""):lower()
+end
+
+local function ApplySort(list)
+    local key = view.sort or "name"
+    local desc = view.sortDesc and true or false
+
+    table.sort(list, function(a, b)
+        local va, vb = SortValue(a, key), SortValue(b, key)
+        if va ~= vb then
+            if desc then return va > vb end
+            return va < vb
+        end
+        -- Tiebreak on id, ALWAYS ascending. table.sort is not stable, so equal
+        -- keys would otherwise shuffle between redraws and the list would
+        -- visibly twitch every time the ledger refreshes.
+        return (tonumber(a.id) or 0) < (tonumber(b.id) or 0)
+    end)
+
+    return list
+end
+
 local function Visible(includeZone)
     local out = {}
     for _, id in ipairs(order) do
@@ -122,7 +160,7 @@ local function Visible(includeZone)
             end
         end
     end
-    return out
+    return ApplySort(out)
 end
 
 -- ---------------------------------------------------------------------------
@@ -149,6 +187,7 @@ local function RenderDetail()
         ui.detailBody:SetText("|cff808080Select a quest.|r")
         ui.actionSlot:Hide()
         ui.actionUnslot:Hide()
+        ui.actionPin:Hide()
         return
     end
 
@@ -168,6 +207,9 @@ local function RenderDetail()
         lines[#lines + 1] = "|cff808080No tracked objectives.|r"
     end
     ui.detailBody:SetText(table.concat(lines, "\n"))
+
+    ui.actionPin:Show()
+    ui.actionPin:SetText(q.pinned and "Stop keeping in log" or "Keep in quest log")
 
     -- A COMPLETE quest must stay slotted: turn-in packets are keyed by slot, so
     -- pushing it out of the log would make it unhandinable until put back.
@@ -344,11 +386,57 @@ local function BuildFrame()
         ui.tabs[t.key] = b
     end
 
+    -- sort: one button that cycles the key, and flips direction when you click
+    -- the key it is already on. Cheaper on space than four headers, and the
+    -- label always states the current state rather than implying it.
+    local sortBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    sortBtn:SetWidth(140)
+    sortBtn:SetHeight(24)
+    sortBtn:SetPoint("TOPLEFT", f, "TOPLEFT", 20 + #TABS * 94, -44)
+    ui.sortBtn = sortBtn
+
+    ui.RefreshSort = function()
+        local key = view.sort or "name"
+        local label = key
+        for _, s in ipairs(SORTS) do
+            if s.key == key then label = s.label end
+        end
+        sortBtn:SetText("Sort: " .. label .. (view.sortDesc and " |cff808080v|r" or " |cff808080^|r"))
+    end
+
+    sortBtn:SetScript("OnClick", function(_, button)
+        local key = view.sort or "name"
+        if button == "RightButton" then
+            view.sortDesc = not view.sortDesc
+        else
+            local index = 1
+            for i, s in ipairs(SORTS) do
+                if s.key == key then index = i end
+            end
+            view.sort = SORTS[(index % #SORTS) + 1].key
+        end
+        ui.RefreshSort()
+        ResetScroll()
+        Render()
+    end)
+    sortBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    sortBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine("Sort")
+        GameTooltip:AddLine("Left-click cycles name / area / level / id.", 1, 1, 1)
+        GameTooltip:AddLine("Right-click reverses the order.", 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    sortBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    ui.RefreshSort()
+
     -- search
     local searchBox = CreateFrame("EditBox", "UncappedQuestLedgerSearch", f, "InputBoxTemplate")
     searchBox:SetWidth(220)
     searchBox:SetHeight(20)
-    searchBox:SetPoint("TOPLEFT", f, "TOPLEFT", 420, -46)
+    -- Clear of the sort button, which ends at 20 + #TABS*94 + 140 = 536 with
+    -- four tabs. The frame is 900 wide, so 220 of search still fits comfortably.
+    searchBox:SetPoint("TOPLEFT", f, "TOPLEFT", 552, -46)
     searchBox:SetAutoFocus(false)
     searchBox:SetScript("OnTextChanged", function(self)
         view.search = strtrim((self:GetText() or ""):lower())
@@ -501,6 +589,28 @@ local function BuildFrame()
     ui.actionUnslot:SetScript("OnClick", function()
         if view.selected then Send("QLUNSLOT:" .. view.selected) end
     end)
+
+    -- Pin: opt this quest out of the automatic zone management, so it stays in
+    -- the log wherever you walk. Sits above the slot/unslot button, which share
+    -- one anchor because only one of them is ever shown.
+    ui.actionPin = CreateFrame("Button", nil, detail, "UIPanelButtonTemplate")
+    ui.actionPin:SetWidth(200); ui.actionPin:SetHeight(24)
+    ui.actionPin:SetPoint("BOTTOM", detail, "BOTTOM", 0, 40)
+    ui.actionPin:SetScript("OnClick", function()
+        local q = view.selected and ledger[view.selected]
+        if not q then return end
+        Send("QLPIN:" .. view.selected .. ":" .. (q.pinned and "0" or "1"))
+    end)
+    ui.actionPin:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Keep in quest log")
+        GameTooltip:AddLine(
+            "Your log fills itself with the quests for the zone you are in, and clears "
+            .. "them out when you leave. A kept quest is never removed automatically.",
+            1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    ui.actionPin:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- info panel
     local info = Panel(f)
@@ -687,6 +797,15 @@ local function OnLine(body)
         return
     end
 
+    -- Pinned: this quest is held in the log by the player and is exempt from the
+    -- automatic zone management. Only sent when true, so absence means unpinned.
+    local pinId = body:match("^QLPN:(%d+):1$")
+    if pinId and pending then
+        local q = pending.ledger[tonumber(pinId)]
+        if q then q.pinned = true end
+        return
+    end
+
     -- The objective's TARGET ENTRY: positive is a creature, negative a
     -- gameobject. Feeds the mouseover tooltip, which asks "does this thing count
     -- for anything I am carrying?" -- see UQ.QuestsForTarget below.
@@ -759,6 +878,44 @@ function UQ.HeldQuests()
     local held = {}
     for id in pairs(ledger) do held[id] = true end
     return held, next(ledger) ~= nil
+end
+
+-- The ledger's own objective list for a quest: { label, have, need, done }.
+--
+-- The client's GetQuestLogLeaderBoard can only answer for the 25 quests that
+-- have a log slot, so anything past that -- which is the entire reason the
+-- ledger exists -- had no objective text anywhere in the UI. The server already
+-- sends all of it on QLO, so this is a lookup rather than a query.
+function UQ.QuestObjectives(questID)
+    local out = {}
+    local q = questID and ledger[questID]
+    if not q then return out end
+
+    for _, obj in ipairs(q.objectives or {}) do
+        out[#out + 1] = {
+            label = obj.label, have = obj.have, need = obj.need,
+            done = (obj.have or 0) >= (obj.need or 0),
+        }
+    end
+
+    return out
+end
+
+-- The single objective worth pointing a player at: the first UNFINISHED one.
+-- Returns nil when the quest is done, which the caller reads as "go hand it in".
+function UQ.FirstIncompleteObjective(questID)
+    for _, obj in ipairs(UQ.QuestObjectives(questID)) do
+        if not obj.done then
+            return obj
+        end
+    end
+    return nil
+end
+
+-- Title straight off the ledger, for anywhere holding only a quest id.
+function UQ.QuestTitle(questID)
+    local q = questID and ledger[questID]
+    return q and q.title or nil
 end
 
 -- Every quest this creature/gameobject counts towards, with progress.
