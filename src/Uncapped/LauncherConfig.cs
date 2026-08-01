@@ -13,11 +13,20 @@ public sealed class LauncherConfig
         "https://raw.githubusercontent.com/slothic/Uncapped/main/manifest.json";
 
     /// <summary>
-    /// Outbound-only torrenting by default: no inbound listener, no DHT. This avoids the
-    /// Windows Firewall dialog on first run, at some cost to peer discovery. Flip to true if
-    /// swarm connectivity turns out to be poor and the extra prompt is acceptable.
+    /// Inbound listener + DHT, ON by default.
+    /// 
+    /// This was off to avoid the Windows Firewall dialog on first run, with the trackers
+    /// expected to carry peer discovery on their own. That is not enough for a MAGNET link:
+    /// with DhtEndPoint null there is no DHT at all, so the torrent's metadata can only come
+    /// from the four trackers in the magnet -- and three of those are udp://. A player whose
+    /// network drops outbound UDP has nothing left to resolve the magnet from, and the
+    /// launcher sits on "Fetching torrent details..." forever rather than failing.
+    /// 
+    /// That happened to a real new install (2026-08-02) while the swarm itself was healthy --
+    /// 625 seeders on scrape at the time. A firewall prompt is a far smaller cost than an
+    /// install that cannot start, so the default is flipped. Set it back to false to opt out.
     /// </summary>
-    [JsonPropertyName("torrentAllowInbound")] public bool TorrentAllowInbound { get; set; }
+    [JsonPropertyName("torrentAllowInbound")] public bool TorrentAllowInbound { get; set; } = true;
 
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
