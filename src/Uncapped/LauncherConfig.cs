@@ -28,6 +28,22 @@ public sealed class LauncherConfig
     /// </summary>
     [JsonPropertyName("torrentAllowInbound")] public bool TorrentAllowInbound { get; set; } = true;
 
+    /// <summary>
+    /// Whether the desktop-shortcut question has already been put to the player.
+    ///
+    /// Stored so a "no" stays a no. Asking again on the next install would be the launcher
+    /// ignoring an answer it already has, which is exactly the behaviour that makes people
+    /// distrust installers.
+    /// </summary>
+    [JsonPropertyName("desktopShortcutAsked")] public bool DesktopShortcutAsked { get; set; }
+
+    /// <summary>
+    /// Set once the player has ticked "don't show this again" on the third-party addon
+    /// warning. Without it the warning fires on every launch, and a warning shown every time
+    /// is one nobody reads by the third time.
+    /// </summary>
+    [JsonPropertyName("foreignAddOnWarningDismissed")] public bool ForeignAddOnWarningDismissed { get; set; }
+
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
     public static LauncherConfig Load()
@@ -44,5 +60,17 @@ public sealed class LauncherConfig
         try { File.WriteAllText(AppPaths.ConfigFile, JsonSerializer.Serialize(fresh, Options)); }
         catch { /* read-only install dir is survivable; defaults still apply */ }
         return fresh;
+    }
+
+    /// <summary>
+    /// Persists the config next to the exe. Best effort: the launcher may sit somewhere the
+    /// player cannot write, and losing a remembered preference is not worth failing a launch
+    /// over. The one caller that cares also checks whether the shortcut already exists, so a
+    /// config that will not save degrades to asking again rather than to duplicate shortcuts.
+    /// </summary>
+    public void Save()
+    {
+        try { File.WriteAllText(AppPaths.ConfigFile, JsonSerializer.Serialize(this, Options)); }
+        catch (Exception ex) { Log.Write($"config save: {ex.Message}"); }
     }
 }

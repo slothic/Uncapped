@@ -1,162 +1,94 @@
-using System.Diagnostics;
-
 namespace Uncapped.Services;
 
 /// <summary>
-/// Gives a freshly downloaded client sane display settings: windowed, at the desktop
-/// resolution.
+/// Gives a freshly installed client a working WTF\Config.wtf, without ever starting the game
+/// to get one.
 ///
-/// A newly extracted client has no WTF\Config.wtf at all — the client writes it itself on
-/// first start. So to have a file to edit, we start Wow.exe, wait for Config.wtf to appear,
-/// kill it, and then apply our settings to what it wrote. The player sees the game window
-/// flash open and close once, on first install only.
+/// WHAT THIS USED TO DO, AND WHY IT NO LONGER DOES
 ///
-/// If Wow.exe never produces a Config.wtf (it failed to start, or this build writes the file
-/// only on a clean exit), we write a minimal one ourselves rather than give up — the client
-/// fills in everything else on its next real run.
+/// A newly extracted client has no Config.wtf — the client writes it on first start. So this
+/// used to launch Wow.exe, poll up to 60 seconds for the file to appear, kill the process
+/// tree, wait for it to actually die, and only then edit what it had written. A new player
+/// watched the game flash open and shut before they had touched anything, and the install
+/// could not proceed until we had won a race against a process we started for no other
+/// reason.
+///
+/// There was never anything in that file we could not write ourselves. The client fills in
+/// every other key it wants on its next real run and leaves ours alone, so we write the
+/// handful that matter and skip the whole performance.
+///
+/// THE TERMS SCREENS
+///
+/// readTOS and readEULA are how 3.3.5a records that the terms were dismissed — taken from a
+/// real client that had been through them, not guessed. Pre-setting them means a new player
+/// is not made to click through Blizzard's retail terms of service to reach a private server.
+///
+/// WINDOWED MODE
+///
+/// Shipped here too, rather than only being forced at PLAY. Fullscreen at whatever resolution
+/// the client guesses is how a new player ends up alt-tabbed into a black screen before they
+/// have seen the game once.
+///
+/// Existing settings are never clobbered: ConfigWtf edits line by line, so installing over an
+/// old folder keeps the player's resolution, volumes and account name.
 /// </summary>
 public static class FirstRunConfigurator
 {
-    private static readonly TimeSpan ConfigWaitTimeout = TimeSpan.FromSeconds(60);
-    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
+    public sealed record Result(bool ConfigWritten, string Detail);
 
-    /// <summary>Settle time after the file appears, so we do not read a half-written file.</summary>
-    private static readonly TimeSpan SettleDelay = TimeSpan.FromSeconds(2);
-
-    public sealed record Result(bool ConfigGenerated, bool SettingsApplied, string Detail);
-
-    public static async Task<Result> ConfigureAsync(
+    public static Task<Result> ConfigureAsync(
         string installPath,
         IProgress<string> log,
         CancellationToken ct)
     {
-        var generated = false;
-
-        if (!ConfigWtf.Exists(installPath))
-        {
-            log.Report("Starting the game once to create its settings file…");
-            generated = await GenerateConfigAsync(installPath, log, ct);
-        }
+        ct.ThrowIfCancellationRequested();
 
         var (width, height) = DesktopResolution();
 
         var values = new Dictionary<string, string>
         {
-            ["gxWindow"] = "1",                    // windowed rather than fullscreen
+            // Terms screens, pre-dismissed.
+            ["readTOS"] = "1",
+            ["readEULA"] = "1",
+
+            // Windowed, maximised, at the desktop resolution.
+            ["gxWindow"] = "1",
+            ["gxMaximize"] = "1",
             ["gxResolution"] = $"{width}x{height}",
+
             // Without this the client re-runs hardware detection on next start and can
-            // overwrite the resolution we just set.
+            // overwrite the resolution just set.
             ["hwDetect"] = "0",
+
+            ["locale"] = "enUS",
         };
 
         try
         {
-            // createIfMissing: if the client never wrote a config, a minimal one beats none.
-            var applied = ConfigWtf.Update(installPath, values, createIfMissing: true);
-            var detail = $"windowed at {width}x{height}";
-            log.Report($"Display set to {detail}.");
-            return new Result(generated, applied, detail);
+            var written = ConfigWtf.Update(installPath, values, createIfMissing: true);
+            var detail = $"windowed at {width}x{height}, terms pre-accepted";
+            log.Report($"Game settings written — {detail}.");
+            return Task.FromResult(new Result(written, detail));
         }
         catch (Exception ex)
         {
-            return new Result(generated, false, $"could not write display settings: {ex.Message}");
+            // Never fatal. Worst case the client writes its own config on first run and the
+            // player gets its defaults instead of ours.
+            Log.Write($"first-run config: {ex}");
+            return Task.FromResult(new Result(false, ex.Message));
         }
     }
 
-    private static async Task<bool> GenerateConfigAsync(
-        string installPath, IProgress<string> log, CancellationToken ct)
-    {
-        var exe = ClientExecutable.Find(installPath);
-        if (exe is null) return false;
-
-        Process? process = null;
-        try
-        {
-            process = Process.Start(new ProcessStartInfo
-            {
-                FileName = exe,
-                WorkingDirectory = installPath,
-                // False so this works whether or not the client has been renamed yet.
-                UseShellExecute = false,
-            });
-
-            if (process is null) return false;
-
-            var deadline = DateTime.UtcNow + ConfigWaitTimeout;
-            while (DateTime.UtcNow < deadline)
-            {
-                ct.ThrowIfCancellationRequested();
-
-                if (ConfigWtf.Exists(installPath))
-                {
-                    await Task.Delay(SettleDelay, ct);
-                    return true;
-                }
-
-                // If it exited on its own, there is nothing left to wait for.
-                if (process.HasExited) return ConfigWtf.Exists(installPath);
-
-                await Task.Delay(PollInterval, ct);
-            }
-
-            log.Report("The game did not write its settings file in time; using defaults.");
-            return false;
-        }
-        catch (OperationCanceledException) { throw; }
-        catch (Exception ex)
-        {
-            log.Report($"Could not start the game to generate settings ({ex.Message}).");
-            return false;
-        }
-        finally
-        {
-            // Kill whatever we started, including any child it spawned. The player never
-            // asked for this window and we must not leave it holding the install open —
-            // the sync refuses to run while Wow.exe is alive.
-            try
-            {
-                if (process is not null && !process.HasExited)
-                {
-                    process.Kill(entireProcessTree: true);
-                    process.WaitForExit(10_000);
-                }
-            }
-            catch { /* already gone, or not ours to kill */ }
-            finally { process?.Dispose(); }
-
-            // Belt and braces: Wow.exe can relaunch itself, so make sure nothing from this
-            // install survives before the caller moves on to patching it.
-            await WaitForGameToCloseAsync(installPath);
-        }
-    }
-
-    private static async Task WaitForGameToCloseAsync(string installPath)
-    {
-        for (var i = 0; i < 20 && GameProcess.IsRunning(installPath); i++)
-        {
-            GameProcess.KillAll(installPath);
-            await Task.Delay(500);
-        }
-    }
-
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern int GetSystemMetrics(int index);
-
-    private const int SM_CXSCREEN = 0;
-    private const int SM_CYSCREEN = 1;
-
-    /// <summary>
-    /// Primary monitor size in physical pixels.
-    ///
-    /// Deliberately Win32 rather than WPF's SystemParameters, which reports device-independent
-    /// units — on a scaled display those are smaller than the real resolution and would set
-    /// gxResolution wrong. With the manifest declaring per-monitor DPI awareness these are
-    /// true pixels.
-    /// </summary>
     private static (int Width, int Height) DesktopResolution()
     {
-        var w = GetSystemMetrics(SM_CXSCREEN);
-        var h = GetSystemMetrics(SM_CYSCREEN);
-        return w > 0 && h > 0 ? (w, h) : (1280, 720);
+        try
+        {
+            var w = (int)System.Windows.SystemParameters.PrimaryScreenWidth;
+            var h = (int)System.Windows.SystemParameters.PrimaryScreenHeight;
+            if (w > 0 && h > 0) return (w, h);
+        }
+        catch { /* fall through to a safe default */ }
+
+        return (1280, 720);
     }
 }

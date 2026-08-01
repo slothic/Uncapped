@@ -141,6 +141,66 @@ public partial class MainWindow : Window
         return await DownloadClientAsync(manifest);
     }
 
+    /*
+     * Offer a desktop shortcut, once, after a real install.
+     *
+     * Asked rather than assumed: putting an icon on someone's desktop uninvited is the kind
+     * of thing installers get resented for. The answer is remembered either way, so declining
+     * is not re-asked on every reinstall, and an existing shortcut is left alone.
+     */
+    private void OfferDesktopShortcut()
+    {
+        try
+        {
+            if (_config.DesktopShortcutAsked || DesktopShortcut.Exists()) return;
+
+            _config.DesktopShortcutAsked = true;
+            _config.Save();
+
+            var answer = MessageBox.Show(
+                "Add an Uncapped shortcut to your desktop?",
+                "Desktop shortcut", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+            if (answer != MessageBoxResult.Yes) return;
+
+            if (!DesktopShortcut.Create())
+                MessageBox.Show(
+                    "The shortcut could not be created. You can still start the game from this launcher.",
+                    "Shortcut", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        catch (Exception ex) { Log.Write($"desktop shortcut prompt: {ex}"); }
+    }
+
+    /*
+     * Point out addons that are not ours, once.
+     *
+     * Nothing is disabled or removed. A player who installed something is entitled to keep
+     * it; the value here is purely that when Lua errors start appearing they know which
+     * addons we did not put there and can bisect from a shorter list.
+     */
+    private void WarnAboutForeignAddOns(string installPath, Manifest manifest)
+    {
+        try
+        {
+            if (_config.ForeignAddOnWarningDismissed) return;
+
+            var foreign = ForeignAddOnScanner.Scan(installPath, manifest);
+            if (foreign.Count == 0) return;
+
+            Log.Write($"third-party addons: {string.Join(", ", foreign)}");
+
+            var dialog = new AddOnWarningWindow(foreign) { Owner = this };
+            dialog.ShowDialog();
+
+            if (dialog.DoNotAskAgain)
+            {
+                _config.ForeignAddOnWarningDismissed = true;
+                _config.Save();
+            }
+        }
+        catch (Exception ex) { Log.Write($"third-party addon warning: {ex}"); }
+    }
+
     private string? PickFolder()
     {
         while (true)
@@ -180,7 +240,24 @@ public partial class MainWindow : Window
 
         if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return null;
 
+        /*
+         * Confirm the FULL path before committing to a 17 GB download.
+         *
+         * The picker asks for a parent folder and a "WoW335" subfolder is appended, so what
+         * the player chose and what they get are not the same string. Someone picking their
+         * desktop had no way to know the game was not going to land on their desktop.
+         */
         var target = Path.Combine(dialog.SelectedPath, "WoW335");
+
+        var confirm = MessageBox.Show(
+            "The game will be installed to:" + Environment.NewLine + Environment.NewLine +
+            target + Environment.NewLine + Environment.NewLine +
+            "That needs about 17 GB, plus the same again briefly while it unpacks." +
+            Environment.NewLine + Environment.NewLine +
+            "Continue?",
+            "Confirm install location", MessageBoxButton.OKCancel, MessageBoxImage.Information);
+
+        if (confirm != MessageBoxResult.OK) return null;
 
         try
         {
@@ -218,14 +295,17 @@ public partial class MainWindow : Window
         _state.InstallPath = root;
         _state.Save();
 
-        // First install only: windowed at the desktop resolution, so a new player is not
-        // dropped into a fullscreen mode their monitor may not like.
+        // First install only: windowed at the desktop resolution and the terms screens
+        // pre-dismissed, written straight to Config.wtf. This used to start the game to make
+        // the file exist; it no longer does.
         try
         {
             await FirstRunConfigurator.ConfigureAsync(root, new Progress<string>(SetStatus), _cts.Token);
         }
         catch (OperationCanceledException) { return null; }
-        catch (Exception ex) { Log.Write($"first-run display config: {ex}"); }
+        catch (Exception ex) { Log.Write($"first-run config: {ex}"); }
+
+        OfferDesktopShortcut();
 
         return root;
     }
@@ -323,6 +403,10 @@ public partial class MainWindow : Window
             foreach (var failure in realm.Failed) Log.Write($"realmlist: {failure}");
 
             AddOnsTxtEnforcer.Apply(installPath, manifest.ForceEnableAddOns, manifest.ForceDisableAddOns);
+
+            // After the sync, so the folder is in its final state: warning about an addon we
+            // were about to install ourselves would be nonsense.
+            WarnAboutForeignAddOns(installPath, manifest);
 
             if (manifest.HardenClient)
             {
