@@ -36,6 +36,23 @@
                             Content="&#xE8BB;" ToolTip="Close" Click="OnClose" />
                 </StackPanel>
 
+                <!-- ── Build stamp ─────────────────────────────────────────────────
+                     Bottom left, quiet and out of the way. Worth having on screen: the
+                     first question about any launcher problem is which build it is, and
+                     until now the only way to answer was to dig through launcher.log.
+                     Read from the assembly rather than typed in, so it cannot drift from
+                     the version that was actually shipped. Named LauncherVersionText
+                     because VersionText is already the CLIENT build readout on the right;
+                     two different numbers that are easy to confuse. -->
+                <TextBlock x:Name="LauncherVersionText" FontSize="11"
+                           HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                           Margin="26,0,0,18" Foreground="#8A7F92"
+                           IsHitTestVisible="False">
+                    <TextBlock.Effect>
+                        <DropShadowEffect BlurRadius="10" ShadowDepth="0" Opacity="0.9" Color="#1A0A14" />
+                    </TextBlock.Effect>
+                </TextBlock>
+
                 <!-- ── Wordmark ────────────────────────────────────────────────────
                      Top right, tucked under the window controls: it is branding, not part of
                      the launch flow, and sitting above PLAY it was only pushing the thing

@@ -37,6 +37,10 @@ public partial class MainWindow : Window
 
         InitializeComponent();
 
+        // ToString(3) trims the trailing build field the assembly always carries
+        // (1.7.1.0), so this reads as the version people are actually told about.
+        LauncherVersionText.Text = $"v{AppPaths.CurrentVersion.ToString(3)}";
+
         Loaded += async (_, _) => { RefreshLoginLink(); await RunStartupAsync(); };
         Closing += (_, _) => { _closing = true; _cts.Cancel(); };
     }
