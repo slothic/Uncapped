@@ -173,12 +173,24 @@ if (Test-Path $Archives) {
 # When a routine regen omits the launcher args, keep whatever the current manifest already
 # advertises rather than falling back to the defaults. A publish that forgets -LauncherVersion
 # used to silently downgrade every client's self-update pointer (e.g. 1.4.0 -> 1.0.0).
+#
+# The HASH is not carried over the same way. A stale sha is worse than no sha: paired with a
+# NEW url it points every client at a download it is then guaranteed to reject, so self-update
+# fails for everyone instead of merely going unverified. Inheriting is therefore allowed only
+# while the version and url are ALSO inherited -- the moment a release names a new one, the
+# hash is recomputed from the exe below. (v1.7.0 caught this: -LauncherVersion and
+# -LauncherUrl were passed, -LauncherSha256 was not, and the manifest went out advertising
+# 1.6.0's hash against the 1.7.0 url.)
+$launcherRelease = [bool]$LauncherVersion -or [bool]$LauncherUrl
+
 if ((-not $LauncherVersion -or -not $LauncherUrl -or -not $LauncherSha256) -and (Test-Path $OutFile)) {
     try {
         $prevManifest = Get-Content $OutFile -Raw | ConvertFrom-Json
         if (-not $LauncherVersion -and $prevManifest.launcherVersion) { $LauncherVersion = $prevManifest.launcherVersion }
         if (-not $LauncherUrl     -and $prevManifest.launcherUrl)     { $LauncherUrl     = $prevManifest.launcherUrl }
-        if (-not $LauncherSha256  -and $prevManifest.launcherSha256)  { $LauncherSha256  = $prevManifest.launcherSha256 }
+        if (-not $LauncherSha256 -and -not $launcherRelease -and $prevManifest.launcherSha256) {
+            $LauncherSha256 = $prevManifest.launcherSha256
+        }
     } catch { Write-Warning "Could not read existing manifest to preserve launcher fields." }
 }
 

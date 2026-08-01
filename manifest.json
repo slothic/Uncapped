@@ -1,8 +1,8 @@
 {
     "manifestVersion":  1,
-    "launcherVersion":  "1.6.0",
-    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.6.0/Uncapped.exe",
-    "launcherSha256":  "0d2421e765031e65048619f53c250b2256c60b29fb8d94e50cf58de6eb996e7d",
+    "launcherVersion":  "1.7.0",
+    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.7.0/Uncapped.exe",
+    "launcherSha256":  "96280bdefa9d8d6468374eee11d8add894c88b5a2bd17187c263fa366f32b8fe",
     "realm":  {
                   "name":  "Uncapped",
                   "address":  "152.53.115.249",
@@ -1971,8 +1971,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedQuests/UncappedQuests.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/UncappedQuests.lua",
-                      "sha256":  "a8cbae44ebd39b7012d302ff5970d5ea4ebcd6b8899445d1789c200ee5acc5da",
-                      "size":  44216
+                      "sha256":  "0ab5b284bc3b669020cdec275d1b2237a1d2c389b07d4d60e37b89e3d799cadb",
+                      "size":  44549
                   },
                   {
                       "path":  "Interface/AddOns/UncappedQuests/UncappedQuests.toc",
@@ -1983,8 +1983,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedQuests/UncappedQuestsArrow.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/UncappedQuestsArrow.lua",
-                      "sha256":  "9d4de5ab161e612e405b3514217e43fe81f7343963034b4a417e5e1a856ff796",
-                      "size":  32840
+                      "sha256":  "46b4107e871b24dac76d9a4f2745f9c1890b590a12aef082cc46de80a4fc7161",
+                      "size":  34272
                   },
                   {
                       "path":  "Interface/AddOns/UncappedQuests/UncappedQuestsAvailable.lua",
@@ -1995,8 +1995,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedQuests/UncappedQuestsLedger.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/UncappedQuestsLedger.lua",
-                      "sha256":  "c51b8eef0d8f39014848d880749119211f4c174c662921558a11ebf665b5cb3d",
-                      "size":  42482
+                      "sha256":  "c0f1dcedd5e8dfc9d5d992a4aa8c06a8c5dca032224ca0a84cbde5cd6bfc23d3",
+                      "size":  44167
                   },
                   {
                       "path":  "Interface/AddOns/UncappedRewards/UncappedRewards.lua",
@@ -2055,7 +2055,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "2c636c721629583d828b7e2552476aff50abf414823e9c8c7d559014687d005b",
+                      "sha256":  "061b71ea32bc840fb81e7c2b52b67a4a98b45c15b6e763967a440a31a83485b6",
                       "size":  3593
                   },
                   {

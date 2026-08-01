@@ -582,11 +582,16 @@ local function Update()
         -- What you still have to DO, versus where you hand it in. A turn-in
         -- marker is only useful once the quest is actually finished; before
         -- that it is noise sitting on top of the objectives.
+        --
+        -- objDone is the same rule one objective down: a quest with two item
+        -- objectives in two different places painted BOTH areas even after one
+        -- of them was finished, so the map -- and the arrow reading the same
+        -- pins -- claimed two destinations for one remaining task.
         local show
         if o.isTurnIn then
             show = o.isComplete and db.showTurnIns
         else
-            show = not o.isComplete
+            show = not o.isComplete and not o.objDone
         end
 
         -- An ignored quest is hidden everywhere, not just dropped from the

@@ -222,6 +222,67 @@ if (Test-Path $clientData) {
     Write-Warning "Client data folder not found at $clientData"
 }
 
+# --- 4. Silence unsolicited chat spam in third-party addons. ---
+#
+# Some shipped addons print status chatter into the default chat frame that no
+# player can act on. This strips it AT BUILD TIME rather than filtering it at
+# runtime, for two reasons:
+#
+#   * Astrolabe's burst runs at FILE SCOPE, during addon load -- before any
+#     addon of ours can install a hook, so a runtime filter physically cannot
+#     catch it. That is why the first attempt at this failed.
+#   * These are third-party files. WDM is refreshed from Trimitor's releases by
+#     Update-Upstream.ps1 and the rest are extracted from zips, so editing the
+#     sources by hand is undone by the next -Clean build. Patching here is the
+#     only edit that survives, and it re-applies automatically every time.
+#
+# Each rule is anchored to a specific line so an upstream rewrite fails loudly
+# (zero replacements reported) instead of silently doing nothing.
+$silenceRules = @(
+    @{ File = 'Interface\AddOns\WDM\libs\Astrolabe\Astrolabe.lua'
+       Match = 'ChatFrame1:AddMessage\("Astrolabe is missing data for '
+       Why   = 'Astrolabe login burst, one line per zone with no map data' },
+    @{ File = 'Interface\AddOns\QuestCompletist\Core.lua'
+       Match = 'print\("Crosscheck was not successful\.'
+       Why   = 'QuestCompletist status line, fires on a normal scan' }
+)
+
+Write-Host "`nSilencing third-party chat spam:"
+foreach ($rule in $silenceRules) {
+    $path = Join-Path $PayloadDir $rule.File
+    if (-not (Test-Path $path)) {
+        Write-Warning "  - $($rule.File) not staged; skipping"
+        continue
+    }
+
+    $lines = Get-Content $path
+    $hits = 0
+    $out = foreach ($line in $lines) {
+        if ($line -match $rule.Match) {
+            $hits++
+            # Comment out rather than delete: the line stays readable next to
+            # its own context, so anyone diffing against upstream sees exactly
+            # what was removed and why.
+            '--[[ silenced by Build-Payload: ' + $rule.Why + ' ]] --' + $line
+        } else {
+            $line
+        }
+    }
+
+    if ($hits -gt 0) {
+        # WriteAllLines with an explicit BOM-less encoding, NOT Set-Content
+        # -Encoding UTF8: on PowerShell 5.1 that writes a UTF-8 BOM, and WoW's
+        # Lua 5.1 does not skip one -- the file dies at line 1 with
+        # "unexpected symbol near '<\239>'". Silencing one chat line by breaking
+        # the entire addon is not an improvement, and it fails silently in the
+        # payload where nothing parses Lua.
+        [System.IO.File]::WriteAllLines($path, $out, (New-Object System.Text.UTF8Encoding $false))
+        Write-Host "  + $($rule.File)  ($hits line(s))" -ForegroundColor Green
+    } else {
+        Write-Warning "  ! $($rule.File): pattern no longer matches -- upstream changed, rule needs updating"
+    }
+}
+
 $count = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
 $bytes = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object -Sum Length).Sum
 

@@ -3,7 +3,12 @@ namespace Uncapped.Services;
 /// <summary>
 /// Clears Cache\WDB. The client caches server-sent item/creature/quest data there and will
 /// happily keep serving stale entries after a data change, which reads to players as a
-/// server bug. Cheap to do, so we do it after every sync that touched anything.
+/// server bug.
+///
+/// The cache is keyed by entry id and is NOT namespaced per realm, so it is shared with every
+/// other server the player connects to using this client — their item 900400 silently becomes
+/// ours. That is why the caller clears it on every launch rather than only when our own payload
+/// changed: the contaminating case never touches our payload at all.
 /// </summary>
 public static class WdbCleaner
 {

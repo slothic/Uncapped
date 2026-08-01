@@ -947,11 +947,40 @@ function UQ.QuestsForTarget(entry)
     return out
 end
 
+-- Which of a quest's objectives are already finished, keyed the way the POI
+-- data keys them.
+--
+-- These are two different index spaces and they only agree by accident. Our own
+-- objective index is the RAW TEMPLATE SLOT -- 0-3 for kill/interact objectives
+-- and 4-9 for item objectives, which is how the server sends them. A POI's
+-- ObjectiveIndex is a position in the quest log's objective LIST, which is
+-- compacted: empty slots are skipped and what remains is numbered from zero,
+-- kills first and then items.
+--
+-- "Heroes of Darrowshire" is the worked example: two item objectives, so our
+-- slots are 4 and 5 while the POIs are 0 and 1. Matching those raw would have
+-- found nothing and kept painting both areas -- which is the bug this exists to
+-- fix. Sorting by slot and taking the ordinal converts one space to the other.
+local function ObjectivesDoneByPoiIndex(q)
+    local sorted = {}
+    for _, obj in ipairs(q.objectives or {}) do
+        sorted[#sorted + 1] = obj
+    end
+    table.sort(sorted, function(a, b) return (a.index or 0) < (b.index or 0) end)
+
+    local done = {}
+    for ord, obj in ipairs(sorted) do
+        done[ord - 1] = (obj.need or 0) > 0 and (obj.have or 0) >= obj.need
+    end
+    return done
+end
+
 function UQ.LedgerPins()
     local out = {}
     for _, id in ipairs(order) do
         local q = ledger[id]
         if q then
+            local objDone = ObjectivesDoneByPoiIndex(q)
             for _, p in ipairs(q.poi) do
                 local mapID, mx, my = UQ.MapPos(p.area, p.wx, p.wy)
                 -- ObjectiveIndex -1 is the TURN-IN location, not something to
@@ -960,12 +989,18 @@ function UQ.LedgerPins()
                 -- hand-in markers.
                 local isTurnIn = (p.index or 0) < 0
 
+                -- Already done? Then this area is finished with, even though the
+                -- quest as a whole is not. An unknown index stays visible: a POI
+                -- we cannot match is far better shown than silently dropped.
+                local objDoneHere = (not isTurnIn) and (objDone[p.index or 0] == true) or false
+
                 if mapID and mx and mx >= 0 and mx <= 1 and my >= 0 and my <= 1 then
                     out[#out + 1] = {
                         questID = q.id, title = q.title, isComplete = q.complete,
                         slotted = q.slotted, dbcArea = p.area, map = mapID,
                         x = mx, y = my, wx = p.wx, wy = p.wy,
                         objIndex = p.index, isTurnIn = isTurnIn,
+                        objDone = objDoneHere,
                         -- Yards, per axis. Converted to map pixels at draw time,
                         -- since that depends on the zone's world size and the
                         -- current size of the map frame.

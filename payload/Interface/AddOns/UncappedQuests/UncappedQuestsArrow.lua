@@ -190,11 +190,15 @@ local function BuildRoute(player)
         -- nearest -- node the quest had. It also routed you back to the
         -- objective area of quests you had ALREADY completed, the same bug
         -- mirrored.
+        --
+        -- objDone carries the same idea per OBJECTIVE rather than per quest: an
+        -- area whose objective is already filled is not somewhere to be sent,
+        -- even while the quest itself is unfinished.
         local wanted
         if o.isTurnIn then
             wanted = o.isComplete
         else
-            wanted = not o.isComplete
+            wanted = not o.isComplete and not o.objDone
         end
 
         if wanted and o.map == player.map and not UQ.IsIgnored(o.questID) then
@@ -592,6 +596,44 @@ local function ApplyLayout()
     arrow:SetPoint(p[1], UIParent, p[3], p[4], p[5])
 end
 
+-- Switch between the two sprite sheets ATOMICALLY.
+--
+-- The arrow is drawn by windowing a sheet with SetTexCoord, so the texture, the
+-- cell geometry and the frame's own size are three halves of one thing: window a
+-- 53x70 sheet into a 56x42 frame and you get a stretched arrow with a slice of
+-- the neighbouring cell hanging off it, which is exactly what a player caught on
+-- screen.
+--
+-- This used to be three separate calls guarded by a self.arriving flag that was
+-- set FIRST, which makes a half-applied swap reachable: anything that stops the
+-- handler partway -- and it calls into routing, the ledger and Blizzard's quest
+-- API -- leaves the flag claiming the swap happened when only part of it did,
+-- and the guard then reads as done so nothing ever retries. That is a stuck
+-- state until reload, and it is the only way the two can disagree.
+--
+-- Which of those paths actually bit is not established; closing the window is
+-- cheaper than proving it.
+--
+-- So: one function, size and texture together, and the marker written LAST, only
+-- once everything it stands for has actually been applied. Re-entering with the
+-- sheet already set costs one string compare.
+local SHEETS = {
+    heading = { texture = ARROW_TEXTURE,      w = ARROW_W, h = ARROW_H },
+    down    = { texture = ARROW_DOWN_TEXTURE, w = DOWN_W,  h = DOWN_H },
+}
+
+local function UseSheet(frame, which)
+    if frame.uqSheet == which then return end
+
+    local sheet = SHEETS[which]
+    if not sheet then return end
+
+    frame.tex:SetTexture(sheet.texture)
+    frame:SetWidth(sheet.w)
+    frame:SetHeight(sheet.h)
+    frame.uqSheet = which
+end
+
 -- The ticker CANNOT live on the arrow itself: OnUpdate does not fire on a hidden
 -- frame, and the arrow starts hidden, so it would sit there forever waiting for
 -- the handler that was supposed to show it.
@@ -640,21 +682,11 @@ driver:SetScript("OnUpdate", function(_, elapsed)
 
     if dist <= ARRIVE_YARDS then
         -- Arrived: swap to the animated down-arrow, held green.
-        if not self.arriving then
-            self.arriving = true
-            self.tex:SetTexture(ARROW_DOWN_TEXTURE)
-            self.tex:SetVertexColor(0, 1, 0)
-            -- The two sheets have different cell shapes (56x42 vs 53x70), so
-            -- the frame has to change with them or the art distorts.
-            self:SetWidth(53); self:SetHeight(70)
-        end
+        UseSheet(self, "down")
+        self.tex:SetVertexColor(0, 1, 0)
         UQ.SetArrowArriving(self.tex)
     else
-        if self.arriving then
-            self.arriving = false
-            self.tex:SetTexture(ARROW_TEXTURE)
-            self:SetWidth(56); self:SetHeight(42)
-        end
+        UseSheet(self, "heading")
 
         local angle = UQ.Bearing(dx, dy)
         UQ.SetArrowHeading(self.tex, angle)

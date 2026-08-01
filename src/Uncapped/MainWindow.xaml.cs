@@ -332,9 +332,14 @@ public partial class MainWindow : Window
                 if (laa.Changed) Log.Write($"large address aware: {laa.Detail}");
             }
 
-            // Only worth clearing when something actually changed — it costs the player a slower
-            // first login while the client refetches.
-            if (outcome.ChangedAnything) WdbCleaner.Clear(installPath);
+            // Unconditional, NOT gated on outcome.ChangedAnything. WDB is keyed by entry id and
+            // is not namespaced per realm, so a player who also plays elsewhere brings that
+            // server's item/creature/quest data back with them — and none of that changes our
+            // payload, so a "did our sync touch anything" gate never fires for the case that
+            // actually causes stale entries. Refetching is spread over play as entries are
+            // encountered, not a burst at login, so clearing every time is worth it.
+            var wdbCleared = WdbCleaner.Clear(installPath);
+            if (wdbCleared > 0) Log.Write($"wdb: cleared {wdbCleared} cached file(s)");
 
             // Re-read what landed on disk — this is the version the player is now actually
             // running. Off disk rather than over the network: the sync just verified every one

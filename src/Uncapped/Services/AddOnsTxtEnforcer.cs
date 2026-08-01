@@ -80,9 +80,19 @@ public static class AddOnsTxtEnforcer
                 break;
             }
 
-            // Only add a missing line when enabling. A disable entry for an addon the client
-            // has not listed yet is noise.
-            if (!found && shouldEnable)
+            // Add the line whether we are enabling or disabling.
+            //
+            // Disabling used to skip this, on the theory that an entry for an addon the
+            // client had not listed was noise. It is the opposite: the client treats an
+            // ABSENT addon as ENABLED, so skipping the write left every retired addon
+            // running. !Astrolabe was the case that proved it — retired from the payload,
+            // named in forceDisableAddOns, still on disk, still absent from AddOns.txt, and
+            // therefore still loading and still printing its "missing data for <zone>" burst
+            // at file scope, which loads before any addon of ours can filter chat.
+            //
+            // Nothing stale gets written: `present` above already narrows the disable list
+            // to addons whose folder actually exists in Interface\AddOns.
+            if (!found)
             {
                 lines.Add($"{name}: {state}");
                 changed = true;
