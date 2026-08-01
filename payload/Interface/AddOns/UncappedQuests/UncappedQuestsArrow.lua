@@ -178,12 +178,33 @@ local function BuildRoute(player)
     -- server already sends world coordinates, so there is no conversion here at
     -- all -- and no second coordinate space to get wrong.
     for _, o in ipairs(UQ.LedgerPins and UQ.LedgerPins() or {}) do
-        if o.map == player.map then
+        -- What you still have to DO, versus where you hand it in -- the same
+        -- rule the map pins have always applied, which this had never mirrored.
+        --
+        -- Without it the route included the TURN-IN location (ObjectiveIndex -1,
+        -- i.e. the questgiver) for quests that are not finished, so the arrow
+        -- sent you back to the NPC you took the quest from. Item-drop quests
+        -- showed it worst: Blizzard's data often records no objective polygon
+        -- for "collect N of X off mobs", while the turn-in POI is always
+        -- present, so the questgiver was frequently the only -- and therefore
+        -- nearest -- node the quest had. It also routed you back to the
+        -- objective area of quests you had ALREADY completed, the same bug
+        -- mirrored.
+        local wanted
+        if o.isTurnIn then
+            wanted = o.isComplete
+        else
+            wanted = not o.isComplete
+        end
+
+        if wanted and o.map == player.map and not UQ.IsIgnored(o.questID) then
             pending[#pending + 1] = {
                 map = o.map, wx = o.wx, wy = o.wy,
+                questID    = o.questID,
                 questIndex = UQ.QuestLogIndex and UQ.QuestLogIndex(o.questID) or nil,
                 title      = o.title,
                 isComplete = o.isComplete,
+                isTurnIn   = o.isTurnIn,
             }
         end
     end
@@ -244,7 +265,24 @@ local function BuildRoute(player)
         end
     end
 
-    return ordered
+    -- "Not right now" beats distance. Deferred quests keep the optimised order
+    -- the solver just worked out among themselves, but all of them sit behind
+    -- everything else. Applied AFTER routing rather than by dropping them from
+    -- `pending`, so a route made entirely of deferred objectives is still
+    -- sensibly ordered instead of arbitrary.
+    local keep, defer = {}, {}
+    for _, o in ipairs(ordered) do
+        if UQ.IsDeferred(o.questID) then
+            defer[#defer + 1] = o
+        else
+            keep[#keep + 1] = o
+        end
+    end
+    for _, o in ipairs(defer) do
+        keep[#keep + 1] = o
+    end
+
+    return keep
 end
 
 -- ---------------------------------------------------------------------------
@@ -362,7 +400,11 @@ arrow:SetScript("OnEnter", function(self)
         end
     end
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("|cff808080Left-click selects the quest. Right-click sends it to the back.|r")
+    if target and UQ.IsDeferred(target.questID) then
+        GameTooltip:AddLine("|cff808080Left-click selects the quest. Right-click restores it to its normal place.|r")
+    else
+        GameTooltip:AddLine("|cff808080Left-click selects the quest. Right-click sends it to the back (right-click again to undo).|r")
+    end
     GameTooltip:Show()
 end)
 arrow:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -381,15 +423,42 @@ arrow:SetScript("OnClick", function(self, button)
     if button == "RightButton" then
         -- Push this objective to the back of the route rather than dropping it,
         -- so "not right now" does not mean "never".
-        for i, o in ipairs(route) do
-            if o == target then
-                table.remove(route, i)
-                route[#route + 1] = o
-                break
-            end
+        --
+        -- This used to reorder the `route` array in place, which looked right
+        -- for about two seconds and then undid itself: the ticker below rebuilds
+        -- the whole route from scratch every ROUTE_INTERVAL, sorted by travel
+        -- distance, so the demoted objective was immediately promoted back to
+        -- the front. The decision has to be recorded somewhere BuildRoute reads,
+        -- which is what UQ.SetDeferred does -- and being in SavedVariables it now
+        -- also survives a relog.
+        --
+        -- Toggling, not one-way: right-clicking the same quest again brings it
+        -- back, otherwise there is no way to undo a misclick short of the
+        -- settings page.
+        local nowDeferred = UQ.ToggleDeferred(target.questID)
+        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r "
+            .. (target.title or "That quest")
+            .. (nowDeferred and " sent to the back of your route." or " restored to its normal place."))
+        -- Re-route immediately so the arrow visibly moves on the click instead
+        -- of waiting out the rest of the tick interval.
+        local player = PlayerNode()
+        if player then
+            route = BuildRoute(player) or route
         end
         target = route[1]
     else
+        -- A ledger quest has no client log index at all -- that is the entire
+        -- reason the ledger exists -- so questIndex is legitimately nil for any
+        -- quest past the client's 25 slots. Passing nil straight to
+        -- SelectQuestLogEntry throws "Usage: SelectQuestLogEntry(index)", which
+        -- is what players were seeing on left-click. The map pin has always
+        -- guarded this; the arrow never did. Same fallback: send them to the
+        -- one window that CAN show the quest.
+        if not target.questIndex then
+            if UQ.ToggleLedger then UQ.ToggleLedger() end
+            return
+        end
+
         SelectQuestLogEntry(target.questIndex)
         if QuestLog_Update then QuestLog_Update() end
     end

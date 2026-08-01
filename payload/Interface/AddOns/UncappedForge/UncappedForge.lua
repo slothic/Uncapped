@@ -339,18 +339,50 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
     elseif body:find("^FRGMAT:") then
         local spellId = tonumber(body:match("^FRGMAT:(%d+):"))
         if spellId then
-            -- REPLACE, never append. A recipe has at most 8 reagents at ~20
-            -- bytes a row, so the whole set always arrives in one message -- and
-            -- this is re-requested after every craft, so accumulating into a
-            -- staged list would double the reagent rows each time round.
-            local list = {}
+            -- UPSERT BY ITEM ID, not replace, and not blind append.
+            --
+            -- This used to replace the whole list on every message, on the stated
+            -- assumption that "a recipe has at most 8 reagents at ~20 bytes a row,
+            -- so the whole set always arrives in one message". That estimate was
+            -- wrong by a factor of three: a row is `id,per,have,ICON,NAME;` and
+            -- carries the icon ("INV_Misc_Gem_Opal_01") and the item name inline,
+            -- so it runs 45-70 bytes. Five reagents exceed the 255-byte addon
+            -- message limit, the server's Chunker splits them over two messages,
+            -- and replacing meant every chunk but the LAST was silently discarded.
+            --
+            -- Consequences, both reported in-game: the material panel only listed
+            -- the tail of the reagent set, hiding the ones the player had none of;
+            -- and MaxCraftable took its minimum over that partial set, so Bronze
+            -- Band of Force showed 254 craftable (509 Shadowgem / 2) while the
+            -- server -- which plans against the REAL reagent list -- refused with
+            -- "missing materials you cannot purchase", those being the Malachite
+            -- and Bronze Setting the window never showed.
+            --
+            -- Keying on item id keeps the original no-doubling property that
+            -- motivated the replace: this is re-requested after every craft, and
+            -- re-sent rows overwrite their own key instead of piling up.
+            local list = mats[spellId] or {}
+            local byItem = {}
+            for i, mat in ipairs(list) do
+                byItem[mat.item] = i
+            end
+
             -- The NAME is last and parsed as "everything up to the ;", so an item
             -- name containing a comma cannot shift the fields after it.
             for item, per, have, icon, name in body:gmatch("(%d+),(%d+),(%d+),([^,]*),([^;]*);") do
-                list[#list + 1] = { item = tonumber(item), per = tonumber(per), have = tonumber(have),
+                local row = { item = tonumber(item), per = tonumber(per), have = tonumber(have),
                     icon = (icon ~= "" and ("Interface\\Icons\\" .. icon)) or nil,
                     name = (name ~= "" and name) or nil }
+
+                local at = byItem[row.item]
+                if at then
+                    list[at] = row              -- refreshed count for a reagent we already had
+                else
+                    list[#list + 1] = row
+                    byItem[row.item] = #list
+                end
             end
+
             mats[spellId] = list
             if spellId == selectedSpell then
                 ApplyFilter()   -- fresher counts can change the craftable filter

@@ -538,12 +538,108 @@ end
 
 local pending = nil
 
+-- ---------------------------------------------------------------------------
+-- "Quest complete" toast
+--
+-- A ledger quest has no client log entry, so NONE of Blizzard's completion
+-- feedback fires for it: no sound, no objective-tracker flash, nothing. You
+-- gathered the last item and the game said absolutely nothing. This is that
+-- missing beat, and nothing more -- it is deliberately not a StaticPopup,
+-- because a modal box you have to dismiss every time a quest ticks over is
+-- worse than silence.
+--
+-- The arrow moving on to the next thing is handled separately, and already
+-- works: BuildRoute drops a completed quest's OBJECTIVE pins and picks up its
+-- TURN-IN pin instead, so the next re-route naturally points at the hand-in.
+-- ---------------------------------------------------------------------------
+local announced = {}          -- [questId] = true once its completion was shown
+local toast
+
+local function ShowCompleteToast(title)
+    if not toast then
+        toast = CreateFrame("Frame", "UncappedQuestCompleteToast", UIParent)
+        toast:SetWidth(340)
+        toast:SetHeight(52)
+        toast:SetPoint("TOP", UIParent, "TOP", 0, -150)
+        toast:SetFrameStrata("HIGH")
+        toast:Hide()
+
+        toast.head = toast:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        toast.head:SetPoint("TOP", toast, "TOP", 0, 0)
+        toast.head:SetText("|cffffd100Quest Complete|r")
+
+        toast.body = toast:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        toast.body:SetPoint("TOP", toast.head, "BOTTOM", 0, -6)
+        toast.body:SetWidth(330)
+        toast.body:SetJustifyH("CENTER")
+
+        toast.left = 0
+        toast:SetScript("OnUpdate", function(self, elapsed)
+            self.left = self.left - elapsed
+            if self.left <= 0 then
+                self:Hide()
+            elseif self.left < 1 then
+                self:SetAlpha(self.left)   -- fade rather than vanish
+            end
+        end)
+    end
+
+    toast.body:SetText(title or "")
+    toast:SetAlpha(1)
+    toast.left = 4
+    toast:Show()
+
+    PlaySound("QUESTCOMPLETED")
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Quest complete: |cffffffff" .. (title or "?") .. "|r")
+end
+
+-- Diff the freshly-swapped ledger against what we have already announced.
+-- Driven off the burst rather than off each objective line: counts arrive one
+-- QLO at a time, and firing on those would announce a quest the moment its
+-- FIRST objective filled.
+local function AnnounceNewlyComplete()
+    for questId, q in pairs(ledger) do
+        if q.complete then
+            if not announced[questId] then
+                announced[questId] = true
+                ShowCompleteToast(q.title)
+            end
+        else
+            -- Turned in, or progress lost (an item sold, a quest abandoned and
+            -- retaken). Either way it may legitimately complete again.
+            announced[questId] = nil
+        end
+    end
+
+    -- Drop quests that have left the ledger entirely, so the table cannot grow
+    -- for the whole session.
+    for questId in pairs(announced) do
+        if not ledger[questId] then
+            announced[questId] = nil
+        end
+    end
+end
+
+-- The FIRST burst after login is the baseline, not news: everything already
+-- complete when you logged in would otherwise toast all at once.
+local seenFirstBurst = false
+
 local function OnLine(body)
     if body == "QLE" then
         if pending then
             ledger, order, counts = pending.ledger, pending.order, pending.counts
             pending = nil
         end
+
+        if seenFirstBurst then
+            AnnounceNewlyComplete()
+        else
+            seenFirstBurst = true
+            for questId, q in pairs(ledger) do
+                if q.complete then announced[questId] = true end
+            end
+        end
+
         Render()
         -- Pins and arrow read this too, so a fresh burst has to redraw them
         -- even when the ledger window itself is closed.
@@ -587,6 +683,19 @@ local function OnLine(body)
                 index = tonumber(idx), have = tonumber(have),
                 need = tonumber(need), label = label,
             }
+        end
+        return
+    end
+
+    -- The objective's TARGET ENTRY: positive is a creature, negative a
+    -- gameobject. Feeds the mouseover tooltip, which asks "does this thing count
+    -- for anything I am carrying?" -- see UQ.QuestsForTarget below.
+    local rid, ridx, rentry = body:match("^QLR:(%d+):(%d+):(%-?%d+)$")
+    if rid and pending then
+        local q = pending.ledger[tonumber(rid)]
+        if q then
+            q.targets = q.targets or {}
+            q.targets[tonumber(ridx)] = tonumber(rentry)
         end
         return
     end
@@ -650,6 +759,35 @@ function UQ.HeldQuests()
     local held = {}
     for id in pairs(ledger) do held[id] = true end
     return held, next(ledger) ~= nil
+end
+
+-- Every quest this creature/gameobject counts towards, with progress.
+-- `entry` is positive for a creature, negative for a gameobject, matching how
+-- the DB stores RequiredNpcOrGo and what QLR sends.
+--
+-- Only INCOMPLETE objectives are returned: once you have your 10/10 the mob has
+-- stopped being interesting, and saying otherwise sends people to kill things
+-- they do not need.
+function UQ.QuestsForTarget(entry)
+    local out = {}
+    if not entry then return out end
+
+    for _, id in ipairs(order) do
+        local q = ledger[id]
+        if q and q.targets then
+            for idx, want in pairs(q.targets) do
+                if want == entry then
+                    for _, obj in ipairs(q.objectives) do
+                        if obj.index == idx and obj.have < obj.need then
+                            out[#out + 1] = { title = q.title, have = obj.have, need = obj.need }
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return out
 end
 
 function UQ.LedgerPins()

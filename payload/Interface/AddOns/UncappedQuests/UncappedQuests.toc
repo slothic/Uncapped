@@ -7,6 +7,7 @@
 ## OptionalDeps: WDM, UncappedOptions
 
 UncappedQuestGivers.lua
+UncappedQuestGiverTeams.lua
 UncappedQuests.lua
 UncappedQuestsArrow.lua
 UncappedQuestsAvailable.lua

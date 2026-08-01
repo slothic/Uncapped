@@ -35,6 +35,83 @@ local ADDON = "UncappedQuests"
 UncappedQuests = UncappedQuests or {}
 local UQ = UncappedQuests
 
+-- ---------------------------------------------------------------------------
+-- Per-quest player overrides
+--
+-- Two decisions a player can make about a single quest, shared by all four
+-- files (map pins, arrow, available-quest pins, ledger):
+--
+--   deferred   "not right now" -- keep it, but sort it to the BACK of the
+--              arrow's route instead of letting distance decide.
+--   ignored    "stop showing me this" -- drop it from the pins and the route
+--              entirely.
+--
+-- These live on the addon table rather than in any one file's locals because
+-- all of them need the same answer, and in SavedVariables because the whole
+-- complaint about the old right-click send-to-back was that it did NOT
+-- survive -- BuildRoute re-ran every 2 seconds and threw the decision away.
+--
+-- Read straight out of UncappedQuestsDB rather than a captured `db` local:
+-- these are callable before this file's ADDON_LOADED has run, and a nil-guard
+-- is cheaper than depending on file load order.
+-- ---------------------------------------------------------------------------
+
+local function OverrideSet(key)
+    local s = UncappedQuestsDB
+    if not s then return nil end
+    s[key] = s[key] or {}
+    return s[key]
+end
+
+function UQ.IsDeferred(questID)
+    local t = questID and OverrideSet("deferredQuests")
+    return (t and t[questID]) and true or false
+end
+
+function UQ.SetDeferred(questID, on)
+    local t = questID and OverrideSet("deferredQuests")
+    if t then t[questID] = on and true or nil end
+end
+
+function UQ.ToggleDeferred(questID)
+    local on = not UQ.IsDeferred(questID)
+    UQ.SetDeferred(questID, on)
+    return on
+end
+
+function UQ.IsIgnored(questID)
+    local t = questID and OverrideSet("ignoredQuests")
+    return (t and t[questID]) and true or false
+end
+
+function UQ.SetIgnored(questID, on)
+    local t = questID and OverrideSet("ignoredQuests")
+    if t then t[questID] = on and true or nil end
+end
+
+function UQ.ToggleIgnored(questID)
+    local on = not UQ.IsIgnored(questID)
+    UQ.SetIgnored(questID, on)
+    return on
+end
+
+-- Count + clear, for the settings page: an override a player cannot find again
+-- is a trap, so both sets need a visible escape hatch.
+function UQ.CountOverrides()
+    local d, i = 0, 0
+    local s = UncappedQuestsDB
+    if s then
+        for _ in pairs(s.deferredQuests or {}) do d = d + 1 end
+        for _ in pairs(s.ignoredQuests or {}) do i = i + 1 end
+    end
+    return d, i
+end
+
+function UQ.ClearOverrides()
+    local s = UncappedQuestsDB
+    if s then s.deferredQuests, s.ignoredQuests = {}, {} end
+end
+
 -- Pins are NOT bound by the client's 25 quest slots -- that is the whole point
 -- of the ledger, and a quest can contribute several objective locations besides.
 -- This is purely a sanity ceiling on how many frames one map may draw.
@@ -436,6 +513,12 @@ local function Update()
             show = not o.isComplete
         end
 
+        -- An ignored quest is hidden everywhere, not just dropped from the
+        -- route -- "stop showing me this" has to mean the map too.
+        if UQ.IsIgnored(o.questID) then
+            show = false
+        end
+
         if show and o.dbcArea == currentMap then
             used = used + 1
             local pin = pins[used] or CreatePin(used)
@@ -792,6 +875,32 @@ if UncappedUI then
     L:Gap(6)
     L:Note("|cff808080Objective locations come from the realm itself, so custom quests are "
         .. "included automatically. A quest with no pin has no objective location recorded.|r", 40)
+
+    L:Gap(6)
+    L:Header("Quests you have set aside")
+    L:Note("Right-clicking the objective arrow sends a quest to the back of your route; "
+        .. "right-clicking the teal 'Pick up' arrow ignores a quest entirely. Both stick "
+        .. "until you undo them, so this is where you get them back.", 40)
+
+    -- The only way back for someone who ignored a quest and then forgot which:
+    -- an ignored quest is invisible everywhere by design, so without this button
+    -- there is no route to undoing it at all.
+    local clearBtn
+    clearBtn = L:Button("Clear all", function()
+        UQ.ClearOverrides()
+        Update()
+        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Cleared every set-aside and ignored quest.")
+        if clearBtn and clearBtn.uncappedRefresh then clearBtn.uncappedRefresh() end
+    end, 280)
+
+    -- Label carries the counts, so the page says whether there is anything to
+    -- clear rather than making it a guess.
+    clearBtn.uncappedRefresh = function()
+        local deferred, ignored = UQ.CountOverrides()
+        clearBtn:SetText(string.format("Clear all (%d set aside, %d ignored)", deferred, ignored))
+    end
+    clearBtn.uncappedRefresh()
+    panelRefreshers[#panelRefreshers + 1] = clearBtn.uncappedRefresh
 end
 
 SLASH_UNCAPPEDQUESTS1 = "/uquests"
@@ -803,3 +912,60 @@ SlashCmdList["UNCAPPEDQUESTS"] = function()
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[Uncapped Quests]|r map pins "
         .. (db.enabled and "on" or "off"))
 end
+
+-- ===========================================================================
+-- Mouseover tooltip: "this counts for something you are carrying"
+--
+-- The client's own tooltip says nothing about quests, and for a LEDGER quest it
+-- could not: those have no log entry for it to read. The ledger already knows
+-- every objective and, since QLR, every objective's target entry -- so the
+-- answer is a lookup rather than anything expensive.
+--
+-- Only incomplete objectives are shown (see UQ.QuestsForTarget): a mob you have
+-- already finished with is not news.
+-- ===========================================================================
+
+-- Creature entry out of a 3.3.5 GUID string.
+--
+-- Layout is "0x" + 4 hex high + 6 hex entry + 6 hex counter. Note the 6, not 4:
+-- the widespread `sub(9, 12)` snippet reads only 16 bits of the entry, which is
+-- fine for stock creatures but silently truncates this realm's custom entries
+-- above 65535.
+--
+-- Only unit-shaped GUIDs carry an entry worth matching: F13 creature,
+-- F15 vehicle. Players (0x0), items and corpses have none.
+local function EntryFromGuid(guid)
+    if not guid or #guid < 18 then return nil end
+
+    local high = guid:sub(3, 5)
+    if high ~= "F13" and high ~= "F15" then return nil end
+
+    return tonumber(guid:sub(7, 12), 16)
+end
+
+local function AddQuestLines(tooltip, unit)
+    if not db or not db.enabled or not UQ.QuestsForTarget then return end
+
+    local entry = EntryFromGuid(UnitGUID(unit))
+    if not entry then return end
+
+    local hits = UQ.QuestsForTarget(entry)
+    if #hits == 0 then return end
+
+    tooltip:AddLine(" ")
+    for _, hit in ipairs(hits) do
+        -- Title in quest-log gold, progress dimmed behind it -- the same reading
+        -- order the objective tracker uses.
+        tooltip:AddDoubleLine(
+            "|cffffd100" .. (hit.title or "?") .. "|r",
+            string.format("|cff808080%d/%d|r", hit.have, hit.need))
+    end
+    tooltip:Show()   -- re-layout: lines added after the tooltip is up are clipped otherwise
+end
+
+GameTooltip:HookScript("OnTooltipSetUnit", function(self)
+    local _, unit = self:GetUnit()
+    if unit then
+        AddQuestLines(self, unit)
+    end
+end)

@@ -71,6 +71,27 @@ local function PlayerRaceMask()
     return RACE_BIT[token or ""] or 0
 end
 
+-- 1 = Alliance, 2 = Horde, matching UncappedQuestGiverTeams.
+local function PlayerTeam()
+    return UnitFactionGroup("player") == "Horde" and 2 or 1
+end
+
+-- Can this player actually walk up to the quest's giver and take it?
+--
+-- The race mask alone CANNOT answer this. Plenty of quests carry
+-- AllowableRaces = 0 ("any race") while being offered by a faction-locked NPC,
+-- so the mask waves them through: reported in-game as being offered "Proving
+-- Grounds" from Warmaster Laggrond and "Valik" from Henchman Valik, both Horde
+-- NPCs, on an Alliance character. 459 quests realm-wide are in that shape.
+--
+-- UncappedQuestGiverTeams lists exactly those, resolved from the giver's
+-- FactionTemplate factionGroup at generation time. A quest absent from it is
+-- either race-gated already or genuinely neutral, so it passes.
+local function GiverReachable(questId)
+    local team = UncappedQuestGiverTeams and UncappedQuestGiverTeams[questId]
+    return (not team) or team == PlayerTeam()
+end
+
 -- Quests already in the log are not "available" even though they are not
 -- completed either.
 local function QuestsInLog()
@@ -196,7 +217,8 @@ local function BuildEligible(mapID)
            and (not completed[r.qid]) and (not inLog[r.qid])
            and level >= minLevel
            and (questLevel <= 0 or questLevel <= maxLevel)
-           and (races == 0 or raceMask == 0 or bit.band(races, raceMask) ~= 0) then
+           and (races == 0 or raceMask == 0 or bit.band(races, raceMask) ~= 0)
+           and GiverReachable(r.qid) then
             candidates[#candidates + 1] = r.qid
         end
     end
@@ -281,8 +303,13 @@ local function Scan(player)
 
     local bestD, best
     for _, cand in ipairs(eligible) do
-        local d = UQ.WorldDistance(player, cand)
-        if d and (not bestD or d < bestD) then bestD, best = d, cand end
+        -- Filtered at selection time rather than inside BuildEligible, so
+        -- ignoring a quest takes effect on the very next scan without having to
+        -- invalidate and rebuild the eligibility cache.
+        if not UQ.IsIgnored(cand.questID) then
+            local d = UQ.WorldDistance(player, cand)
+            if d and (not bestD or d < bestD) then bestD, best = d, cand end
+        end
     end
     target = best
 end
@@ -339,9 +366,36 @@ arrow:SetScript("OnEnter", function(self)
     if target.questLevel and target.questLevel > 0 then
         GameTooltip:AddLine("Level " .. target.questLevel, 0.7, 0.7, 0.7)
     end
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("|cff808080Right-click to ignore this quest. It stops being suggested here and disappears from your map.|r", nil, nil, nil, true)
     GameTooltip:Show()
 end)
 arrow:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+-- Right-click to ignore. The pick-up arrow always points at the NEAREST quest
+-- you can take, which is exactly wrong when the nearest one is a quest you have
+-- deliberately decided not to do -- it then parks on that quest forever and the
+-- feature is useless until you take it. Ignoring is recorded in SavedVariables
+-- (UQ.SetIgnored) and honoured by the scan above, the map pins and the objective
+-- arrow's route alike, so one right-click removes the quest everywhere.
+--
+-- Nothing is bound to left-click: the objective arrow uses left-click to select
+-- a quest in the log, but a quest you have not taken has no log entry to select.
+arrow:RegisterForClicks("RightButtonUp")
+arrow:SetScript("OnClick", function(_, button)
+    if button ~= "RightButton" or not target then return end
+
+    local title = target.title or "That quest"
+    UQ.SetIgnored(target.questID, true)
+
+    -- Drop it now rather than waiting for the next scan, so the arrow visibly
+    -- moves on to the next quest the instant it is clicked.
+    target = nil
+    GameTooltip:Hide()
+
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Uncapped]|r Ignoring |cffffffff" .. title
+        .. "|r. Clear ignored quests in ESC > Interface > AddOns > Uncapped > Quests.")
+end)
 
 -- The in-instance message, standing in for the arrow in the same screen slot.
 local note = CreateFrame("Frame", "UncappedQuestAvailNote", UIParent)
@@ -515,12 +569,14 @@ function UQ.AvailableGiverPins(dbcArea)
     end
 
     for _, cand in ipairs(eligible) do
-        local mapID, mx, my = UQ.MapPos(dbcArea, cand.wx, cand.wy)
-        if mapID and mx and mx >= 0 and mx <= 1 and my >= 0 and my <= 1 then
-            out[#out + 1] = {
-                questID = cand.questID, title = cand.title,
-                giver = cand.giver, x = mx, y = my,
-            }
+        if not UQ.IsIgnored(cand.questID) then
+            local mapID, mx, my = UQ.MapPos(dbcArea, cand.wx, cand.wy)
+            if mapID and mx and mx >= 0 and mx <= 1 and my >= 0 and my <= 1 then
+                out[#out + 1] = {
+                    questID = cand.questID, title = cand.title,
+                    giver = cand.giver, x = mx, y = my,
+                }
+            end
         end
     end
 
