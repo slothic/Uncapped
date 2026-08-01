@@ -162,6 +162,7 @@ public sealed class ClientAcquirer
         try
         {
             var stalledFor = TimeSpan.Zero;
+            var metadataFor = TimeSpan.Zero;
             var tick = TimeSpan.FromSeconds(1);
 
             while (manager.State != TorrentState.Seeding && manager.Complete == false)
@@ -176,8 +177,19 @@ public sealed class ClientAcquirer
                 var peers = manager.Peers.Available + manager.Peers.Seeds + manager.Peers.Leechs;
                 var rate = manager.Monitor.DownloadRate;
 
+                /*
+                 * Show the peer count even while fetching metadata.
+                 *
+                 * This used to read a bare "Fetching torrent details…" for the whole
+                 * Metadata state, which hides the one number that says what is wrong.
+                 * "0 peer(s)" means nothing was found at all -- blocked UDP, so dead
+                 * trackers and a DHT that cannot bootstrap. A non-zero count with no
+                 * progress means peers were found but will not hand over the metadata,
+                 * which is a completely different problem. Guessing between those two
+                 * from a screenshot cost a player an evening.
+                 */
                 var detail = manager.State == TorrentState.Metadata
-                    ? "Fetching torrent details…"
+                    ? $"Fetching torrent details… {peers} peer(s)"
                     : $"{peers} peer(s) · {Mb(rate)}/s";
 
                 progress.Report(new AcquireProgress(
@@ -189,7 +201,27 @@ public sealed class ClientAcquirer
 
                 if (stalledFor > TimeSpan.FromMinutes(3))
                     throw new TimeoutException(
-                        "No peers found after 3 minutes. Your network may be blocking BitTorrent.");
+                        "No peers found after 3 minutes. Your network may be blocking BitTorrent. " +
+                        "You can instead point the launcher at an existing 3.3.5a client with " +
+                        "\"Change game folder\".");
+
+                /*
+                 * Metadata stall. The check above only fires when peers AND rate are both
+                 * zero, so a torrent that finds peers but never receives the metadata sat
+                 * on this screen indefinitely -- no progress, no error, nothing to report.
+                 * Time the metadata phase separately and fail with something actionable.
+                 */
+                if (manager.State == TorrentState.Metadata)
+                {
+                    metadataFor += tick;
+                    if (metadataFor > TimeSpan.FromMinutes(5))
+                        throw new TimeoutException(
+                            $"Could not fetch the torrent details after 5 minutes ({peers} peer(s) seen). " +
+                            "Your network is likely blocking BitTorrent. Point the launcher at an " +
+                            "existing 3.3.5a client with \"Change game folder\" instead.");
+                }
+                else
+                    metadataFor = TimeSpan.Zero;
             }
         }
         finally
