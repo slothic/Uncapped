@@ -63,7 +63,7 @@ public sealed class ClientAcquirer
 
         if (sameDrive)
         {
-            var needed = source.ArchiveBytes + source.InstalledBytes;
+            var needed = source.PeakArchiveBytes() + source.InstalledBytes;
             var free = FreeOn(installDrive);
             if (free < needed)
                 throw new IOException(
@@ -74,10 +74,10 @@ public sealed class ClientAcquirer
         }
 
         var freeDownload = FreeOn(downloadDrive);
-        if (freeDownload < source.ArchiveBytes)
+        if (freeDownload < source.PeakArchiveBytes())
             throw new IOException(
                 $"Not enough space on {downloadDrive.TrimEnd('\\')} for the download. About " +
-                $"{Gb(source.ArchiveBytes)} is needed there (the launcher downloads to " +
+                $"{Gb(source.PeakArchiveBytes())} is needed there (the launcher downloads to " +
                 $"{AppPaths.DownloadDir}), but only {Gb(freeDownload)} is free.");
 
         var freeInstall = FreeOn(installDrive);
@@ -98,36 +98,57 @@ public sealed class ClientAcquirer
         Directory.CreateDirectory(targetDir);
         Directory.CreateDirectory(AppPaths.DownloadDir);
 
-        string archive;
+        /*
+         * The HTTP route can be several archives, not one.
+         *
+         * Mirrors do not all ship a single file -- the Internet Archive's copy is split into
+         * a ~14 GB Common.zip plus a per-language zip. Downloading only the first would give
+         * a client with no locale data: it installs, it launches, and it is broken in a way
+         * that looks like our bug rather than a half-finished download. So the fallback
+         * works in terms of a LIST, and a single directDownloadUrl is just a list of one.
+         */
+        var httpArchives = source.HttpArchives();
+
         if (!string.IsNullOrWhiteSpace(source.Magnet))
         {
             try
             {
-                archive = await DownloadViaTorrentAsync(source, progress, ct);
+                var archive = await DownloadViaTorrentAsync(source, progress, ct);
+                await ExtractAndDeleteAsync(archive, targetDir, progress, ct);
+                return targetDir;
             }
             catch (OperationCanceledException) { throw; }
-            catch (Exception ex) when (!string.IsNullOrWhiteSpace(source.DirectDownloadUrl))
+            catch (Exception ex) when (httpArchives.Count > 0)
             {
                 // Some ISPs and most corporate/university networks throttle or block
                 // BitTorrent outright. Say so plainly, then try the mirror.
                 progress.Report(new AcquireProgress(
                     "BitTorrent did not work — trying the direct download instead.", 0, ex.Message));
-                archive = await DownloadViaHttpAsync(source, progress, ct);
             }
         }
-        else if (!string.IsNullOrWhiteSpace(source.DirectDownloadUrl))
-        {
-            archive = await DownloadViaHttpAsync(source, progress, ct);
-        }
-        else
+        else if (httpArchives.Count == 0)
         {
             throw new InvalidOperationException("The manifest lists no way to download the client.");
         }
 
-        progress.Report(new AcquireProgress("Extracting the client… this takes a while.", 0, archive));
-        await Task.Run(() => ExtractTo(archive, targetDir, progress, ct), ct);
+        if (httpArchives.Count == 0)
+            throw new InvalidOperationException("The manifest lists no way to download the client.");
 
-        try { File.Delete(archive); } catch { /* leave it; the player can clear it manually */ }
+        /*
+         * One at a time, extracting each before fetching the next.
+         *
+         * Not all-then-extract: holding every part on disk at once would need 16 GB of
+         * downloads beside the unpacked game, on a drive we have already told the player only
+         * needs room for the largest single part.
+         */
+        for (var i = 0; i < httpArchives.Count; i++)
+        {
+            var part = httpArchives[i];
+            var label = httpArchives.Count > 1 ? $" (part {i + 1} of {httpArchives.Count})" : "";
+
+            var archive = await DownloadOneAsync(part, label, progress, ct);
+            await ExtractAndDeleteAsync(archive, targetDir, progress, ct);
+        }
 
         return targetDir;
     }
@@ -243,16 +264,51 @@ public sealed class ClientAcquirer
             $"The torrent finished but no .zip was found in {AppPaths.DownloadDir}.");
     }
 
-    private async Task<string> DownloadViaHttpAsync(
-        ClientSource source, IProgress<AcquireProgress> progress, CancellationToken ct)
+    /// <summary>
+    /// A safe local filename from a URL, for a manifest entry that omits one. Query strings
+    /// and stray path characters are stripped -- this becomes a real path on disk.
+    /// </summary>
+    private static string SafeNameFromUrl(string url)
     {
-        var destination = Path.Combine(AppPaths.DownloadDir, source.ArchiveName);
+        var name = "client.zip";
+        try
+        {
+            var path = new Uri(url).AbsolutePath;
+            var candidate = Path.GetFileName(path);
+            if (!string.IsNullOrWhiteSpace(candidate)) name = candidate;
+        }
+        catch { /* not a well-formed absolute URI; the default will do */ }
+
+        foreach (var bad in Path.GetInvalidFileNameChars()) name = name.Replace(bad, '_');
+        return name;
+    }
+
+    /// <summary>Extracts an archive into the target, then removes it before the next one.</summary>
+    private async Task ExtractAndDeleteAsync(
+        string archive, string targetDir, IProgress<AcquireProgress> progress, CancellationToken ct)
+    {
+        progress.Report(new AcquireProgress("Extracting the client… this takes a while.", 0, archive));
+        await Task.Run(() => ExtractTo(archive, targetDir, progress, ct), ct);
+
+        // Deleted as we go, not at the end: with a split download the parts would otherwise
+        // pile up beside the game they are being unpacked into.
+        try { File.Delete(archive); } catch { /* leave it; the player can clear it manually */ }
+    }
+
+    private async Task<string> DownloadOneAsync(
+        ClientArchive part, string label, IProgress<AcquireProgress> progress, CancellationToken ct)
+    {
+        var name = string.IsNullOrWhiteSpace(part.Name)
+            ? SafeNameFromUrl(part.Url)
+            : part.Name;
+
+        var destination = Path.Combine(AppPaths.DownloadDir, name);
 
         using var response = await _http.GetAsync(
-            source.DirectDownloadUrl!, HttpCompletionOption.ResponseHeadersRead, ct);
+            part.Url, HttpCompletionOption.ResponseHeadersRead, ct);
         response.EnsureSuccessStatusCode();
 
-        var expected = response.Content.Headers.ContentLength ?? 0;
+        var expected = response.Content.Headers.ContentLength ?? part.Bytes;
 
         await using (var input = await response.Content.ReadAsStreamAsync(ct))
         await using (var output = new FileStream(destination, FileMode.Create, FileAccess.Write,
@@ -268,7 +324,7 @@ public sealed class ClientAcquirer
                 copied += read;
 
                 progress.Report(new AcquireProgress(
-                    "Downloading the game client",
+                    "Downloading the game client" + label,
                     expected > 0 ? (double)copied / expected : 0,
                     $"{Gb(copied)} of {Gb(expected)}"));
             }

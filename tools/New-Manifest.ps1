@@ -249,6 +249,29 @@ $manifest = [ordered]@{
     client = [ordered]@{
         magnet            = $Magnet
         directDownloadUrl = $DirectDownloadUrl
+        # HTTP fallback, used only when BitTorrent fails outright.
+        #
+        # The Internet Archive rather than a private-server mirror: measured from home,
+        # ChromieCraft's own host managed ~94 KB/s, demanded a Referer, and then started
+        # refusing connections -- 19 GB at that rate is over two days. The Archive sustained
+        # ~1 MB/s, serves 200/application/zip with Accept-Ranges, and does not police
+        # hotlinking. Still far slower than the swarm; it is a last resort, not a preference.
+        #
+        # Split by language, so BOTH parts are required. Common alone is a client with no
+        # locale data: it installs, it launches, and it is broken in a way that looks like
+        # our bug. Sizes are the real Content-Length values.
+        directDownloadUrls = @(
+            [ordered]@{
+                url   = 'https://archive.org/download/WoW_3.3.5-12340/3.3.5-12340_Common.zip'
+                name  = '3.3.5-12340_Common.zip'
+                bytes = 15084499971
+            },
+            [ordered]@{
+                url   = 'https://archive.org/download/WoW_3.3.5-12340/3.3.5-12340_enUS.zip'
+                name  = '3.3.5-12340_enUS.zip'
+                bytes = 2628185615
+            }
+        )
         # The torrent's payload is this single zip.
         archiveName       = 'ChromieCraft_3.3.5a.zip'
         archiveBytes      = $archiveBytes

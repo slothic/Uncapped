@@ -238,26 +238,37 @@ public partial class MainWindow : Window
             ShowNewFolderButton = true,
         };
 
-        if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return null;
-
         /*
-         * Confirm the FULL path before committing to a 17 GB download.
+         * Ask where to install, and keep asking until the player is happy.
          *
-         * The picker asks for a parent folder and a "WoW335" subfolder is appended, so what
-         * the player chose and what they get are not the same string. Someone picking their
-         * desktop had no way to know the game was not going to land on their desktop.
+         * Two things this has to get right. The picker asks for a PARENT folder and a
+         * "WoW335" subfolder is appended, so what the player chose and what they get are not
+         * the same string -- someone picking their desktop had no way to know the game was
+         * not going to land directly on it. And "Cancel" on the confirmation used to abandon
+         * the whole install rather than let them choose somewhere else, so a wrong first
+         * guess meant starting the launcher again.
+         *
+         * Loop instead: cancel means "not there", not "forget it". Backing out of the picker
+         * itself is the way to actually stop.
          */
-        var target = Path.Combine(dialog.SelectedPath, "WoW335");
+        string target;
 
-        var confirm = MessageBox.Show(
-            "The game will be installed to:" + Environment.NewLine + Environment.NewLine +
-            target + Environment.NewLine + Environment.NewLine +
-            "That needs about 17 GB, plus the same again briefly while it unpacks." +
-            Environment.NewLine + Environment.NewLine +
-            "Continue?",
-            "Confirm install location", MessageBoxButton.OKCancel, MessageBoxImage.Information);
+        while (true)
+        {
+            if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return null;
 
-        if (confirm != MessageBoxResult.OK) return null;
+            target = Path.Combine(dialog.SelectedPath, "WoW335");
+
+            var confirm = MessageBox.Show(
+                "The game will be installed to:" + Environment.NewLine + Environment.NewLine +
+                target + Environment.NewLine + Environment.NewLine +
+                "That needs about 17 GB, plus the same again briefly while it unpacks." +
+                Environment.NewLine + Environment.NewLine +
+                "Install here?",
+                "Confirm install location", MessageBoxButton.YesNo, MessageBoxImage.Information);
+
+            if (confirm == MessageBoxResult.Yes) break;
+        }
 
         try
         {

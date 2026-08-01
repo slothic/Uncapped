@@ -1,8 +1,8 @@
 {
     "manifestVersion":  1,
-    "launcherVersion":  "1.8.0",
-    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.8.0/Uncapped.exe",
-    "launcherSha256":  "aa84f7228de931f1a68bd56a9b74a81c6e93ca66c0c9da1fee25a3ec1b085653",
+    "launcherVersion":  "1.8.1",
+    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.8.1/Uncapped.exe",
+    "launcherSha256":  "69525958d49a1aa145222e864744698a25a96cf98b7f56c4ce8f1d9bd85af2c3",
     "realm":  {
                   "name":  "Uncapped",
                   "address":  "152.53.115.249",
@@ -12,6 +12,18 @@
     "client":  {
                    "magnet":  "magnet:?xt=urn:btih:2ba2833baf733ce0a16040d43ed09491f2bf2ab2\u0026dn=ChromieCraft_3.3.5a.zip\u0026tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce\u0026tr=http%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce\u0026tr=udp%3A%2F%2Ftracker.uw0.xyz%3A6969%2Fannounce\u0026tr=udp%3A%2F%2Ftracker.zerobytes.xyz%3A1337%2Fannounce",
                    "directDownloadUrl":  "",
+                   "directDownloadUrls":  [
+                                              {
+                                                  "url":  "https://archive.org/download/WoW_3.3.5-12340/3.3.5-12340_Common.zip",
+                                                  "name":  "3.3.5-12340_Common.zip",
+                                                  "bytes":  15084499971
+                                              },
+                                              {
+                                                  "url":  "https://archive.org/download/WoW_3.3.5-12340/3.3.5-12340_enUS.zip",
+                                                  "name":  "3.3.5-12340_enUS.zip",
+                                                  "bytes":  2628185615
+                                              }
+                                          ],
                    "archiveName":  "ChromieCraft_3.3.5a.zip",
                    "archiveBytes":  19327352832,
                    "installedBytes":  19327352832

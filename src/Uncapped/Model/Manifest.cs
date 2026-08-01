@@ -105,6 +105,53 @@ public sealed class ClientSource
     /// <summary>HTTP fallback for players whose network blocks BitTorrent entirely.</summary>
     [JsonPropertyName("directDownloadUrl")] public string? DirectDownloadUrl { get; set; }
 
+    /// <summary>
+    /// HTTP fallback split across several archives, all extracted into the same folder.
+    ///
+    /// The mirrors worth using do not necessarily ship one file. The Internet Archive's copy
+    /// is split by language -- a 14 GB Common.zip plus a ~2.5 GB locale zip -- and taking
+    /// only the first would produce a client with no locale data: an install that looks
+    /// finished, launches, and is broken in a way that reads as our fault.
+    ///
+    /// Takes precedence over DirectDownloadUrl when both are set. Order matters only in that
+    /// they are fetched in sequence; each is extracted over the last.
+    /// </summary>
+    [JsonPropertyName("directDownloadUrls")] public List<ClientArchive> DirectDownloadUrls { get; set; } = new();
+
+    /// <summary>
+    /// Most disk the download folder needs at once.
+    ///
+    /// With a split download each part is extracted and deleted before the next is fetched,
+    /// so the peak is the LARGEST single part, not their total. Using the total would tell a
+    /// player they need 16 GB free to download when they need 14 -- and refuse an install
+    /// that would have worked.
+    /// </summary>
+    public long PeakArchiveBytes()
+    {
+        var parts = HttpArchives();
+        if (parts.Count == 0) return ArchiveBytes;
+
+        long largest = 0;
+        foreach (var p in parts) largest = Math.Max(largest, p.Bytes);
+
+        // The torrent path still lands one whole archive, so respect whichever is bigger.
+        return Math.Max(largest, ArchiveBytes);
+    }
+
+    /// <summary>Resolves the two forms above into one list, so callers need not care which was used.</summary>
+    public IReadOnlyList<ClientArchive> HttpArchives()
+    {
+        if (DirectDownloadUrls.Count > 0) return DirectDownloadUrls;
+
+        if (!string.IsNullOrWhiteSpace(DirectDownloadUrl))
+            return new List<ClientArchive>
+            {
+                new() { Url = DirectDownloadUrl!, Name = ArchiveName, Bytes = ArchiveBytes },
+            };
+
+        return Array.Empty<ClientArchive>();
+    }
+
     [JsonPropertyName("archiveName")] public string ArchiveName { get; set; } = "client.zip";
 
     /// <summary>
@@ -115,6 +162,18 @@ public sealed class ClientSource
 
     /// <summary>Size of the client once extracted. Needed on the install drive.</summary>
     [JsonPropertyName("installedBytes")] public long InstalledBytes { get; set; }
+}
+
+/// <summary>One archive of a multi-part HTTP client download.</summary>
+public sealed class ClientArchive
+{
+    [JsonPropertyName("url")] public string Url { get; set; } = "";
+
+    /// <summary>Filename to save as. Only needs to be unique within one download.</summary>
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+
+    /// <summary>Expected size, for the disk-space check and the progress bar. 0 = unknown.</summary>
+    [JsonPropertyName("bytes")] public long Bytes { get; set; }
 }
 
 public sealed class NewsItem
