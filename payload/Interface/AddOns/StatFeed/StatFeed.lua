@@ -30,6 +30,7 @@ local ADDON_NAME   = "StatFeed"
 local BUNDLE_ADDON_NAME = "Uncapped"
 local ADDON_PREFIX = "DSTATS"
 local TICK_SECONDS = 1        -- how often the clock/pace repaint while shown
+local STARTUP_DELAY_SECONDS = 5
 local BASELINE_RETRY_SECONDS = 8
 local BASELINE_RETRY_INTERVAL = 0.5
 
@@ -90,18 +91,15 @@ local STATS = {
 -- every stat row, the divider gap, a usable feed and the credit strip. Derived
 -- from the constants above (and from #STATS) so adding a stat or changing a row
 -- height can't silently push content out through the bottom of the frame.
--- [Uncapped] These five were plain globals as submitted, which leaks them into the
--- shared _G namespace where any other addon can read or clobber them. Localised on
--- intake; behaviour is unchanged.
-local STAT_BLOCK_TOP = HEADER_H + STAT_TOP_GAP + (SUMMARY_ROW * 3)
-local FEED_ONLY_TOP = HEADER_H + 6 + (SUMMARY_ROW * 3) + 14
-local FEED_BOTTOM_INSET = PAD + CREDIT_H - 6
-local EXPANDED_MIN = STAT_BLOCK_TOP                           -- top of the stat block
+STAT_BLOCK_TOP = HEADER_H + STAT_TOP_GAP + (SUMMARY_ROW * 3)
+FEED_ONLY_TOP = HEADER_H + 6 + (SUMMARY_ROW * 3) + 14
+FEED_BOTTOM_INSET = PAD + CREDIT_H - 6
+EXPANDED_MIN = STAT_BLOCK_TOP                           -- top of the stat block
              + (#STATS * STAT_ROW + 4)                  -- the stat block
              + FEED_TOP_GAP + LOG_MIN_H                 -- gap + feed
              + FEED_BOTTOM_INSET                        -- bottom inset
 EXPANDED_MIN = math.ceil(EXPANDED_MIN / 10) * 10
-local FEED_ONLY_MIN = FEED_ONLY_TOP + LOG_MIN_H + FEED_BOTTOM_INSET
+FEED_ONLY_MIN = FEED_ONLY_TOP + LOG_MIN_H + FEED_BOTTOM_INSET
 FEED_ONLY_MIN = math.ceil(FEED_ONLY_MIN / 10) * 10
 
 local function ExpandedMinHeight(showStats)
@@ -135,12 +133,15 @@ local floor, min, max, abs, format, gsub, match, lower = math.floor, math.min, m
 
 local frame, log, statBlock
 local BuildOptions       -- forward declaration; defined at the bottom
+local Repaint
 local rows        = {}   -- display name -> widget set
 local earned      = {}   -- display name -> gained this session
 local totalEarned = 0
 local sessionStart = 0
 local tickElapsed  = 0
 local dirty        = true  -- set when something changed; cleared by Repaint
+local startupDelayPending = false
+local startupDelayElapsed = 0
 local baselineCorrectionPending = false
 local baselineCorrectionStarted = 0
 local baselineRetryElapsed = 0
@@ -406,6 +407,30 @@ local function CaptureBaseline()
     return changed
 end
 
+local function StartStartupDelay()
+    totalEarned = 0
+    for i = 1, #STATS do
+        local info = STATS[i]
+        earned[info.key] = 0
+        info.startValue = 0
+    end
+    sessionStart = GetTime()
+    startupDelayPending = true
+    startupDelayElapsed = 0
+    baselineCorrectionPending = false
+    baselineCorrectionStarted = 0
+    baselineRetryElapsed = 0
+    dirty = true
+end
+
+local function FinishStartupDelay()
+    startupDelayPending = false
+    startupDelayElapsed = 0
+    ResetSession(true)
+    CaptureBaseline()
+    if Repaint then Repaint(true) end
+end
+
 local function RecordGain(amount, statName)
     amount = tonumber(amount)
     local key = NormalizeStat(statName)
@@ -419,7 +444,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Painting
 -- ---------------------------------------------------------------------------
-local function Repaint(force)
+function Repaint(force)
     if not frame or not frame:IsShown() then return end
 
     local elapsed = max(1, GetTime() - sessionStart)
@@ -888,6 +913,14 @@ events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("CHAT_MSG_ADDON")
 events:SetScript("OnUpdate", function(self, elapsed)
+    if startupDelayPending then
+        startupDelayElapsed = startupDelayElapsed + (elapsed or arg1 or 0)
+        if startupDelayElapsed >= STARTUP_DELAY_SECONDS then
+            FinishStartupDelay()
+        end
+        return
+    end
+
     if not baselineCorrectionPending then return end
     baselineRetryElapsed = baselineRetryElapsed + (elapsed or arg1 or 0)
     if baselineRetryElapsed < BASELINE_RETRY_INTERVAL then return end
@@ -905,7 +938,7 @@ events:SetScript("OnEvent", function(self, evt, a1, a2)
     if e == "ADDON_LOADED" then
         if p1 == ADDON_NAME or p1 == BUNDLE_ADDON_NAME then
             GetDB()
-            ResetSession(true)
+            StartStartupDelay()
             BuildWindow()
             BuildOptions()
             if RegisterAddonMessagePrefix then RegisterAddonMessagePrefix(ADDON_PREFIX) end
@@ -915,8 +948,13 @@ events:SetScript("OnEvent", function(self, evt, a1, a2)
 
     if e == "PLAYER_ENTERING_WORLD" then
         -- Stats read as 0 until the player object is fully loaded, so the
-        -- login baseline is taken (or corrected) here.
-        CaptureBaseline()
+        -- login baseline is taken after a short delay. Later world entries
+        -- should only run the existing baseline correction path.
+        if startupDelayPending then
+            StartStartupDelay()
+        else
+            CaptureBaseline()
+        end
         dirty = true
         Repaint(true)
         if RegisterAddonMessagePrefix then RegisterAddonMessagePrefix(ADDON_PREFIX) end

@@ -46,6 +46,11 @@ end
 --                           where it was last dragged to)
 --   escapeClose             default true (requires opts.name)
 --   onReceiveDrag/onMouseUp optional passthrough scripts (e.g. bag deposit)
+--   onResizeStop            optional fn(win), called after a resize-grip
+--                           drag ends (StopMovingOrSizing) but before the
+--                           final SavePosition -- e.g. to re-anchor the
+--                           window instead of leaving it wherever the grip
+--                           drag left it
 function UncappedUIKit.CreateWindow(opts)
     opts = opts or {}
     local db = opts.db
@@ -93,7 +98,11 @@ function UncappedUIKit.CreateWindow(opts)
         grip:SetWidth(16); grip:SetHeight(16)
         grip:SetPoint("BOTTOMRIGHT", -5, 7)
         grip:SetScript("OnMouseDown", function() win:StartSizing("BOTTOMRIGHT") end)
-        grip:SetScript("OnMouseUp", function() win:StopMovingOrSizing(); SavePosition() end)
+        grip:SetScript("OnMouseUp", function()
+            win:StopMovingOrSizing()
+            if opts.onResizeStop then opts.onResizeStop(win) end
+            SavePosition()
+        end)
         win.resizeGrip = grip
     end
 

@@ -1,8 +1,0 @@
-## Interface: 30300
-## Title: Uncapped Forge
-## Notes: Craft straight out of your Vault -- no tools, no withdrawing, bulk milling and prospecting, and it makes missing intermediates for you.
-## Author: Uncapped
-## OptionalDeps: UncappedOptions, UncappedVault
-## SavedVariables: UncappedForgeDB
-
-UncappedForge.lua

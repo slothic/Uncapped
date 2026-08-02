@@ -10,41 +10,12 @@ local max, min = math.max, math.min
 local Core = _G.UncappedDashboard or {}
 _G.UncappedDashboard = Core
 
-Core.version = "0.0.0"
+Core.version = "1.0.0"
 Core.ADDON = "UncappedDashboard"
 Core.callbacks = Core.callbacks or {}
 
--- `hint` is the slash command that already opens that addon today, shown
--- as a placeholder in the content pane until this button opens the real
--- window directly. Keep in sync with each addon's own SLASH_* registration.
-Core.TABS = {
-    { key = "dashboard", label = "Dashboard" },
-    { key = "forge", label = "Forge", addon = "UncappedForge", hint = "/forge" },
-    -- [Uncapped] The Soulforge ships as the UncappedItemCustomize folder on
-    -- this realm -- the addon was renamed in its UI and slash commands but the
-    -- folder kept its original name so players' SavedVariables survive. Draft
-    -- said "UncappedSoulForge", which matches nothing installed.
-    { key = "soulforge", label = "Soulforge", addon = "UncappedItemCustomize", hint = "/soulforge" },
-    { key = "anima", label = "Anima", addon = "UncappedAnima", hint = "/anima" },
-    { key = "vault", label = "Vault", addon = "UncappedVault", hint = "/vault" },
-    { key = "transmog", label = "Transmog", addon = "UncappedTransmog", hint = "/transmog" },
-    { key = "statfeed", label = "Stat Feed", addon = "StatFeed", hint = "/statfeed" },
-    { key = "questlog", label = "Quest Log", addon = "UncappedQuests", hint = "/uquests" },
-    { key = "tutorial", label = "Tutorial", addon = "UncappedTutorial" },
-    { key = "utilities", label = "Utilities", addon = "UncappedOptions", hint = "/uncapped" },
-    { key = "beastiary", label = "Beastiary" },
-    { key = "soulscrolls", label = "Soul Scrolls", addon = "UncappedScrolls", hint = "/scrolls" },
-}
-
--- Toggles shown in the Dashboard tab's "Modules" section. Purely a saved
--- on/off preference for now (UncappedDashboard_UI.lua persists it to
--- db.modules) -- nothing actually enables/disables these features yet.
-Core.MODULES = {
-    { key = "statfeed", label = "Stat Feed" },
-    { key = "autoloot", label = "Autoloot" },
-    { key = "aoeloot", label = "AoE Loot" },
-    { key = "autodisenchant", label = "Autodisenchant" },
-}
+-- Core.TABS / Core.MODULES now live in UncappedDashboardConfig.lua, which
+-- loads before this file (see UncappedDashboard.toc).
 
 local state = {
     tab = "dashboard",
@@ -66,6 +37,10 @@ function Core.GetDB()
     -- every session, see Buttons.Build) and passes persistPosition=false
     -- to CreateWindow, so position is never read from or written to this
     -- table at all -- only size persists across sessions.
+    -- db.tabOrder (an array of tab keys, player-editable nav button order)
+    -- isn't listed here -- nil/absent already means "Core.TABS' own array
+    -- order" (see Core.OrderedTabs in UncappedDashboardConfig.lua), so there's
+    -- no default value to seed.
     local defaults = {
         width = 600,
         height = 480,
@@ -125,6 +100,65 @@ local function Toggle()
 end
 Core.Toggle = Toggle
 
+-- This server has no PvP content, so the default "PVP" micro-button (bottom
+-- of the main menu bar) and its default H keybind (TOGGLEPVPFRAME) would
+-- otherwise just open a frame with nothing useful in it. Repointed to open
+-- the Dashboard instead -- same technique UncappedVault uses to repoint the
+-- B key at the Vault (see InstallBagSync there): reassign the global
+-- function the click/keybind actually calls, rather than touching
+-- Bindings.xml or the button's own OnClick script. The icon is a stock
+-- Blizzard texture standing in until real Uncapped theme art exists (see
+-- AI Context.md's note on Draft\UI\'s placeholder theme).
+local function InstallPVPButtonHook()
+    if TogglePVPFrame then
+        TogglePVPFrame = Toggle
+    end
+    if PVPMicroButton then
+        -- Blizzard's micro-button art is more than just the swappable Normal/
+        -- Pushed/Disabled textures -- there's baked-in border/icon artwork as
+        -- other texture regions on the same button, inherited with whatever
+        -- size/anchor the ORIGINAL (taller, label-inclusive) micro-button
+        -- graphic used. Left alone, that art still shows through/behind our
+        -- replacement (reported: old icon visible in front, ours sitting too
+        -- high) and our new textures inherit the wrong offset/size. Hiding
+        -- every texture region first, then explicitly centering/sizing only
+        -- the ones we actually set, avoids both problems regardless of what
+        -- those regions happen to be named.
+        for i = 1, select("#", PVPMicroButton:GetRegions()) do
+            local region = select(i, PVPMicroButton:GetRegions())
+            if region and region.GetObjectType and region:GetObjectType() == "Texture" then
+                region:Hide()
+            end
+        end
+
+        -- Explicit fixed size, centered -- an edge-inset fill still came out
+        -- too tall since the button itself is taller than a plain icon
+        -- needs to be. CENTER + a fixed size doesn't depend on
+        -- GetWidth/GetHeight (which can read 0/stale at PLAYER_LOGIN before
+        -- the micro bar has finished laying itself out) at all, so it's
+        -- still safe regardless of timing.
+        local ICON_SIZE = 16
+        local function SkinTexture(tex)
+            if not tex then return end
+            tex:ClearAllPoints()
+            tex:SetPoint("CENTER", PVPMicroButton, "CENTER", 0, 0)
+            tex:SetWidth(ICON_SIZE)
+            tex:SetHeight(ICON_SIZE)
+            tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            tex:Show()
+        end
+
+        PVPMicroButton:SetNormalTexture("Interface\\Icons\\Trade_Engineering")
+        PVPMicroButton:SetPushedTexture("Interface\\Icons\\Trade_Engineering")
+        PVPMicroButton:SetDisabledTexture("Interface\\Icons\\Trade_Engineering")
+        PVPMicroButton:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+
+        SkinTexture(PVPMicroButton:GetNormalTexture())
+        SkinTexture(PVPMicroButton:GetPushedTexture())
+        SkinTexture(PVPMicroButton:GetDisabledTexture())
+    end
+end
+
 local init = CreateFrame("Frame")
 init:RegisterEvent("PLAYER_LOGIN")
 init:SetScript("OnEvent", function()
@@ -132,6 +166,7 @@ init:SetScript("OnEvent", function()
     if Core.IsValidTab(db.lastTab) then
         state.tab = db.lastTab
     end
+    InstallPVPButtonHook()
 end)
 
 SLASH_UNCAPPEDDASHBOARD1 = "/dashboard"

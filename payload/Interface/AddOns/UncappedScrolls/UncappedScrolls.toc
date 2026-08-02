@@ -1,9 +1,0 @@
-## Interface: 30300
-## Title: Uncapped Scrolls
-## Notes: Status window for every customization-scroll bonus you own -- Reach, Bounty, Fortune, Mastery, Delver -- plus your account-wide quest bonus.
-## Author: Uncapped
-## Version: 1.0
-## OptionalDeps: UncappedOptions
-## SavedVariables: UncappedScrollsDB
-
-UncappedScrolls.lua

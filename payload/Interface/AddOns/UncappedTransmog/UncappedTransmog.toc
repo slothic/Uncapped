@@ -1,9 +1,0 @@
-## Interface: 30300
-## Title: Uncapped Transmog
-## Notes: The appearance collection -- browse every look in the game, preview it in 3D, search what you have and haven't collected, and see where it drops.|n|cffffd100/transmog|r
-## Author: Uncapped
-## OptionalDeps: UncappedOptions
-## SavedVariables: UncappedTransmogDB
-
-UncappedTransmogData.lua
-UncappedTransmog.lua

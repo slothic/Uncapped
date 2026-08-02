@@ -31,9 +31,13 @@ local WINDOW_MARGIN = 16
 local TOP_INSET = 44
 local BOTTOM_INSET = 16
 local PANEL_BOTTOM_PAD = 16 -- breathing room below the last button, inside the panel
+-- Reserved below the button stack for the Gold/Arena Points footer (see
+-- Buttons.Build) -- two lines at GameFontHighlightSmall's own line height
+-- plus a little breathing room between them and the last button.
+local FOOTER_HEIGHT = 40
 
 local PANEL_WIDTH = BUTTON_WIDTH + PANEL_PAD * 2
-local PANEL_HEIGHT = (-BUTTON_START_Y) + (#Core.TABS - 1) * BUTTON_SPACING + BUTTON_HEIGHT + PANEL_BOTTOM_PAD
+local PANEL_HEIGHT = (-BUTTON_START_Y) + (#Core.TABS - 1) * BUTTON_SPACING + BUTTON_HEIGHT + PANEL_BOTTOM_PAD + FOOTER_HEIGHT
 local REQUIRED_HEIGHT = TOP_INSET + PANEL_HEIGHT + BOTTOM_INSET
 
 -- Content sizing is UncappedDashboard_UI.lua's concern -- it fills
@@ -67,11 +71,48 @@ local function CreateNavPanel(parent)
     return panel
 end
 
-local function CreateNavButton(panel, tab, y)
+-- Shift-click/ctrl-click move this button's tab up/down in the saved order
+-- (Core.MoveTab) instead of switching to it -- keeps reordering on the same
+-- buttons players already click, no separate edit mode or drag needed.
+-- Positioning happens separately, in Buttons.RefreshOrder -- this only
+-- creates the button, since it's built once but may be repositioned many
+-- times as the player reorders.
+local function CreateNavButton(panel, tab)
     local b = UncappedUIKit.CreateButton(panel, tab.label, BUTTON_WIDTH, BUTTON_HEIGHT)
-    b:SetPoint("TOP", panel, "TOP", 0, y)
-    b:SetScript("OnClick", function() Core.SetTab(tab.key) end)
+    if tab.disabled then b:SetAlpha(0.5) end
+    b:SetScript("OnClick", function()
+        if IsShiftKeyDown() then
+            Core.MoveTab(tab.key, -1)
+        elseif IsControlKeyDown() then
+            Core.MoveTab(tab.key, 1)
+        elseif not tab.disabled then
+            Core.SetTab(tab.key)
+        end
+    end)
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(tab.label)
+        if tab.disabled then
+            GameTooltip:AddLine("Not available yet", 1, 0.35, 0.25)
+        end
+        GameTooltip:AddLine("Shift-click: move up", 0.7, 0.7, 0.7)
+        GameTooltip:AddLine("Ctrl-click: move down", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
     return b
+end
+
+-- Re-centers the window on screen at its current size -- same TOPLEFT-anchor
+-- math Build() uses to open centered, just recomputed against whatever size
+-- the resize grip left it at. Passed as CreateWindow's onResizeStop, so it
+-- fires once the user releases the grip rather than continuously while
+-- dragging (a live re-anchor mid-drag would fight StartSizing's own anchor).
+local function RecenterWindow(win)
+    local screenW, screenH = UIParent:GetWidth(), UIParent:GetHeight()
+    local w, h = win:GetWidth(), win:GetHeight()
+    win:ClearAllPoints()
+    win:SetPoint("TOPLEFT", UIParent, "TOPLEFT", (screenW - w) / 2, -(screenH - h) / 2)
 end
 
 function Buttons.Build()
@@ -103,18 +144,51 @@ function Buttons.Build()
         maxWidth = MAX_WIDTH, maxHeight = MAX_HEIGHT,
         resizable = true,
         persistPosition = false,
+        onResizeStop = RecenterWindow,
         db = db,
     })
 
     navPanel = CreateNavPanel(window)
 
-    local y = BUTTON_START_Y
     for _, tab in ipairs(Core.TABS) do
-        navButtons[tab.key] = CreateNavButton(navPanel, tab, y)
-        y = y - BUTTON_SPACING
+        navButtons[tab.key] = CreateNavButton(navPanel, tab)
     end
+    Buttons.RefreshOrder()
+
+    -- Gold/Arena Points -- pinned to the nav panel itself (not any one tab's
+    -- content), so they stay visible no matter which tab is active, per
+    -- request. Placeholder values: neither has a real data source wired up
+    -- yet (Vault's own copy of the Gold line was the same static string
+    -- before it moved here).
+    local arenaPointsText = navPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    arenaPointsText:SetPoint("BOTTOMLEFT", navPanel, "BOTTOMLEFT", PANEL_PAD, 22)
+    arenaPointsText:SetPoint("BOTTOMRIGHT", navPanel, "BOTTOMRIGHT", -PANEL_PAD, 22)
+    arenaPointsText:SetJustifyH("RIGHT")
+    arenaPointsText:SetText("Arena Points: |cffffd10012,450|r")
+
+    local goldText = navPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    goldText:SetPoint("BOTTOMLEFT", navPanel, "BOTTOMLEFT", PANEL_PAD, 6)
+    goldText:SetPoint("BOTTOMRIGHT", navPanel, "BOTTOMRIGHT", -PANEL_PAD, 6)
+    goldText:SetJustifyH("RIGHT")
+    goldText:SetText("12,450 |TInterface\\MoneyFrame\\UI-GoldIcon:12:12:2:0|t 87 |TInterface\\MoneyFrame\\UI-SilverIcon:12:12:2:0|t 42 |TInterface\\MoneyFrame\\UI-CopperIcon:12:12:2:0|t")
 
     window:Hide()
+end
+
+-- Re-anchors the (already-built) nav buttons top-to-bottom to match the
+-- player's current saved order (Core.OrderedTabs) -- called once from
+-- Build() and again from Core.MoveTab whenever that order changes.
+function Buttons.RefreshOrder()
+    if not navPanel then return end
+    local y = BUTTON_START_Y
+    for _, tab in ipairs(Core.OrderedTabs()) do
+        local b = navButtons[tab.key]
+        if b then
+            b:ClearAllPoints()
+            b:SetPoint("TOP", navPanel, "TOP", 0, y)
+            y = y - BUTTON_SPACING
+        end
+    end
 end
 
 -- Returns the master window frame, or nil before Build()/Show() has run.
@@ -140,6 +214,27 @@ function Buttons.GetMaxWidth()
     return MAX_WIDTH
 end
 
+function Buttons.GetMaxHeight()
+    return MAX_HEIGHT
+end
+
+-- SetMinResize takes both dimensions at once, so the width and height floors
+-- set by whichever tab is active are tracked here and reapplied together --
+-- otherwise raising one would silently reset the other back to its opts.*
+-- value from Buttons.Build.
+local currentMinWidth = MIN_WIDTH
+local currentMinHeight = REQUIRED_HEIGHT
+
+local function ApplyMinResize()
+    if not window then return end
+    window:SetMinResize(currentMinWidth, currentMinHeight)
+    local w, h = window:GetWidth(), window:GetHeight()
+    if w < currentMinWidth or h < currentMinHeight then
+        window:SetWidth(math.max(w, currentMinWidth))
+        window:SetHeight(math.max(h, currentMinHeight))
+    end
+end
+
 -- Raises the window's resize floor to fit the currently active tab's own
 -- content (e.g. a button row that would overflow below a certain width),
 -- without touching the ceiling -- MAX_WIDTH stays the same for every tab.
@@ -150,11 +245,18 @@ function Buttons.SetMinContentWidth(contentWidth)
     if not window then return end
     local minW = WINDOW_MARGIN + PANEL_WIDTH + CONTENT_GAP
         + math.max(CONTENT_MIN_WIDTH, contentWidth or 0) + WINDOW_MARGIN
-    minW = math.min(minW, MAX_WIDTH)
-    window:SetMinResize(minW, REQUIRED_HEIGHT)
-    if window:GetWidth() < minW then
-        window:SetWidth(minW)
-    end
+    currentMinWidth = math.min(minW, MAX_WIDTH)
+    ApplyMinResize()
+end
+
+-- Same idea, but for the window's total height -- e.g. Anima wants enough
+-- height to show all 4 cards of a tree without scrolling. `windowHeight` is
+-- the full window height a tab needs; pass nil/0 to fall back to
+-- REQUIRED_HEIGHT (what the nav button column alone needs).
+function Buttons.SetMinContentHeight(windowHeight)
+    if not window then return end
+    currentMinHeight = math.min(math.max(REQUIRED_HEIGHT, windowHeight or 0), MAX_HEIGHT)
+    ApplyMinResize()
 end
 
 function Buttons.SetTitle(text)

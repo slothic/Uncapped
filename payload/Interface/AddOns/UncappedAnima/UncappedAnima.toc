@@ -1,8 +1,0 @@
-## Interface: 30300
-## Title: Uncapped Anima
-## Notes: Buy and track your Tempo (cooldowns, GCD, cast and swing speed) and Defence (dodge, parry, block and damage reduction in keystones) upgrade trees. /anima
-## Author: Uncapped
-## OptionalDeps: UncappedOptions
-## SavedVariables: UncappedAnimaDB
-
-UncappedAnima.lua

@@ -18,10 +18,10 @@ local C_PANEL = "|cff40ff40[Uncapped Panel]|r "
 local C_CMD = "|cffffd100"
 local C_RESET = "|r"
 
-local floor, min, max = math.floor, math.min, math.max
+local floor, min, max, random = math.floor, math.min, math.max, math.random
 local tinsert, tremove = table.insert, table.remove
-local sub = string.sub
-local tonumber, type, pairs = tonumber, type, pairs
+local sub, gsub = string.sub, string.gsub
+local tonumber, tostring, type, pairs = tonumber, tostring, type, pairs
 
 local DEFAULTS = {
     relativeTo = "UIParent",
@@ -36,7 +36,7 @@ local DEFAULTS = {
     orderLayout = 1,
 }
 
-local TOOL_BUTTONS = {
+local BASE_TOOL_BUTTONS = {
     { id = "dungeonStats", label = "Dungeon Stats", command = ".ds",       icon = "Interface\\Icons\\INV_Misc_Note_01" },
     { id = "reset",        label = "Reset",         command = ".reset",    icon = "Interface\\Icons\\INV_Misc_Rune_01" },
     { id = "auto",         label = "Auto",          command = ".auto",     icon = "Interface\\Icons\\Ability_Rogue_Sprint" },
@@ -48,12 +48,26 @@ local TOOL_BUTTONS = {
     { id = "transmog",     label = "Transmog",      command = "/transmog", icon = "Interface\\Icons\\INV_Chest_Cloth_17" },
     { id = "vault",        label = "Vault",         command = "/vault",    icon = "Interface\\Icons\\INV_Misc_Bag_10_Blue" },
 }
-DEFAULTS.visibleIcons = #TOOL_BUTTONS
+DEFAULTS.visibleIcons = #BASE_TOOL_BUTTONS
 
+local RANDOM_ICONS = {
+    "Interface\\Icons\\INV_Misc_Gear_01",
+    "Interface\\Icons\\INV_Misc_Gem_01",
+    "Interface\\Icons\\INV_Misc_Key_03",
+    "Interface\\Icons\\INV_Misc_Map_01",
+    "Interface\\Icons\\INV_Misc_Orb_01",
+    "Interface\\Icons\\INV_Misc_PocketWatch_01",
+    "Interface\\Icons\\INV_Misc_QuestionMark",
+    "Interface\\Icons\\INV_Scroll_03",
+    "Interface\\Icons\\Spell_Arcane_PortalDalaran",
+    "Interface\\Icons\\Spell_Holy_MagicalSentry",
+}
+
+local TOOL_BUTTONS = {}
 local TOOL_BY_ID = {}
-for i = 1, #TOOL_BUTTONS do
-    local tool = TOOL_BUTTONS[i]
-    TOOL_BY_ID[tool.id] = tool
+local BASE_TOOL_BY_ID = {}
+for i = 1, #BASE_TOOL_BUTTONS do
+    BASE_TOOL_BY_ID[BASE_TOOL_BUTTONS[i].id] = true
 end
 
 local DEFAULT_ORDER = {
@@ -69,6 +83,44 @@ local DEFAULT_ORDER = {
     "vault",
 }
 
+local function AddRuntimeTool(tool)
+    TOOL_BUTTONS[#TOOL_BUTTONS + 1] = tool
+    TOOL_BY_ID[tool.id] = tool
+end
+
+local function RebuildTools(db)
+    while #TOOL_BUTTONS > 0 do tremove(TOOL_BUTTONS) end
+    for id in pairs(TOOL_BY_ID) do TOOL_BY_ID[id] = nil end
+
+    for i = 1, #BASE_TOOL_BUTTONS do
+        AddRuntimeTool(BASE_TOOL_BUTTONS[i])
+    end
+
+    local custom = db and db.customButtons
+    if type(custom) ~= "table" then return end
+
+    local used = {}
+    for i = 1, #BASE_TOOL_BUTTONS do used[BASE_TOOL_BUTTONS[i].id] = true end
+    for i = 1, #custom do
+        local saved = custom[i]
+        if type(saved) == "table" then
+            local id = tostring(saved.id or "")
+            if id ~= "" and not used[id] then
+                used[id] = true
+                AddRuntimeTool({
+                    id = id,
+                    label = tostring(saved.label or ("Custom " .. i)),
+                    command = tostring(saved.command or ""),
+                    icon = tostring(saved.icon or RANDOM_ICONS[1]),
+                    custom = true,
+                })
+            end
+        end
+    end
+end
+
+RebuildTools()
+
 local function BarWidth(count)
     count = max(1, min(#TOOL_BUTTONS, tonumber(count) or #TOOL_BUTTONS))
     return PAD * 2 + (BUTTON_SIZE * count) + (GAP * (count - 1))
@@ -80,10 +132,16 @@ local frame
 local CopyDefaults
 local buttons = {}
 local orderButtons = {}
+local orderHolder
+local visibleSlider
+local visibleSliderHigh
+local customNameBox
+local customCommandBox
 local optionsBuilt = false
 local draggingOrderSlot
 local dbReady = false
 local commandRunner
+local DeleteCustomButton
 
 local VALID_POINTS = {
     CENTER = true,
@@ -109,6 +167,16 @@ local function SavedNumber(value, fallback, minValue, maxValue)
     if minValue and n < minValue then n = minValue end
     if maxValue and n > maxValue then n = maxValue end
     return n
+end
+
+local function RandomIcon()
+    return RANDOM_ICONS[random(1, #RANDOM_ICONS)]
+end
+
+local function TrimText(text)
+    text = tostring(text or "")
+    text = gsub(text, "^%s+", "")
+    return gsub(text, "%s+$", "")
 end
 
 local function AnchorFrame()
@@ -159,6 +227,29 @@ CopyDefaults = function()
     UncappedPanelDB.y = SavedNumber(UncappedPanelDB.y, DEFAULTS.y)
     UncappedPanelDB.shown = SavedBoolean(UncappedPanelDB.shown, DEFAULTS.shown)
     UncappedPanelDB.aoeLoot = SavedBoolean(UncappedPanelDB.aoeLoot, DEFAULTS.aoeLoot)
+    UncappedPanelDB.customCounter = floor(SavedNumber(UncappedPanelDB.customCounter, 0, 0) + 0.5)
+    if type(UncappedPanelDB.customButtons) ~= "table" then UncappedPanelDB.customButtons = {} end
+
+    local cleanCustom = {}
+    local usedCustom = {}
+    for i = 1, #UncappedPanelDB.customButtons do
+        local saved = UncappedPanelDB.customButtons[i]
+        if type(saved) == "table" then
+            local id = tostring(saved.id or "")
+            if id ~= "" and not BASE_TOOL_BY_ID[id] and not usedCustom[id] then
+                usedCustom[id] = true
+                tinsert(cleanCustom, {
+                    id = id,
+                    label = tostring(saved.label or ("Custom " .. i)),
+                    command = tostring(saved.command or ""),
+                    icon = tostring(saved.icon or RANDOM_ICONS[1]),
+                })
+            end
+        end
+    end
+    UncappedPanelDB.customButtons = cleanCustom
+    RebuildTools(UncappedPanelDB)
+
     UncappedPanelDB.visibleIcons = floor(SavedNumber(UncappedPanelDB.visibleIcons, #TOOL_BUTTONS, 1, #TOOL_BUTTONS) + 0.5)
     UncappedPanelDB.layout = floor(SavedNumber(UncappedPanelDB.layout, DEFAULTS.layout, DEFAULTS.layout) + 0.5)
     UncappedPanelDB.orderLayout = floor(SavedNumber(UncappedPanelDB.orderLayout, DEFAULTS.orderLayout, DEFAULTS.orderLayout) + 0.5)
@@ -176,6 +267,13 @@ CopyDefaults = function()
     end
     for i = 1, #DEFAULT_ORDER do
         local id = DEFAULT_ORDER[i]
+        if not used[id] then
+            tinsert(cleanOrder, id)
+            used[id] = true
+        end
+    end
+    for i = 1, #TOOL_BUTTONS do
+        local id = TOOL_BUTTONS[i].id
         if not used[id] then
             tinsert(cleanOrder, id)
             used[id] = true
@@ -210,8 +308,10 @@ local function GetCommandRunner()
     -- ran a slash command threw
     --     attempt to index field 'header' (a nil value)
     -- AFTER the command had already gone through -- which is why the buttons
-    -- looked like they worked while filling the error frame. Reported in game
-    -- with a count of 2 from a single session.
+    -- looked like they worked while filling the error frame. Reported in game.
+    --
+    -- Re-applied on intake of MentalMonk's custom-button rework, which was
+    -- branched before the fix landed. Do not simplify back to a bare EditBox.
     commandRunner = CreateFrame("EditBox", "UncappedPanelCommandRunner", UIParent, "ChatFrameEditBoxTemplate")
     commandRunner:Hide()
     commandRunner:SetAutoFocus(false)
@@ -257,26 +357,47 @@ local function ButtonCommand(data, db)
         db = db or CopyDefaults()
         return ".aoeloot " .. (db.aoeLoot and "off" or "on")
     end
-    return data.command
+    return data.command or ""
 end
 
 local function RunButton(data)
     local db = CopyDefaults()
     local command = ButtonCommand(data, db)
+    if command == "" then
+        Chat(C_PANEL .. data.label .. " has no command assigned yet.")
+        return
+    end
     if RunTypedCommand(command) and data.toggle == "aoeLoot" then
         db.aoeLoot = not db.aoeLoot
     end
 end
 
-local function OnToolButtonClick(self)
-    RunButton(self.data)
+local function OnToolButtonClick(self, mouseButton)
+    local buttonName = mouseButton or arg1
+    if buttonName == "RightButton" and IsShiftKeyDown and IsShiftKeyDown() then
+        if DeleteCustomButton then DeleteCustomButton(self.data) end
+        return
+    end
+    if buttonName == "LeftButton" or not buttonName then
+        RunButton(self.data)
+    end
 end
 
 local function OnToolButtonEnter(self)
     local data = self.data
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     GameTooltip:SetText(data.label)
-    GameTooltip:AddLine(ButtonCommand(data), 1, 0.82, 0)
+    local command = ButtonCommand(data)
+    if command ~= "" then
+        GameTooltip:AddLine(command, 1, 0.82, 0)
+    else
+        GameTooltip:AddLine("No command assigned", 0.7, 0.7, 0.7)
+    end
+    if data.custom then
+        GameTooltip:AddLine("Shift-right-click to delete", 1, 0.35, 0.25)
+    else
+        GameTooltip:AddLine("Built-in button", 0.5, 0.5, 0.5)
+    end
     GameTooltip:Show()
 end
 
@@ -289,6 +410,7 @@ local function CreateToolButton(parent, data)
     button.data = data
     button:SetWidth(BUTTON_SIZE)
     button:SetHeight(BUTTON_SIZE)
+    button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     button:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
     if button:GetHighlightTexture() then button:GetHighlightTexture():SetBlendMode("ADD") end
 
@@ -301,12 +423,33 @@ local function CreateToolButton(parent, data)
     icon:SetHeight(ICON_SIZE)
     icon:SetPoint("CENTER", 0, 0)
     icon:SetTexture(data.icon)
+    button.icon = icon
 
     button:SetScript("OnClick", OnToolButtonClick)
     button:SetScript("OnEnter", OnToolButtonEnter)
     button:SetScript("OnLeave", HideTooltip)
 
     return button
+end
+
+local function EnsurePanelButtons()
+    if not frame then return end
+
+    for i = 1, #TOOL_BUTTONS do
+        local tool = TOOL_BUTTONS[i]
+        if not buttons[tool.id] then
+            buttons[tool.id] = CreateToolButton(frame, tool)
+        else
+            buttons[tool.id].data = tool
+            buttons[tool.id].icon:SetTexture(tool.icon)
+        end
+    end
+end
+
+local function RemoveOrderId(db, id)
+    for i = #db.order, 1, -1 do
+        if db.order[i] == id then tremove(db.order, i) end
+    end
 end
 
 local function RelayoutPanel()
@@ -320,6 +463,9 @@ local function RelayoutPanel()
     for i = visible + 1, #db.order do
         local button = buttons[db.order[i]]
         if button then button:Hide() end
+    end
+    for id, button in pairs(buttons) do
+        if not TOOL_BY_ID[id] then button:Hide() end
     end
 
     for i = 1, visible do
@@ -365,10 +511,7 @@ local function BuildPanel()
     end)
     frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    for i = 1, #TOOL_BUTTONS do
-        local tool = TOOL_BUTTONS[i]
-        buttons[tool.id] = CreateToolButton(frame, tool)
-    end
+    EnsurePanelButtons()
     RelayoutPanel()
 
     if not db.shown then frame:Hide() end
@@ -449,59 +592,183 @@ local function FinishOrderDrag()
     end
 end
 
-local function CreateOrderEditor(parent, y)
-    local holder = CreateFrame("Frame", nil, parent)
-    holder:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, y)
-    holder:SetWidth((ORDER_BUTTON_SIZE * #TOOL_BUTTONS) + (ORDER_GAP * (#TOOL_BUTTONS - 1)))
-    holder:SetHeight(ORDER_BUTTON_SIZE + ORDER_GAP)
+local function CreateOrderButton(holder, slot)
+    local button = CreateFrame("Button", nil, holder)
+    button:SetWidth(ORDER_BUTTON_SIZE)
+    button:SetHeight(ORDER_BUTTON_SIZE)
+    button.slot = slot
+    button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    button:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+    if button:GetHighlightTexture() then button:GetHighlightTexture():SetBlendMode("ADD") end
 
+    local bg = button:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints(button)
+    bg:SetTexture(0.08, 0.09, 0.10, 0.86)
+
+    local icon = button:CreateTexture(nil, "ARTWORK")
+    icon:SetWidth(ORDER_ICON_SIZE)
+    icon:SetHeight(ORDER_ICON_SIZE)
+    icon:SetPoint("CENTER", 0, 0)
+    button.icon = icon
+
+    local slotText = button:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    slotText:SetPoint("BOTTOMRIGHT", -1, 1)
+    button.slotText = slotText
+
+    button:SetScript("OnMouseDown", function(self, mouseButton)
+        local buttonName = mouseButton or arg1
+        if buttonName == "LeftButton" then
+            draggingOrderSlot = self.slot
+            RefreshOrderEditor()
+        end
+    end)
+    button:SetScript("OnMouseUp", function(self, mouseButton)
+        local buttonName = mouseButton or arg1
+        if buttonName == "RightButton" and IsShiftKeyDown and IsShiftKeyDown() then
+            if DeleteCustomButton then DeleteCustomButton(self.tool) end
+            draggingOrderSlot = nil
+            return
+        end
+        FinishOrderDrag()
+    end)
+    button:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if self.tool then
+            GameTooltip:SetText(self.tool.label)
+            local command = ButtonCommand(self.tool)
+            if command ~= "" then
+                GameTooltip:AddLine(command, 1, 0.82, 0)
+            else
+                GameTooltip:AddLine("No command assigned", 0.7, 0.7, 0.7)
+            end
+            if self.tool.custom then
+                GameTooltip:AddLine("Shift-right-click to delete", 1, 0.35, 0.25)
+            end
+        end
+        GameTooltip:AddLine("Drag to reorder", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    orderButtons[slot] = button
+    return button
+end
+
+local function EnsureOrderEditorSlots()
+    if not orderHolder then return end
+
+    orderHolder:SetWidth((ORDER_BUTTON_SIZE * #TOOL_BUTTONS) + (ORDER_GAP * max(0, #TOOL_BUTTONS - 1)))
     for slot = 1, #TOOL_BUTTONS do
-        local button = CreateFrame("Button", nil, holder)
-        button:SetWidth(ORDER_BUTTON_SIZE)
-        button:SetHeight(ORDER_BUTTON_SIZE)
-        button:SetPoint("LEFT", holder, "LEFT", (slot - 1) * (ORDER_BUTTON_SIZE + ORDER_GAP), 0)
+        local button = orderButtons[slot] or CreateOrderButton(orderHolder, slot)
+        button:ClearAllPoints()
+        button:SetPoint("LEFT", orderHolder, "LEFT", (slot - 1) * (ORDER_BUTTON_SIZE + ORDER_GAP), 0)
         button.slot = slot
-        button:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
-        if button:GetHighlightTexture() then button:GetHighlightTexture():SetBlendMode("ADD") end
+        button:Show()
+    end
+    for slot = #TOOL_BUTTONS + 1, #orderButtons do
+        if orderButtons[slot] then orderButtons[slot]:Hide() end
+    end
+end
 
-        local bg = button:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints(button)
-        bg:SetTexture(0.08, 0.09, 0.10, 0.86)
+local function CreateOrderEditor(parent, y)
+    orderHolder = CreateFrame("Frame", nil, parent)
+    orderHolder:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, y)
+    orderHolder:SetHeight(ORDER_BUTTON_SIZE + ORDER_GAP)
 
-        local icon = button:CreateTexture(nil, "ARTWORK")
-        icon:SetWidth(ORDER_ICON_SIZE)
-        icon:SetHeight(ORDER_ICON_SIZE)
-        icon:SetPoint("CENTER", 0, 0)
-        button.icon = icon
+    EnsureOrderEditorSlots()
+    RefreshOrderEditor()
+    return orderHolder
+end
 
-        local slotText = button:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        slotText:SetPoint("BOTTOMRIGHT", -1, 1)
-        button.slotText = slotText
+local function CreateOptionEditBox(L, label, width)
+    local fs = L.panel:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    fs:SetPoint("TOPLEFT", L.panel, "TOPLEFT", 16, L.y)
+    fs:SetText(label)
+    L:advance(16)
 
-        button:SetScript("OnMouseDown", function(self, mouseButton)
-            local buttonName = mouseButton or arg1
-            if buttonName == "LeftButton" then
-                draggingOrderSlot = self.slot
-                RefreshOrderEditor()
-            end
-        end)
-        button:SetScript("OnMouseUp", FinishOrderDrag)
-        button:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            if self.tool then
-                GameTooltip:SetText(self.tool.label)
-                GameTooltip:AddLine(ButtonCommand(self.tool), 1, 0.82, 0)
-            end
-            GameTooltip:AddLine("Drag to reorder", 0.7, 0.7, 0.7)
-            GameTooltip:Show()
-        end)
-        button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    local box = CreateFrame("EditBox", nil, L.panel, "InputBoxTemplate")
+    box:SetPoint("TOPLEFT", L.panel, "TOPLEFT", 20, L.y)
+    box:SetWidth(width or 260)
+    box:SetHeight(22)
+    box:SetAutoFocus(false)
+    box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    L:advance(32)
+    return box
+end
 
-        orderButtons[slot] = button
+local function RefreshVisibleSlider()
+    if not visibleSlider then return end
+
+    visibleSlider:SetMinMaxValues(1, #TOOL_BUTTONS)
+    if visibleSliderHigh then visibleSliderHigh:SetText(tostring(#TOOL_BUTTONS)) end
+    visibleSlider:SetValue(CopyDefaults().visibleIcons)
+end
+
+DeleteCustomButton = function(data)
+    if not data then return end
+    if not data.custom then
+        Chat(C_PANEL .. "built-in buttons cannot be deleted. Move them right or lower Icons visible to hide them.")
+        return
     end
 
+    local db = CopyDefaults()
+    for i = #db.customButtons, 1, -1 do
+        if db.customButtons[i].id == data.id then tremove(db.customButtons, i) end
+    end
+    RemoveOrderId(db, data.id)
+    RebuildTools(db)
+    db.visibleIcons = min(#TOOL_BUTTONS, max(1, db.visibleIcons))
+
+    if buttons[data.id] then buttons[data.id]:Hide() end
+    EnsureOrderEditorSlots()
+    RelayoutPanel()
     RefreshOrderEditor()
-    return holder
+    RefreshVisibleSlider()
+    Chat(C_PANEL .. "deleted " .. C_CMD .. data.label .. C_RESET .. ".")
+end
+
+local function NewCustomButton()
+    local db = CopyDefaults()
+    db.customButtons = db.customButtons or {}
+
+    local label = TrimText(customNameBox and customNameBox:GetText())
+    local command = TrimText(customCommandBox and customCommandBox:GetText())
+    if label == "" then
+        Chat(C_PANEL .. "enter a button name first.")
+        return
+    end
+    if command == "" then
+        Chat(C_PANEL .. "enter a command first.")
+        return
+    end
+
+    local id
+    repeat
+        db.customCounter = floor(SavedNumber(db.customCounter, 0, 0) + 1)
+        id = "custom" .. db.customCounter
+    until not TOOL_BY_ID[id]
+
+    local custom = {
+        id = id,
+        label = label,
+        command = command,
+        icon = RandomIcon(),
+    }
+    tinsert(db.customButtons, custom)
+
+    RebuildTools(db)
+    tinsert(db.order, custom.id)
+    db.visibleIcons = min(#TOOL_BUTTONS, db.visibleIcons + 1)
+
+    EnsurePanelButtons()
+    EnsureOrderEditorSlots()
+    RelayoutPanel()
+    RefreshOrderEditor()
+    RefreshVisibleSlider()
+    if customNameBox then customNameBox:SetText("") end
+    if customCommandBox then customCommandBox:SetText("") end
+    Chat(C_PANEL .. "created " .. C_CMD .. custom.label .. C_RESET .. " with a random icon.")
 end
 
 local function BuildOptions()
@@ -521,24 +788,41 @@ local function BuildOptions()
             if v then frame:Show() else frame:Hide() end
         end)
 
-    L:Slider("Icons visible", 1, #TOOL_BUTTONS, 1,
+    visibleSlider = L:Slider("Icons visible", 1, #TOOL_BUTTONS, 1,
         function() return CopyDefaults().visibleIcons end,
         function(v)
             CopyDefaults().visibleIcons = v
             RelayoutPanel()
             RefreshOrderEditor()
         end, "%d")
+    if visibleSlider and visibleSlider.GetName then
+        visibleSliderHigh = _G[visibleSlider:GetName() .. "High"]
+    end
 
     L:Gap(6)
     L:Header("Icon Order")
-    L:Note("Drag icons left or right to change the toolbar order.", 16)
+    L:Note("Drag icons left or right to change the toolbar order. Custom buttons can be deleted with shift-right-click.", 32)
     CreateOrderEditor(L.panel, L.y)
     L:advance(44)
+
+    L:Gap(4)
+    L:Header("Custom Button")
+    customNameBox = CreateOptionEditBox(L, "Button name", 260)
+    customCommandBox = CreateOptionEditBox(L, "Chat command", 260)
+    L:Button("Add custom button", NewCustomButton, 170)
 
     L:Button("Reset icon order", function()
         local db = CopyDefaults()
         db.order = {}
         for i = 1, #DEFAULT_ORDER do db.order[i] = DEFAULT_ORDER[i] end
+        for i = 1, #TOOL_BUTTONS do
+            local id = TOOL_BUTTONS[i].id
+            local exists
+            for j = 1, #db.order do
+                if db.order[j] == id then exists = true; break end
+            end
+            if not exists then tinsert(db.order, id) end
+        end
         db.orderLayout = DEFAULTS.orderLayout
         RelayoutPanel()
         RefreshOrderEditor()
@@ -561,7 +845,7 @@ events:SetScript("OnEvent", function(_, evt, addonName)
     local eventName = evt or event
     local loadedName = addonName or arg1
     if eventName == "ADDON_LOADED" then
-        if loadedName == "Uncapped" or loadedName == ADDON_NAME or loadedName == "UncappedOptions" then
+        if loadedName == "Uncapped" or loadedName == "Uncapped Core" or loadedName == ADDON_NAME or loadedName == "UncappedOptions" then
             TryBuild()
         end
     elseif eventName == "PLAYER_LOGIN" then

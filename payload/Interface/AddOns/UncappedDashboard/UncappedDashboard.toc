@@ -2,10 +2,19 @@
 ## Title: Uncapped Dashboard
 ## Notes: Central launcher panel for the Uncapped addon suite.
 ## Author: Uncapped
-## Version: 0.0.0
-## OptionalDeps: UncappedUI, UncappedItemCustomize, UncappedAnima, UncappedForge
-## SavedVariables: UncappedDashboardDB
+## Version: 1.0.0
+## OptionalDeps: UncappedUI
+## SavedVariables: UncappedDashboardDB, UncappedSoulForgeDB, UncappedAnimaDB, UncappedForgeDB, UncappedVaultDB, UncappedTransmogDB
 
+UncappedDashboardConfig.lua
 UncappedDashboard.lua
 DashboardButtons.lua
 UncappedDashboard_UI.lua
+UncappedSoulForge\UncappedSoulForge.lua
+UncappedAnima\UncappedAnima.lua
+UncappedForge\UncappedForge.lua
+UncappedVault\UncappedVault.lua
+UncappedVault\UncappedVault_UI.lua
+UncappedScrolls\UncappedScrolls.lua
+UncappedTransmog\UncappedTransmogData.lua
+UncappedTransmog\UncappedTransmog.lua

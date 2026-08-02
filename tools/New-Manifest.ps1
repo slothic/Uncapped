@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Generates manifest.json by hashing everything in the payload tree.
 
@@ -291,7 +291,7 @@ $manifest = [ordered]@{
 
     # Force-ticked in AddOns.txt on every launch. StatFeed is the reason the launcher exists;
     # without it players see no stat-gain messages at all.
-    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedVault', 'UncappedTransmog', 'UncappedForge', 'UncappedChat', 'UncappedQuests')
+    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests')
 
     # Switched off in AddOns.txt on clients that already have them. Needed because dropping
     # an addon from the payload does not uninstall it - the launcher never deletes
@@ -330,6 +330,14 @@ $manifest = [ordered]@{
         'Interface/AddOns/UncappedAnima',
         'Interface/AddOns/UncappedChat',
         'Interface/AddOns/UncappedQuests',
+        # The Dashboard bundles Forge/Soulforge/Anima/Vault/Transmog/Scrolls as folders
+        # inside itself, so it is the only one of them still installed as an addon.
+        # The six standalone entries above are deliberately KEPT listed even though they
+        # no longer ship: that is the only thing that deletes them from players' clients.
+        # Leaving them behind would load every one of those files twice -- same rule as
+        # devUncapped64 and UncappedTempo below.
+        'Interface/AddOns/UncappedDashboard',
+        'Interface/AddOns/UncappedUI',
         # devUncapped64 was renamed to Uncapped64bitUI. It has to stay listed so the
         # old folder is actually deleted from players' clients -- otherwise both copies
         # load side by side and every overlay, filter and hook runs twice.

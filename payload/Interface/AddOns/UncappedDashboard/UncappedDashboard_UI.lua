@@ -32,9 +32,12 @@ local built = false
 -- entry here once an addon has been reworked to embed the same way Soul
 -- Forge was (see UncappedSoulForge.lua's EmbedInto).
 local EMBEDDED_TABS = {
-    soulforge = "UncappedSoulForge",
-    anima     = "UncappedAnima",
-    forge     = "UncappedForge",
+    soulforge   = "UncappedSoulForge",
+    anima       = "UncappedAnima",
+    forge       = "UncappedForge",
+    vault       = "UncappedVault",
+    soulscrolls = "UncappedScrolls",
+    transmog    = "UncappedTransmog",
 }
 local embeddedGroups = {}
 
@@ -146,6 +149,7 @@ function UI.Refresh()
     if Core.state.tab == "dashboard" then
         Core.Buttons.SetTitle("Dashboard")
         if Core.Buttons.SetMinContentWidth then Core.Buttons.SetMinContentWidth(0) end
+        if Core.Buttons.SetMinContentHeight then Core.Buttons.SetMinContentHeight(0) end
         dashboardGroup:Show()
         return
     end
@@ -160,12 +164,17 @@ function UI.Refresh()
             local minW = addon.UI.GetMinWidth and addon.UI.GetMinWidth() or 0
             Core.Buttons.SetMinContentWidth(minW)
         end
+        if Core.Buttons.SetMinContentHeight then
+            local minH = addon.UI.GetMinHeight and addon.UI.GetMinHeight() or 0
+            Core.Buttons.SetMinContentHeight(minH)
+        end
         group:Show()
         addon.UI.Activate()
         return
     end
 
     if Core.Buttons.SetMinContentWidth then Core.Buttons.SetMinContentWidth(0) end
+    if Core.Buttons.SetMinContentHeight then Core.Buttons.SetMinContentHeight(0) end
     placeholderGroup:Show()
 
     for _, tab in ipairs(Core.TABS) do

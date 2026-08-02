@@ -1,9 +1,0 @@
-## Interface: 30300
-## Title: Uncapped Vault
-## Notes: The infinite Vault -- a searchable, filterable, paged bag holding all your loot. Core data and server transport in UncappedVault.lua, presentation in UncappedVault_UI.lua.
-## Author: Uncapped
-## Version: 0.2
-## SavedVariables: UncappedVaultDB
-
-UncappedVault.lua
-UncappedVault_UI.lua
