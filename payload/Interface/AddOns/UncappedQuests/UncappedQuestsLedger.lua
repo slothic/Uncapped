@@ -1052,6 +1052,24 @@ end)
 -- throttle: one refresh per few seconds is plenty for objective counts.
 local REFRESH_INTERVAL = 4
 local lastRefresh = 0
+local refreshQueued = false
+
+-- TRAILING edge. A leading-edge-only throttle drops whatever lands inside the
+-- window, and if nothing fires afterwards that update is lost for good -- which
+-- is exactly what happens on the kill that COMPLETES a quest: it follows the
+-- previous kill closely, so its QUEST_LOG_UPDATE falls inside the window, and
+-- there is no ninth mob to fire a tenth event. The ledger (and therefore the map
+-- pins and the arrow, which both read it) kept showing the quest as incomplete
+-- and pointing at the kill area instead of the turn-in until some unrelated
+-- refresh happened along. Queue the dropped tick and let it fire when the
+-- interval is up.
+listener:SetScript("OnUpdate", function()
+    if not refreshQueued then return end
+    if GetTime() - lastRefresh < REFRESH_INTERVAL then return end
+    refreshQueued = false
+    lastRefresh = GetTime()
+    Send("QLGET")
+end)
 
 listener:SetScript("OnEvent", function(_, event, prefix, message)
     if event == "ADDON_LOADED" then
@@ -1096,8 +1114,12 @@ listener:SetScript("OnEvent", function(_, event, prefix, message)
     end
 
     local now = GetTime()
-    if now - lastRefresh < REFRESH_INTERVAL then return end
+    if now - lastRefresh < REFRESH_INTERVAL then
+        refreshQueued = true
+        return
+    end
     lastRefresh = now
+    refreshQueued = false
     Send("QLGET")
 end)
 
