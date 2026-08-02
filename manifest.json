@@ -1959,8 +1959,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedPanel/UncappedPanel.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedPanel/UncappedPanel.lua",
-                      "sha256":  "2bc31108f4d0600a5218adefc180c5a3572ab62bf68682c175ead561a5b547e4",
-                      "size":  18342
+                      "sha256":  "5688602f8d73c8be8625acc3fa007bf59954b04257fc85f72a9e2d8e9c48302e",
+                      "size":  19413
                   },
                   {
                       "path":  "Interface/AddOns/UncappedPanel/UncappedPanel.toc",

@@ -201,12 +201,31 @@ end
 local function GetCommandRunner()
     if commandRunner then return commandRunner end
 
-    commandRunner = CreateFrame("EditBox", nil, UIParent)
+    -- [Uncapped] Built from ChatFrameEditBoxTemplate, NOT a bare EditBox.
+    --
+    -- ChatEdit_SendText runs the command and then tears the box down again:
+    -- ChatEdit_ParseText -> ChatEdit_OnEscapePressed -> ChatEdit_DeactivateChat,
+    -- and that last one indexes editBox.header unguarded (ChatFrame.lua:3417).
+    -- A bare CreateFrame("EditBox") has no header, so every panel button that
+    -- ran a slash command threw
+    --     attempt to index field 'header' (a nil value)
+    -- AFTER the command had already gone through -- which is why the buttons
+    -- looked like they worked while filling the error frame. Reported in game
+    -- with a count of 2 from a single session.
+    commandRunner = CreateFrame("EditBox", "UncappedPanelCommandRunner", UIParent, "ChatFrameEditBoxTemplate")
     commandRunner:Hide()
     commandRunner:SetAutoFocus(false)
     commandRunner.chatType = "SAY"
     commandRunner.chatFrame = DEFAULT_CHAT_FRAME
     if commandRunner.SetAttribute then commandRunner:SetAttribute("chatType", "SAY") end
+
+    -- Belt and braces: if the template ever stops supplying one, give the
+    -- deactivate path something to index instead of erroring again.
+    if not commandRunner.header then
+        commandRunner.header = commandRunner:CreateFontString(nil, "ARTWORK", "ChatFontNormal")
+        commandRunner.header:Hide()
+    end
+
     return commandRunner
 end
 
