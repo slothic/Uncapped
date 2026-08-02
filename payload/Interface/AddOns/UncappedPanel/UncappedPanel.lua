@@ -43,10 +43,6 @@ local BASE_TOOL_BUTTONS = {
     { id = "solo",         label = "Solo",          command = ".solo",     icon = "Interface\\Icons\\Ability_Warrior_BattleShout" },
     { id = "aoeLoot",      label = "Aoe Loot",      toggle = "aoeLoot",    icon = "Interface\\Icons\\INV_Misc_Bag_08" },
     { id = "statFeed",     label = "Stat Feed",     command = "/statfeed", icon = "Interface\\Icons\\INV_Misc_Book_09" },
-    { id = "soulForge",    label = "Soulforge",     command = "/sf",       icon = "Interface\\Icons\\INV_Enchant_ShardPrismaticLarge" },
-    { id = "forge",        label = "Forge",         command = "/forge",    icon = "Interface\\Icons\\Trade_BlackSmithing" },
-    { id = "transmog",     label = "Transmog",      command = "/transmog", icon = "Interface\\Icons\\INV_Chest_Cloth_17" },
-    { id = "vault",        label = "Vault",         command = "/vault",    icon = "Interface\\Icons\\INV_Misc_Bag_10_Blue" },
 }
 DEFAULTS.visibleIcons = #BASE_TOOL_BUTTONS
 
@@ -72,15 +68,11 @@ end
 
 local DEFAULT_ORDER = {
     "statFeed",
-    "soulForge",
-    "forge",
     "solo",
     "reset",
     "dungeonStats",
     "auto",
     "aoeLoot",
-    "transmog",
-    "vault",
 }
 
 local function AddRuntimeTool(tool)
@@ -299,7 +291,7 @@ end
 local function GetCommandRunner()
     if commandRunner then return commandRunner end
 
-    -- [Uncapped] Built from ChatFrameEditBoxTemplate, NOT a bare EditBox.
+    -- [Uncapped] Bare EditBox, built up by hand -- NOT ChatFrameEditBoxTemplate.
     --
     -- ChatEdit_SendText runs the command and then tears the box down again:
     -- ChatEdit_ParseText -> ChatEdit_OnEscapePressed -> ChatEdit_DeactivateChat,
@@ -310,21 +302,29 @@ local function GetCommandRunner()
     -- AFTER the command had already gone through -- which is why the buttons
     -- looked like they worked while filling the error frame. Reported in game.
     --
-    -- Re-applied on intake of MentalMonk's custom-button rework, which was
-    -- branched before the fix landed. Do not simplify back to a bare EditBox.
-    commandRunner = CreateFrame("EditBox", "UncappedPanelCommandRunner", UIParent, "ChatFrameEditBoxTemplate")
+    -- That was "fixed" by inheriting ChatFrameEditBoxTemplate instead, but its
+    -- <OnLoad> runs ChatEdit_OnLoad synchronously INSIDE CreateFrame -- before
+    -- commandRunner.chatFrame is assigned below -- and ChatEdit_OnLoad indexes
+    -- self.chatFrame unconditionally (ChatFrame.lua:3306), since the template
+    -- assumes it's inheriting into a real chat frame's own edit box, not a
+    -- synthetic one parented to UIParent. That threw
+    --     attempt to index field 'chatFrame' (a nil value)
+    -- on every load. Reported in game. Back to a bare EditBox, but this time
+    -- with every field ChatEdit_OnLoad would have set supplied by hand, so
+    -- neither bug's code path can fire again.
+    commandRunner = CreateFrame("EditBox", "UncappedPanelCommandRunner", UIParent)
     commandRunner:Hide()
     commandRunner:SetAutoFocus(false)
+    commandRunner:SetFontObject(ChatFontNormal)
     commandRunner.chatType = "SAY"
     commandRunner.chatFrame = DEFAULT_CHAT_FRAME
+    commandRunner.historyLines = {}
+    commandRunner.historyIndex = 0
+    commandRunner.addHistoryLine = true
     if commandRunner.SetAttribute then commandRunner:SetAttribute("chatType", "SAY") end
 
-    -- Belt and braces: if the template ever stops supplying one, give the
-    -- deactivate path something to index instead of erroring again.
-    if not commandRunner.header then
-        commandRunner.header = commandRunner:CreateFontString(nil, "ARTWORK", "ChatFontNormal")
-        commandRunner.header:Hide()
-    end
+    commandRunner.header = commandRunner:CreateFontString(nil, "ARTWORK", "ChatFontNormal")
+    commandRunner.header:Hide()
 
     return commandRunner
 end

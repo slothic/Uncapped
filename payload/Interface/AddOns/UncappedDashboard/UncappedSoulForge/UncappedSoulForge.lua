@@ -15,7 +15,9 @@
     * SEND    : SendAddonMessage("REAGENTBANK", body, "WHISPER", UnitName("player"))
     * RECEIVE : CHAT_MSG_ADDON, arg1 == "UNC", arg2 == body.
 
-  /soulforge, /sf, /sb   open/close        /sbdebug   toggle verbose wire logging
+  Soul Forge is a Dashboard tab (opened via /dashboard, not its own window).
+  /extract, /ex and /socket, /sock still open their own standalone popups.
+  /sbdebug   toggle verbose wire logging
 ]]
 
 local SEND_PREFIX = "REAGENTBANK"
@@ -1842,21 +1844,9 @@ function SF.UI.GetMinWidth()
   return 374
 end
 
-SLASH_SOULFORGE1 = "/soulforge"
-SLASH_SOULFORGE2 = "/sf"
-SLASH_SOULFORGE3 = "/soulbind"
-SLASH_SOULFORGE4 = "/sb"
-SlashCmdList["SOULFORGE"] = function()
-  local Dashboard = _G.UncappedDashboard
-  if not Dashboard then
-    msg("Soul Forge now lives inside the Dashboard -- load UncappedDashboard to use it.")
-    return
-  end
-  Dashboard.SetTab("soulforge")
-  if not (Dashboard.UI and Dashboard.UI.IsShown and Dashboard.UI.IsShown()) then
-    Dashboard.Toggle()
-  end
-end
+-- No standalone /soulforge, /sf, /soulbind or /sb command: this window is a
+-- Dashboard tab now, opened via /dashboard, so a dedicated slash command would
+-- just duplicate that entry point.
 
 SLASH_EXTRACT1 = "/extract"
 SLASH_EXTRACT2 = "/ex"

@@ -439,6 +439,11 @@ end
 -- here is enough; withdrawing still works via right-click on a row/slot.
 
 local function RefreshInfo()
+    -- Guarded like every other Refresh* function here: RefreshGridRowCount's
+    -- initial call in BuildFrame can cascade into this (via SetGridPageSize ->
+    -- Notify("pagesize") -> UI.Refresh) before footerBar is built further down
+    -- in that same function.
+    if not footerBar then return end
     footerBar.label:SetText("Vault Space Used:  |cffffd100" .. Core.Comma(Core.spaceUsed) .. "|r")
 end
 
@@ -497,7 +502,29 @@ local function GridCols()
     return max(1, floor((gridPanel:GetWidth() - 24) / (GRID_SLOT + GRID_GAP)))
 end
 
-local function RefreshGrid()
+local RefreshGrid
+
+-- Same overflow bug RefreshRowCount fixes for the list view, but for rows of
+-- icons instead of rows of text: gridPageSize used to be a fixed 104, which
+-- kept laying out 104 slots' worth of icons regardless of how many rows
+-- actually fit in gridPanel's real (embedded, much shorter) height, so the
+-- overflow rendered past its bottom edge. Recomputed from gridPanel's actual
+-- current height and GridCols() instead, same as RefreshRowCount does for
+-- tablePanel -- GRID_FOOT_H reserves the space the page prev/next/text row
+-- below the icons needs.
+local GRID_FOOT_H = 54
+local function RefreshGridRowCount()
+    if not gridPanel then return end
+    local avail = gridPanel:GetHeight() - 12 - GRID_FOOT_H
+    local rows = max(1, floor(avail / (GRID_SLOT + GRID_GAP)))
+    local fit = rows * GridCols()
+    if fit ~= Core.state.gridPageSize then
+        Core.SetGridPageSize(fit)
+    end
+    RefreshGrid()
+end
+
+function RefreshGrid()
     if not gridPanel or not gridPanel.pageText then return end
 
     local cols = GridCols()
@@ -570,7 +597,12 @@ function UI.Refresh()
     if Core.state.viewMode == "grid" then
         tablePanel:Hide()
         gridPanel:Show()
-        RefreshGrid()
+        -- RefreshGridRowCount, not RefreshGrid directly: switching TO grid view
+        -- only changes visibility, not gridPanel's size, so OnSizeChanged never
+        -- fires here -- without recomputing here too, gridPageSize could still
+        -- be whatever it was left at from BuildFrame (possibly before gridPanel
+        -- had a real height yet), and never correct itself.
+        RefreshGridRowCount()
     else
         gridPanel:Hide()
         tablePanel:Show()
@@ -705,6 +737,34 @@ local function BuildFrame(parent)
     tablePanel = Panel(frame)
     tablePanel:SetPoint("TOPLEFT", categoryPanel, "TOPRIGHT", 12, 0)
     tablePanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, FOOTER_H + 12)
+
+    -- Manual refresh, 10px above the item panel -- gridPanel shares the exact
+    -- same top edge (both anchored off categoryPanel's TOPRIGHT with no
+    -- vertical offset), so anchoring to tablePanel alone holds in both views.
+    -- Standard Blizzard button skin (UIPanelButtonTemplate) rather than a
+    -- custom texture/backdrop -- always renders, no text, tooltip only.
+    local refreshBtn = CreateFrame("Button", "UncappedVaultRefreshButton", frame, "UIPanelButtonTemplate")
+    refreshBtn:SetWidth(24); refreshBtn:SetHeight(24)
+    refreshBtn:SetPoint("BOTTOMRIGHT", tablePanel, "TOPRIGHT", 0, 10)
+    refreshBtn:SetText("")
+    refreshBtn:SetScript("OnClick", function()
+        Core.ManualRefresh()
+    end)
+    refreshBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:SetText("Refresh Vault")
+        local secs = Core.SecondsUntilRecache and Core.SecondsUntilRecache()
+        if not secs then
+            GameTooltip:AddLine("Next auto-refresh: shortly.", 0.7, 0.7, 0.7)
+        elseif secs >= 60 then
+            GameTooltip:AddLine(format("Next auto-refresh in %dm %ds.", floor(secs / 60), secs % 60), 0.7, 0.7, 0.7)
+        else
+            GameTooltip:AddLine(format("Next auto-refresh in %ds.", secs), 0.7, 0.7, 0.7)
+        end
+        GameTooltip:Show()
+    end)
+    refreshBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
     for _, col in ipairs(COLUMNS) do
         SortHeader(tablePanel, col.label, col.sortKey)
     end
@@ -739,7 +799,8 @@ local function BuildFrame(parent)
     local gridNext = Button(gridPanel, ">", 36, 28)
     gridNext:SetPoint("BOTTOM", gridPanel, "BOTTOM", 70, 12)
     gridNext:SetScript("OnClick", function() Core.SetPage(Core.state.page + 1) end)
-    gridPanel:SetScript("OnSizeChanged", RefreshGrid)
+    RefreshGridRowCount()
+    gridPanel:SetScript("OnSizeChanged", RefreshGridRowCount)
     gridPanel:Hide()
 
     footerBar = CreateFrame("Frame", nil, frame)
@@ -770,9 +831,7 @@ end
 -- calls EmbedInto once (to build the frame into its content group) and
 -- Activate every time the Vault tab is selected. Opening/closing/toggling
 -- now means switching the Dashboard to the Vault tab (and showing/hiding the
--- Dashboard itself) rather than showing/hiding this frame directly -- it's
--- what OpenAllBags/ToggleAllBags/CloseAllBags (see InstallBagSync in
--- UncappedVault.lua) and the /vault slash command both end up calling.
+-- Dashboard itself) rather than showing/hiding this frame directly.
 function UI.EmbedInto(parent)
     BuildFrame(parent)
     frame:Show()

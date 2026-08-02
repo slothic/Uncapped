@@ -635,8 +635,8 @@ function Anima.UI.GetMinHeight()
 end
 
 -- Switches the Dashboard to the Anima tab, opening it if it's closed. Used
--- by both the /anima slash command and the settings-page "Open Anima"
--- button -- Anima has no window of its own anymore to open directly.
+-- by the settings-page "Open Anima" button -- Anima has no window of its own
+-- anymore to open directly.
 local function OpenInDashboard()
     local Dashboard = _G.UncappedDashboard
     if not Dashboard then
@@ -808,7 +808,7 @@ if UncappedUI then
         "Two arena-point upgrade trees: Tempo (what haste used to do) and Defence (your avoidance ceilings inside keystones).")
 
     L:Header("Opening the window")
-    L:Note("Type /anima, or click the button below. The window always refreshes from the server when it opens, so the ranks and prices you see are live.", 40)
+    L:Note("Type /dashboard, or click the button below. The window always refreshes from the server when it opens, so the ranks and prices you see are live.", 40)
 
     local btn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     btn:SetWidth(160)
@@ -838,9 +838,8 @@ end
 -- ===========================================================================
 -- Events / slash
 -- ===========================================================================
-SLASH_UNCAPPEDANIMA1 = "/anima"
-SLASH_UNCAPPEDANIMA2 = "/uncappedanima"
-SlashCmdList["UNCAPPEDANIMA"] = function() OpenInDashboard() end
+-- No standalone /anima command: this window is a Dashboard tab now, opened via
+-- /dashboard, so a dedicated slash command would just duplicate that entry point.
 
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("ADDON_LOADED")

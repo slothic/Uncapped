@@ -103,12 +103,11 @@ Core.Toggle = Toggle
 -- This server has no PvP content, so the default "PVP" micro-button (bottom
 -- of the main menu bar) and its default H keybind (TOGGLEPVPFRAME) would
 -- otherwise just open a frame with nothing useful in it. Repointed to open
--- the Dashboard instead -- same technique UncappedVault uses to repoint the
--- B key at the Vault (see InstallBagSync there): reassign the global
--- function the click/keybind actually calls, rather than touching
--- Bindings.xml or the button's own OnClick script. The icon is a stock
--- Blizzard texture standing in until real Uncapped theme art exists (see
--- AI Context.md's note on Draft\UI\'s placeholder theme).
+-- the Dashboard instead: reassign the global function the click/keybind
+-- actually calls, rather than touching Bindings.xml or the button's own
+-- OnClick script. The icon is a stock Blizzard texture standing in until
+-- real Uncapped theme art exists (see AI Context.md's note on Draft\UI\'s
+-- placeholder theme).
 local function InstallPVPButtonHook()
     if TogglePVPFrame then
         TogglePVPFrame = Toggle

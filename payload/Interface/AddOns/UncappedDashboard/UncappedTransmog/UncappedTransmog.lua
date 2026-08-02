@@ -1287,15 +1287,11 @@ init:SetScript("OnEvent", function()
     Send("TMFAVGET")
 
     DEFAULT_CHAT_FRAME:AddMessage(
-        "|cff9d4edd[Transmog]|r type |cffffd100/transmog|r to open your appearance collection.")
+        "|cff9d4edd[Transmog]|r type |cffffd100/dashboard|r to open your appearance collection.")
 end)
 
-SLASH_UNCAPPEDTRANSMOG1 = "/transmog"
-SLASH_UNCAPPEDTRANSMOG2 = "/tmog"
-SLASH_UNCAPPEDTRANSMOG3 = "/wardrobe"
-SlashCmdList["UNCAPPEDTRANSMOG"] = function()
-    OpenInDashboard()
-end
+-- No standalone /transmog command: this window is a Dashboard tab now, opened via
+-- /dashboard, so a dedicated slash command would just duplicate that entry point.
 
 -- =====================================================================
 -- Settings hub panel

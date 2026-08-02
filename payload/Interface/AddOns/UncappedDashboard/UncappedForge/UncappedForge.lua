@@ -409,11 +409,18 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
 
     elseif body:find("^FRGPLANEND:") then
         local spellId, total, feasible = body:match("^FRGPLANEND:(%d+):(%d+):(%d+)$")
-        plan = { steps = staging.steps, needs = staging.needs,
-                 total = tonumber(total) or 0, feasible = (feasible == "1"),
-                 spell = tonumber(spellId) }
+        spellId = tonumber(spellId)
+        -- Discard a plan response for a recipe the player has since clicked away
+        -- from -- otherwise a late reply for the OLD recipe can clobber `plan`
+        -- after SelectRecipe already reset it for the new one, and the buy
+        -- button below reads `plan.needs` without knowing whose plan it is.
+        if spellId == selectedSpell then
+            plan = { steps = staging.steps, needs = staging.needs,
+                     total = tonumber(total) or 0, feasible = (feasible == "1"),
+                     spell = spellId }
+            RefreshDetail()
+        end
         staging.steps, staging.needs = {}, {}
-        RefreshDetail()
 
     elseif body:find("^FRGPROG:") then
         local done, total, crafted = body:match("^FRGPROG:(%d+):(%d+):(%d+)$")
@@ -818,7 +825,7 @@ function RefreshDetail()
     detail.craft:Enable()
     detail.craftAll:Enable()
 
-    if #plan.needs > 0 then
+    if plan.spell == recipe.spell and #plan.needs > 0 then
         detail.buy:Show()
         detail.buy:SetText(quote and quote.buy > 0 and "Buy them" or "Price missing mats")
     else
@@ -1318,9 +1325,8 @@ function Forge.UI.GetMinWidth()
 end
 
 -- Switches the Dashboard to the Forge tab, opening it if it's closed. Used
--- by the /forge slash command, the TRADE_SKILL_SHOW replacement, and the
--- settings-page "Open the Forge" button -- the Forge has no window of its
--- own anymore to open directly.
+-- by the TRADE_SKILL_SHOW replacement and the settings-page "Open the Forge"
+-- button -- the Forge has no window of its own anymore to open directly.
 local function OpenInDashboard()
     local Dashboard = _G.UncappedDashboard
     if not Dashboard then
@@ -1575,9 +1581,8 @@ function UncappedForge_SourcePendingName()
     return pendingSourceName
 end
 
-SLASH_UNCAPPEDFORGE1 = "/forge"
-SLASH_UNCAPPEDFORGE2 = "/uncappedforge"
-SlashCmdList["UNCAPPEDFORGE"] = OpenInDashboard
+-- No standalone /forge command: this window is a Dashboard tab now, opened via
+-- /dashboard, so a dedicated slash command would just duplicate that entry point.
 
 -- ---------------------------------------------------------------------------
 -- Options page in the Uncapped hub (ESC > Interface > AddOns > Uncapped)

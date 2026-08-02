@@ -423,6 +423,22 @@ function Core.SetPageSize(n)
     Notify("pagesize")
 end
 
+-- Grid-view page size, same story as SetPageSize above but for gridPageSize:
+-- it used to be a fixed 104, tuned for a tall standalone window, and stayed
+-- fixed even after the Dashboard embed shrank the panel -- so a page kept
+-- laying out 104 slots' worth of icons regardless of how many rows actually
+-- fit, and the overflow rendered past gridPanel's bottom edge. UncappedVault_UI.lua
+-- now recomputes this from gridPanel's actual current height and column count
+-- (see RefreshGridRowCount there) and calls this whenever it changes.
+function Core.SetGridPageSize(n)
+    n = math.floor(tonumber(n) or state.gridPageSize)
+    if n < 1 then n = 1 end
+    if n == state.gridPageSize then return end
+    state.gridPageSize = n
+    state.page = max(1, min(Core.PageCount(), state.page))
+    Notify("pagesize")
+end
+
 local SORTERS = {
     name = function(a, b)
         local an, bn = ResolveName(a), ResolveName(b)
@@ -771,6 +787,23 @@ local function StartRecacheTicker()
     recacheTicker:Show()
 end
 
+-- Seconds left until the automatic recache -- read by the UI's refresh-button
+-- tooltip. Not meaningful (and not shown) while the ticker isn't running yet.
+function Core.SecondsUntilRecache()
+    if not recacheTicker:IsShown() then return nil end
+    return max(0, RECACHE_INTERVAL - (recacheTicker.elapsed or 0))
+end
+
+-- Manual refresh: same full resync the auto-recache does, and resets the
+-- ticker so it doesn't also fire moments later on its own. pendingManualRefresh
+-- flags the chat confirmation below to fire once VLTEND actually lands --
+-- not on the click itself, so the message means the data really did arrive.
+local pendingManualRefresh = false
+function Core.ManualRefresh()
+    pendingManualRefresh = true
+    Core.RequestSnapshot(true)
+end
+
 local function FindRow(e, rp)
     for _, it in ipairs(Core.items) do
         if it.e == e and (it.rp or 0) == rp then return it end
@@ -906,6 +939,10 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
         Core.cacheLoaded = true
         Core.SaveCache()
         Notify("snapshot")
+        if pendingManualRefresh then
+            pendingManualRefresh = false
+            if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r refreshed.") end
+        end
     elseif find(text, "^VLTWDONE:") then
         local e, rp, given, remaining = match(text, "^VLTWDONE:(%d+):(%-?%d+):(%d+):(%d+)$")
         if e then
@@ -935,28 +972,6 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
     end
 end)
 
-local function InstallBagSync()
-    if Core.demo then return end
-
-    local function OpenVault()
-        if Core.UI and Core.UI.Open then Core.UI.Open() end
-    end
-    local function ToggleVault()
-        if Core.UI and Core.UI.IsShown and Core.UI.IsShown() then
-            if Core.UI.Close then Core.UI.Close() end
-        else
-            OpenVault()
-        end
-    end
-    local function CloseVault()
-        if Core.UI and Core.UI.Close then Core.UI.Close() end
-    end
-
-    if OpenAllBags then OpenAllBags = OpenVault end
-    if ToggleAllBags then ToggleAllBags = ToggleVault end
-    if CloseAllBags then CloseAllBags = CloseVault end
-end
-
 local function Toggle()
     if Core.UI and Core.UI.Toggle then Core.UI.Toggle() end
 end
@@ -968,14 +983,13 @@ init:SetScript("OnEvent", function()
     Core.GetDB()
     if Core.demo then
         LoadDemo()
-        if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r preview ready -- type |cffffd100/vault|r to open it.") end
+        if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r preview ready -- type |cffffd100/dashboard|r to open it.") end
     else
-        if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r ready -- type |cffffd100/vault|r to open it.") end
+        if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r ready -- type |cffffd100/dashboard|r to open it.") end
         if not Core.LoadCache() then Core.RequestSnapshot() end
         StartRecacheTicker()
-        InstallBagSync()
     end
 end)
 
-SLASH_UNCAPPEDVAULT1 = "/vault"
-SlashCmdList["UNCAPPEDVAULT"] = Toggle
+-- No standalone /vault command: this window is a Dashboard tab now, opened via
+-- /dashboard, so a dedicated slash command would just duplicate that entry point.

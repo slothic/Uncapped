@@ -320,16 +320,18 @@ end
 -- ---------------------------------------------------------------------------
 -- Entry points
 -- ---------------------------------------------------------------------------
+-- Opening the window is now /dashboard's job (this is just a Dashboard tab), so
+-- /scrolls only survives for its "sync" argument -- a distinct data-refresh
+-- action, not a window toggle.
 SLASH_UNCAPPEDSCROLLS1 = "/scrolls"
-SLASH_UNCAPPEDSCROLLS2 = "/scroll"
 SlashCmdList["UNCAPPEDSCROLLS"] = function(arg)
     arg = (arg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
     if arg == "sync" then
         Request()
         DEFAULT_CHAT_FRAME:AddMessage(COLOR_HEAD .. "[Scrolls]|r Refreshing...")
-        return
+    else
+        DEFAULT_CHAT_FRAME:AddMessage(COLOR_HEAD .. "[Scrolls]|r type |cffffd100/dashboard|r to open Scroll Bonuses, or |cffffd100/scrolls sync|r to refresh.")
     end
-    OpenInDashboard()
 end
 
 -- Settings page (ESC > Interface > AddOns > Uncapped > Scrolls). Provided by the

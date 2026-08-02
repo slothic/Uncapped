@@ -18,17 +18,17 @@ _G.UncappedDashboard = Core
 -- Core.SetTab is skipped.
 Core.TABS = {
     { key = "dashboard", label = "Dashboard" },
-    { key = "forge", label = "Forge", addon = "UncappedForge", hint = "/forge" },
-    { key = "soulforge", label = "Soul Forge", addon = "UncappedSoulForge", hint = "/soulforge" },
-    { key = "anima", label = "Anima", addon = "UncappedAnima", hint = "/anima" },
-    { key = "vault", label = "Vault", addon = "UncappedVault", hint = "/vault" },
-    { key = "transmog", label = "Transmog", addon = "UncappedTransmog", hint = "/transmog" },
+    { key = "forge", label = "Forge", addon = "UncappedForge", hint = "/dashboard" },
+    { key = "soulforge", label = "Soul Forge", addon = "UncappedSoulForge", hint = "/dashboard" },
+    { key = "anima", label = "Anima", addon = "UncappedAnima", hint = "/dashboard" },
+    { key = "vault", label = "Vault", addon = "UncappedVault", hint = "/dashboard" },
+    { key = "transmog", label = "Transmog", addon = "UncappedTransmog", hint = "/dashboard" },
     { key = "statfeed", label = "Statistics", addon = "StatFeed", hint = "/statfeed", disabled = true },
     { key = "questlog", label = "Quest Log", addon = "UncappedQuests", hint = "/uquests", disabled = true },
     { key = "tutorial", label = "Tutorial", addon = "UncappedTutorial", disabled = true },
     { key = "utilities", label = "Utilities", addon = "UncappedOptions", hint = "/uncapped", disabled = true },
     { key = "beastiary", label = "Beastiary", disabled = true },
-    { key = "soulscrolls", label = "Soul Scrolls", addon = "UncappedScrolls", hint = "/scrolls" },
+    { key = "soulscrolls", label = "Soul Scrolls", addon = "UncappedScrolls", hint = "/dashboard" },
 }
 
 -- Toggles shown in the Dashboard tab's "Modules" section. Purely a saved
