@@ -1,18 +1,18 @@
--- UncappedUI Navigation.Tabs -- horizontal tab bar built from themed
--- UncappedUI buttons with single-select active state.
+-- UncappedUIKit Navigation.Tabs -- horizontal tab bar built from themed
+-- UncappedUIKit buttons with single-select active state.
 
-local UncappedUI = _G.UncappedUI
-if not UncappedUI then return end
+local UncappedUIKit = _G.UncappedUIKit
+if not UncappedUIKit then return end
 
 -- tabs: { { key, label, width }, ... }
 -- onSelect(key) is called after the active state switches.
-function UncappedUI.CreateTabs(parent, tabs, onSelect)
+function UncappedUIKit.CreateTabs(parent, tabs, onSelect)
     local bar = CreateFrame("Frame", nil, parent)
     bar.buttons = {}
 
     local x = 0
     for i, tab in ipairs(tabs) do
-        local b = UncappedUI.CreateButton(bar, tab.label, tab.width or 90, 24)
+        local b = UncappedUIKit.CreateButton(bar, tab.label, tab.width or 90, 24)
         b:SetPoint("LEFT", bar, "LEFT", x, 0)
         b.key = tab.key
         b:SetScript("OnClick", function()
@@ -25,7 +25,7 @@ function UncappedUI.CreateTabs(parent, tabs, onSelect)
 
     function bar:SelectTab(key)
         for _, b in ipairs(bar.buttons) do
-            UncappedUI.SetButtonActive(b, b.key == key)
+            UncappedUIKit.SetButtonActive(b, b.key == key)
         end
     end
 

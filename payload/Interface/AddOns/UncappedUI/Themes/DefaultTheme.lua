@@ -1,11 +1,11 @@
--- UncappedUI Default theme -- stock WoW appearance. Every value here is a
+-- UncappedUIKit Default theme -- stock WoW appearance. Every value here is a
 -- real, ready-to-use Blizzard texture/font/color; this is the theme every
 -- other theme falls back to for any key it doesn't override.
 
-local UncappedUI = _G.UncappedUI
-if not UncappedUI then return end
+local UncappedUIKit = _G.UncappedUIKit
+if not UncappedUIKit then return end
 
-UncappedUI.RegisterTheme("Default", {
+UncappedUIKit.RegisterTheme("Default", {
     colors = {
         gold = { 1.00, 0.82, 0.22 },
         blue = { 0.30, 0.62, 1.00 },

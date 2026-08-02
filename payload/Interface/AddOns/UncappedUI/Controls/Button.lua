@@ -1,8 +1,8 @@
--- UncappedUI Controls.Button -- theme-aware backdrop button with an
+-- UncappedUIKit Controls.Button -- theme-aware backdrop button with an
 -- active/inactive toggle state (used for filter chips, view toggles, tabs).
 
-local UncappedUI = _G.UncappedUI
-if not UncappedUI then return end
+local UncappedUIKit = _G.UncappedUIKit
+if not UncappedUIKit then return end
 
 local unpack = unpack
 
@@ -16,14 +16,14 @@ local function ApplyButtonSkin(button, theme)
     if button:GetHighlightTexture() then
         button:GetHighlightTexture():SetTexture(theme.textures.buttonHighlight)
     end
-    UncappedUI.SetButtonActive(button, button.active)
+    UncappedUIKit.SetButtonActive(button, button.active)
 end
 
-function UncappedUI.CreateButton(parent, label, width, height)
+function UncappedUIKit.CreateButton(parent, label, width, height)
     local b = CreateFrame("Button", nil, parent)
     b:SetWidth(width or 90)
     b:SetHeight(height or 26)
-    b.text = UncappedUI.CreateText(b, "highlightSmall", "CENTER", b, "CENTER", 0, 0, label)
+    b.text = UncappedUIKit.CreateText(b, "highlightSmall", "CENTER", b, "CENTER", 0, 0, label)
     b:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
     if b:GetHighlightTexture() then b:GetHighlightTexture():SetBlendMode("ADD") end
     b:SetPushedTexture("Interface\\Buttons\\WHITE8x8")
@@ -39,13 +39,13 @@ function UncappedUI.CreateButton(parent, label, width, height)
         self.text:SetPoint("CENTER", self, "CENTER", 0, 0)
     end)
     b.active = false
-    UncappedUI.Register(b, ApplyButtonSkin)
+    UncappedUIKit.Register(b, ApplyButtonSkin)
     return b
 end
 
-function UncappedUI.SetButtonActive(button, active)
+function UncappedUIKit.SetButtonActive(button, active)
     button.active = active and true or false
-    local theme = UncappedUI.GetActiveTheme()
+    local theme = UncappedUIKit.GetActiveTheme()
     local c = theme.colors
     if button.active then
         button:SetBackdropColor(0.25, 0.18, 0.02, 0.92)

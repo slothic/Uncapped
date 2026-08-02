@@ -12,8 +12,8 @@
 local Core = _G.UncappedDashboard
 if not Core then return end
 
-local UncappedUI = _G.UncappedUI
-if not UncappedUI then
+local UncappedUIKit = _G.UncappedUIKit
+if not UncappedUIKit then
     if DEFAULT_CHAT_FRAME then
         DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Dashboard]|r requires UncappedUI, which isn't loaded -- enable it in AddOns and reload.")
     end
@@ -53,31 +53,31 @@ local function BuildDashboardGroup(group)
     local PAD = 14
     local y = -10
 
-    UncappedUI.CreateText(group, "title", "TOPLEFT", group, "TOPLEFT", PAD, y, "Overview")
+    UncappedUIKit.CreateText(group, "title", "TOPLEFT", group, "TOPLEFT", PAD, y, "Overview")
     y = y - 30
 
     for _, row in ipairs(STAT_ROWS) do
-        UncappedUI.CreateText(group, "highlightSmall", "TOPLEFT", group, "TOPLEFT", PAD, y, row.label)
-        statValues[row.key] = UncappedUI.CreateText(group, "highlightSmall", "TOPLEFT", group, "TOPLEFT", PAD + 150, y, "--")
+        UncappedUIKit.CreateText(group, "highlightSmall", "TOPLEFT", group, "TOPLEFT", PAD, y, row.label)
+        statValues[row.key] = UncappedUIKit.CreateText(group, "highlightSmall", "TOPLEFT", group, "TOPLEFT", PAD + 150, y, "--")
         y = y - 22
     end
     y = y - 14
 
-    UncappedUI.CreateText(group, "title", "TOPLEFT", group, "TOPLEFT", PAD, y, "Uncapped News")
+    UncappedUIKit.CreateText(group, "title", "TOPLEFT", group, "TOPLEFT", PAD, y, "Uncapped News")
     y = y - 26
-    local news = UncappedUI.CreateText(group, "highlightSmall", "TOPLEFT", group, "TOPLEFT", PAD, y, "No news yet -- check back soon.")
+    local news = UncappedUIKit.CreateText(group, "highlightSmall", "TOPLEFT", group, "TOPLEFT", PAD, y, "No news yet -- check back soon.")
     news:SetWidth(280)
     news:SetJustifyH("LEFT")
     y = y - 36
 
-    UncappedUI.CreateText(group, "title", "TOPLEFT", group, "TOPLEFT", PAD, y, "Modules")
+    UncappedUIKit.CreateText(group, "title", "TOPLEFT", group, "TOPLEFT", PAD, y, "Modules")
     y = y - 30
 
     -- Saved on/off preference only -- nothing actually toggles yet. See
     -- Core.MODULES / db.modules in UncappedDashboard.lua.
     local db = Core.GetDB()
     for _, mod in ipairs(Core.MODULES) do
-        local cb = UncappedUI.CreateCheckbox(group, mod.label)
+        local cb = UncappedUIKit.CreateCheckbox(group, mod.label)
         cb:SetPoint("TOPLEFT", group, "TOPLEFT", PAD, y)
         cb:SetChecked(db.modules[mod.key] ~= false)
         cb:SetScript("OnClick", function(self)
@@ -92,7 +92,7 @@ local function BuildContent()
     local window = Core.Buttons.GetWindow()
     local navPanel = Core.Buttons.GetNavPanel()
 
-    contentPanel = UncappedUI.CreatePanel(window)
+    contentPanel = UncappedUIKit.CreatePanel(window)
     contentPanel:SetPoint("TOPLEFT", navPanel, "TOPRIGHT", 10, 0)
     contentPanel:SetPoint("BOTTOMRIGHT", -16, 16)
 
@@ -104,7 +104,7 @@ local function BuildContent()
     placeholderGroup = CreateFrame("Frame", nil, contentPanel)
     placeholderGroup:SetPoint("TOPLEFT", 6, -6)
     placeholderGroup:SetPoint("BOTTOMRIGHT", -6, 6)
-    placeholderBody = UncappedUI.CreateText(placeholderGroup, "highlight", "TOPLEFT", placeholderGroup, "TOPLEFT", 14, -10, "")
+    placeholderBody = UncappedUIKit.CreateText(placeholderGroup, "highlight", "TOPLEFT", placeholderGroup, "TOPLEFT", 14, -10, "")
     placeholderBody:SetWidth(280)
     placeholderBody:SetJustifyH("LEFT")
 

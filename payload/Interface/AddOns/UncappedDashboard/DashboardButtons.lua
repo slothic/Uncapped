@@ -8,8 +8,8 @@
 local Core = _G.UncappedDashboard
 if not Core then return end
 
-local UncappedUI = _G.UncappedUI
-if not UncappedUI then return end
+local UncappedUIKit = _G.UncappedUIKit
+if not UncappedUIKit then return end
 
 local Buttons = {}
 Core.Buttons = Buttons
@@ -60,7 +60,7 @@ local MAX_HEIGHT = 700
 -- plus an explicit SetWidth -- lets the panel stretch vertically with the
 -- window (now resizable) while staying a fixed width for the buttons.
 local function CreateNavPanel(parent)
-    local panel = UncappedUI.CreatePanel(parent)
+    local panel = UncappedUIKit.CreatePanel(parent)
     panel:SetPoint("TOPLEFT", WINDOW_MARGIN, -TOP_INSET)
     panel:SetPoint("BOTTOMLEFT", WINDOW_MARGIN, BOTTOM_INSET)
     panel:SetWidth(PANEL_WIDTH)
@@ -68,7 +68,7 @@ local function CreateNavPanel(parent)
 end
 
 local function CreateNavButton(panel, tab, y)
-    local b = UncappedUI.CreateButton(panel, tab.label, BUTTON_WIDTH, BUTTON_HEIGHT)
+    local b = UncappedUIKit.CreateButton(panel, tab.label, BUTTON_WIDTH, BUTTON_HEIGHT)
     b:SetPoint("TOP", panel, "TOP", 0, y)
     b:SetScript("OnClick", function() Core.SetTab(tab.key) end)
     return b
@@ -95,7 +95,7 @@ function Buttons.Build()
     db.x = (screenW - db.width) / 2
     db.y = -(screenH - db.height) / 2
 
-    window = UncappedUI.CreateWindow({
+    window = UncappedUIKit.CreateWindow({
         name = "UncappedDashboardFrame",
         title = "Dashboard",
         width = DEFAULT_WIDTH, height = REQUIRED_HEIGHT,
@@ -165,7 +165,7 @@ end
 function Buttons.RefreshActive()
     if not window then return end
     for _, tab in ipairs(Core.TABS) do
-        UncappedUI.SetButtonActive(navButtons[tab.key], tab.key == Core.state.tab)
+        UncappedUIKit.SetButtonActive(navButtons[tab.key], tab.key == Core.state.tab)
     end
 end
 

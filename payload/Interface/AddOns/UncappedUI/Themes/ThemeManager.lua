@@ -1,4 +1,4 @@
--- UncappedUI ThemeManager -- theme registry, resolution, and live re-skin.
+-- UncappedUIKit ThemeManager -- theme registry, resolution, and live re-skin.
 --
 -- A "theme" is a plain table of colors/fonts/textures/metrics. Any theme
 -- other than "Default" is resolved by deep-merging its own overrides on
@@ -7,14 +7,14 @@
 -- what lets the "Uncapped" theme exist today with zero art: it resolves
 -- to an exact copy of "Default" until real texture keys are filled in.
 --
--- Widgets built by the other UncappedUI modules call UncappedUI.Register()
+-- Widgets built by the other UncappedUIKit modules call UncappedUIKit.Register()
 -- with a small "apply this theme to me" function. That function runs once
 -- immediately, and again every time the active theme changes, so anything
 -- built through this library stays in sync with the Theme setting for
 -- free -- callers never re-skin their own widgets manually.
 
-local UncappedUI = _G.UncappedUI
-if not UncappedUI then return end
+local UncappedUIKit = _G.UncappedUIKit
+if not UncappedUIKit then return end
 
 local pairs, ipairs, type = pairs, ipairs, type
 local tsort, tconcat = table.sort, table.concat
@@ -62,44 +62,44 @@ end
 -- Registers (or replaces) a theme definition and re-resolves every
 -- registered theme, so load order between Default and its dependents
 -- never matters.
-function UncappedUI.RegisterTheme(name, definition)
+function UncappedUIKit.RegisterTheme(name, definition)
     themes[name] = definition or {}
     for existing in pairs(themes) do
         Resolve(existing)
     end
-    if UncappedUI.GetThemeName() == name then
-        UncappedUI.ApplyAll()
+    if UncappedUIKit.GetThemeName() == name then
+        UncappedUIKit.ApplyAll()
     end
 end
 
-function UncappedUI.GetThemeNames()
+function UncappedUIKit.GetThemeNames()
     local names = {}
     for name in pairs(themes) do names[#names + 1] = name end
     tsort(names)
     return names
 end
 
-function UncappedUI.GetDB()
+function UncappedUIKit.GetDB()
     UncappedUIDB = UncappedUIDB or {}
     local db = UncappedUIDB
     if db.theme == nil then db.theme = DEFAULT_THEME_NAME end
     return db
 end
 
-function UncappedUI.GetThemeName()
-    return UncappedUI.GetDB().theme or DEFAULT_THEME_NAME
+function UncappedUIKit.GetThemeName()
+    return UncappedUIKit.GetDB().theme or DEFAULT_THEME_NAME
 end
 
-function UncappedUI.GetActiveTheme()
-    local name = UncappedUI.GetThemeName()
+function UncappedUIKit.GetActiveTheme()
+    local name = UncappedUIKit.GetThemeName()
     return resolved[name] or resolved[DEFAULT_THEME_NAME] or {}
 end
 
 -- Re-applies the active theme to every widget created through this
 -- library, then notifies any addon-level listeners (for custom reskin
--- logic that lives outside UncappedUI's own widget set).
-function UncappedUI.ApplyAll()
-    local theme = UncappedUI.GetActiveTheme()
+-- logic that lives outside UncappedUIKit's own widget set).
+function UncappedUIKit.ApplyAll()
+    local theme = UncappedUIKit.GetActiveTheme()
     for widget, apply in pairs(widgets) do
         apply(widget, theme)
     end
@@ -108,28 +108,28 @@ function UncappedUI.ApplyAll()
     end
 end
 
-function UncappedUI.SetTheme(name)
+function UncappedUIKit.SetTheme(name)
     if not themes[name] then return false end
-    UncappedUI.GetDB().theme = name
-    UncappedUI.ApplyAll()
+    UncappedUIKit.GetDB().theme = name
+    UncappedUIKit.ApplyAll()
     return true
 end
 
 -- Hooks a widget into the live theme system. `apply` is called immediately
 -- with the current theme, then again on every SetTheme().
-function UncappedUI.Register(widget, apply)
+function UncappedUIKit.Register(widget, apply)
     if not widget or type(apply) ~= "function" then return end
     widgets[widget] = apply
-    apply(widget, UncappedUI.GetActiveTheme())
+    apply(widget, UncappedUIKit.GetActiveTheme())
 end
 
-function UncappedUI.Unregister(widget)
+function UncappedUIKit.Unregister(widget)
     widgets[widget] = nil
 end
 
 -- For addon code that needs to react to theme changes but isn't a widget
--- built through UncappedUI's constructors (e.g. re-tinting custom art).
-function UncappedUI.OnThemeChanged(callback)
+-- built through UncappedUIKit's constructors (e.g. re-tinting custom art).
+function UncappedUIKit.OnThemeChanged(callback)
     if type(callback) ~= "function" then return end
     listeners[#listeners + 1] = callback
 end
@@ -141,15 +141,15 @@ end
 SLASH_UNCAPPEDUITHEME1 = "/uitheme"
 SlashCmdList["UNCAPPEDUITHEME"] = function(msg)
     msg = (msg or ""):gsub("^%s+", ""):gsub("%s+$", "")
-    local names = UncappedUI.GetThemeNames()
+    local names = UncappedUIKit.GetThemeNames()
     if msg == "" then
-        PrintLine("|cff40c0ff[UI]|r current theme: |cffffd100" .. UncappedUI.GetThemeName()
+        PrintLine("|cff40c0ff[UI]|r current theme: |cffffd100" .. UncappedUIKit.GetThemeName()
             .. "|r. Available: " .. tconcat(names, ", "))
         return
     end
     for _, name in ipairs(names) do
         if name:lower() == msg:lower() then
-            UncappedUI.SetTheme(name)
+            UncappedUIKit.SetTheme(name)
             PrintLine("|cff40c0ff[UI]|r theme set to |cffffd100" .. name .. "|r.")
             return
         end

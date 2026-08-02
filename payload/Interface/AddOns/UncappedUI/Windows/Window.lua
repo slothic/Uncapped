@@ -1,9 +1,9 @@
--- UncappedUI Windows.Window -- themed top-level window chrome: backdrop,
+-- UncappedUIKit Windows.Window -- themed top-level window chrome: backdrop,
 -- banner, title, close button, drag-to-move, optional resize grip, and
 -- position/size persistence into a caller-supplied SavedVariables table.
 
-local UncappedUI = _G.UncappedUI
-if not UncappedUI then return end
+local UncappedUIKit = _G.UncappedUIKit
+if not UncappedUIKit then return end
 
 local floor = math.floor
 local tinsert = table.insert
@@ -46,7 +46,7 @@ end
 --                           where it was last dragged to)
 --   escapeClose             default true (requires opts.name)
 --   onReceiveDrag/onMouseUp optional passthrough scripts (e.g. bag deposit)
-function UncappedUI.CreateWindow(opts)
+function UncappedUIKit.CreateWindow(opts)
     opts = opts or {}
     local db = opts.db
 
@@ -105,7 +105,7 @@ function UncappedUI.CreateWindow(opts)
     win.banner:SetWidth(256); win.banner:SetHeight(64)
     win.banner:SetPoint("TOP", 0, 12)
 
-    win.titleText = UncappedUI.CreateText(win, "title", "TOP", win, "TOP", 0, 1, opts.title or "")
+    win.titleText = UncappedUIKit.CreateText(win, "title", "TOP", win, "TOP", 0, 1, opts.title or "")
 
     win.closeButton = CreateFrame("Button", nil, win, "UIPanelCloseButton")
     win.closeButton:SetPoint("TOPRIGHT", -6, -6)
@@ -113,7 +113,7 @@ function UncappedUI.CreateWindow(opts)
     if opts.onReceiveDrag then win:SetScript("OnReceiveDrag", opts.onReceiveDrag) end
     if opts.onMouseUp then win:SetScript("OnMouseUp", opts.onMouseUp) end
 
-    UncappedUI.Register(win, ApplyWindowSkin)
+    UncappedUIKit.Register(win, ApplyWindowSkin)
 
     win:Hide()
     return win

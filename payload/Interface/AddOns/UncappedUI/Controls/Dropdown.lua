@@ -1,17 +1,17 @@
--- UncappedUI Controls.Dropdown -- wraps the stock UIDropDownMenuTemplate.
+-- UncappedUIKit Controls.Dropdown -- wraps the stock UIDropDownMenuTemplate.
 --
 -- There is no clean 3.3.5a way to retexture Blizzard's dropdown menu
 -- chrome without replacing the whole template, so this control renders
 -- identically under every theme for now. Revisit once the Uncapped theme
 -- has real dropdown art to swap in.
 
-local UncappedUI = _G.UncappedUI
-if not UncappedUI then return end
+local UncappedUIKit = _G.UncappedUIKit
+if not UncappedUIKit then return end
 
 -- choices: { { value = ..., text = "..." }, ... }
 -- get(): returns the currently selected value
 -- set(value): applies a newly chosen value
-function UncappedUI.CreateDropdown(parent, name, width, choices, get, set)
+function UncappedUIKit.CreateDropdown(parent, name, width, choices, get, set)
     local dd = CreateFrame("Frame", name, parent, "UIDropDownMenuTemplate")
     UIDropDownMenu_SetWidth(dd, width)
     UIDropDownMenu_Initialize(dd, function()

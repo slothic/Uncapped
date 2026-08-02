@@ -1,11 +1,11 @@
--- UncappedUI Navigation.Sidebar -- themed category/list nav with a
+-- UncappedUIKit Navigation.Sidebar -- themed category/list nav with a
 -- FauxScrollFrame (Controls\ScrollFrame.lua), so lists longer than the
 -- visible area scroll instead of overflowing the panel. Generalizes the
 -- category sidebar pattern (parent rows + indented child rows,
 -- selected-state highlight bar) used by things like the vault UI.
 
-local UncappedUI = _G.UncappedUI
-if not UncappedUI then return end
+local UncappedUIKit = _G.UncappedUIKit
+if not UncappedUIKit then return end
 
 local unpack = unpack
 
@@ -26,7 +26,7 @@ end
 -- the panel's actual height; rowHeight * visibleRows should roughly
 -- match the space given to the returned list), startY (default 0),
 -- indentPerLevel (default 16)
-function UncappedUI.CreateSidebarList(parent, opts)
+function UncappedUIKit.CreateSidebarList(parent, opts)
     opts = opts or {}
     local rowHeight = opts.rowHeight or 24
     local visibleRows = opts.visibleRows or 8
@@ -39,7 +39,7 @@ function UncappedUI.CreateSidebarList(parent, opts)
 
     local function RenderVisible()
         local offset = FauxScrollFrame_GetOffset(list.scroll) or 0
-        local theme = UncappedUI.GetActiveTheme()
+        local theme = UncappedUIKit.GetActiveTheme()
         for i = 1, visibleRows do
             local row = list.rows[i]
             local entry = list.entries[i + offset]
@@ -58,7 +58,7 @@ function UncappedUI.CreateSidebarList(parent, opts)
         end
     end
 
-    list.scroll = UncappedUI.CreateFauxScrollFrame(list, rowHeight, visibleRows, RenderVisible)
+    list.scroll = UncappedUIKit.CreateFauxScrollFrame(list, rowHeight, visibleRows, RenderVisible)
     list.scroll:SetAllPoints(list)
 
     for i = 1, visibleRows do
@@ -72,8 +72,8 @@ function UncappedUI.CreateSidebarList(parent, opts)
         row.selected:SetPoint("BOTTOMRIGHT", -2, 2)
         row.selected:Hide()
 
-        row.label = UncappedUI.CreateText(row, "highlightSmall", "LEFT", row, "LEFT", 12, 0, "")
-        row.count = UncappedUI.CreateText(row, "highlightSmall", "RIGHT", row, "RIGHT", -10, 0, "")
+        row.label = UncappedUIKit.CreateText(row, "highlightSmall", "LEFT", row, "LEFT", 12, 0, "")
+        row.count = UncappedUIKit.CreateText(row, "highlightSmall", "RIGHT", row, "RIGHT", -10, 0, "")
 
         row.line = row:CreateTexture(nil, "BACKGROUND")
         row.line:SetTexture(1, 1, 1, 0.06)
@@ -85,7 +85,7 @@ function UncappedUI.CreateSidebarList(parent, opts)
             if self.entry and self.entry.onClick then self.entry.onClick(self.entry) end
         end)
 
-        UncappedUI.Register(row, ApplyRowSkin)
+        UncappedUIKit.Register(row, ApplyRowSkin)
         list.rows[i] = row
     end
 

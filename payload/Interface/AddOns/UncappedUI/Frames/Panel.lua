@@ -1,12 +1,12 @@
--- UncappedUI Frames.Panel -- themed backdrop sub-panel (the bordered boxes
+-- UncappedUIKit Frames.Panel -- themed backdrop sub-panel (the bordered boxes
 -- used for sidebars, detail panes, info panes, etc). Backgrounds are tiled
 -- (see ApplyPanelSkin) rather than stretched, so the same cloudy/patchy
 -- Blizzard marble texture scales cleanly to any panel size without
 -- blurring -- that's the "stretchable" background technique. Pass
 -- opts.light = true for the light marble variant instead of dark.
 
-local UncappedUI = _G.UncappedUI
-if not UncappedUI then return end
+local UncappedUIKit = _G.UncappedUIKit
+if not UncappedUIKit then return end
 
 local function ApplyPanelSkin(panel, theme)
     local bgKey = panel.light and "panelBGLight" or "panelBG"
@@ -21,13 +21,13 @@ local function ApplyPanelSkin(panel, theme)
 end
 
 -- opts.light: use the light marble background instead of the dark one.
-function UncappedUI.CreatePanel(parent, opts)
+function UncappedUIKit.CreatePanel(parent, opts)
     local panel = CreateFrame("Frame", nil, parent)
     panel.light = opts and opts.light or false
     function panel:SetLight(light)
         self.light = light and true or false
-        ApplyPanelSkin(self, UncappedUI.GetActiveTheme())
+        ApplyPanelSkin(self, UncappedUIKit.GetActiveTheme())
     end
-    UncappedUI.Register(panel, ApplyPanelSkin)
+    UncappedUIKit.Register(panel, ApplyPanelSkin)
     return panel
 end
