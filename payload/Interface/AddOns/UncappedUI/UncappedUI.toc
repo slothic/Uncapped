@@ -1,0 +1,22 @@
+## Interface: 30300
+## Title: Uncapped UI
+## Notes: Modular, theme-aware UI toolkit shared by Uncapped addons.
+## Author: Uncapped
+## Version: 0.0.0
+## SavedVariables: UncappedUIDB, UncappedUIDemoDB
+
+UncappedUI.lua
+Themes\ThemeManager.lua
+Themes\DefaultTheme.lua
+Themes\UncappedTheme.lua
+Controls\Text.lua
+Controls\Button.lua
+Controls\EditBox.lua
+Controls\Dropdown.lua
+Controls\Checkbox.lua
+Controls\ScrollFrame.lua
+Frames\Panel.lua
+Windows\Window.lua
+Navigation\Sidebar.lua
+Navigation\Tabs.lua
+Demo.lua

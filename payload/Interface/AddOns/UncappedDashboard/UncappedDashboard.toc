@@ -1,0 +1,11 @@
+## Interface: 30300
+## Title: Uncapped Dashboard
+## Notes: Central launcher panel for the Uncapped addon suite.
+## Author: Uncapped
+## Version: 0.0.0
+## OptionalDeps: UncappedUI, UncappedItemCustomize, UncappedAnima, UncappedForge
+## SavedVariables: UncappedDashboardDB
+
+UncappedDashboard.lua
+DashboardButtons.lua
+UncappedDashboard_UI.lua

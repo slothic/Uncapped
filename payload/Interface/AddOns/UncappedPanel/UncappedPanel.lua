@@ -43,7 +43,7 @@ local TOOL_BUTTONS = {
     { id = "solo",         label = "Solo",          command = ".solo",     icon = "Interface\\Icons\\Ability_Warrior_BattleShout" },
     { id = "aoeLoot",      label = "Aoe Loot",      toggle = "aoeLoot",    icon = "Interface\\Icons\\INV_Misc_Bag_08" },
     { id = "statFeed",     label = "Stat Feed",     command = "/statfeed", icon = "Interface\\Icons\\INV_Misc_Book_09" },
-    { id = "soulForge",    label = "Soul Forge",    command = "/sf",       icon = "Interface\\Icons\\INV_Enchant_ShardPrismaticLarge" },
+    { id = "soulForge",    label = "Soulforge",     command = "/sf",       icon = "Interface\\Icons\\INV_Enchant_ShardPrismaticLarge" },
     { id = "forge",        label = "Forge",         command = "/forge",    icon = "Interface\\Icons\\Trade_BlackSmithing" },
     { id = "transmog",     label = "Transmog",      command = "/transmog", icon = "Interface\\Icons\\INV_Chest_Cloth_17" },
     { id = "vault",        label = "Vault",         command = "/vault",    icon = "Interface\\Icons\\INV_Misc_Bag_10_Blue" },

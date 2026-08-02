@@ -88,6 +88,13 @@ function UQ.WorldPos(clientAreaID, mx, my)
     local a = UncappedMapAreas[clientAreaID - 1] or UncappedMapAreas[clientAreaID]
     if not a then return nil end
     local mapID, left, right, top, bottom = a[1], a[2], a[3], a[4], a[5]
+    -- Degenerate (zero-span) bounds -- some WorldMapArea rows ship all-zero in
+    -- the DBC (Dalaran, plus instance maps like The Nexus). Computing against
+    -- them collapses every position to world-origin (0,0), which read as the
+    -- player being ~4000 yards from where they stand. Better no answer than a
+    -- confidently wrong one. Dalaran itself is given real bounds in the data;
+    -- this is the backstop for anything else.
+    if (top - bottom) == 0 or (left - right) == 0 then return nil end
     return mapID, top - my * (top - bottom), left - mx * (left - right)
 end
 

@@ -11,12 +11,27 @@ Nothing here builds or releases the launcher. Addon changes never need either.
 
 | Addon | Source of truth | Who owns it |
 |---|---|---|
-| `StatFeed`, `ReagentBankCraft` | `C:\Wotlk\Server\azerothcore-wotlk\client_addons\<Name>\` | **Ours.** Edit here. |
+| All 19 `Uncapped*`, plus `StatFeed` and `ReagentBankCraft` | `C:\Wotlk\Server\azerothcore-wotlk\client_addons\<Name>\` | **Ours.** Edit here. |
 | Astrolabe, WDM, QuestHelper | `C:\Wotlk\Addons\upstream\*.zip` | Trimitor's releases. Refresh with `Update-Upstream.ps1`. |
 | Everything else | `C:\Wotlk\Addons\*.zip` | Third party. Leave alone. |
 
 Edit **only** `client_addons\`. Do not edit `C:\Wotlk\Launcher\payload\` — it is generated and
 wiped on every build.
+
+### That folder is its own git repo
+
+Since 2026-08-02 `client_addons\` is tracked by **`slothic/Uncapped-Addons`** (private,
+shared with `MentalMonk-Dev`), not by the AzerothCore repo around it. The path on disk did
+not move, so nothing here changes — but commit addon edits in `client_addons\`, and expect
+`git status` in `azerothcore-wotlk` to ignore them.
+
+```powershell
+cd C:\Wotlk\Server\azerothcore-wotlk\client_addons
+git add -A; git commit -m "<what changed>"; git push
+```
+
+Anyone else's addon work arrives as a branch on that repo. Merge it there **before** running
+the payload build below, so what players get and what the repo says are the same thing.
 
 ---
 

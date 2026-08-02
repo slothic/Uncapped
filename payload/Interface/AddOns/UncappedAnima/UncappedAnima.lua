@@ -110,6 +110,17 @@ local STATS = {
         blurb = "Reduces all damage you take in keystones.",
         help  = "Flat damage reduction, up to 95%. The ONLY defence that works against spells, which cannot be dodged, parried or blocked at all -- so it is what a caster-heavy pull is answered with. Not reduced by keystone depth.",
     },
+
+    -- The UTILITY tree. Quality-of-life stats that work everywhere, in or out of
+    -- a keystone.
+    {
+        tree  = "utility",
+        index = 8,
+        name  = "Soul Wind",
+        icon  = 32223,   -- Crusader Aura
+        blurb = "Increases your mounted speed.",
+        help  = "Speeds up any mount, ground or flying, up to +100% at full investment. Stacks on top of the mount's own speed, so a 100% mount reaches 200% base. Only applies while mounted.",
+    },
 }
 
 local TREES = {
@@ -117,6 +128,8 @@ local TREES = {
       note = "Haste is converted to crit damage on this realm, so these four are what actually make you faster. Buy the one your rotation is limited by." },
     { key = "defence", label = "Defence",
       note = "Inside a keystone your dodge, parry and block are held to a ceiling. These raise your own ceilings -- but the key's depth divides them back down, so investment buys you DEPTH, not immunity." },
+    { key = "utility", label = "Utility",
+      note = "Quality-of-life stats that work everywhere, mounted or on foot, keystone or open world." },
 }
 
 -- ---------------------------------------------------------------------------
