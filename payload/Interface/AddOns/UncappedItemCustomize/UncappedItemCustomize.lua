@@ -180,7 +180,7 @@ end
 -- 3.3.5a has no GetSpellDescription, but spell hyperlinks work: point a hidden
 -- tooltip at "spell:<id>" and read its lines. Same trick UncappedVault uses for
 -- items. Cached per spell -- the text never changes for a given id.
-local descScan = CreateFrame("GameTooltip", "UncappedICDescScan", UIParent, "GameTooltipTemplate")
+local descScan = CreateFrame("GameTooltip", "UncappedSoulForgeDescScan", UIParent, "GameTooltipTemplate")
 descScan:SetOwner(UIParent, "ANCHOR_NONE")
 local descCache = {}
 
@@ -198,7 +198,7 @@ local function spellDescription(spellId)
     -- The description is the last non-empty left line; earlier lines are the
     -- spell name, rank, cast time, range, cooldown and so on.
     for i = descScan:NumLines(), 2, -1 do
-      local fs = _G["UncappedICDescScanTextLeft" .. i]
+      local fs = _G["UncappedSoulForgeDescScanTextLeft" .. i]
       local txt = fs and fs:GetText()
       if txt and txt:match("%S") then
         desc = txt
@@ -322,94 +322,123 @@ local sbInv = {}
 local sbStaging, sbCurKey = {}, nil
 
 -- ============================ UI ==========================================
+-- Lives INSIDE the Dashboard's content panel (see EmbedInto below) -- no own
+-- backdrop/title/close/drag, since the Dashboard's master window already
+-- provides all of that chrome. Every element that used to have a fixed pixel
+-- width is anchored to both edges of its row instead, so it stretches with
+-- whatever width the Dashboard window currently has; the equipped-gear list
+-- additionally recomputes how many rows fit whenever its height changes.
 local UI
 local eqRows = {}
-local EQ_ROWS, EQ_H = 6, 34
+local EQ_ROWS_MAX, EQ_H = 20, 34
+local eqVisibleRows = 6
 
-local function BuildUI()
+local function BuildUI(parent)
   if UI then return UI end
 
-  local f = CreateFrame("Frame", "UncappedSoulforgeFrame", UIParent)
-  f:SetWidth(400); f:SetHeight(494); f:SetPoint("CENTER")
-  f:SetFrameStrata("DIALOG")
-  f:SetBackdrop({
-    edgeFile="Interface\\DialogFrame\\UI-DialogBox-Border", edgeSize=32,
-    insets={left=11,right=12,top=12,bottom=11} })
-  local solidBg = f:CreateTexture(nil,"BACKGROUND")
-  solidBg:SetPoint("TOPLEFT",11,-11); solidBg:SetPoint("BOTTOMRIGHT",-12,11)
-  solidBg:SetTexture(0.05, 0.04, 0.06, 1)
-  local stoneBg = f:CreateTexture(nil,"BACKGROUND")
-  stoneBg:SetAllPoints(solidBg)
-  stoneBg:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Background")
-  stoneBg:SetHorizTile(true); stoneBg:SetVertTile(true); stoneBg:SetAlpha(0.80)
-  f:SetMovable(true); f:EnableMouse(true); f:RegisterForDrag("LeftButton")
-  f:SetScript("OnDragStart", f.StartMoving)
-  f:SetScript("OnDragStop", f.StopMovingOrSizing)
-  f:SetClampedToScreen(true); f:Hide()
-
-  local banner = f:CreateTexture(nil,"ARTWORK")
-  banner:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Header")
-  banner:SetWidth(300); banner:SetHeight(60); banner:SetPoint("TOP", 0, 12)
-  local title = f:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
-  title:SetPoint("TOP", banner, "TOP", 0, -19); title:SetText("Soulforge")
-
-  local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-  close:SetPoint("TOPRIGHT",-6,-6)
+  local f = CreateFrame("Frame", "UncappedSoulforgeFrame", parent or UIParent)
+  f:SetPoint("TOPLEFT"); f:SetPoint("BOTTOMRIGHT")
+  f:Hide()
 
   -- ---- forge bar ----
   local sfLabel = f:CreateFontString(nil,"OVERLAY","GameFontNormal")
-  sfLabel:SetPoint("TOPLEFT", 22, -44); sfLabel:SetText("|cff9a7bffThe Soulforge|r")
+  sfLabel:SetPoint("TOPLEFT", 6, -6); sfLabel:SetText("|cff9a7bffThe Soulforge|r")
   local sfLevel = f:CreateFontString(nil,"OVERLAY","GameFontHighlight")
-  sfLevel:SetPoint("TOPRIGHT", -22, -44); f.sfLevel = sfLevel
+  sfLevel:SetPoint("TOPRIGHT", -6, -6); f.sfLevel = sfLevel
 
-  local bar = CreateFrame("StatusBar", nil, f)
-  bar:SetSize(356, 20); bar:SetPoint("TOPLEFT", 22, -62)
-  bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-  bar:SetStatusBarColor(0.55, 0.35, 0.95)
-  bar:SetMinMaxValues(0, 1000); bar:SetValue(0)
-  bar:SetBackdrop({ bgFile="Interface\\Buttons\\WHITE8X8",
+  -- The border lives on its own wrapper frame, and the fill bar is inset
+  -- inside it by the same amount as the border's own insets -- a StatusBar's
+  -- fill texture is ARTWORK layer, which draws ABOVE a backdrop's BORDER
+  -- layer, so putting the border directly on the bar let the square fill
+  -- corners paint over the border's rounded corners. Keeping the fill
+  -- strictly inside the border's edge instead of edge-to-edge with it fixes
+  -- both the misalignment and lets the border's rounded corners show.
+  local barFrame = CreateFrame("Frame", nil, f)
+  barFrame:SetHeight(20); barFrame:SetPoint("TOPLEFT", 6, -24); barFrame:SetPoint("TOPRIGHT", -6, -24)
+  barFrame:SetBackdrop({ bgFile="Interface\\Buttons\\WHITE8X8",
     edgeFile="Interface\\Tooltips\\UI-Tooltip-Border", edgeSize=12,
     insets={left=3,right=3,top=3,bottom=3} })
-  bar:SetBackdropColor(0,0,0,0.6); bar:SetBackdropBorderColor(0.4,0.4,0.5)
+  barFrame:SetBackdropColor(0,0,0,0.6); barFrame:SetBackdropBorderColor(0.4,0.4,0.5)
+
+  -- A native StatusBar manages its own fill texture internally (anchors +
+  -- texture-coordinate cropping), and fighting that from the outside with
+  -- our own SetWidth calls is what caused the fill to vanish when shrinking
+  -- and barely grow when growing -- two competing sizers each partially
+  -- undoing the other. So this is a plain Frame with two textures instead:
+  -- WE own the only formula that ever runs --
+  --   fillWidth = barWidth (current, live) * value-percent
+  -- computed fresh both when the value changes and whenever the bar's own
+  -- size changes (the Dashboard window resizing).
+  local bar = CreateFrame("Frame", nil, barFrame)
+  bar:SetPoint("TOPLEFT", 3, -3); bar:SetPoint("BOTTOMRIGHT", -3, 3)
+
+  local barBg = bar:CreateTexture(nil, "BACKGROUND")
+  barBg:SetAllPoints(bar)
+  barBg:SetTexture(0, 0, 0, 0.6)
+
+  local barFill = bar:CreateTexture(nil, "ARTWORK")
+  barFill:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
+  barFill:SetVertexColor(0.55, 0.35, 0.95)
+  barFill:SetPoint("TOPLEFT", bar, "TOPLEFT")
+  barFill:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT")
+  barFill:SetWidth(0.01)
+
+  local barMin, barMax, barVal = 0, 1000, 0
+  local function resyncFill()
+    local pct = (barMax > barMin) and ((barVal - barMin) / (barMax - barMin)) or 0
+    pct = math.max(0, math.min(1, pct))
+    barFill:SetWidth(math.max(0.01, bar:GetWidth() * pct))
+  end
+  function bar:SetMinMaxValues(mn, mx) barMin, barMax = mn, mx; resyncFill() end
+  function bar:GetMinMaxValues() return barMin, barMax end
+  function bar:SetValue(v) barVal = v; resyncFill() end
+  function bar:GetValue() return barVal end
+  bar:SetScript("OnSizeChanged", resyncFill)
+
+  bar:SetMinMaxValues(0, 1000); bar:SetValue(0)
+
   local barText = bar:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
   barText:SetPoint("CENTER"); f.sfBar = bar; f.sfBarText = barText
 
   local sfExtract = f:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
-  sfExtract:SetPoint("TOPLEFT", 22, -88); f.sfExtract = sfExtract
+  sfExtract:SetPoint("TOPLEFT", 6, -50); f.sfExtract = sfExtract
   local sfHint = f:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
-  sfHint:SetPoint("TOPLEFT", 22, -110); sfHint:SetWidth(356); sfHint:SetJustifyH("LEFT")
+  sfHint:SetPoint("TOPLEFT", 6, -72); sfHint:SetPoint("TOPRIGHT", -6, -72); sfHint:SetJustifyH("LEFT")
   sfHint:SetText("Feed junk gear to the forge to raise the extraction rate. Soulbinding a duplicate onto gear you're wearing extracts that share of its stats.")
 
   -- ---- controls ----
   local ac = CreateFrame("CheckButton", "UncappedSoulforgeAC", f, "InterfaceOptionsCheckButtonTemplate")
-  ac:SetPoint("TOPLEFT", 20, -142)
-  _G[ac:GetName().."Text"]:SetText("Auto-consume junk gear \226\134\146 souls + transmog")
+  ac:SetPoint("TOPLEFT", 4, -104)
+  _G[ac:GetName().."Text"]:SetText("Auto-consume junk gear \226\134\146  souls + transmog")
   ac:SetScript("OnClick", function(self) send("ICAC:" .. (self:GetChecked() and 1 or 0)) end)
   f.acCheck = ac
 
   local ao = CreateFrame("CheckButton", "UncappedSoulforgeAO", f, "InterfaceOptionsCheckButtonTemplate")
-  ao:SetPoint("TOPLEFT", 20, -166)
-  _G[ao:GetName().."Text"]:SetText("Auto-melt Sacks \226\134\146 souls + transmog + duplicates")
+  ao:SetPoint("TOPLEFT", 4, -128)
+  _G[ao:GetName().."Text"]:SetText("Auto-melt Sacks \226\134\146  souls + transmog + duplicates")
   ao:SetScript("OnClick", function(self) send("ICAO:" .. (self:GetChecked() and 1 or 0)) end)
   f.aoCheck = ao
 
   local sbBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  sbBtn:SetSize(170, 24); sbBtn:SetPoint("TOPLEFT", 22, -194); sbBtn:SetText("Soulbind Duplicates")
+  sbBtn:SetSize(170, 24); sbBtn:SetPoint("TOPLEFT", 6, -156); sbBtn:SetText("Soulbind Duplicates")
   sbBtn:SetScript("OnClick", function() StaticPopup_Show("UNCAPPED_SF_SOULBIND_ALL") end)
 
   local wlBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  wlBtn:SetSize(170, 24); wlBtn:SetPoint("TOPRIGHT", -22, -194); wlBtn:SetText("Whitelist\226\128\166")
+  wlBtn:SetSize(170, 24); wlBtn:SetPoint("LEFT", sbBtn, "RIGHT", 10, 0); wlBtn:SetText("Whitelist\226\128\166")
   wlBtn:SetScript("OnClick", function() if UI and UI.OpenWhitelist then UI:OpenWhitelist() end end)
 
   -- ---- your soulbound gear ----
   local eqHdr = f:CreateFontString(nil,"OVERLAY","GameFontNormal")
-  eqHdr:SetPoint("TOPLEFT", 22, -228); eqHdr:SetText("|cff40c0f0Your soulbound gear|r")
+  eqHdr:SetPoint("TOPLEFT", 6, -190); eqHdr:SetText("|cff40c0f0Your soulbound gear|r")
   local dLine = f:CreateTexture(nil,"ARTWORK"); dLine:SetTexture("Interface\\Buttons\\WHITE8X8")
   dLine:SetGradientAlpha("HORIZONTAL", 0.25,0.60,0.90,0.6, 0.25,0.60,0.90,0.0)
-  dLine:SetHeight(2); dLine:SetWidth(340); dLine:SetPoint("TOPLEFT", 22, -244)
+  dLine:SetHeight(2); dLine:SetPoint("TOPLEFT", 6, -206); dLine:SetPoint("TOPRIGHT", -6, -206)
 
+  -- Stretches to fill whatever's left of the panel below the divider; a pool
+  -- of EQ_ROWS_MAX row frames is pre-built, but only however many actually
+  -- fit (recomputed on OnSizeChanged, see below) are ever shown at once.
   local scroll = CreateFrame("ScrollFrame", "UncappedSoulforgeEqScroll", f, "FauxScrollFrameTemplate")
-  scroll:SetPoint("TOPLEFT", 24, -252); scroll:SetSize(348, EQ_ROWS*EQ_H)
+  scroll:SetPoint("TOPLEFT", 8, -214); scroll:SetPoint("BOTTOMRIGHT", -23, 8)
   scroll:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, EQ_H, function() if UI then UI:RefreshEquipped() end end)
   end)
@@ -417,21 +446,30 @@ local function BuildUI()
   scroll:SetScript("OnMouseWheel", function(self, delta)
     local sb = _G["UncappedSoulforgeEqScrollScrollBar"]; if sb then sb:SetValue(sb:GetValue() - delta*EQ_H) end
   end)
+  scroll:SetScript("OnSizeChanged", function(self, w, h)
+    local rows = math.max(1, math.floor(h / EQ_H))
+    if rows ~= eqVisibleRows then
+      eqVisibleRows = rows
+      if UI then UI:RefreshEquipped() end
+    end
+  end)
   f.eqScroll = scroll
 
-  for i = 1, EQ_ROWS do
-    local r = CreateFrame("Frame", nil, f); r:SetSize(340, EQ_H-2)
+  for i = 1, EQ_ROWS_MAX do
+    local r = CreateFrame("Frame", nil, f); r:SetHeight(EQ_H-2)
     r:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, -(i-1)*EQ_H)
+    r:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", 0, -(i-1)*EQ_H)
     r.icon = r:CreateTexture(nil,"ARTWORK"); r.icon:SetSize(28,28)
     r.icon:SetPoint("LEFT",2,0); r.icon:SetTexCoord(0.08,0.92,0.08,0.92)
     r.name = r:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
-    r.name:SetPoint("TOPLEFT",36,-1); r.name:SetWidth(300); r.name:SetJustifyH("LEFT")
+    r.name:SetPoint("TOPLEFT",36,-1); r.name:SetPoint("TOPRIGHT",-4,-1); r.name:SetJustifyH("LEFT")
     r.sub = r:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
-    r.sub:SetPoint("TOPLEFT",36,-15); r.sub:SetWidth(300); r.sub:SetJustifyH("LEFT")
+    r.sub:SetPoint("TOPLEFT",36,-15); r.sub:SetPoint("TOPRIGHT",-4,-15); r.sub:SetJustifyH("LEFT")
     eqRows[i] = r; r:Hide()
   end
   local eqEmpty = f:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
-  eqEmpty:SetPoint("TOP", scroll, "TOP", 0, -30); eqEmpty:SetWidth(320)
+  eqEmpty:SetPoint("TOP", scroll, "TOP", 0, -30); eqEmpty:SetPoint("LEFT", scroll, "LEFT", 20, 0)
+  eqEmpty:SetPoint("RIGHT", scroll, "RIGHT", -20, 0)
   eqEmpty:SetText("No soulbound bonuses yet. Soulbind duplicates onto gear you're wearing.")
   f.eqEmpty = eqEmpty
 
@@ -490,11 +528,11 @@ local function attachMethods()
     table.sort(list, function(a, b) return a.slot < b.slot end)
     state.equipped = list
 
-    FauxScrollFrame_Update(self.eqScroll, #list, EQ_ROWS, EQ_H)
+    FauxScrollFrame_Update(self.eqScroll, #list, eqVisibleRows, EQ_H)
     if #list == 0 then self.eqEmpty:Show() else self.eqEmpty:Hide() end
     local offset = FauxScrollFrame_GetOffset(self.eqScroll)
-    for i = 1, EQ_ROWS do
-      local r = eqRows[i]; local e = list[i + offset]
+    for i = 1, EQ_ROWS_MAX do
+      local r = eqRows[i]; local e = (i <= eqVisibleRows) and list[i + offset] or nil
       if e then
         r.icon:SetTexture(e.tex or QUESTION)
         r.name:SetText(e.name)
@@ -1757,18 +1795,53 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
   if event == "PLAYER_EQUIPMENT_CHANGED" then send("ICINV") end
 end)
 
+-- ============================ dashboard embedding =========================
+-- The Dashboard hosts this panel directly inside its own window instead of
+-- Soul Forge owning a window of its own. UncappedDashboard_UI.lua calls
+-- EmbedInto once (to build the frame into its content group) and Activate
+-- every time the Soul Forge tab is selected. The Extractor, Socket, and
+-- Whitelist windows stay separate popups -- they're triggered by a specific
+-- action (using a scroll, clicking Whitelist) rather than being "the Soul
+-- Forge screen" itself, so they keep their own floating frames.
+local SF = _G.UncappedSoulForge or {}
+_G.UncappedSoulForge = SF
+SF.UI = {}
+
+function SF.UI.EmbedInto(parent)
+  BuildUI(parent)
+  attachMethods()
+  attachWhitelistOpener()
+  UI:Show()
+  return UI
+end
+
+function SF.UI.Activate()
+  if not UI then return end
+  UI:Refresh()
+  send("ICSF"); send("ICINV")
+end
+
+-- Content-panel width (not window width) Soul Forge needs so the Soulbind
+-- Duplicates + Whitelist buttons don't overflow: 6px left inset + 170 +
+-- 10px gap + 170 + 6px right inset = 362, plus the embedded group's own
+-- 6px padding on each side (see UncappedDashboard_UI.lua) = 374.
+function SF.UI.GetMinWidth()
+  return 374
+end
+
 SLASH_SOULFORGE1 = "/soulforge"
 SLASH_SOULFORGE2 = "/sf"
 SLASH_SOULFORGE3 = "/soulbind"
 SLASH_SOULFORGE4 = "/sb"
 SlashCmdList["SOULFORGE"] = function()
-  BuildUI(); attachMethods(); attachWhitelistOpener()
-  if UI:IsShown() then
-    UI:Hide()
-    if WLM then WLM:Hide() end
-  else
-    UI:Show(); UI:Refresh()
-    send("ICSF"); send("ICINV")
+  local Dashboard = _G.UncappedDashboard
+  if not Dashboard then
+    msg("Soul Forge now lives inside the Dashboard -- load UncappedDashboard to use it.")
+    return
+  end
+  Dashboard.SetTab("soulforge")
+  if not (Dashboard.UI and Dashboard.UI.IsShown and Dashboard.UI.IsShown()) then
+    Dashboard.Toggle()
   end
 end
 

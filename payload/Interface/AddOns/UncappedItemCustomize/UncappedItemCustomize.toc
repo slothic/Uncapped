@@ -1,8 +1,9 @@
 ## Interface: 30300
-## Title: Uncapped Item Customize
+## Title: Uncapped Soulforge
 ## Notes: Soulbinding - deposit an equipped item as a target, then consume bag items to copy their stats + procs onto it. Talks to the server over the UNC addon pipe.
 ## Author: Uncapped
-## Version: 0.1
+## Version: 0.2
+## OptionalDeps: UncappedDashboard, UncappedUI
 ## SavedVariables: UncappedItemCustomizeDB
 
 UncappedItemCustomize.lua

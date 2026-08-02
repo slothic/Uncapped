@@ -22,8 +22,6 @@
 local ADDON_PIPE_PREFIX = "UNC"           -- server replies arrive on this prefix
 local TRANSPORT_PREFIX  = "REAGENTBANK"   -- shared client->server transport
 
-local FORGE_TITLE = "Uncapped Forge"
-
 -- ---------------------------------------------------------------------------
 -- SavedVariables
 -- ---------------------------------------------------------------------------
@@ -341,26 +339,29 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
         if spellId then
             -- UPSERT BY ITEM ID, not replace, and not blind append.
             --
-            -- This used to replace the whole list on every message, on the stated
-            -- assumption that "a recipe has at most 8 reagents at ~20 bytes a row,
-            -- so the whole set always arrives in one message". That estimate was
-            -- wrong by a factor of three: a row is `id,per,have,ICON,NAME;` and
-            -- carries the icon ("INV_Misc_Gem_Opal_01") and the item name inline,
-            -- so it runs 45-70 bytes. Five reagents exceed the 255-byte addon
-            -- message limit, the server's Chunker splits them over two messages,
-            -- and replacing meant every chunk but the LAST was silently discarded.
+            -- [Uncapped] Kept across the intake of MentalMonk's layout rework,
+            -- which reverted this to the original replace. Do not simplify it
+            -- back: the "always arrives in one message" assumption is wrong by
+            -- a factor of three.
             --
-            -- Consequences, both reported in-game: the material panel only listed
-            -- the tail of the reagent set, hiding the ones the player had none of;
-            -- and MaxCraftable took its minimum over that partial set, so Bronze
-            -- Band of Force showed 254 craftable (509 Shadowgem / 2) while the
-            -- server -- which plans against the REAL reagent list -- refused with
-            -- "missing materials you cannot purchase", those being the Malachite
-            -- and Bronze Setting the window never showed.
+            -- A row is `id,per,have,ICON,NAME;` and carries the icon
+            -- ("INV_Misc_Gem_Opal_01") and the item name inline, so it runs
+            -- 45-70 bytes, not ~20. Five reagents exceed the 255-byte addon
+            -- message limit, the server's Chunker splits them over two
+            -- messages, and replacing meant every chunk but the LAST was
+            -- silently discarded.
             --
-            -- Keying on item id keeps the original no-doubling property that
-            -- motivated the replace: this is re-requested after every craft, and
-            -- re-sent rows overwrite their own key instead of piling up.
+            -- Consequences, both reported in-game: the material panel listed
+            -- only the tail of the reagent set, hiding the ones the player had
+            -- none of; and MaxCraftable took its minimum over that partial set,
+            -- so Bronze Band of Force showed 254 craftable (509 Shadowgem / 2)
+            -- while the server -- which plans against the REAL reagent list --
+            -- refused with "missing materials you cannot purchase", those being
+            -- the Malachite and Bronze Setting the window never showed.
+            --
+            -- Keying on item id keeps the no-doubling property that motivated
+            -- the replace: this is re-requested after every craft, and re-sent
+            -- rows overwrite their own key instead of piling up.
             local list = mats[spellId] or {}
             local byItem = {}
             for i, mat in ipairs(list) do
@@ -558,12 +559,19 @@ end)
 -- ===========================================================================
 -- UI
 -- ===========================================================================
--- 14 rows at 22px starting at -76 ends at -384, clearing the bottom controls in
--- a 500-tall frame. The first version used 16 rows in a 460-tall frame, which ran
--- the list straight down through the amount box and the checkboxes.
+-- ROWS is now how many rows currently FIT (recomputed on resize, see
+-- listScroll's OnSizeChanged below) -- MAX_ROWS is just the size of the
+-- pooled button/row frames, generous enough for a tall window.
 local ROWS, ROW_HEIGHT = 14, 22
-local FRAME_WIDTH, FRAME_HEIGHT = 720, 500
-local LIST_TOP = -76
+local MAX_ROWS = 30
+-- No title/banner/close row anymore (see BuildFrame) -- shifted up ~30px
+-- from the original standalone-window offsets.
+local LIST_TOP = -46
+-- Space reserved at the bottom of the frame for the amount/craft/buy row,
+-- the process-mode buttons, the output checkboxes, and the progress bar --
+-- listFrame/detail stop this far above the frame's bottom edge rather than
+-- filling all the way down into them.
+local BOTTOM_RESERVE = 90
 
 -- FauxScrollFrame's scrollbar is a GLOBAL named "<frameName>ScrollBar" in 3.3.5.
 -- There is no `.ScrollBar` field on the frame -- that is a later-expansion thing,
@@ -614,9 +622,9 @@ function RefreshList()
 
     FauxScrollFrame_Update(listScroll, #source, ROWS, ROW_HEIGHT)
 
-    for i = 1, ROWS do
+    for i = 1, MAX_ROWS do
         local button = listButtons[i]
-        local entry = source[offset + i]
+        local entry = (i <= ROWS) and source[offset + i] or nil
 
         if not entry then
             button:Hide()
@@ -923,46 +931,33 @@ function BuildProfessionTabs()
     UIDropDownMenu_SetText(frame.profDrop, ProfessionLabel())
 end
 
-local function BuildFrame()
+-- Lives inside the Dashboard's content panel (see EmbedInto below) -- no own
+-- backdrop/title/close/drag, since the Dashboard's master window already
+-- provides all of that chrome. The recipe list and detail pane stretch with
+-- whatever size the Dashboard window currently has (listFrame stretches
+-- vertically with a dynamically recomputed row count, same technique as
+-- Soul Forge's equipped-gear list; detail stretches both ways to fill
+-- whatever's left to its right); the bottom amount/craft/checkbox row keeps
+-- its original fixed layout, same as Soul Forge's own action buttons.
+local function BuildFrame(parent)
     if frame then return end
 
-    frame = CreateFrame("Frame", "UncappedForgeFrame", UIParent)
-    frame:SetWidth(FRAME_WIDTH)
-    frame:SetHeight(FRAME_HEIGHT)
-    frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-    frame:SetBackdrop({
-        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-        tile = true, tileSize = 32, edgeSize = 32,
-        insets = { left = 11, right = 12, top = 12, bottom = 11 },
-    })
-    frame:SetMovable(true)
-    frame:EnableMouse(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", frame.StartMoving)
-    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
-    frame:SetFrameStrata("HIGH")
+    frame = CreateFrame("Frame", "UncappedForgeFrame", parent or UIParent)
+    frame:SetPoint("TOPLEFT"); frame:SetPoint("BOTTOMRIGHT")
     frame:Hide()
     frame.mode = "craft"
-
-    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOP", frame, "TOP", 0, -16)
-    title:SetText(FORGE_TITLE)
-
-    local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -8)
 
     -- Profession picker (see BuildProfessionTabs). Populated once the server's
     -- profession list lands, which is after this frame is built.
     local profDrop = CreateFrame("Frame", "UncappedForgeProfDrop", frame, "UIDropDownMenuTemplate")
-    profDrop:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -40)
+    profDrop:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -10)
     frame.profDrop = profDrop
 
     -- Search box
     local search = CreateFrame("EditBox", "UncappedForgeSearch", frame, "InputBoxTemplate")
     search:SetWidth(150)
     search:SetHeight(20)
-    search:SetPoint("TOPLEFT", frame, "TOPLEFT", 240, -46)
+    search:SetPoint("TOPLEFT", frame, "TOPLEFT", 240, -16)
     search:SetAutoFocus(false)
     search:SetScript("OnTextChanged", function()
         ApplyFilter()
@@ -995,7 +990,7 @@ local function BuildFrame()
     }
 
     local sortDrop = CreateFrame("Frame", "UncappedForgeSortDrop", frame, "UIDropDownMenuTemplate")
-    sortDrop:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 8, -40)
+    sortDrop:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 8, -10)
     frame.sortDrop = sortDrop
 
     local function sortText(value)
@@ -1028,20 +1023,26 @@ local function BuildFrame()
     sortLabel:SetPoint("RIGHT", sortDrop, "LEFT", -2, 0)
     sortLabel:SetText("Sort")
 
-    -- Recipe list
+    -- Recipe list -- fixed width, but stretches vertically with the window;
+    -- ROWS (how many rows currently fit) is recomputed on resize, same
+    -- technique as Soul Forge's equipped-gear list.
     local listFrame = CreateFrame("Frame", nil, frame)
     listFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, LIST_TOP)
+    listFrame:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 18, BOTTOM_RESERVE)
     listFrame:SetWidth(330)
-    listFrame:SetHeight(ROWS * ROW_HEIGHT)
 
     listScroll = CreateFrame("ScrollFrame", "UncappedForgeScroll", listFrame, "FauxScrollFrameTemplate")
     listScroll:SetAllPoints(listFrame)
     listScroll:SetScript("OnVerticalScroll", function(self, offset)
         FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, RefreshList)
     end)
+    listScroll:SetScript("OnSizeChanged", function(self, w, h)
+        ROWS = math.max(1, math.floor(h / ROW_HEIGHT))
+        RefreshList()
+    end)
 
     listButtons = {}
-    for i = 1, ROWS do
+    for i = 1, MAX_ROWS do
         local button = CreateFrame("Button", nil, listFrame)
         button:SetWidth(310)
         button:SetHeight(ROW_HEIGHT)
@@ -1116,11 +1117,12 @@ local function BuildFrame()
         listButtons[i] = button
     end
 
-    -- Detail pane
+    -- Detail pane -- fills whatever space is left to the right of the list,
+    -- both ways, instead of a fixed width/height. Its own content (AddLine)
+    -- already anchors off `detail`'s own RIGHT edge, so it needed no changes.
     detail = CreateFrame("Frame", nil, frame)
-    detail:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -18, LIST_TOP)
-    detail:SetWidth(340)
-    detail:SetHeight(ROWS * ROW_HEIGHT)
+    detail:SetPoint("TOPLEFT", listFrame, "TOPRIGHT", 20, 0)
+    detail:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -18, BOTTOM_RESERVE)
     detail.lines = {}
     detail.lineCount = 0
     -- Invisible click targets laid over material rows ("where do I farm this?").
@@ -1299,13 +1301,29 @@ local function BuildFrame()
     cancel:SetText("Stop")
     cancel:SetScript("OnClick", function() Send("FRGCANCEL") end)
     progress.cancel = cancel
-
-    tinsert(UISpecialFrames, "UncappedForgeFrame")   -- Escape closes it
 end
 
-local function Open()
-    BuildFrame()
+-- ===========================================================================
+-- Dashboard embedding
+-- ===========================================================================
+-- The Dashboard hosts this panel directly inside its own window instead of
+-- the Forge owning a window of its own -- see UncappedDashboard_UI.lua,
+-- which calls EmbedInto once (to build the frame into its content group)
+-- and Activate every time the Forge tab is selected. The "Where to farm"
+-- popup (sourceFrame, below) stays a separate floating window -- it's
+-- triggered by clicking a specific material, not "the Forge screen" itself.
+local Forge = _G.UncappedForge or {}
+_G.UncappedForge = Forge
+Forge.UI = {}
+
+function Forge.UI.EmbedInto(parent)
+    BuildFrame(parent)
     frame:Show()
+    return frame
+end
+
+function Forge.UI.Activate()
+    if not frame then return end
     Send("FRGGET")
     Send("FRGPROCLIST")
     if selectedSpell then Send("FRGMATS:" .. selectedSpell) end
@@ -1315,12 +1333,31 @@ local function Open()
     RefreshProgress()
 end
 
-local function Toggle()
-    BuildFrame()
-    if frame:IsShown() then frame:Hide() else Open() end
+-- Content-panel width (not window width) the Forge needs: its original
+-- standalone design (720 wide) already comfortably fits the list column,
+-- detail column, and the widest bottom-row button group without overlap,
+-- plus the embedded group's own 6px padding on each side = 732.
+function Forge.UI.GetMinWidth()
+    return 732
 end
 
-_G.UncappedForge_Toggle = Toggle
+-- Switches the Dashboard to the Forge tab, opening it if it's closed. Used
+-- by the /forge slash command, the TRADE_SKILL_SHOW replacement, and the
+-- settings-page "Open the Forge" button -- the Forge has no window of its
+-- own anymore to open directly.
+local function OpenInDashboard()
+    local Dashboard = _G.UncappedDashboard
+    if not Dashboard then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff8040[Forge]|r now lives inside the Dashboard -- load UncappedDashboard to use it.")
+        return
+    end
+    Dashboard.SetTab("forge")
+    if not (Dashboard.UI and Dashboard.UI.IsShown and Dashboard.UI.IsShown()) then
+        Dashboard.Toggle()
+    end
+end
+
+_G.UncappedForge_Toggle = OpenInDashboard
 
 -- ---------------------------------------------------------------------------
 -- Replacing the default tradeskill window
@@ -1379,7 +1416,7 @@ watcher:SetScript("OnEvent", function(_, event, arg1)
             HideUIPanel(TradeSkillFrame)
         end
         CloseTradeSkill()
-        Open()
+        OpenInDashboard()
     end
 end)
 
@@ -1561,7 +1598,7 @@ end
 
 SLASH_UNCAPPEDFORGE1 = "/forge"
 SLASH_UNCAPPEDFORGE2 = "/uncappedforge"
-SlashCmdList["UNCAPPEDFORGE"] = Toggle
+SlashCmdList["UNCAPPEDFORGE"] = OpenInDashboard
 
 -- ---------------------------------------------------------------------------
 -- Options page in the Uncapped hub (ESC > Interface > AddOns > Uncapped)
@@ -1601,5 +1638,5 @@ if UncappedUI then
     L:Button("Reset its position", function() db.sourcePos = nil end, 180)
 
     L:Gap()
-    L:Button("Open the Forge", function() Open() end)
+    L:Button("Open the Forge", function() OpenInDashboard() end)
 end

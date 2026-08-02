@@ -25,11 +25,22 @@
 local ADDON_PIPE_PREFIX = "UNC"           -- server -> client replies
 local TRANSPORT_PREFIX  = "REAGENTBANK"   -- client -> server transport (shared)
 
-local TITLE = "Anima"
-
-local FRAME_WIDTH  = 470
-local CARD_HEIGHT  = 84
+-- 96 (not 84): a card's icon (36) + bar (9, with 6px gaps) + button row (20)
+-- adds up to 87px of content before any bottom padding -- 84 was clipping
+-- the buy buttons a few pixels past the card's own bottom edge/border.
+local CARD_HEIGHT  = 96
+local CARD_GAP     = 8
+local ROW_H        = CARD_HEIGHT + CARD_GAP
 local CARD_INSET   = 16
+
+-- A card's buy-button row (+1/+10/+100/Max: 98*4 + 4*3 = 404) starts 10px in
+-- from the card's own left edge, so the card needs at least 404 + 10 left +
+-- 10 right padding = 424 to hold it without compressing the buttons. Cards
+-- normally stretch to fill whatever width Relayout gives them, but never
+-- narrower than this floor -- see Relayout's math.max(availWidth, ...) --
+-- so even if the Dashboard window somehow got narrower than Anima.UI.
+-- GetMinWidth() allows for, the buttons still wouldn't get squeezed.
+local MIN_CARD_WIDTH = 424
 
 -- ---------------------------------------------------------------------------
 -- Stat definitions. `index` is the server's wire index -- the order is part of
@@ -113,6 +124,14 @@ local STATS = {
 
     -- The UTILITY tree. Quality-of-life stats that work everywhere, in or out of
     -- a keystone.
+    --
+    -- [Uncapped] Restored on intake. The draft this file came from dropped both
+    -- this entry and the utility tree below, but STAT_SOULWIND is live on the
+    -- realm -- mod-time-stats/src/time_stats.cpp declares it at wire index 8 and
+    -- Unit::UpdateSpeed reads it through sGetSoulWindMountSpeedPct. Dropping the
+    -- entry would not disable the stat; it would only remove the sole UI for a
+    -- stat players have already bought ranks in, leaving those ranks affecting
+    -- mount speed with no way to see or extend them.
     {
         tree  = "utility",
         index = 8,
@@ -161,6 +180,12 @@ local arenaPoints = 0
 local haveData = false
 
 local frame, cards, pointsText, statusText, tabButtons, treeNote
+local animaScroll
+-- Tempo and Defence have 4 stats each, Utility has 1. Relayout indexes
+-- treeCards[slot + offset] and skips nil, so a tree with fewer stats than
+-- visibleRows simply leaves the spare slots empty. Recomputed on resize --
+-- see BuildFrame's OnSizeChanged.
+local visibleRows = 4
 
 local QUESTION_MARK = "Interface\\Icons\\INV_Misc_QuestionMark"
 
@@ -224,7 +249,6 @@ end
 
 local function BuildCard(parent, def)
     local card = CreateFrame("Frame", nil, parent)
-    card:SetWidth(FRAME_WIDTH - (CARD_INSET * 2) - 8)
     card:SetHeight(CARD_HEIGHT)
     StyleCardBackdrop(card)
     card.def = def
@@ -371,20 +395,38 @@ local function RefreshCard(card)
     end
 end
 
--- Show only the active tree's cards and stack them from the top. Called on load
--- and whenever the tab changes, so switching tabs costs no rebuild.
+-- Show only the active tree's cards, windowed into whatever rows currently
+-- fit inside animaScroll (see BuildFrame's OnSizeChanged) -- when the
+-- Dashboard is shrunk below the height four cards need, this scrolls
+-- instead of letting cards run off the bottom of the panel. Called on load,
+-- whenever the tab changes, and whenever the scroll offset/size changes, so
+-- switching tabs or resizing costs no rebuild.
 local function Relayout()
     if not frame then return end
 
-    local y = -140
+    local treeCards = {}
     for _, card in ipairs(cards or {}) do
-        card:ClearAllPoints()
-        if card.def.tree == db.tree then
-            card:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_INSET + 4, y)
-            card:Show()
-            y = y - (CARD_HEIGHT + 8)
-        else
-            card:Hide()
+        if card.def.tree == db.tree then treeCards[#treeCards + 1] = card end
+    end
+
+    if animaScroll then
+        FauxScrollFrame_Update(animaScroll, #treeCards, visibleRows, ROW_H)
+        local offset = FauxScrollFrame_GetOffset(animaScroll)
+        -- Never narrower than MIN_CARD_WIDTH, even if animaScroll itself is
+        -- currently narrower than that (see MIN_CARD_WIDTH's comment) -- a
+        -- single TOPLEFT anchor + explicit width instead of stretching
+        -- between TOPLEFT+TOPRIGHT, so the card can outgrow its container
+        -- rather than ever compress its buttons.
+        local cardWidth = math.max(animaScroll:GetWidth(), MIN_CARD_WIDTH)
+        for _, card in ipairs(cards or {}) do card:Hide() end
+        for slot = 1, visibleRows do
+            local card = treeCards[slot + offset]
+            if card then
+                card:ClearAllPoints()
+                card:SetPoint("TOPLEFT", animaScroll, "TOPLEFT", 0, -(slot - 1) * ROW_H)
+                card:SetWidth(cardWidth)
+                card:Show()
+            end
         end
     end
 
@@ -416,53 +458,25 @@ local function RefreshAll()
     end
 end
 
-local function BuildFrame()
+-- Lives inside the Dashboard's content panel (see EmbedInto below) -- no own
+-- backdrop/title/close/drag, since the Dashboard's master window already
+-- provides all of that chrome. Cards stretch horizontally with whatever
+-- width the Dashboard window currently has (see Relayout's TOPLEFT+TOPRIGHT
+-- anchors); the card interiors already anchored off their own right edge,
+-- so they needed no further changes.
+local function BuildFrame(parent)
     if frame then return end
 
-    -- Only one tree is visible at a time, so size to the largest tree rather
-    -- than to every stat.
-    local perTree = {}
-    for _, def in ipairs(STATS) do perTree[def.tree] = (perTree[def.tree] or 0) + 1 end
-    local biggest = 0
-    for _, n in pairs(perTree) do if n > biggest then biggest = n end end
-
-    local height = 146 + (biggest * (CARD_HEIGHT + 8)) + 30
-
-    frame = CreateFrame("Frame", "UncappedAnimaFrame", UIParent)
-    frame:SetWidth(FRAME_WIDTH)
-    frame:SetHeight(height)
-    frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-    frame:SetBackdrop({
-        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
-        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-        tile = true, tileSize = 32, edgeSize = 32,
-        insets = { left = 11, right = 12, top = 12, bottom = 11 },
-    })
-    frame:SetMovable(true)
-    frame:EnableMouse(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", frame.StartMoving)
-    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
-    frame:SetFrameStrata("HIGH")
-    frame:SetToplevel(true)
+    frame = CreateFrame("Frame", "UncappedAnimaFrame", parent or UIParent)
+    frame:SetPoint("TOPLEFT"); frame:SetPoint("BOTTOMRIGHT")
     frame:Hide()
 
-    -- Escape closes it, like every other panel in the game.
-    tinsert(UISpecialFrames, "UncappedAnimaFrame")
-
-    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOP", frame, "TOP", 0, -16)
-    title:SetText(TITLE)
-
-    local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -8)
-
     local subtitle = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    subtitle:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_INSET + 4, -42)
+    subtitle:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_INSET + 4, -16)
     subtitle:SetPoint("RIGHT", frame, "RIGHT", -(CARD_INSET + 4), 0)
     subtitle:SetJustifyH("LEFT")
     subtitle:SetTextColor(0.75, 0.75, 0.75)
-    subtitle:SetText("Two upgrade trees, bought with Arena Points. A stat only pays off if you are actually limited by it -- pick your poison.")
+    subtitle:SetText("Three upgrade trees, bought with Arena Points. A stat only pays off if you are actually limited by it -- pick your poison.")
 
     -- Tree tabs
     tabButtons = {}
@@ -474,7 +488,7 @@ local function BuildFrame()
         if prevTab then
             tab:SetPoint("LEFT", prevTab, "RIGHT", 4, 0)
         else
-            tab:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_INSET + 4, -74)
+            tab:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_INSET + 4, -48)
         end
         tab:SetText(t.label)
         tab.treeKey = t.key
@@ -488,16 +502,40 @@ local function BuildFrame()
     end
 
     treeNote = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    treeNote:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_INSET + 4, -100)
+    treeNote:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_INSET + 4, -74)
     treeNote:SetPoint("RIGHT", frame, "RIGHT", -(CARD_INSET + 4), 0)
     treeNote:SetJustifyH("LEFT")
     treeNote:SetTextColor(0.65, 0.65, 0.65)
 
     pointsText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    pointsText:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_INSET + 4, -128)
+    pointsText:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_INSET + 4, -102)
 
     statusText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    statusText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -(CARD_INSET + 4), -128)
+    statusText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -(CARD_INSET + 4), -102)
+
+    -- Cards are windowed into this the same way Soul Forge windows its
+    -- equipped-gear list: FauxScrollFrame_Update/GetOffset drive which
+    -- cards are currently shown (see Relayout), and OnSizeChanged
+    -- recomputes how many full rows fit whenever the Dashboard window is
+    -- resized. The right inset leaves room for the auto-created scrollbar.
+    animaScroll = CreateFrame("ScrollFrame", "UncappedAnimaScroll", frame, "FauxScrollFrameTemplate")
+    animaScroll:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_INSET + 4, -118)
+    animaScroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -(CARD_INSET + 4 + 20), 48)
+    animaScroll:SetScript("OnVerticalScroll", function(self, offset)
+        FauxScrollFrame_OnVerticalScroll(self, offset, ROW_H, Relayout)
+    end)
+    animaScroll:EnableMouseWheel(true)
+    animaScroll:SetScript("OnMouseWheel", function(self, delta)
+        local sb = _G["UncappedAnimaScrollScrollBar"]
+        if sb then sb:SetValue(sb:GetValue() - delta * ROW_H) end
+    end)
+    animaScroll:SetScript("OnSizeChanged", function(self, w, h)
+        -- Width changes need a relayout too (card width tracks it, see
+        -- MIN_CARD_WIDTH), not just height/row-count changes, so this
+        -- always refreshes rather than gating on visibleRows alone.
+        visibleRows = math.max(1, math.floor(h / ROW_H))
+        Relayout()
+    end)
 
     cards = {}
     for i, def in ipairs(STATS) do
@@ -513,15 +551,51 @@ local function BuildFrame()
     footer:SetText("Hover a button for its exact cost. Purchases are charged and applied by the server.")
 end
 
-local function Toggle()
-    BuildFrame()
-    if frame:IsShown() then
-        frame:Hide()
-    else
-        frame:Show()
-        Relayout()
-        RequestState()   -- always open on fresh numbers
-        RefreshAll()
+-- ===========================================================================
+-- Dashboard embedding
+-- ===========================================================================
+-- The Dashboard hosts this panel directly inside its own window instead of
+-- Anima owning a window of its own -- see UncappedDashboard_UI.lua, which
+-- calls EmbedInto once (to build the frame into its content group) and
+-- Activate every time the Anima tab is selected.
+local Anima = _G.UncappedAnima or {}
+_G.UncappedAnima = Anima
+Anima.UI = {}
+
+function Anima.UI.EmbedInto(parent)
+    BuildFrame(parent)
+    frame:Show()
+    return frame
+end
+
+function Anima.UI.Activate()
+    if not frame then return end
+    Relayout()
+    RequestState()   -- always refresh on fresh numbers
+    RefreshAll()
+end
+
+-- Content-panel width (not window width) Anima needs so a card's buy-button
+-- row (+1/+10/+100/Max: 98*4 + 4*3 = 404, starting 10px in from the card's
+-- own edge) doesn't overflow: 404 + 10 left + 10 right padding = 424, plus
+-- the card's own 20px insets on each side of the frame (CARD_INSET+4) = 464,
+-- plus the embedded group's own 6px padding on each side = 476, +4 buffer.
+function Anima.UI.GetMinWidth()
+    return 480
+end
+
+-- Switches the Dashboard to the Anima tab, opening it if it's closed. Used
+-- by both the /anima slash command and the settings-page "Open Anima"
+-- button -- Anima has no window of its own anymore to open directly.
+local function OpenInDashboard()
+    local Dashboard = _G.UncappedDashboard
+    if not Dashboard then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff40c0f0Anima:|r now lives inside the Dashboard -- load UncappedDashboard to use it.")
+        return
+    end
+    Dashboard.SetTab("anima")
+    if not (Dashboard.UI and Dashboard.UI.IsShown and Dashboard.UI.IsShown()) then
+        Dashboard.Toggle()
     end
 end
 
@@ -612,9 +686,7 @@ if UncappedUI then
     btn:SetText("Open Anima")
     btn:SetScript("OnClick", function()
         if InterfaceOptionsFrame then InterfaceOptionsFrame:Hide() end
-        BuildFrame()
-        frame:Show()
-        RequestState()
+        OpenInDashboard()
     end)
     L:advance(32)
 
@@ -637,7 +709,7 @@ end
 -- ===========================================================================
 SLASH_UNCAPPEDANIMA1 = "/anima"
 SLASH_UNCAPPEDANIMA2 = "/uncappedanima"
-SlashCmdList["UNCAPPEDANIMA"] = function() Toggle() end
+SlashCmdList["UNCAPPEDANIMA"] = function() OpenInDashboard() end
 
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("ADDON_LOADED")
