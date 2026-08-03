@@ -100,6 +100,9 @@ public partial class MainWindow : Window
             LinkSeparator.Visibility = Visibility.Visible;
         }
 
+        if (!string.IsNullOrWhiteSpace(_manifest.DonateUrl))
+            DonatePanel.Visibility = Visibility.Visible;
+
         if (SelfUpdater.UpdateAvailable(_manifest))
         {
             SetStatus("Updating the launcher…");
@@ -745,6 +748,8 @@ public partial class MainWindow : Window
     }
 
     private void OnRegister(object sender, RoutedEventArgs e) => OpenUrl(_manifest?.Realm.RegisterUrl);
+
+    private void OnDonate(object sender, RoutedEventArgs e) => OpenUrl(_manifest?.DonateUrl);
 
     private void OnSavedLogin(object sender, RoutedEventArgs e)
     {

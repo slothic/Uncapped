@@ -24,6 +24,10 @@ param(
     # (./webregistration:/var/www/html). Editing that file updates the news for everyone with
     # no rebuild, no restart and no release. Empty falls back to the manifest's news array.
     [string]$NewsUrl         = 'http://152.53.115.249:8080/news.json',
+    # Where the launcher's support button points. Empty hides the button outright, so this
+    # is also the off switch. Published here rather than compiled into the exe because it
+    # has already moved once (PayPal -> Ko-fi) and a URL in the binary makes that a release.
+    [string]$DonateUrl       = 'https://ko-fi.com/uncapped',
     # Discord webhook that client crash dumps get posted to. Kept in the manifest, not the
     # binary, so it can be rotated without cutting a release - which matters because a
     # webhook shipped in a public client can be extracted by anyone who looks.
@@ -235,6 +239,9 @@ if ($CrashReportWebhook) { $crashWebhookValue = $CrashReportWebhook }
 $newsUrlValue = $null
 if ($NewsUrl) { $newsUrlValue = $NewsUrl }
 
+$donateUrlValue = $null
+if ($DonateUrl) { $donateUrlValue = $DonateUrl }
+
 $manifest = [ordered]@{
     manifestVersion = 1
     launcherVersion = $LauncherVersion
@@ -282,6 +289,8 @@ $manifest = [ordered]@{
     largeAddressAware  = $LargeAddressAware
 
     newsUrl = $newsUrlValue
+    # Null hides the launcher's support button rather than pointing it nowhere.
+    donateUrl = $donateUrlValue
     news    = $news
     files   = @($files)
 

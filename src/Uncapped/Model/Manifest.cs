@@ -48,6 +48,15 @@ public sealed class Manifest
     /// </summary>
     [JsonPropertyName("newsUrl")] public string? NewsUrl { get; set; }
 
+    /// <summary>
+    /// Where the launcher's support button points. Null or empty hides the button entirely,
+    /// so a manifest that does not carry one simply has no donate UI.
+    ///
+    /// Here rather than in the binary for the usual reason: it has already moved once
+    /// (PayPal to Ko-fi), and a URL compiled into the exe would have made that a release.
+    /// </summary>
+    [JsonPropertyName("donateUrl")] public string? DonateUrl { get; set; }
+
     /// <summary>Fallback news, used when no newsUrl is set or the fetch fails.</summary>
     [JsonPropertyName("news")] public List<NewsItem> News { get; set; } = new();
     [JsonPropertyName("files")] public List<ManifestFile> Files { get; set; } = new();

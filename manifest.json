@@ -32,6 +32,7 @@
     "hardenClient":  true,
     "largeAddressAware":  true,
     "newsUrl":  "http://152.53.115.249:8080/news.json",
+    "donateUrl":  "https://ko-fi.com/uncapped",
     "news":  [
 
              ],

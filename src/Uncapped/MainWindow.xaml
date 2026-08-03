@@ -67,10 +67,37 @@
                     </TextBlock.Effect>
                 </TextBlock>
 
+                <!-- ── Donate ──────────────────────────────────────────────────────
+                     The right column's upper half, which the news frame below was laid out
+                     to leave free for exactly this. Clear of the wordmark above and a long
+                     way from PLAY at the bottom, so it is never what a player hits on the
+                     way to launching the game.
+
+                     Hidden unless the manifest carries a donateUrl — same pattern as
+                     RegisterLink further down. That also keeps the address out of the
+                     binary: it has already moved once (PayPal to Ko-fi), and a URL
+                     compiled in would have made that a launcher release.
+
+                     The caption is not decoration. "Donations buy nothing in-game" is the
+                     project's standing position, stated in #donations and on the landing
+                     page, and a button in the launcher is the single most likely place for
+                     a player to assume the opposite. -->
+                <StackPanel x:Name="DonatePanel" HorizontalAlignment="Right" VerticalAlignment="Top"
+                            Margin="0,116,44,0" Width="300" Visibility="Collapsed">
+                    <Button x:Name="DonateButton" Style="{StaticResource GhostButton}"
+                            Content="SUPPORT THE SERVER" Height="34" Click="OnDonate" />
+                    <TextBlock Text="Voluntary. Buys nothing in-game." FontSize="10.5"
+                               Margin="0,7,0,0" HorizontalAlignment="Right" TextAlignment="Right"
+                               Foreground="#8A7F92" IsHitTestVisible="False">
+                        <TextBlock.Effect>
+                            <DropShadowEffect BlurRadius="10" ShadowDepth="0" Opacity="0.9" Color="#1A0A14" />
+                        </TextBlock.Effect>
+                    </TextBlock>
+                </StackPanel>
+
                 <!-- ── News frame ──────────────────────────────────────────────────
-                     Full height down the left. The right column deliberately keeps its
-                     upper half empty: that is where a donate panel goes later, and leaving
-                     the space now means adding it will not force another reshuffle. -->
+                     Full height down the left. The right column's upper half is the donate
+                     panel above; keeping this one to the left is what leaves that space. -->
                 <Border HorizontalAlignment="Left" VerticalAlignment="Stretch"
                         Margin="40,40,0,40" Width="600" CornerRadius="14"
                         BorderThickness="1" BorderBrush="#2EFFFFFF">
