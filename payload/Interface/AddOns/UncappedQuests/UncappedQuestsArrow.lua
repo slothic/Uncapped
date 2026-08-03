@@ -50,6 +50,9 @@ local defaults = {
     arrowScale   = 1.0,
     arrowLocked  = false,
     arrowPoint   = { "CENTER", "UIParent", "CENTER", 0, 180 },
+    -- Sits just under the arrow by default, so the thing you press and the thing
+    -- telling you where to go read as one unit.
+    useButtonPoint = { "CENTER", "UIParent", "CENTER", 0, 128 },
 }
 
 -- Private copy of the defaults up front: the settings page is built while this
@@ -314,6 +317,137 @@ arrow:Hide()
 arrow.tex = arrow:CreateTexture(nil, "OVERLAY")
 arrow.tex:SetAllPoints()
 arrow.tex:SetTexture(ARROW_TEXTURE)
+
+-- ---------------------------------------------------------------------------
+-- Use button -- press the item the nearest objective wants
+-- ---------------------------------------------------------------------------
+--
+-- SecureActionButtonTemplate because USING an item is a protected action: it has
+-- to come from a real hardware click on a secure button, and no amount of Lua
+-- can fake it. The consequence is that the item it points at can only be changed
+-- OUT of combat -- SetAttribute is blocked once the lockdown is on. So whatever
+-- it resolved to when combat started is what it stays until combat ends, which
+-- is the standard behaviour for every button of this kind and worth knowing
+-- rather than being surprised by.
+--
+-- It follows the SAME target the arrow points at, so "the objective you are
+-- being sent to" and "the thing you press when you get there" can never
+-- disagree.
+
+local useButton = CreateFrame("Button", "UncappedQuestUseButton", UIParent, "SecureActionButtonTemplate")
+useButton:SetWidth(40)
+useButton:SetHeight(40)
+useButton:SetMovable(true)
+useButton:EnableMouse(true)
+useButton:RegisterForDrag("LeftButton")
+useButton:RegisterForClicks("AnyUp")
+useButton:SetAttribute("type", "item")
+useButton:Hide()
+
+useButton.icon = useButton:CreateTexture(nil, "BACKGROUND")
+useButton.icon:SetAllPoints()
+useButton.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+
+useButton.border = useButton:CreateTexture(nil, "OVERLAY")
+useButton.border:SetAllPoints()
+useButton.border:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+useButton.border:SetTexCoord(0.2, 0.8, 0.2, 0.8)
+useButton.border:SetVertexColor(1, 0.82, 0)
+
+useButton.cd = CreateFrame("Cooldown", nil, useButton, "CooldownFrameTemplate")
+useButton.cd:SetAllPoints()
+
+useButton.count = useButton:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+useButton.count:SetPoint("BOTTOMRIGHT", -2, 2)
+
+useButton:SetScript("OnDragStart", function(self)
+    if not db.arrowLocked then self:StartMoving() end
+end)
+useButton:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    local p, _, rp, x, y = self:GetPoint()
+    db.useButtonPoint = { p, "UIParent", rp, x, y }
+end)
+
+useButton:SetScript("OnEnter", function(self)
+    if not self.itemId then return end
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetHyperlink("item:" .. self.itemId)
+    GameTooltip:Show()
+end)
+useButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+-- Which item, if any, the current objective wants pressed.
+--
+-- Two sources, deliberately in this order:
+--   1. the server's QLUI, which covers EVERY quest including the ones held in
+--      the ledger with no client log slot;
+--   2. GetQuestLogSpecialItemInfo, which only knows about the 25 slotted quests
+--      but catches items a quest grants mid-way rather than on accept, which
+--      quest_template.StartItem does not describe.
+--
+-- Both are gated on actually holding the item -- a button for something not in
+-- your bags is just a lie with an icon.
+local function ResolveUseItem()
+    if not target or not target.questID then return nil end
+
+    local itemId = UQ.QuestUseItem and UQ.QuestUseItem(target.questID)
+    if itemId and GetItemCount(itemId) > 0 then
+        return itemId
+    end
+
+    if target.questIndex then
+        local link = GetQuestLogSpecialItemInfo(target.questIndex)
+        local fromLog = link and tonumber(link:match("item:(%d+)"))
+        if fromLog and GetItemCount(fromLog) > 0 then
+            return fromLog
+        end
+    end
+
+    return nil
+end
+
+local function RefreshUseButton()
+    -- Attributes are locked during combat. Bail rather than error; the
+    -- PLAYER_REGEN_ENABLED handler below re-runs this the moment combat drops.
+    if InCombatLockdown() then return end
+
+    local itemId = ResolveUseItem()
+
+    if itemId ~= useButton.itemId then
+        useButton.itemId = itemId
+        if itemId then
+            local name = GetItemInfo(itemId)
+            -- Prefer the name: "item:<id>" is accepted too, but a name survives
+            -- the item being in a bag the id form cannot address.
+            useButton:SetAttribute("item", name or ("item:" .. itemId))
+            useButton.icon:SetTexture(GetItemIcon and GetItemIcon(itemId) or nil)
+        end
+    end
+
+    if not itemId then
+        useButton:Hide()
+        return
+    end
+
+    local count = GetItemCount(itemId)
+    useButton.count:SetText(count > 1 and count or "")
+
+    local start, duration, enable = GetItemCooldown(itemId)
+    if start and duration and duration > 0 then
+        useButton.cd:SetCooldown(start, duration)
+    else
+        useButton.cd:Hide()
+    end
+
+    useButton:Show()
+end
+
+-- Combat ends: catch up on anything the lockdown blocked above.
+local useCombatWatcher = CreateFrame("Frame")
+useCombatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+useCombatWatcher:RegisterEvent("BAG_UPDATE")
+useCombatWatcher:SetScript("OnEvent", RefreshUseButton)
 
 -- Both arrows are the same sprite and differ only by tint, which is not enough
 -- on its own -- especially with the objective arrow's colour shifting red to
@@ -613,6 +747,14 @@ local function ApplyLayout()
     arrow:ClearAllPoints()
     local p = db.arrowPoint or defaults.arrowPoint
     arrow:SetPoint(p[1], UIParent, p[3], p[4], p[5])
+
+    -- Anchored to UIParent rather than to the arrow: the arrow hides constantly
+    -- (no target, out of range, disabled) and a child would vanish with it,
+    -- taking a button the player may still want to press.
+    useButton:SetScale(db.arrowScale or 1)
+    useButton:ClearAllPoints()
+    local u = db.useButtonPoint or defaults.useButtonPoint
+    useButton:SetPoint(u[1], UIParent, u[3], u[4], u[5])
 end
 
 -- Switch between the two sprite sheets ATOMICALLY.
@@ -663,12 +805,14 @@ driver:SetScript("OnUpdate", function(_, elapsed)
 
     if not db.arrowEnabled then
         self:Hide()
+        useButton:Hide()
         return
     end
 
     local player = PlayerNode()
     if not player then
         self:Hide()
+        useButton:Hide()
         return
     end
 
@@ -684,10 +828,16 @@ driver:SetScript("OnUpdate", function(_, elapsed)
         sinceRoute = 0
         route = BuildRoute(player)
         target = route[1]
+        -- Same cadence as the route, deliberately: the button follows whatever
+        -- the arrow is pointing at, so refreshing it anywhere else would let the
+        -- two disagree. Every-frame would also mean a GetItemCount and a
+        -- GetItemCooldown per frame for no benefit.
+        RefreshUseButton()
     end
 
     if not target then
         self:Hide()
+        useButton:Hide()
         return
     end
 

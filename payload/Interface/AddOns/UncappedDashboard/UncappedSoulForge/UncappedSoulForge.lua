@@ -1390,7 +1390,16 @@ local function OnLine(body)
     if WLM then WLM:UpdateSuggest() end
   elseif cmd == "ICITEM" then
     sbCurKey = rest
-    sbStaging[rest] = { stats = {}, procs = {} }
+    sbStaging[rest] = { stats = {}, procs = {}, vestiges = 0, vestigeMult = 100 }
+  elseif cmd == "ICIVEST" then
+    -- <count>:<multPct> -- duplicates this item has absorbed, and what they are worth.
+    -- Sent only when the count is non-zero and on its own line, so older addon builds
+    -- ignore it rather than losing the item (same shape as ICIPROCBP).
+    local n, m = rest:match("^(%d+):(%d+)$")
+    if n and sbCurKey and sbStaging[sbCurKey] then
+      sbStaging[sbCurKey].vestiges = tonumber(n)
+      sbStaging[sbCurKey].vestigeMult = tonumber(m)
+    end
   elseif cmd == "ICISTAT" then
     local t, v = rest:match("^(%d+):(%-?%d+)$")
     if t and sbCurKey and sbStaging[sbCurKey] then
@@ -1723,6 +1732,18 @@ local function Inject(tt, key)
   if alreadyInjected(tt) then return end
 
   local lines = {}
+
+  -- Vestiges first: the stat lines below are already scaled by them, so without this the
+  -- numbers have no visible cause. A mechanic the player cannot see is a mechanic they
+  -- conclude is broken.
+  if (e.vestiges or 0) > 0 then
+    local mult = (e.vestigeMult or 100) / 100
+    lines[#lines+1] = {
+      text = string.format("Vestiges: %d  (x%.2f to stats)", e.vestiges, mult),
+      r = 0.72, g = 0.45, b = 1.0,
+    }
+  end
+
   for _, s in ipairs(e.stats) do
     lines[#lines+1] = { text = statLineText(s.type, s.value), r = 0.12, g = 1, b = 0.12 }
   end

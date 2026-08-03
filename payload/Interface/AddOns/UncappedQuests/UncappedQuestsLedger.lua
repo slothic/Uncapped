@@ -806,6 +806,20 @@ local function OnLine(body)
         return
     end
 
+    -- The quest's usable item, for the objective arrow's Use button.
+    --
+    -- Server-sent because the client's own GetQuestLogSpecialItemInfo only
+    -- answers for quests occupying one of its 25 log slots, and the ledger
+    -- exists precisely to hold the ones that do not. Only sent for quests whose
+    -- source item actually has an on-use spell, so its presence means "there IS
+    -- something to press here".
+    local useId, useItem = body:match("^QLUI:(%d+):(%d+)$")
+    if useId and pending then
+        local q = pending.ledger[tonumber(useId)]
+        if q then q.useItem = tonumber(useItem) end
+        return
+    end
+
     -- The objective's TARGET ENTRY: positive is a creature, negative a
     -- gameobject. Feeds the mouseover tooltip, which asks "does this thing count
     -- for anything I am carrying?" -- see UQ.QuestsForTarget below.
@@ -916,6 +930,16 @@ end
 function UQ.QuestTitle(questID)
     local q = questID and ledger[questID]
     return q and q.title or nil
+end
+
+-- The item this quest wants you to USE, or nil if it has none.
+--
+-- Server-sent (QLUI) rather than read from GetQuestLogSpecialItemInfo, because
+-- that API only knows about quests holding one of the client's 25 log slots --
+-- which is the minority of what a player carries here.
+function UQ.QuestUseItem(questID)
+    local q = questID and ledger[questID]
+    return q and q.useItem or nil
 end
 
 -- Every quest this creature/gameobject counts towards, with progress.

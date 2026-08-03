@@ -1828,8 +1828,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedSoulForge/UncappedSoulForge.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedSoulForge/UncappedSoulForge.lua",
-                      "sha256":  "116636f759ed9a50e1363e19794541d52c41d9c1a37416db744f8824e2d75e46",
-                      "size":  85101
+                      "sha256":  "6c10f67bca088082f3bb2de80208a55a35852156b37cc3bc2765b0b4cb3c3d36",
+                      "size":  86072
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedTransmog/UncappedTransmog.lua",
@@ -2056,8 +2056,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedQuests/UncappedQuestsArrow.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/UncappedQuestsArrow.lua",
-                      "sha256":  "aafbac17492ab370b6d043694b1257b6d8476b41235f53128afb0192da09c109",
-                      "size":  36217
+                      "sha256":  "c7378af7681b9efad0524c36d66233ac0aac0a970411cc1ae35e321e7ab57499",
+                      "size":  42297
                   },
                   {
                       "path":  "Interface/AddOns/UncappedQuests/UncappedQuestsAvailable.lua",
@@ -2068,8 +2068,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedQuests/UncappedQuestsLedger.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/UncappedQuestsLedger.lua",
-                      "sha256":  "ca5803040f726e65cc3a4ab32112dc732ba6a5f092ed788f2514cb4102064321",
-                      "size":  48560
+                      "sha256":  "9b2c0adf01b18806313af4973d0705dbdd565bebfc9c2d9a3e35576628788636",
+                      "size":  49622
                   },
                   {
                       "path":  "Interface/AddOns/UncappedRewards/UncappedRewards.lua",
