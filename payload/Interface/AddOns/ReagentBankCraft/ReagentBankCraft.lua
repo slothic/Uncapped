@@ -74,6 +74,7 @@ frame:RegisterEvent("CHAT_MSG_ADDON")
 
 local myChannelName = nil
 local lastWithdrawnSpellId = nil
+local toldAboutForge = false
 
 -- TradeSkillFrame.selectedSkill is a LIST INDEX (position in the current
 -- recipe list), not a spell ID -- confirmed from the real client source
@@ -203,6 +204,25 @@ local function OnEvent(self, event, ...)
 
         if not TradeSkillCreateButton then
             return
+        end
+
+        -- UncappedForge replaces this whole window by default (db.replaceTradeSkill,
+        -- true unless the player opted out) -- see UncappedForge.lua's TRADE_SKILL_SHOW
+        -- handler, which hides TradeSkillFrame and opens the Forge instead. Both
+        -- buttons below still get created and still work correctly if the player
+        -- HAS opted out, but for the default configuration they're buttons on a
+        -- frame that's about to be hidden the instant it would show -- "missing"
+        -- from the player's point of view, not broken. Forge has its own equivalent
+        -- (the "Price missing mats"/"Buy them" button in its detail pane), so this
+        -- is a one-time pointer there rather than a silently vanished feature.
+        -- Same class of bug the "where to farm" feature hit before it got ported
+        -- into Forge outright (see UncappedForge.lua's comment on that).
+        if not toldAboutForge and UncappedForgeDB and UncappedForgeDB.replaceTradeSkill ~= false then
+            toldAboutForge = true
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[Reagent Bank]|r The Forge (your default crafting window) has its own "
+                .. "\"Price missing mats\"/\"Buy them\" button in its recipe details -- that's the one to use. "
+                .. "Withdraw Bank Mats/Buy Missing Mats here only work with Blizzard's own crafting window, "
+                .. "which the Forge is currently replacing (see the Forge's settings to change that).")
         end
 
         local withdrawButton = CreateFrame("Button", "ReagentBankWithdrawButton", TradeSkillCreateButton, "UIPanelButtonTemplate")

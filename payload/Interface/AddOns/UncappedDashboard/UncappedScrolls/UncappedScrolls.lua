@@ -303,8 +303,8 @@ function Scrolls.UI.GetMinHeight()
 end
 
 -- Switches the Dashboard to the Soul Scrolls tab, opening it if it's closed.
--- Used by both the /scrolls slash command and the settings-page button --
--- Scrolls has no window of its own anymore to open directly.
+-- Used by the settings-page button -- Scrolls has no window of its own
+-- anymore to open directly.
 local function OpenInDashboard()
     local Dashboard = _G.UncappedDashboard
     if not Dashboard then

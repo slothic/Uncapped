@@ -569,13 +569,17 @@ function Core.Rebuild()
         end
     end
 
-    if state.category ~= "all" and SUBCATEGORY_DEFS[state.category] then
-        AddCategoryRow("all")
-        AddCategoryRow(state.category)
-        AddSubcategoryRows(state.category)
-    else
-        for _, key in ipairs(CATEGORY_ORDER) do
-            AddCategoryRow(key)
+    -- Every top-level category always stays in the list -- selecting one used
+    -- to REPLACE the whole list with just "All Categories" + that category +
+    -- its subcategories, so every sibling category (and the ability to scroll
+    -- to one) disappeared the moment you drilled into anything. Trade Goods
+    -- and Consumables have the longest subcategory lists, so losing every
+    -- sibling was most visible -- and most reported -- there. Inline-expand
+    -- the selected category's subcategories right after its own row instead.
+    for _, key in ipairs(CATEGORY_ORDER) do
+        AddCategoryRow(key)
+        if key == state.category and SUBCATEGORY_DEFS[key] then
+            AddSubcategoryRows(key)
         end
     end
     Core.subcategoryCounts = subCounts

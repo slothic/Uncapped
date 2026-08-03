@@ -453,11 +453,22 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
             noplan    = "nothing to do",
         }
 
-        if failure and failure ~= "" then
+        -- A bulk craft that runs out of a scarcer reagent partway through (e.g.
+        -- Inscription hitting the end of a rare pigment) still crafted > 0
+        -- items before stopping. Reporting that as two separate lines --
+        -- a failure ("ran out of materials") immediately followed by a success
+        -- ("produced Nx item(s)") -- reads as a straight contradiction. One
+        -- combined line when both are true; the original single-line behavior
+        -- is unchanged when only one of them is.
+        if crafted > 0 and failure and failure ~= "" then
+            local why = FAILURES[failure] or ("failed (" .. failure .. ")")
+            DEFAULT_CHAT_FRAME:AddMessage(string.format(
+                "|cffff8040[Forge]|r produced |cffffffff%s|r item(s)%s, then stopped -- %s.",
+                Commafy(crafted), db.outputToVault and " into your Vault" or "", why))
+        elseif failure and failure ~= "" then
             local why = FAILURES[failure] or ("failed (" .. failure .. ")")
             DEFAULT_CHAT_FRAME:AddMessage("|cffff8040[Forge]|r " .. why)
-        end
-        if crafted > 0 then
+        elseif crafted > 0 then
             DEFAULT_CHAT_FRAME:AddMessage(string.format(
                 "|cffff8040[Forge]|r produced |cffffffff%s|r item(s)%s.",
                 Commafy(crafted), db.outputToVault and " into your Vault" or ""))

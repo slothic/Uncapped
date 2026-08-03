@@ -1111,9 +1111,8 @@ function Transmog.UI.GetMinHeight()
 end
 
 -- Switches the Dashboard to the Transmog tab, opening it if it's closed.
--- Used by the /transmog slash command, the server-initiated TMOPEN request,
--- and the settings-page button -- Transmog has no window of its own anymore
--- to open directly.
+-- Used by the server-initiated TMOPEN request and the settings-page button --
+-- Transmog has no window of its own anymore to open directly.
 local function OpenInDashboard()
     local Dashboard = _G.UncappedDashboard
     if not Dashboard then

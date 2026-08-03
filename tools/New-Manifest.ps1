@@ -291,7 +291,7 @@ $manifest = [ordered]@{
 
     # Force-ticked in AddOns.txt on every launch. StatFeed is the reason the launcher exists;
     # without it players see no stat-gain messages at all.
-    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests')
+    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests', 'UncappedBugReporter')
 
     # Switched off in AddOns.txt on clients that already have them. Needed because dropping
     # an addon from the payload does not uninstall it - the launcher never deletes
@@ -330,6 +330,7 @@ $manifest = [ordered]@{
         'Interface/AddOns/UncappedAnima',
         'Interface/AddOns/UncappedChat',
         'Interface/AddOns/UncappedQuests',
+        'Interface/AddOns/UncappedBugReporter',
         # The Dashboard bundles Forge/Soulforge/Anima/Vault/Transmog/Scrolls as folders
         # inside itself, so it is the only one of them still installed as an addon.
         # The six standalone entries above are deliberately KEPT listed even though they
