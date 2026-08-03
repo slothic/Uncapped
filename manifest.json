@@ -50,6 +50,12 @@
                       "size":  9234284
                   },
                   {
+                      "path":  "Data/enUS/patch-enUS-S.MPQ",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Data/enUS/patch-enUS-S.MPQ",
+                      "sha256":  "389f7f3b43d3de1c50884050fd002aa60def12cb3cc6118d2d8f803db0f7c9cd",
+                      "size":  54383
+                  },
+                  {
                       "path":  "Interface/AddOns/AllStats/AllStats.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/AllStats/AllStats.lua",
                       "sha256":  "70f18b40015bf74f87be9cf847fd301505097c54bff833f13af48882728fdebf",
