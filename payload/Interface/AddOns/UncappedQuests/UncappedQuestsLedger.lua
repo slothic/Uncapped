@@ -1140,6 +1140,60 @@ end
 
 UQ.ToggleLedger = Toggle
 
+-- Open the ledger ON a quest, instead of merely opening the ledger.
+--
+-- Left-clicking the arrow for a ledger quest used to call Toggle and stop there,
+-- dropping the player into a list of everything they hold with no sign of which
+-- quest the arrow had been pointing at -- and past one screenful, not even on
+-- the visible page.
+--
+-- The filters are cleared first because any one of them can hide the target: a
+-- zone picked earlier, a search still in the box, or a tab the quest does not
+-- match. Opening "at" a quest that the list is filtering out would be the same
+-- bug wearing a different hat.
+function UQ.FocusLedgerQuest(questID)
+    if not questID or not ledger[questID] then
+        -- Nothing to focus on -- fall back to just opening the window, which is
+        -- still better than doing nothing.
+        if not ui.frame or not ui.frame:IsShown() then Toggle() end
+        return
+    end
+
+    if not ui.frame then BuildFrame() end
+
+    view.tab, view.zone, view.search = "all", nil, ""
+    local searchBox = _G["UncappedQuestLedgerSearch"]
+    if searchBox then searchBox:SetText("") end
+    view.selected = questID
+
+    ui.frame:Show()
+    Send("QLGET")           -- same as Toggle: open against fresh state
+
+    -- Put the row on the page. FauxScrollFrame offsets are in ROWS, but its
+    -- scrollbar is in PIXELS, and the two have to be set together or the bar
+    -- ends up describing a position the list is not actually at. Centring the
+    -- row reads better than putting it flush at the top; clamping to
+    -- #rows - ROWS_VISIBLE stops the last page scrolling past the end into
+    -- blank rows.
+    local rows = Visible(true)
+    local idx
+    for i, q in ipairs(rows) do
+        if q.id == questID then
+            idx = i
+            break
+        end
+    end
+    if idx then
+        local maxOffset = math.max(0, #rows - ROWS_VISIBLE)
+        local offset = math.min(math.max(0, idx - math.floor(ROWS_VISIBLE / 2) - 1), maxOffset)
+        FauxScrollFrame_SetOffset(ui.scroll, offset)
+        local bar = _G["UncappedQuestLedgerScrollScrollBar"]
+        if bar then bar:SetValue(offset * ROW_HEIGHT) end
+    end
+
+    Render()
+end
+
 -- ---------------------------------------------------------------------------
 -- Quest log takeover
 -- ---------------------------------------------------------------------------
