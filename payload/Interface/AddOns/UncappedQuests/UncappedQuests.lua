@@ -506,21 +506,22 @@ local function CreatePin(i)
             return
         end
 
-        -- A ledger quest has no log entry to select, so send the player to the
-        -- place that can actually show it -- and land on the quest itself, the
-        -- same as the arrow does.
-        if not self.questIndex then
-            if UQ.FocusLedgerQuest then
-                UQ.FocusLedgerQuest(self.questID)
-            elseif UQ.ToggleLedger then
-                UQ.ToggleLedger()
-            end
-            return
+        -- Always open the ledger on this quest, same as the arrow. Splitting on
+        -- questIndex meant only quests PAST the client's 25 log slots opened
+        -- anything -- the rest went to SelectQuestLogEntry, which selects a row
+        -- inside Blizzard's quest log, and that window is hooked and replaced by
+        -- the ledger here, so the click did nothing visible.
+        if self.questIndex then
+            SelectQuestLogEntry(self.questIndex)
+            if QuestLog_Update then QuestLog_Update() end
+            if WorldMapFrame_Update then WorldMapFrame_Update() end
         end
 
-        SelectQuestLogEntry(self.questIndex)
-        if QuestLog_Update then QuestLog_Update() end
-        if WorldMapFrame_Update then WorldMapFrame_Update() end
+        if UQ.FocusLedgerQuest then
+            UQ.FocusLedgerQuest(self.questID)
+        elseif UQ.ToggleLedger then
+            UQ.ToggleLedger()
+        end
     end)
 
     pin:Hide()

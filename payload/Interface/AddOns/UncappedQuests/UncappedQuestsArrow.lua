@@ -579,27 +579,32 @@ arrow:SetScript("OnClick", function(self, button)
         end
         target = route[1]
     else
-        -- A ledger quest has no client log index at all -- that is the entire
-        -- reason the ledger exists -- so questIndex is legitimately nil for any
-        -- quest past the client's 25 slots. Passing nil straight to
-        -- SelectQuestLogEntry throws "Usage: SelectQuestLogEntry(index)", which
-        -- is what players were seeing on left-click. The map pin has always
-        -- guarded this; the arrow never did. Same fallback: send them to the
-        -- one window that CAN show the quest.
-        if not target.questIndex then
-            -- Open the ledger ON this quest, not just open the ledger. Landing
-            -- on an unfiltered list and having to find the quest by hand is the
-            -- thing the click was supposed to save.
-            if UQ.FocusLedgerQuest then
-                UQ.FocusLedgerQuest(target.questID)
-            elseif UQ.ToggleLedger then
-                UQ.ToggleLedger()
-            end
-            return
+        -- Always open the ledger, on this quest.
+        --
+        -- This used to split on questIndex, and only the nil half worked. A quest
+        -- past the client's 25 log slots has no index, so it opened the ledger --
+        -- but anything still holding a slot fell through to SelectQuestLogEntry,
+        -- which selects a row inside Blizzard's quest log. On this realm that
+        -- window is hooked and replaced by the ledger, so nothing was ever shown
+        -- and the click looked dead. That is the MAJORITY of quests, which is why
+        -- the arrow still felt broken after the previous fix.
+        --
+        -- The ledger lists both kinds anyway -- rows are tagged "In Log" or
+        -- "Ledger" -- so there is no reason to treat them differently here.
+        --
+        -- SelectQuestLogEntry is still called when there IS an index, purely to
+        -- keep Blizzard's own selection state consistent for anything else that
+        -- reads it. It is not what the player sees.
+        if target.questIndex then
+            SelectQuestLogEntry(target.questIndex)
+            if QuestLog_Update then QuestLog_Update() end
         end
 
-        SelectQuestLogEntry(target.questIndex)
-        if QuestLog_Update then QuestLog_Update() end
+        if UQ.FocusLedgerQuest then
+            UQ.FocusLedgerQuest(target.questID)
+        elseif UQ.ToggleLedger then
+            UQ.ToggleLedger()
+        end
     end
 end)
 
