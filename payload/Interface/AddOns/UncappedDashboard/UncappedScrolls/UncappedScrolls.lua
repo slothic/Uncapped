@@ -34,6 +34,8 @@ local state = {
     gatherRange = 0,
     yieldPct    = 0,
     delver      = 0,
+    petDelver   = nil,  -- hunters only; nil means the server sent no pet line
+    petMult     = 2,
     questCount  = 0,
     questMult   = 1,
     professions = {},   -- { name, cur, max }
@@ -129,12 +131,17 @@ local function Render()
     Head("Account-wide")
     Row("Scroll of Reach",  string.format("+%.0f yd gather / auto-loot range", state.gatherRange))
     Row("Scroll of Bounty", string.format("+%d%% gathering yield", state.yieldPct))
+    -- Delver moved up here from "This character" -- it is account-wide now.
+    Row("Scroll of the Delver", string.format("+%d dungeon stat roll", state.delver))
+    if state.petDelver then
+        Row("  ...on your pet", string.format("+%d  %s(%.1fx, hunters only)|r",
+            state.petDelver, COLOR_DIM, state.petMult))
+    end
     Row("Quest bonus",      string.format("x%.1f arena points  %s(%d quests)|r",
         state.questMult, COLOR_DIM, state.questCount))
 
     y = y - 6
     Head("This character")
-    Row("Scroll of the Delver", string.format("+%d dungeon stat roll", state.delver))
 
     if #state.professions > 0 then
         for n = 1, #state.professions do
@@ -216,7 +223,8 @@ comms:SetScript("OnEvent", function(_, event, a1, a2)
     -- replaces the old burst rather than merging with it.
     if not pending then
         pending = { professions = {}, fortune = {}, fortuneAll = 0,
-                    gatherRange = 0, yieldPct = 0, delver = 0, questCount = 0, questMult = 1 }
+                    gatherRange = 0, yieldPct = 0, delver = 0, petDelver = nil, petMult = 2,
+                    questCount = 0, questMult = 1 }
     end
 
     local range, yield = text:match("^SCRACC:([%d%.%-]+):(%d+)$")
@@ -226,9 +234,21 @@ comms:SetScript("OnEvent", function(_, event, a1, a2)
         return
     end
 
+    -- SCRCHR keeps its name for wire compatibility; the value it carries is
+    -- account-wide now. See scroll_status_comms.cpp for why it wasn't folded
+    -- into SCRACC.
     local delver = text:match("^SCRCHR:(%d+)$")
     if delver then
         pending.delver = tonumber(delver) or 0
+        return
+    end
+
+    -- Hunters only -- the server simply omits this line for everyone else, so a
+    -- nil petDelver is "not a hunter", not "no data".
+    local petDelver, petMult = text:match("^SCRPET:(%d+):([%d%.]+)$")
+    if petDelver then
+        pending.petDelver = tonumber(petDelver) or 0
+        pending.petMult   = tonumber(petMult) or 2
         return
     end
 

@@ -14,6 +14,9 @@ function UncappedUIKit.CreateSearchBox(parent, width, height, placeholderText)
     box:SetWidth(width or 200)
     box:SetHeight(height or 26)
     box:SetAutoFocus(false)
+    -- InputBoxTemplate starts its text hard against the left edge, which puts
+    -- the first characters typed straight on top of the magnifier below.
+    box:SetTextInsets(20, 0, 0, 0)
 
     box.placeholder = UncappedUIKit.CreateText(box, "disableSmall", "LEFT", box, "LEFT", 24, 1, placeholderText or "")
     box.icon = box:CreateTexture(nil, "OVERLAY")

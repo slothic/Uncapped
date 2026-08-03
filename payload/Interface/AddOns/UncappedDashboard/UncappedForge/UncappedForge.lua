@@ -59,6 +59,72 @@ local professions = {}      -- ordered { skill=, rank=, max=, name= }
 local recipes = {}          -- ordered { spell=, item=, yield=, skill=, min=, tlow=, thigh=, tool= }
 local recipesBySpell = {}
 local filtered = {}         -- current visible subset of `recipes`
+local filteredProc = {}     -- current visible subset of `processable`
+
+-- ---------------------------------------------------------------------------
+-- Search
+--
+-- ONE box drives both lists. The window only ever shows one of them at a time
+-- (recipes, or the bulk mill/prospect/disenchant list -- picked from the same
+-- profession dropdown), so a second box would be a control that is inert most
+-- of the time. The query lives here rather than being read back out of the
+-- EditBox because ApplyFilter runs from the comms handler, which fires long
+-- before the frame is built.
+--
+-- Matching is forgiving: lowercased, plain substring (find with plain=true, so
+-- a player typing "(" or "-" cannot throw a malformed-pattern error), and split
+-- on whitespace into tokens that must ALL appear -- "copper bar" finds "Copper
+-- Bar" whichever order the words are typed in.
+-- ---------------------------------------------------------------------------
+local SEARCH_DEBOUNCE = 0.12
+local SEARCH_HINT = { craft = "Search recipes...", process = "Search materials..." }
+
+local searchRaw = ""        -- exactly what was typed, for the "no matches" line
+local searchQuery = ""      -- trimmed + lowercased
+local searchTokens = {}     -- lowercased words, all required
+local searchNumeric = nil   -- the query when it is all digits, for id fallback
+local searchWait = nil      -- seconds left on the debounce, nil when idle
+
+local function SetSearchQuery(text)
+    searchRaw = text or ""
+    searchQuery = searchRaw:lower():gsub("^%s+", ""):gsub("%s+$", "")
+
+    searchTokens = {}
+    for word in searchQuery:gmatch("%S+") do
+        searchTokens[#searchTokens + 1] = word
+    end
+
+    searchNumeric = (searchQuery ~= "" and searchQuery:match("^%d+$")) or nil
+end
+
+-- Typing does NOT filter on the spot. The pass is cheap now (see SortRecipes)
+-- but it is still a walk over every recipe the character knows, and a held-down
+-- key repeats faster than that is worth doing; this coalesces a burst of
+-- keystrokes into one pass a fraction of a second after typing settles, which
+-- reads as instant. The ticker's OnUpdate runs it -- see below.
+local function QueueSearch(text)
+    SetSearchQuery(text)
+    searchWait = SEARCH_DEBOUNCE
+end
+
+-- `lower` is nil for a row whose display name has not resolved yet. Those stay
+-- visible on an empty query, and stay REACHABLE on a typed one by matching the
+-- raw item id -- silently dropping them would make the search lie about what is
+-- in the list. The id is only consulted for such rows, so an ordinary word
+-- search never picks up stray id matches.
+local function MatchesSearch(lower, fallbackId)
+    if #searchTokens == 0 then return true end
+
+    if not lower then
+        return (searchNumeric ~= nil) and (fallbackId ~= nil)
+            and tostring(fallbackId):find(searchNumeric, 1, true) ~= nil
+    end
+
+    for i = 1, #searchTokens do
+        if not lower:find(searchTokens[i], 1, true) then return false end
+    end
+    return true
+end
 
 local selectedSkill = nil   -- profession tab
 local selectedSpell = nil
@@ -117,13 +183,60 @@ end
 -- round trip. For crafting spells the spell name IS the product name ("Black
 -- Mageweave Robe"); for enchants it is the enchant ("Enchant Bracer - ..."),
 -- which reads better than the scroll's name anyway.
+--
+-- Resolved names are REMEMBERED. This is called once per visible row per render,
+-- once per recipe per filter pass, and twice per comparison by the sort
+-- comparator -- and this realm has no profession cap, so one profession can be
+-- most of the game's recipes. Uncached, a single keystroke in the search box
+-- meant tens of thousands of GetSpellInfo calls. Only REAL names are cached:
+-- the "item 12345" placeholder has to be retried until the item cache fills in.
+local recipeNameCache = {}   -- spellId -> resolved display name
+local recipeNameLower = {}   -- spellId -> the same, lowercased, for search
+local namesChanged = false   -- a name resolved since the last filter pass
+
 local function RecipeName(recipe)
     if not recipe then return nil end
 
-    local spellName = GetSpellInfo(recipe.spell)
-    if spellName and spellName ~= "" then return spellName end
+    local cached = recipeNameCache[recipe.spell]
+    if cached then return cached end
 
-    return ItemName(recipe.item) or ("item " .. tostring(recipe.item))
+    local name = GetSpellInfo(recipe.spell)
+    if not name or name == "" then name = ItemName(recipe.item) end
+
+    if name and name ~= "" then
+        recipeNameCache[recipe.spell] = name
+        recipeNameLower[recipe.spell] = name:lower()
+        namesChanged = true
+        return name
+    end
+
+    return "item " .. tostring(recipe.item)
+end
+
+-- nil while the name is still unresolved -- see MatchesSearch, which treats
+-- that case as "reachable by id" rather than "no match".
+local function RecipeNameLower(recipe)
+    RecipeName(recipe)                  -- fills the cache when it can
+    return recipeNameLower[recipe.spell]
+end
+
+-- The display name for a BULK-PROCESSING row. FRGPROCROW carries the item's
+-- real name inline from the server (WireName), so these resolve on arrival with
+-- no item cache and no round trip; ItemName is only a backstop for a row that
+-- somehow arrived without one.
+local function ProcessName(entry)
+    return entry.name or ItemName(entry.item) or ("item " .. tostring(entry.item))
+end
+
+local function ProcessNameLower(entry)
+    if entry.lower then return entry.lower end
+
+    local name = entry.name or ItemName(entry.item)
+    if name and name ~= "" then
+        entry.lower = name:lower()
+        return entry.lower
+    end
+    return nil
 end
 
 local function ItemIcon(itemId, serverIcon)
@@ -218,18 +331,44 @@ end
 local staging = { profs = {}, recs = {}, steps = {}, needs = {}, proc = {} }
 local syncNeedsFull = false   -- a rank row for an unknown profession forces a full fetch
 
-local function ApplyFilter()
-    filtered = {}
-    local search = frame and frame.search and frame.search:GetText() or ""
-    search = search:lower()
+-- Sorting is done once over the MASTER list, not once per filter pass. The
+-- order does not depend on the query or on which profession is showing, and
+-- re-sorting was the expensive half of filtering: the comparator resolves two
+-- names per comparison, so a keystroke used to cost O(n log n) name lookups
+-- over a list that -- with no profession cap on this realm -- can be every
+-- recipe in the game. Set sortDirty when the recipes, the sort mode, the skill
+-- ranks (they decide the difficulty tiers) or a resolved name actually change.
+local sortDirty = true
 
+local function SortRecipes()
+    if not sortDirty then return end
+    sortDirty = false
+
+    if db.sortMode == "difficulty" then
+        -- Hardest first (the ones still granting skill), then alphabetical inside
+        -- each tier so the order is stable rather than arbitrary within a colour.
+        table.sort(recipes, function(a, b)
+            local ra, rb = DIFFICULTY_RANK[DifficultyTier(a)], DIFFICULTY_RANK[DifficultyTier(b)]
+            if ra ~= rb then return ra < rb end
+            return (RecipeName(a) or "") < (RecipeName(b) or "")
+        end)
+    else
+        table.sort(recipes, function(a, b)
+            return (RecipeName(a) or "") < (RecipeName(b) or "")
+        end)
+    end
+end
+
+local function ApplyFilter()
+    SortRecipes()
+
+    -- Search composes with the profession dropdown and the craftable-only tick
+    -- rather than replacing them: typing narrows what those two already chose.
+    filtered = {}
     for _, recipe in ipairs(recipes) do
         local ok = (not selectedSkill) or recipe.skill == selectedSkill
 
-        if ok and search ~= "" then
-            local name = RecipeName(recipe)
-            ok = name and name:lower():find(search, 1, true) ~= nil or false
-        end
+        if ok then ok = MatchesSearch(RecipeNameLower(recipe), recipe.item) end
 
         if ok and db.craftableOnly then
             local possible = MaxCraftable(recipe.spell)
@@ -241,18 +380,14 @@ local function ApplyFilter()
         if ok then filtered[#filtered + 1] = recipe end
     end
 
-    if db.sortMode == "difficulty" then
-        -- Hardest first (the ones still granting skill), then alphabetical inside
-        -- each tier so the order is stable rather than arbitrary within a colour.
-        table.sort(filtered, function(a, b)
-            local ra, rb = DIFFICULTY_RANK[DifficultyTier(a)], DIFFICULTY_RANK[DifficultyTier(b)]
-            if ra ~= rb then return ra < rb end
-            return (RecipeName(a) or "") < (RecipeName(b) or "")
-        end)
-    else
-        table.sort(filtered, function(a, b)
-            return (RecipeName(a) or "") < (RecipeName(b) or "")
-        end)
+    -- The same box filters the bulk-processing view, which is the other list
+    -- this window can show. `processable` arrives already ordered by stack size
+    -- (see FRGPROCEND), so this only ever drops rows -- never reorders them.
+    filteredProc = {}
+    for _, entry in ipairs(processable) do
+        if MatchesSearch(ProcessNameLower(entry), entry.item) then
+            filteredProc[#filteredProc + 1] = entry
+        end
     end
 end
 
@@ -297,6 +432,8 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
             Send("FRGGET")
         else
             -- Ranks only. Re-render so colours and the profession label update.
+            -- Ranks decide the difficulty tiers, so a difficulty sort is stale.
+            sortDirty = true
             BuildProfessionTabs()
             ApplyFilter()
             RefreshList()
@@ -325,6 +462,8 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
         end
 
         if not selectedSkill and professions[1] then selectedSkill = professions[1].skill end
+
+        sortDirty = true    -- a brand new list, in whatever order the server sent it
 
         -- Tabs are built HERE as well as on open: the profession list arrives
         -- asynchronously, so on the very first open there was nothing to build
@@ -490,6 +629,7 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
         processable = staging.proc
         staging.proc = {}
         table.sort(processable, function(a, b) return a.count > b.count end)
+        ApplyFilter()   -- rebuilds filteredProc against the current query
         if frame and frame.mode == "process" then RefreshList() end
 
     elseif body:find("^FRGQUOTED:") then
@@ -537,14 +677,38 @@ end)
 
 -- Names arriving from the item cache change what the list should say, so
 -- re-render periodically while anything is still unresolved.
+--
+-- Also runs the search box's debounce (see QueueSearch), which is why the first
+-- block is per-frame rather than on the 0.5s beat -- half a second between
+-- typing a letter and the list moving would feel broken.
 local ticker = CreateFrame("Frame")
 local sinceTick = 0
 ticker:SetScript("OnUpdate", function(_, elapsed)
+    if searchWait then
+        searchWait = searchWait - elapsed
+        if searchWait <= 0 then
+            searchWait = nil
+            ApplyFilter()
+            -- Back to the top: the row you were scrolled to has nothing to do
+            -- with the rows a new query leaves behind.
+            ResetScroll()
+            RefreshList()
+        end
+    end
+
     sinceTick = sinceTick + elapsed
     if sinceTick < 0.5 then return end
     sinceTick = 0
 
     if frame and frame:IsShown() then
+        -- A name that only just arrived from the item cache changes both the
+        -- sort order and what the search can find, so re-filter -- but only when
+        -- something actually resolved, not on every beat.
+        if namesChanged then
+            namesChanged = false
+            sortDirty = true
+            ApplyFilter()
+        end
         RefreshList()
         RefreshDetail()
     end
@@ -611,10 +775,34 @@ function RefreshList()
     if not frame or not listButtons then return end
 
     local isProcess = frame.mode == "process"
-    local source = isProcess and processable or filtered
+    local source = isProcess and filteredProc or filtered
     local offset = FauxScrollFrame_GetOffset(listScroll) or 0
 
     FauxScrollFrame_Update(listScroll, #source, ROWS, ROW_HEIGHT)
+
+    -- An empty list with no explanation reads as a broken window rather than a
+    -- filter with no hits, and now that a search can empty it that is a state
+    -- players will hit routinely.
+    if frame.emptyText then
+        if #source > 0 then
+            frame.emptyText:Hide()
+        else
+            if searchQuery ~= "" then
+                -- Escape the pipe: a query containing "|c" would otherwise be
+                -- read back as a colour escape and eat the rest of the line.
+                frame.emptyText:SetText("Nothing here matches \""
+                    .. searchRaw:gsub("|", "||") .. "\".")
+            elseif isProcess then
+                frame.emptyText:SetText("Nothing in your Vault can be milled, prospected or disenchanted.")
+            elseif db.craftableOnly then
+                frame.emptyText:SetText("Nothing here can be made from what you have stored. "
+                    .. "Untick \"Craftable only\" to see the rest.")
+            else
+                frame.emptyText:SetText("No recipes to show.")
+            end
+            frame.emptyText:Show()
+        end
+    end
 
     for i = 1, MAX_ROWS do
         local button = listButtons[i]
@@ -626,7 +814,7 @@ function RefreshList()
             button:Show()
 
             if isProcess then
-                local name = entry.name or ItemName(entry.item) or ("item " .. entry.item)
+                local name = ProcessName(entry)
                 button.icon:SetTexture(ItemIcon(entry.item))
                 button.label:SetText(string.format("%s |cff808080x%s|r", name, Commafy(entry.count)))
                 button.label:SetTextColor(1, 1, 1)
@@ -720,7 +908,7 @@ function RefreshDetail()
         AddLine(" ")
         local selected = detail.processEntry
         if selected then
-            local name = selected.name or ItemName(selected.item) or ("item " .. selected.item)
+            local name = ProcessName(selected)
             AddLine(name .. "  |cff808080x" .. Commafy(selected.count) .. "|r", 1, 0.82, 0)
             if bit.band(selected.kinds, 1) ~= 0 then AddLine("Millable (5 per operation)", 0.6, 1, 0.6) end
             if bit.band(selected.kinds, 2) ~= 0 then AddLine("Prospectable (5 per operation)", 0.6, 1, 0.6) end
@@ -871,6 +1059,14 @@ end
 -- Bulk processing lives in the same dropdown rather than as a separate button:
 -- it is another view of the same window, and one control that always says what
 -- you are looking at beats two that can disagree.
+-- The one search box serves both lists, so its greyed hint says which one it is
+-- pointed at right now.
+local function UpdateSearchHint()
+    if not (frame and frame.search and frame.search.placeholder) then return end
+    frame.search.placeholder:SetText(
+        (frame.mode == "process") and SEARCH_HINT.process or SEARCH_HINT.craft)
+end
+
 local function ProfessionLabel()
     if frame and frame.mode == "process" then return "Bulk processing" end
 
@@ -899,6 +1095,7 @@ function BuildProfessionTabs()
                 selectedSkill = prof.skill
                 ApplyFilter()
                 ResetScroll()
+                UpdateSearchHint()
                 UIDropDownMenu_SetText(frame.profDrop, ProfessionLabel())
                 RefreshList()
                 RefreshDetail()
@@ -913,7 +1110,9 @@ function BuildProfessionTabs()
         sep.func = function()
             frame.mode = "process"
             Send("FRGPROCLIST")
+            ApplyFilter()   -- the query carries over to this list too
             ResetScroll()
+            UpdateSearchHint()
             UIDropDownMenu_SetText(frame.profDrop, ProfessionLabel())
             RefreshList()
             RefreshDetail()
@@ -947,17 +1146,50 @@ local function BuildFrame(parent)
     profDrop:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -10)
     frame.profDrop = profDrop
 
-    -- Search box
-    local search = CreateFrame("EditBox", "UncappedForgeSearch", frame, "InputBoxTemplate")
-    search:SetWidth(150)
-    search:SetHeight(20)
+    -- Search box.
+    --
+    -- Filters whichever list is showing -- recipes, or the bulk
+    -- mill/prospect/disenchant list -- and narrows what the profession dropdown
+    -- and the craftable-only tick already chose rather than overriding them.
+    --
+    -- Built from the shared UncappedUI kit so it matches the Vault's and the
+    -- wardrobe's boxes (magnifier, greyed hint, Escape clears). The kit is
+    -- guaranteed loaded by the time this runs -- the Dashboard's own UI bails
+    -- out without it, and this panel is embedded in that UI -- so the fallback
+    -- below is only for anyone embedding the Forge somewhere else.
+    local search
+    if UncappedUIKit and UncappedUIKit.CreateSearchBox then
+        search = UncappedUIKit.CreateSearchBox(frame, 170, 20, SEARCH_HINT.craft)
+        search.OnQueryChanged = QueueSearch
+    else
+        search = CreateFrame("EditBox", "UncappedForgeSearch", frame, "InputBoxTemplate")
+        search:SetWidth(170)
+        search:SetHeight(20)
+        search:SetAutoFocus(false)
+        search:SetTextInsets(20, 0, 0, 0)
+
+        search.placeholder = search:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        search.placeholder:SetPoint("LEFT", search, "LEFT", 24, 1)
+        search.placeholder:SetText(SEARCH_HINT.craft)
+
+        search.icon = search:CreateTexture(nil, "OVERLAY")
+        search.icon:SetWidth(16)
+        search.icon:SetHeight(16)
+        search.icon:SetPoint("LEFT", search, "LEFT", 6, 0)
+        search.icon:SetTexture("Interface\\Common\\UI-Searchbox-Icon")
+
+        search:SetScript("OnTextChanged", function(self)
+            local text = self:GetText() or ""
+            if text == "" then self.placeholder:Show() else self.placeholder:Hide() end
+            QueueSearch(text)
+        end)
+        search:SetScript("OnEscapePressed", function(self) self:SetText(""); self:ClearFocus() end)
+    end
+
     search:SetPoint("TOPLEFT", frame, "TOPLEFT", 240, -16)
-    search:SetAutoFocus(false)
-    search:SetScript("OnTextChanged", function()
-        ApplyFilter()
-        RefreshList()
-    end)
-    search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    -- Enter is not needed (the list already follows the typing) -- it just drops
+    -- focus, so the next keypress goes back to moving the character.
+    search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     frame.search = search
 
     -- Craftable-only filter
@@ -1002,6 +1234,7 @@ local function BuildFrame(parent)
             info.checked = (db.sortMode == entry.value)
             info.func = function()
                 db.sortMode = entry.value
+                sortDirty = true
                 UIDropDownMenu_SetText(sortDrop, entry.text)
                 ApplyFilter()
                 ResetScroll()
@@ -1110,6 +1343,14 @@ local function BuildFrame(parent)
         button:Hide()
         listButtons[i] = button
     end
+
+    -- Shown by RefreshList when the current filters leave the list empty.
+    -- Parented to listFrame so it sits exactly where the missing rows would.
+    frame.emptyText = listFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    frame.emptyText:SetPoint("TOPLEFT", listFrame, "TOPLEFT", 4, -6)
+    frame.emptyText:SetWidth(300)
+    frame.emptyText:SetJustifyH("LEFT")
+    frame.emptyText:Hide()
 
     -- Detail pane -- fills whatever space is left to the right of the list,
     -- both ways, instead of a fixed width/height. Its own content (AddLine)
@@ -1387,6 +1628,9 @@ watcher:SetScript("OnEvent", function(_, event, arg1)
     -- runs before they do, and `db` would keep pointing at the throwaway table.
     if event == "ADDON_LOADED" and arg1 == "UncappedDashboard" then
         InitDB()
+        -- db.sortMode may have just changed under us (the throwaway table had
+        -- the default), and the sort only re-runs when it is told to.
+        sortDirty = true
         return
     end
 

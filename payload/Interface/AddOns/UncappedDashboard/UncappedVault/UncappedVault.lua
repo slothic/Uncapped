@@ -96,10 +96,19 @@ local SLOT_LABELS = {
 }
 Core.SLOT_LABELS = SLOT_LABELS
 
+-- MUST list every category CategoryFor() can return (see CLASS_CAT and
+-- SUB_TRADE_CAT below). This is not just the sidebar's row order: BuildGridLayout
+-- walks THIS table to emit the grid's buckets, so a category missing here is
+-- rendered nowhere in grid view at all -- not even under "All Categories" -- and
+-- has no sidebar row to filter by either. "gem" and "glyph" were both mapped in
+-- CLASS_CAT and given full SUBCATEGORY_DEFS, a Slot dropdown entry and a
+-- SLOT_LABELS label, but never added here, so every gem and every glyph in the
+-- Vault was invisible in grid view (reported: "glyphs don't show up at all").
 local CATEGORY_ORDER = {
     "all", "weapon", "armor", "consumable", "trade", "enchanting",
     "jewelcrafting", "engineering", "leatherworking", "tailoring",
-    "cooking", "herbalism", "mining", "recipe", "quest", "misc", "other",
+    "cooking", "herbalism", "mining", "gem", "glyph", "recipe", "quest",
+    "misc", "other",
 }
 
 local CATEGORY_LABELS = {
@@ -116,6 +125,8 @@ local CATEGORY_LABELS = {
     cooking = "Cooking",
     herbalism = "Herbalism",
     mining = "Mining",
+    gem = "Gems",
+    glyph = "Glyphs",
     recipe = "Recipes",
     quest = "Quest Items",
     misc = "Miscellaneous",

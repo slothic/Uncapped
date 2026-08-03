@@ -18,12 +18,18 @@
              QLQ:<id>:<lvl>:<slotted>:<complete>:<zone>:<title>
              QLO:<id>:<idx>:<have>:<need>:<label>
              QLE
+             QLTB:<id> / QLTO:<id>:<seq>:<chunk> / QLTD:... / QLTE:<id>
     SEND     SendAddonMessage("REAGENTBANK", ..., "WHISPER", <self>)
-             QLGET | QLSLOT:<id> | QLUNSLOT:<id>
+             QLGET | QLSLOT:<id> | QLUNSLOT:<id> | QLTXT:<id>
 
   Parsing is deliberately anchored per line. Never widen an existing QL* line --
   append a new command instead, or every already-published client silently drops
   the field.
+
+  The QLT* text burst is a SEPARATE burst on purpose and is routed away from the
+  ledger parser entirely (see the QLT branch in the CHAT_MSG_ADDON handler): a
+  ledger line outside a QLB..QLE run is dropped, and QLE swaps the whole quest
+  list, so anything landing inside a run would take the player's list with it.
 ]]
 
 local UQ = UncappedQuests
@@ -83,6 +89,166 @@ function UQ.Send(msg)
 end
 
 local Send = UQ.Send
+
+-- ---------------------------------------------------------------------------
+-- quest text -- the description and objectives paragraphs
+--
+-- Blizzard's quest log reads these off the client's own quest template. That
+-- only works for a quest holding one of the 25 log slots: everything else in
+-- the ledger has NO client-side data whatsoever -- no description, no
+-- objectives text -- because the template only ever reaches the client through
+-- the quest log. (CMSG_QUEST_QUERY does fetch a template into the client cache
+-- for any quest, and the server answers it, but 3.3.5a exposes no Lua accessor
+-- for a cached template with no log slot: GetQuestLogQuestText is indexed by
+-- log entry, and that is the whole set the ledger exists to escape.)
+--
+-- So: the client's own copy when there is a log slot, free and instant, and
+-- otherwise ask the server -- for the SELECTED quest only, never for the list.
+-- ---------------------------------------------------------------------------
+
+-- [questId] = { state = "asking"|"ready", asked = <time>, desc = "", obj = "" }
+local questText = {}
+local textIncoming = {}           -- [questId] = { desc = {}, obj = {} } mid-burst
+
+-- A server reply that never comes must not leave the pane saying "Loading..."
+-- for the rest of the session -- an old worldserver, or a quest that has since
+-- left the ledger, both look like silence from here.
+local TEXT_TIMEOUT = 6
+
+-- The client normally does these substitutions itself. Server-sent text is raw,
+-- so they happen here: $B/$b line break, $N name, $C class, $R race, and
+-- $Gmale:female; gendered wording.
+-- Replacements go in as FUNCTIONS, not as strings: gsub reads '%' in a
+-- replacement string as a capture reference and throws on a stray one, and
+-- these values are names we do not control.
+local function Substitute(s)
+    if not s or s == "" then return "" end
+
+    -- $G first: it is the only token carrying its own punctuation, and running
+    -- the others first would have them chew through its arguments.
+    local male = (UnitSex("player") == 2)
+    s = s:gsub("%$[Gg]([^:;]*):([^;]*);", function(m, f) return male and m or f end)
+
+    s = s:gsub("%$[Bb]", function() return "\n" end)
+    s = s:gsub("%$[Nn]", function() return UnitName("player") or "" end)
+    s = s:gsub("%$[Cc]", function() return UnitClass("player") or "" end)
+    s = s:gsub("%$[Rr]", function() return UnitRace("player") or "" end)
+    return s
+end
+
+-- Chunks 1..n back into one string, stopping at the first gap rather than
+-- letting table.concat throw on a hole. A truncated paragraph beats a Lua error
+-- in the middle of drawing the window.
+local function Join(parts)
+    local out = {}
+    local i = 1
+    while parts[i] do
+        out[i] = parts[i]
+        i = i + 1
+    end
+    return table.concat(out)
+end
+
+-- The client's own copy, for a quest that currently holds a log slot.
+--
+-- GetQuestLogQuestText answers for whatever SelectQuestLogEntry last picked, so
+-- the selection is moved and put straight back: it is what Blizzard's quest log
+-- and the world map both read to decide which quest they are showing, and
+-- leaving it moved would quietly retarget them.
+local function LocalQuestText(questID)
+    local index = UQ.QuestLogIndex and UQ.QuestLogIndex(questID)
+    if not index then return nil end
+
+    local previous = GetQuestLogSelection and GetQuestLogSelection() or nil
+    SelectQuestLogEntry(index)
+    local desc, obj = GetQuestLogQuestText()
+    if previous and previous > 0 then SelectQuestLogEntry(previous) end
+
+    -- Already substituted and localised by the client, so it skips Substitute.
+    if desc and desc ~= "" then return desc, obj or "" end
+    return nil
+end
+
+-- The text for one quest, fetching it if this is the first time it has been
+-- asked for. Always returns a state the detail pane can draw: "ready",
+-- "asking", or "failed".
+--
+-- Called from the render path, so it has to be cheap on the common case and it
+-- has to stop asking eventually -- a request per redraw against a server that
+-- is not answering is how this ends up in a bug report about lag.
+local function QuestText(questID)
+    if not questID then return nil end
+
+    local t = questText[questID]
+
+    if t and (t.state == "ready" or t.state == "failed") then
+        return t
+    end
+
+    if t and t.state == "asking" then
+        if (GetTime() - (t.asked or 0)) < TEXT_TIMEOUT then return t end
+        if (t.tries or 0) >= 2 then
+            questText[questID] = { state = "failed" }
+            return questText[questID]
+        end
+        t.asked, t.tries = GetTime(), (t.tries or 0) + 1
+        Send("QLTXT:" .. questID)
+        return t
+    end
+
+    local desc, obj = LocalQuestText(questID)
+    if desc then
+        questText[questID] = { state = "ready", desc = desc, obj = obj }
+        return questText[questID]
+    end
+
+    questText[questID] = { state = "asking", asked = GetTime(), tries = 1 }
+    Send("QLTXT:" .. questID)
+    return questText[questID]
+end
+
+-- One quest's text burst. Routed here rather than through the ledger parser
+-- because it is not ledger data: see the note at the top of the file about what
+-- a stray line inside a QLB..QLE run does to the player's quest list.
+local function OnText(body)
+    local beginId = body:match("^QLTB:(%d+)$")
+    if beginId then
+        textIncoming[tonumber(beginId)] = { desc = {}, obj = {} }
+        return
+    end
+
+    local endId = body:match("^QLTE:(%d+)$")
+    if endId then
+        endId = tonumber(endId)
+        local buf = textIncoming[endId]
+        textIncoming[endId] = nil
+        if buf then
+            questText[endId] = {
+                state = "ready",
+                desc = Substitute(Join(buf.desc)),
+                obj = Substitute(Join(buf.obj)),
+            }
+            if view.selected == endId and UQ.RenderLedger then UQ.RenderLedger() end
+        end
+        return
+    end
+
+    -- Chunks are placed by their sequence number rather than appended: they
+    -- arrive in order today, and this costs nothing to not depend on that.
+    local did, dseq, dchunk = body:match("^QLTD:(%d+):(%d+):(.*)$")
+    if did then
+        local buf = textIncoming[tonumber(did)]
+        if buf then buf.desc[tonumber(dseq) + 1] = dchunk end
+        return
+    end
+
+    local oid, oseq, ochunk = body:match("^QLTO:(%d+):(%d+):(.*)$")
+    if oid then
+        local buf = textIncoming[tonumber(oid)]
+        if buf then buf.obj[tonumber(oseq) + 1] = ochunk end
+        return
+    end
+end
 
 -- ---------------------------------------------------------------------------
 -- filtering
@@ -178,13 +344,47 @@ local function ObjectiveSummary(q)
     return string.format("|cffb0b0b0%d / %d objectives|r", done, #q.objectives)
 end
 
+-- The detail pane's text block, in Blizzard's own order: the objectives
+-- paragraph, the objective counters, then a Description header and the
+-- description itself.
+--
+-- Placed by an explicit running offset rather than by chaining each piece under
+-- the last, so a section with nothing in it leaves no gap behind -- and so the
+-- scroll child can be told exactly how tall the text really is, which is what
+-- the scrollbar sizes itself from.
+local function LayoutDetailText(blocks)
+    local y = 0
+
+    for _, b in ipairs(blocks) do
+        local fs = b.fs
+        if b.text and b.text ~= "" then
+            fs:SetText(b.text)
+            fs:ClearAllPoints()
+            fs:SetPoint("TOPLEFT", ui.textBody, "TOPLEFT", 0, -(y + (b.gap or 0)))
+            fs:Show()
+            y = y + (b.gap or 0) + math.max(fs:GetStringHeight() or 0, fs:GetHeight() or 0, 10)
+        else
+            fs:SetText("")
+            fs:Hide()
+        end
+    end
+
+    ui.textBody:SetHeight(math.max(y + 8, 1))
+end
+
 local function RenderDetail()
     local q = view.selected and ledger[view.selected]
 
     if not q then
         ui.detailTitle:SetText("")
         ui.detailSub:SetText("")
-        ui.detailBody:SetText("|cff808080Select a quest.|r")
+        LayoutDetailText({
+            { fs = ui.txtObjectives, text = "" },
+            { fs = ui.txtProgress,   text = "|cff808080Select a quest.|r" },
+            { fs = ui.txtDescHead,   text = "" },
+            { fs = ui.txtDesc,       text = "" },
+            { fs = ui.txtNote,       text = "" },
+        })
         ui.actionSlot:Hide()
         ui.actionUnslot:Hide()
         ui.actionPin:Hide()
@@ -194,10 +394,18 @@ local function RenderDetail()
     ui.detailTitle:SetText(q.title)
     ui.detailSub:SetText(string.format("Level %d  -  %s", q.level, ZoneName(q.zone)))
 
+    -- A new selection starts at the top of its own text, not wherever the last
+    -- quest happened to be scrolled to.
+    if ui.shownQuest ~= q.id then
+        ui.shownQuest = q.id
+        if ui.textScroll then ui.textScroll:SetVerticalScroll(0) end
+        local bar = _G["UncappedQuestLedgerDetailScrollScrollBar"]
+        if bar then bar:SetValue(0) end
+    end
+
     local lines = {}
     if q.complete then
         lines[#lines + 1] = "|cff40ff40Ready to turn in.|r"
-        lines[#lines + 1] = " "
     end
     for _, o in ipairs(q.objectives) do
         local colour = (o.have >= o.need) and "40ff40" or "ffffff"
@@ -206,7 +414,30 @@ local function RenderDetail()
     if #q.objectives == 0 and not q.complete then
         lines[#lines + 1] = "|cff808080No tracked objectives.|r"
     end
-    ui.detailBody:SetText(table.concat(lines, "\n"))
+
+    local t = QuestText(q.id)
+    local objText, descText, note = "", "", ""
+    if not t or t.state == "asking" then
+        note = "|cff808080Fetching quest text...|r"
+    elseif t.state == "failed" then
+        note = "|cff808080Quest text is unavailable right now.|r"
+    else
+        objText, descText = t.obj or "", t.desc or ""
+        -- Some quests genuinely carry neither -- mostly the ones that complete
+        -- the moment you take them. Say so rather than leaving a blank pane
+        -- that reads as something still loading.
+        if objText == "" and descText == "" then
+            note = "|cff808080This quest has no description.|r"
+        end
+    end
+
+    LayoutDetailText({
+        { fs = ui.txtObjectives, text = objText,                                   gap = 0 },
+        { fs = ui.txtProgress,   text = table.concat(lines, "\n"),                 gap = 10 },
+        { fs = ui.txtDescHead,   text = (descText ~= "") and "|cffffd100Description|r" or "", gap = 14 },
+        { fs = ui.txtDesc,       text = descText,                                  gap = 6 },
+        { fs = ui.txtNote,       text = note,                                      gap = 12 },
+    })
 
     ui.actionPin:Show()
     ui.actionPin:SetText(q.pinned and "Stop keeping in log" or "Keep in quest log")
@@ -301,19 +532,19 @@ end
 local function Render()
     if not ui.frame or not ui.frame:IsShown() then return end
 
-    ui.info.slots:SetText(string.format("%d / %d", counts.slotted, MAX_SLOTS))
-    ui.info.total:SetText(tostring(counts.total))
-    ui.info.limit:SetText(tostring(counts.limit))
-
     local complete = 0
     for _, q in pairs(ledger) do
         if q.complete then complete = complete + 1 end
     end
-    ui.info.complete:SetText(tostring(complete))
 
+    -- The four ledger counters live on this one line now. They used to have a
+    -- panel of their own under the detail pane, which is space the quest
+    -- description needs a great deal more than four numbers do.
     ui.status:SetText(string.format(
-        "|cff808080%d held  -  %d shown in the quest log  -  %d waiting in the ledger|r",
-        counts.total, counts.slotted, math.max(0, counts.total - counts.slotted)))
+        "|cff808080%d held  -  %d of %d quest log slots used  -  %d waiting in the ledger  -  "
+        .. "%d ready to turn in  -  room for %d|r",
+        counts.total, counts.slotted, MAX_SLOTS,
+        math.max(0, counts.total - counts.slotted), complete, counts.limit))
 
     RenderSidebar()
     RenderList()
@@ -349,8 +580,11 @@ local function Panel(parent)
 end
 
 local function BuildFrame()
+    -- 1000 wide, up from 900: the detail pane is a quest PAGE now -- objectives
+    -- and description, laid out like Blizzard's -- and 240px of column was a
+    -- word or two per line.
     local f = CreateFrame("Frame", "UncappedQuestLedgerFrame", UIParent)
-    f:SetWidth(900)
+    f:SetWidth(1000)
     f:SetHeight(600)
     f:SetPoint("CENTER")
     f:SetBackdrop(BACKDROP)
@@ -432,10 +666,11 @@ local function BuildFrame()
 
     -- search
     local searchBox = CreateFrame("EditBox", "UncappedQuestLedgerSearch", f, "InputBoxTemplate")
-    searchBox:SetWidth(220)
+    searchBox:SetWidth(200)
     searchBox:SetHeight(20)
     -- Clear of the sort button, which ends at 20 + #TABS*94 + 140 = 536 with
-    -- four tabs. The frame is 900 wide, so 220 of search still fits comfortably.
+    -- four tabs, and short of the Blizzard-log button, which starts at
+    -- 1000 - 118 - 110 = 772.
     searchBox:SetPoint("TOPLEFT", f, "TOPLEFT", 552, -46)
     searchBox:SetAutoFocus(false)
     searchBox:SetScript("OnTextChanged", function(self)
@@ -553,29 +788,78 @@ local function BuildFrame()
         ui.rows[i] = row
     end
 
-    -- detail
+    -- detail: the quest page. Full column height -- the Ledger Info panel that
+    -- used to sit under it moved to the status line at the bottom of the window.
     local detail = Panel(f)
     detail:SetPoint("TOPLEFT", list, "TOPRIGHT", 12, 0)
-    detail:SetWidth(240)
-    detail:SetHeight(300)
+    detail:SetWidth(336)
+    detail:SetHeight(460)
 
     ui.detailTitle = detail:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    ui.detailTitle:SetPoint("TOPLEFT", detail, "TOPLEFT", 10, -12)
-    ui.detailTitle:SetWidth(220)
+    ui.detailTitle:SetPoint("TOPLEFT", detail, "TOPLEFT", 12, -12)
+    ui.detailTitle:SetWidth(310)
     ui.detailTitle:SetJustifyH("LEFT")
     ui.detailTitle:SetTextColor(1, 0.82, 0)
 
     ui.detailSub = detail:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     ui.detailSub:SetPoint("TOPLEFT", ui.detailTitle, "BOTTOMLEFT", 0, -4)
 
-    ui.detailBody = detail:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    ui.detailBody:SetPoint("TOPLEFT", ui.detailSub, "BOTTOMLEFT", 0, -10)
-    ui.detailBody:SetWidth(220)
-    ui.detailBody:SetJustifyH("LEFT")
-    ui.detailBody:SetJustifyV("TOP")
+    -- The scrolling text block. A real ScrollFrame rather than the
+    -- FauxScrollFrame the list uses: that one scrolls a fixed number of
+    -- identical rows, and this is one continuous piece of prose whose height is
+    -- only known once it has been laid out.
+    --
+    -- NAMED, because UIPanelScrollFrameTemplate builds its scrollbar as
+    -- $parentScrollBar -- on an unnamed parent there is nothing to hang it off.
+    --
+    -- The bottom stops 76px short of the panel: the pin button sits at y=40 and
+    -- is 24 tall, so that is exactly clear of both action buttons.
+    local textScroll = CreateFrame("ScrollFrame", "UncappedQuestLedgerDetailScroll", detail,
+        "UIPanelScrollFrameTemplate")
+    textScroll:SetPoint("TOPLEFT", ui.detailSub, "BOTTOMLEFT", 0, -10)
+    textScroll:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -30, 76)
+    ui.textScroll = textScroll
+
+    local textBody = CreateFrame("Frame", nil, textScroll)
+    textBody:SetWidth(280)
+    textBody:SetHeight(1)
+    textScroll:SetScrollChild(textBody)
+    ui.textBody = textBody
+
+    -- Driven through the scrollbar rather than SetVerticalScroll, so the thumb
+    -- follows the wheel instead of sitting still while the text moves. The
+    -- direct call is the fallback for when the bar is not there.
+    textScroll:EnableMouseWheel(true)
+    textScroll:SetScript("OnMouseWheel", function(self, delta)
+        local bar = _G["UncappedQuestLedgerDetailScrollScrollBar"]
+        if bar then
+            bar:SetValue(bar:GetValue() - delta * 26)
+        else
+            local range = self:GetVerticalScrollRange() or 0
+            self:SetVerticalScroll(math.min(range, math.max(0, self:GetVerticalScroll() - delta * 26)))
+        end
+    end)
+
+    -- The pieces of the page, in Blizzard's order. Widths are set here and the
+    -- vertical placement is done per render by LayoutDetailText.
+    local function TextLine(font, r, g, b)
+        local fs = textBody:CreateFontString(nil, "OVERLAY", font)
+        fs:SetWidth(280)
+        fs:SetJustifyH("LEFT")
+        fs:SetJustifyV("TOP")
+        fs:SetPoint("TOPLEFT", textBody, "TOPLEFT", 0, 0)
+        if r then fs:SetTextColor(r, g, b) end
+        return fs
+    end
+
+    ui.txtObjectives = TextLine("GameFontHighlightSmall")            -- objectives paragraph
+    ui.txtProgress   = TextLine("GameFontHighlightSmall")            -- the counters
+    ui.txtDescHead   = TextLine("GameFontNormalSmall")               -- "Description"
+    ui.txtDesc       = TextLine("GameFontHighlightSmall", 0.9, 0.9, 0.9)
+    ui.txtNote       = TextLine("GameFontDisableSmall")              -- fetching / unavailable
 
     ui.actionSlot = CreateFrame("Button", nil, detail, "UIPanelButtonTemplate")
-    ui.actionSlot:SetWidth(200); ui.actionSlot:SetHeight(24)
+    ui.actionSlot:SetWidth(296); ui.actionSlot:SetHeight(24)
     ui.actionSlot:SetPoint("BOTTOM", detail, "BOTTOM", 0, 12)
     ui.actionSlot:SetText("Show in Quest Log")
     ui.actionSlot:SetScript("OnClick", function()
@@ -583,7 +867,7 @@ local function BuildFrame()
     end)
 
     ui.actionUnslot = CreateFrame("Button", nil, detail, "UIPanelButtonTemplate")
-    ui.actionUnslot:SetWidth(200); ui.actionUnslot:SetHeight(24)
+    ui.actionUnslot:SetWidth(296); ui.actionUnslot:SetHeight(24)
     ui.actionUnslot:SetPoint("BOTTOM", detail, "BOTTOM", 0, 12)
     ui.actionUnslot:SetText("Move to Ledger")
     ui.actionUnslot:SetScript("OnClick", function()
@@ -594,7 +878,7 @@ local function BuildFrame()
     -- the log wherever you walk. Sits above the slot/unslot button, which share
     -- one anchor because only one of them is ever shown.
     ui.actionPin = CreateFrame("Button", nil, detail, "UIPanelButtonTemplate")
-    ui.actionPin:SetWidth(200); ui.actionPin:SetHeight(24)
+    ui.actionPin:SetWidth(296); ui.actionPin:SetHeight(24)
     ui.actionPin:SetPoint("BOTTOM", detail, "BOTTOM", 0, 40)
     ui.actionPin:SetScript("OnClick", function()
         local q = view.selected and ledger[view.selected]
@@ -612,30 +896,8 @@ local function BuildFrame()
     end)
     ui.actionPin:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    -- info panel
-    local info = Panel(f)
-    info:SetPoint("TOPLEFT", detail, "BOTTOMLEFT", 0, -12)
-    info:SetWidth(240)
-    info:SetHeight(148)
-
-    local ih = info:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    ih:SetPoint("TOPLEFT", info, "TOPLEFT", 10, -10)
-    ih:SetText("|cffffd100Ledger Info|r")
-
-    ui.info = {}
-    local function InfoRow(i, label)
-        local l = info:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        l:SetPoint("TOPLEFT", info, "TOPLEFT", 10, -34 - (i - 1) * 22)
-        l:SetText(label)
-        local v = info:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        v:SetPoint("TOPRIGHT", info, "TOPRIGHT", -10, -34 - (i - 1) * 22)
-        return v
-    end
-    ui.info.slots    = InfoRow(1, "Quest log slots")
-    ui.info.total    = InfoRow(2, "Total held")
-    ui.info.complete = InfoRow(3, "Ready to turn in")
-    ui.info.limit    = InfoRow(4, "Ledger capacity")
-
+    -- The four ledger counters that used to sit in a panel here now share the
+    -- status line below, which had the room going spare -- see Render.
     ui.status = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     ui.status:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 24, 18)
 
@@ -1130,6 +1392,14 @@ listener:SetScript("OnEvent", function(_, event, prefix, message)
 
         if message == "QLOKEND" then
             if UQ.OnVerifiedAvailable then UQ.OnVerifiedAvailable("", true) end
+            return
+        end
+
+        -- One quest's description text. Kept OUT of OnLine deliberately: that
+        -- parser is the ledger burst, and a QLT line is not ledger data. It is
+        -- also why the tag is QLT* and not a widened QLQ -- see the file header.
+        if message:sub(1, 3) == "QLT" then
+            OnText(message)
             return
         end
 

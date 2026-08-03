@@ -65,6 +65,18 @@ $retired = @{
     'Recount'    = 'pruned to cut the shipped addon footprint (2026-07-31)'
 }
 
+# Development-only addons that live in client_addons but must never reach players. Unlike
+# $retired these have NEVER shipped, so they need no forceDisableAddOns entry -- there is no
+# client out there with a copy to switch off.
+# Added 2026-08-03: -Clean staged both of these on every release and someone stripped them by
+# hand before generating the manifest each time. That is a manual step with no guard on it,
+# and the one time it is forgotten they ship silently. Excluding them by rule instead.
+# To ship one for real: remove it here and treat it as a normal addon release.
+$devOnly = @{
+    'UncappedFlightLog' = 'dev instrumentation, never reviewed for release'
+    'UncappedSoundLab'  = 'dev tool for auditioning sound kits, not player-facing'
+}
+
 function Add-AddonFolder {
     param([string]$Name, [string]$SourceLabel)
 
@@ -75,6 +87,11 @@ function Add-AddonFolder {
 
     if ($retired.ContainsKey($Name)) {
         Write-Host "  - $Name (retired: $($retired[$Name]))" -ForegroundColor Yellow
+        return $false
+    }
+
+    if ($devOnly.ContainsKey($Name)) {
+        Write-Host "  - $Name (dev only: $($devOnly[$Name]))" -ForegroundColor DarkGray
         return $false
     }
 
