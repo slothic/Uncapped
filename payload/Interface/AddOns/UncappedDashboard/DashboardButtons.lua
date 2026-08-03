@@ -17,6 +17,42 @@ Core.Buttons = Buttons
 local window
 local navPanel
 local navButtons = {}
+local arenaPointsText
+local goldText
+
+-- Thousands separators. Local rather than borrowed from Core.Comma, which
+-- lives on the Vault's own table (UncappedVault), not the Dashboard's.
+local function Comma(n)
+    local s = tostring(math.floor(tonumber(n) or 0))
+    local out = s:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+    return (out:gsub("^,", ""))
+end
+
+local function FormatMoney(copper)
+    copper = tonumber(copper) or 0
+    return string.format(
+        "%s |TInterface\\MoneyFrame\\UI-GoldIcon:12:12:2:0|t %d |TInterface\\MoneyFrame\\UI-SilverIcon:12:12:2:0|t %d |TInterface\\MoneyFrame\\UI-CopperIcon:12:12:2:0|t",
+        Comma(math.floor(copper / 10000)),
+        math.floor((copper % 10000) / 100),
+        copper % 100)
+end
+
+-- Both footers were hardcoded to "12,450" -- the comment where they were built
+-- said outright that no data source was wired up. Reported as arena points
+-- showing a static value that was not the character's own.
+--
+-- GetArenaCurrency() is the right source and needs no new protocol: the server
+-- already answers the Anima window's ANIMAPTS with player->GetArenaPoints(),
+-- which is this same number (mod-time-stats/src/time_stats.cpp).
+local function RefreshFooter()
+    if arenaPointsText then
+        arenaPointsText:SetText(string.format("Arena Points: |cffffd100%s|r", Comma(GetArenaCurrency and GetArenaCurrency() or 0)))
+    end
+    if goldText then
+        goldText:SetText(FormatMoney(GetMoney and GetMoney() or 0))
+    end
+end
+Core.RefreshFooter = RefreshFooter
 
 -- Button metrics.
 local BUTTON_WIDTH = 140
@@ -146,6 +182,11 @@ function Buttons.Build()
         persistPosition = false,
         onResizeStop = RecenterWindow,
         db = db,
+        -- Below the bags, not above them. The kit defaults to HIGH, which is the
+        -- same strata Blizzard's ContainerFrames use, so the tie broke on frame
+        -- level and the dashboard covered the bags you were trying to drag out
+        -- of -- the one thing the Vault tab exists to receive.
+        strata = "MEDIUM",
     })
 
     navPanel = CreateNavPanel(window)
@@ -157,20 +198,31 @@ function Buttons.Build()
 
     -- Gold/Arena Points -- pinned to the nav panel itself (not any one tab's
     -- content), so they stay visible no matter which tab is active, per
-    -- request. Placeholder values: neither has a real data source wired up
-    -- yet (Vault's own copy of the Gold line was the same static string
-    -- before it moved here).
-    local arenaPointsText = navPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    -- request. Both read live values now; see RefreshFooter above.
+    arenaPointsText = navPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     arenaPointsText:SetPoint("BOTTOMLEFT", navPanel, "BOTTOMLEFT", PANEL_PAD, 22)
     arenaPointsText:SetPoint("BOTTOMRIGHT", navPanel, "BOTTOMRIGHT", -PANEL_PAD, 22)
     arenaPointsText:SetJustifyH("RIGHT")
-    arenaPointsText:SetText("Arena Points: |cffffd10012,450|r")
 
-    local goldText = navPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    goldText = navPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     goldText:SetPoint("BOTTOMLEFT", navPanel, "BOTTOMLEFT", PANEL_PAD, 6)
     goldText:SetPoint("BOTTOMRIGHT", navPanel, "BOTTOMRIGHT", -PANEL_PAD, 6)
     goldText:SetJustifyH("RIGHT")
-    goldText:SetText("12,450 |TInterface\\MoneyFrame\\UI-GoldIcon:12:12:2:0|t 87 |TInterface\\MoneyFrame\\UI-SilverIcon:12:12:2:0|t 42 |TInterface\\MoneyFrame\\UI-CopperIcon:12:12:2:0|t")
+
+    RefreshFooter()
+
+    -- Refresh on open rather than on a ticker: arena points only move on a
+    -- purchase or the weekly grant, and the window is the only thing that shows
+    -- them. PLAYER_MONEY keeps gold honest while the window is already open --
+    -- you can sell from your bags without closing it.
+    window:HookScript("OnShow", RefreshFooter)
+
+    local footerEvents = CreateFrame("Frame")
+    footerEvents:RegisterEvent("PLAYER_MONEY")
+    footerEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+    footerEvents:SetScript("OnEvent", function()
+        if window and window:IsShown() then RefreshFooter() end
+    end)
 
     window:Hide()
 end

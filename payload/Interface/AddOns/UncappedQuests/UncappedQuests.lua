@@ -507,9 +507,14 @@ local function CreatePin(i)
         end
 
         -- A ledger quest has no log entry to select, so send the player to the
-        -- place that can actually show it.
+        -- place that can actually show it -- and land on the quest itself, the
+        -- same as the arrow does.
         if not self.questIndex then
-            if UQ.ToggleLedger then UQ.ToggleLedger() end
+            if UQ.FocusLedgerQuest then
+                UQ.FocusLedgerQuest(self.questID)
+            elseif UQ.ToggleLedger then
+                UQ.ToggleLedger()
+            end
             return
         end
 

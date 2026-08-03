@@ -587,7 +587,14 @@ arrow:SetScript("OnClick", function(self, button)
         -- guarded this; the arrow never did. Same fallback: send them to the
         -- one window that CAN show the quest.
         if not target.questIndex then
-            if UQ.ToggleLedger then UQ.ToggleLedger() end
+            -- Open the ledger ON this quest, not just open the ledger. Landing
+            -- on an unfiltered list and having to find the quest by hand is the
+            -- thing the click was supposed to save.
+            if UQ.FocusLedgerQuest then
+                UQ.FocusLedgerQuest(target.questID)
+            elseif UQ.ToggleLedger then
+                UQ.ToggleLedger()
+            end
             return
         end
 
