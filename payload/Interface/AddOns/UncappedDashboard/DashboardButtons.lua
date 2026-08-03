@@ -146,6 +146,11 @@ function Buttons.Build()
         persistPosition = false,
         onResizeStop = RecenterWindow,
         db = db,
+        -- Below the bags, not above them. The kit defaults to HIGH, which is the
+        -- same strata Blizzard's ContainerFrames use, so the tie broke on frame
+        -- level and the dashboard covered the bags you were trying to drag out
+        -- of -- the one thing the Vault tab exists to receive.
+        strata = "MEDIUM",
     })
 
     navPanel = CreateNavPanel(window)
