@@ -40,6 +40,14 @@ public sealed class LauncherState
     /// </summary>
     [JsonPropertyName("reportedCrashes")] public List<string> ReportedCrashes { get; set; } = new();
 
+    /// <summary>
+    /// Whether the one-time view-distance bump has been applied to this install. Existing
+    /// players installed before farclip became a first-run default, so it is raised once at
+    /// PLAY — and only once, because view distance is a real performance trade the player is
+    /// entitled to pull back down. See <see cref="Services.ViewDistance"/>.
+    /// </summary>
+    [JsonPropertyName("viewDistanceRaised")] public bool ViewDistanceRaised { get; set; }
+
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
     public static LauncherState Load()

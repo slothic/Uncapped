@@ -761,6 +761,21 @@ public partial class MainWindow : Window
             }
             catch (Exception ex) { Log.Write($"windowed mode: {ex.Message}"); }
 
+            // View distance, once per install. Flying in the old world needs it, and fog is
+            // never drawn past farclip — but unlike windowed mode this is a performance choice,
+            // so it is applied a single time and then left to the player. See ViewDistance.
+            if (!_state.ViewDistanceRaised)
+            {
+                try
+                {
+                    if (ViewDistance.RaiseToMax(installPath))
+                        Log.Write($"display: view distance raised to {ViewDistance.Max}");
+                    _state.ViewDistanceRaised = true;
+                    _state.Save();
+                }
+                catch (Exception ex) { Log.Write($"view distance: {ex.Message}"); }
+            }
+
             GameProcess.Launch(installPath);
 
             // Copied after launch so it lands on the clipboard while the player is heading

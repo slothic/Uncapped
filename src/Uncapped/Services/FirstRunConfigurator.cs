@@ -60,6 +60,11 @@ public static class FirstRunConfigurator
             // overwrite the resolution just set.
             ["hwDetect"] = "0",
 
+            // Maximum terrain view distance. Flying is enabled in the old world here, and the
+            // client will not draw fog further than farclip, so the shipped default undercuts
+            // both. Players can still lower it in Video Options — nothing re-forces it.
+            ["farclip"] = ViewDistance.Max.ToString(System.Globalization.CultureInfo.InvariantCulture),
+
             // Read off the client rather than assumed. Writing enUS into an enGB client's
             // Config.wtf points it at a locale folder it does not have, which is a broken
             // client and an error message that blames the network for it.
