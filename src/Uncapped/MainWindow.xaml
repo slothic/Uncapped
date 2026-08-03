@@ -86,9 +86,13 @@
                             Margin="0,116,44,0" Width="300" Visibility="Collapsed">
                     <Button x:Name="DonateButton" Style="{StaticResource GhostButton}"
                             Content="SUPPORT THE SERVER" Height="34" Click="OnDonate" />
+                    <!-- Brighter than the build stamp it was first matched to. That one sits
+                         bottom-left over dark water and can afford to disappear; this sits
+                         over the brightest part of the sky, and it is the line that keeps
+                         the button from reading as a shop. -->
                     <TextBlock Text="Voluntary. Buys nothing in-game." FontSize="10.5"
                                Margin="0,7,0,0" HorizontalAlignment="Right" TextAlignment="Right"
-                               Foreground="#8A7F92" IsHitTestVisible="False">
+                               Foreground="#CFC5D2" IsHitTestVisible="False">
                         <TextBlock.Effect>
                             <DropShadowEffect BlurRadius="10" ShadowDepth="0" Opacity="0.9" Color="#1A0A14" />
                         </TextBlock.Effect>
