@@ -60,7 +60,10 @@ public static class FirstRunConfigurator
             // overwrite the resolution just set.
             ["hwDetect"] = "0",
 
-            ["locale"] = "enUS",
+            // Read off the client rather than assumed. Writing enUS into an enGB client's
+            // Config.wtf points it at a locale folder it does not have, which is a broken
+            // client and an error message that blames the network for it.
+            ["locale"] = ClientLocale.Detect(installPath)?.Code ?? "enUS",
         };
 
         try

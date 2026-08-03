@@ -127,6 +127,9 @@ public partial class MainWindow : Window
         var found = InstallLocator.Discover(_state.InstallPath).FirstOrDefault();
         if (found is not null)
         {
+            // Logged because "which folder did it decide to use" is the first thing worth
+            // knowing about a client that will not start, and the launcher never used to say.
+            Log.Write($"install: using {found.Path} ({found.Source})");
             _state.InstallPath = found.Path;
             _state.Save();
             return found.Path;
@@ -218,16 +221,20 @@ public partial class MainWindow : Window
 
             if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return null;
 
-            if (InstallLocator.IsValidInstall(dialog.SelectedPath))
+            var check = InstallLocator.Validate(dialog.SelectedPath);
+            if (check.Ok)
             {
+                Log.Write($"install: using {dialog.SelectedPath} (picked)");
                 _state.InstallPath = dialog.SelectedPath;
                 _state.Save();
                 return dialog.SelectedPath;
             }
 
+            // The specific reason, not "that does not look like a WoW install". A player who
+            // picked their Cataclysm folder needs to be told that, not left to guess.
+            Log.Write($"install: rejected {dialog.SelectedPath} — {check.Reason}");
             MessageBox.Show(
-                "That folder does not look like a World of Warcraft install.\n\n" +
-                "It needs to contain the game executable and a Data folder.",
+                $"That folder cannot be used.\n\n{check.Reason}",
                 "Wrong folder", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
@@ -301,8 +308,15 @@ public partial class MainWindow : Window
 
         if (root is null)
         {
-            MessageBox.Show("The client was downloaded but no game executable was found inside it.",
-                "Unexpected archive", MessageBoxButton.OK, MessageBoxImage.Error);
+            // Says which part is wrong. The mirror ships the game and the language files as
+            // two separate zips, so "downloaded but unusable" is most often the second one
+            // having failed — and the old wording sent everyone looking for a missing .exe.
+            var reason = InstallLocator.Validate(target).Reason;
+            Log.Write($"install: downloaded client at {target} failed validation — {reason}");
+            MessageBox.Show(
+                $"The client was downloaded but cannot be used.\n\n{reason}\n\n" +
+                "Deleting the folder and running the launcher again will re-download it.",
+                "Incomplete download", MessageBoxButton.OK, MessageBoxImage.Error);
             return null;
         }
 
@@ -369,6 +383,33 @@ public partial class MainWindow : Window
             return;
         }
 
+        /*
+         * Which language the client is, decided once and used for everything below.
+         *
+         * The manifest describes our payload as Data/enUS/patch-enUS-*.mpq because that is
+         * what the client we ship is. Installing those paths verbatim into an enGB client
+         * creates a second, half-empty locale folder that stops the game booting, so the
+         * paths are moved onto whatever locale is actually on disk.
+         *
+         * Logged unconditionally. A broken-client report always turns on this question and
+         * launcher.log had no way to answer it.
+         */
+        var locale = ClientLocale.Detect(installPath);
+
+        if (locale is null)
+        {
+            var reason = InstallLocator.Validate(installPath).Reason;
+            Log.Write($"locale: none detected at {installPath} — {reason}");
+            SetStatus("That game folder cannot be used.");
+            MessageBox.Show(
+                $"The game folder cannot be used.\n\n{reason}\n\n" +
+                "Use \"Change game folder\" to point the launcher somewhere else.",
+                "Game folder problem", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        Log.Write($"locale: {locale.Describe()}");
+
         SetBusy(true);
         try
         {
@@ -391,7 +432,7 @@ public partial class MainWindow : Window
                     });
 
                     outcome = await new SyncService(_http)
-                        .SyncAsync(installPath, manifest, _state, reporter, _cts.Token);
+                        .SyncAsync(installPath, manifest, _state, locale, reporter, _cts.Token);
                 }
                 catch (OperationCanceledException) { return; }
                 catch (Exception ex)
@@ -413,7 +454,7 @@ public partial class MainWindow : Window
             SetProgress(1);
 
             var realm = ClientConfigWriter.WriteRealmlist(
-                installPath, manifest.Realm.Address, manifest.Realm.Name);
+                installPath, manifest.Realm.Address, manifest.Realm.Name, locale);
             foreach (var failure in realm.Failed) Log.Write($"realmlist: {failure}");
 
             AddOnsTxtEnforcer.Apply(installPath, manifest.ForceEnableAddOns, manifest.ForceDisableAddOns);
@@ -750,6 +791,30 @@ public partial class MainWindow : Window
     private void OnRegister(object sender, RoutedEventArgs e) => OpenUrl(_manifest?.Realm.RegisterUrl);
 
     private void OnDonate(object sender, RoutedEventArgs e) => OpenUrl(_manifest?.DonateUrl);
+
+    /// <summary>
+    /// Opens launcher.log in whatever handles .log — Notepad on a default Windows install.
+    ///
+    /// The file is created empty if it does not exist yet, so the button never fails on a
+    /// launcher that has had nothing to say. If the extension has no association, Explorer is
+    /// opened with the file selected instead: the folder is the fallback answer, and it still
+    /// beats reciting an environment variable in Discord.
+    /// </summary>
+    private void OnOpenLog(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(AppPaths.DataDir);
+            if (!File.Exists(AppPaths.LogFile)) File.WriteAllText(AppPaths.LogFile, "");
+
+            Process.Start(new ProcessStartInfo { FileName = AppPaths.LogFile, UseShellExecute = true });
+        }
+        catch
+        {
+            try { Process.Start("explorer.exe", $"/select,\"{AppPaths.LogFile}\""); }
+            catch (Exception ex) { Log.Write($"open log: {ex.Message}"); }
+        }
+    }
 
     private void OnSavedLogin(object sender, RoutedEventArgs e)
     {

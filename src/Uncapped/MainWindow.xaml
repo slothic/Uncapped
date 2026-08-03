@@ -227,7 +227,10 @@
                             Content="CHECK FOR UPDATES" Height="32" Margin="0,8,0,0"
                             IsEnabled="False" Click="OnCheckForUpdates" />
 
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+                    <!-- A WrapPanel rather than a StackPanel: four links do not fit on one
+                         300px line, and a horizontal StackPanel would silently clip the last
+                         one instead of moving it down. -->
+                    <WrapPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
                         <Button x:Name="RegisterLink" Style="{StaticResource QuietLink}"
                                 Content="Create an account" Visibility="Collapsed" Click="OnRegister" />
                         <TextBlock x:Name="LinkSeparator" Text="  ·  " Foreground="#5A5060" FontSize="11"
@@ -237,7 +240,12 @@
                         <TextBlock Text="  ·  " Foreground="#5A5060" FontSize="11" />
                         <Button Style="{StaticResource QuietLink}"
                                 Content="Change game folder" Click="OnChangeFolder" />
-                    </StackPanel>
+                        <TextBlock Text="  ·  " Foreground="#5A5060" FontSize="11" />
+                        <!-- Every support conversation used to start by talking someone
+                             through %LOCALAPPDATA%. The launcher knows where the file is. -->
+                        <Button Style="{StaticResource QuietLink}"
+                                Content="Open log" Click="OnOpenLog" />
+                    </WrapPanel>
                 </StackPanel>
             </Grid>
         </Border>

@@ -43,15 +43,36 @@ public sealed class SyncService
 
     public SyncService(HttpClient http) => _http = http;
 
+    /// <param name="locale">
+    /// The client's actual language, used to move the manifest's Data\enUS\ entries onto the
+    /// folder this client really has. Null means install the paths as written — correct only
+    /// when the locale could not be determined, in which case the caller has already refused
+    /// to get this far.
+    /// </param>
     public async Task<SyncOutcome> SyncAsync(
         string installPath,
         Manifest manifest,
         LauncherState state,
+        ClientLocale? locale,
         IProgress<SyncProgress> progress,
         CancellationToken ct)
     {
         var errors = new ConcurrentBag<string>();
         var mismatched = new ConcurrentBag<ManifestFile>();
+
+        // ---- Phase 0: undo an earlier launcher's guess at the locale. ----
+        // Before anything is hashed: the stray folder holds files under names this sync is
+        // about to stop using, and leaving them would keep the client broken for exactly as
+        // long as the player left it alone.
+        var strays = locale?.RemoveStrayFolders(installPath, state.InstalledFiles) ?? new List<string>();
+        if (strays.Count > 0)
+        {
+            Log.Write($"locale: removed {strays.Count} file(s) from a stray locale folder — {string.Join(", ", strays)}");
+            state.InstalledFiles = state.InstalledFiles
+                .Where(f => !strays.Contains(f, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+        }
+
         var installed = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
         foreach (var f in state.InstalledFiles) installed.TryAdd(f, 0);
 
@@ -66,7 +87,7 @@ public sealed class SyncService
             new ParallelOptions { MaxDegreeOfParallelism = HashConcurrency, CancellationToken = ct },
             async (file, token) =>
             {
-                var relative = NormalizeRelative(file.Path);
+                var relative = Place(file.Path, locale);
                 if (relative is null)
                 {
                     // Guards against a manifest entry escaping the install root via .. or an
@@ -136,7 +157,7 @@ public sealed class SyncService
         var archivesInstalled = await SyncArchivesAsync(installPath, manifest, state, errorList, progress, ct);
 
         // ---- Phase 4: prune, single-threaded. ----
-        var removed = PruneOrphans(installPath, manifest, state, errorList);
+        var removed = PruneOrphans(installPath, manifest, state, locale, errorList);
 
         state.LastSyncedManifestVersion = manifest.LauncherVersion;
         state.Save();
@@ -346,12 +367,13 @@ public sealed class SyncService
     /// install-only: once placed, the launcher never deletes them, even if they leave the
     /// manifest. That is a deliberate standing rule, not an oversight.
     /// </summary>
-    private static int PruneOrphans(string installPath, Manifest manifest, LauncherState state, List<string> errors)
+    private static int PruneOrphans(
+        string installPath, Manifest manifest, LauncherState state, ClientLocale? locale, List<string> errors)
     {
         if (manifest.OwnedPaths.Count == 0) return 0;
 
         var current = manifest.Files
-            .Select(f => NormalizeRelative(f.Path))
+            .Select(f => Place(f.Path, locale))
             .Where(p => p is not null)
             .ToHashSet(StringComparer.OrdinalIgnoreCase)!;
 
@@ -398,6 +420,17 @@ public sealed class SyncService
             try { Directory.Delete(full); } catch { return; }
             dir = Path.GetDirectoryName(full);
         }
+    }
+
+    /// <summary>
+    /// Where a manifest entry actually lands: normalised, then moved onto the client's real
+    /// locale. Every path the sync touches goes through here, so the placement rule cannot
+    /// drift between downloading a file and pruning it later.
+    /// </summary>
+    private static string? Place(string manifestPath, ClientLocale? locale)
+    {
+        var relative = NormalizeRelative(manifestPath);
+        return relative is null ? null : locale?.Remap(relative) ?? relative;
     }
 
     /// <summary>

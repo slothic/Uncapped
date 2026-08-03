@@ -12,7 +12,13 @@ public static class ClientConfigWriter
 {
     public sealed record Result(List<string> Written, List<string> Failed);
 
-    public static Result WriteRealmlist(string installPath, string address, string? realmName)
+    /// <param name="locale">
+    /// The client's real language folder. This used to be hardcoded to enUS, and the
+    /// CreateDirectory below then brought that folder into existence on clients that had no
+    /// business having one — half the reason an enGB client stopped booting once the launcher
+    /// had touched it. Null skips the per-locale copy rather than guessing.
+    /// </param>
+    public static Result WriteRealmlist(string installPath, string address, string? realmName, ClientLocale? locale)
     {
         var written = new List<string>();
         var failed = new List<string>();
@@ -20,7 +26,10 @@ public static class ClientConfigWriter
 
         // Which of these the client honours varies by build, so write both rather than
         // guess. The root file often does not exist yet on a fresh ChromieCraft client.
-        foreach (var rel in new[] { "realmlist.wtf", Path.Combine("Data", "enUS", "realmlist.wtf") })
+        var targets = new List<string> { "realmlist.wtf" };
+        if (locale is not null) targets.Add(Path.Combine("Data", locale.Code, "realmlist.wtf"));
+
+        foreach (var rel in targets)
         {
             var path = Path.Combine(installPath, rel);
             try
