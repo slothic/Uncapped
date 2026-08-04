@@ -23,6 +23,7 @@ Core.TABS = {
     { key = "anima", label = "Anima", addon = "UncappedAnima", hint = "/dashboard" },
     { key = "vault", label = "Vault", addon = "UncappedVault", hint = "/dashboard" },
     { key = "transmog", label = "Transmog", addon = "UncappedTransmog", hint = "/dashboard" },
+    { key = "lootfeed", label = "Loot Feed", addon = "UncappedLootFeed", hint = "/lootfeed" },
     { key = "statfeed", label = "Statistics", addon = "StatFeed", hint = "/statfeed", disabled = true },
     { key = "questlog", label = "Quest Log", addon = "UncappedQuests", hint = "/uquests", disabled = true },
     { key = "tutorial", label = "Tutorial", addon = "UncappedTutorial", disabled = true },

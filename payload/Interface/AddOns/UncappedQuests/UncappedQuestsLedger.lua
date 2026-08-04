@@ -388,6 +388,7 @@ local function RenderDetail()
         ui.actionSlot:Hide()
         ui.actionUnslot:Hide()
         ui.actionPin:Hide()
+        ui.actionTrack:Hide()
         return
     end
 
@@ -441,6 +442,20 @@ local function RenderDetail()
 
     ui.actionPin:Show()
     ui.actionPin:SetText(q.pinned and "Stop keeping in log" or "Keep in quest log")
+
+    -- Resolved every render rather than trusted from q.slotted alone: the ledger
+    -- row is server state, and the log index is client state that can be a beat
+    -- behind it. Asking the log directly means the button can never offer to
+    -- track a quest the client cannot actually key a watch on.
+    local watchIndex = UQ.QuestLogIndex and UQ.QuestLogIndex(q.id) or nil
+    ui.actionTrack:Show()
+    if watchIndex then
+        ui.actionTrack:Enable()
+        ui.actionTrack:SetText(IsQuestWatched(watchIndex) and "Stop tracking" or "Track on screen")
+    else
+        ui.actionTrack:Disable()
+        ui.actionTrack:SetText("Track on screen")
+    end
 
     -- A COMPLETE quest must stay slotted: turn-in packets are keyed by slot, so
     -- pushing it out of the log would make it unhandinable until put back.
@@ -812,12 +827,14 @@ local function BuildFrame()
     -- NAMED, because UIPanelScrollFrameTemplate builds its scrollbar as
     -- $parentScrollBar -- on an unnamed parent there is nothing to hang it off.
     --
-    -- The bottom stops 76px short of the panel: the pin button sits at y=40 and
-    -- is 24 tall, so that is exactly clear of both action buttons.
+    -- The bottom stops 104px short of the panel: the track button is the topmost
+    -- of the three action rows at y=68 and is 24 tall, so that is exactly clear
+    -- of all of them. Was 76 while pin (y=40) was the topmost -- this number has
+    -- to move with whichever button is highest, or the prose runs under it.
     local textScroll = CreateFrame("ScrollFrame", "UncappedQuestLedgerDetailScroll", detail,
         "UIPanelScrollFrameTemplate")
     textScroll:SetPoint("TOPLEFT", ui.detailSub, "BOTTOMLEFT", 0, -10)
-    textScroll:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -30, 76)
+    textScroll:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -30, 104)
     ui.textScroll = textScroll
 
     local textBody = CreateFrame("Frame", nil, textScroll)
@@ -895,6 +912,59 @@ local function BuildFrame()
         GameTooltip:Show()
     end)
     ui.actionPin:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- Track: report #101. The ledger replaced Blizzard's quest log, and the one
+    -- behaviour that never came across with it was clicking a quest title to put
+    -- it in (or take it out of) the tracker down the right-hand side of the
+    -- screen. That tracker is still Blizzard's own WatchFrame, so this drives
+    -- Blizzard's watch list rather than reimplementing one.
+    --
+    -- The watch API is keyed on the quest LOG INDEX, not the quest id, which has
+    -- two consequences that shape everything below: a quest that is not holding a
+    -- log slot cannot be tracked at all (nothing to key on -- the button is shown
+    -- disabled rather than hidden, so the connection to "Show in Quest Log" is
+    -- visible instead of the control silently vanishing), and the index shifts
+    -- whenever the log changes, so it is resolved at the moment it is used and
+    -- never cached on the row.
+    ui.actionTrack = CreateFrame("Button", nil, detail, "UIPanelButtonTemplate")
+    ui.actionTrack:SetWidth(296); ui.actionTrack:SetHeight(24)
+    ui.actionTrack:SetPoint("BOTTOM", detail, "BOTTOM", 0, 68)
+    ui.actionTrack:SetScript("OnClick", function()
+        local q = view.selected and ledger[view.selected]
+        if not q then return end
+        local index = UQ.QuestLogIndex and UQ.QuestLogIndex(q.id)
+        if not index then return end
+        -- Blizzard's own idiom from _QuestLog_ToggleQuestWatch (QuestLogFrame.lua).
+        -- The cap is checked BEFORE adding because AddQuestWatch past the limit
+        -- fails silently -- the button would appear to do nothing at all.
+        if IsQuestWatched(index) then
+            RemoveQuestWatch(index)
+        else
+            if GetNumQuestWatches() >= MAX_WATCHABLE_QUESTS then
+                UIErrorsFrame:AddMessage(
+                    string.format(QUEST_WATCH_TOO_MANY, MAX_WATCHABLE_QUESTS), 1.0, 0.1, 0.1, 1.0)
+                return
+            end
+            AddQuestWatch(index)
+        end
+        if WatchFrame_Update then WatchFrame_Update() end
+        Render()
+    end)
+    ui.actionTrack:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Track on screen")
+        if self:IsEnabled() == 1 then
+            GameTooltip:AddLine(
+                "Show or hide this quest's objectives in the tracker down the right-hand "
+                .. "side of the screen.", 1, 1, 1, true)
+        else
+            GameTooltip:AddLine(
+                "Only a quest that is in your quest log can be tracked. Use \"Show in Quest "
+                .. "Log\" first.", 1, 1, 1, true)
+        end
+        GameTooltip:Show()
+    end)
+    ui.actionTrack:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- The four ledger counters that used to sit in a panel here now share the
     -- status line below, which had the room going spare -- see Render.

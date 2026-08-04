@@ -1,9 +1,12 @@
 ## Interface: 30300
 ## Title: Uncapped Loot Feed
-## Notes: A scrolling feed of loot as it drops, with a watchlist that calls out items you are farming for.
+## Notes: A scrolling feed of loot as it drops, with a watchlist that calls out items you are farming for. Lives in the Dashboard.
 ## Author(s): Slothic, MentalMonk
-## Version: 0.1
-## OptionalDeps: UncappedOptions, UncappedAlerts
+## Version: 0.2
+## OptionalDeps: UncappedUI, UncappedDashboard, UncappedOptions, UncappedAlerts
 ## SavedVariables: UncappedLootFeedDB
 
+UncappedLootFeedItemData.lua
+UncappedLootFeedData.lua
 UncappedLootFeed.lua
+UncappedLootFeed_UI.lua

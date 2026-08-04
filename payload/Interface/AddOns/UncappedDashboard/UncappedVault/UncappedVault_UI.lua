@@ -651,7 +651,13 @@ local function BuildFrame(parent)
     searchBox = CreateFrame("EditBox", "UncappedVaultSearch", frame, "InputBoxTemplate")
     searchBox:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -54)
     searchBox:SetWidth(LEFT_W); searchBox:SetHeight(26)
+    -- Stock InputBoxTemplate does NOT carry autoFocus="false" (checked against the
+    -- client's own UIPanelTemplates.xml), and an EditBox defaults to autofocus, so
+    -- between CreateFrame above and this line the box exists, is shown, and is
+    -- entitled to take the keyboard. The ClearFocus is not redundant with the
+    -- SetAutoFocus: turning autofocus off does not hand back focus already taken.
     searchBox:SetAutoFocus(false)
+    searchBox:ClearFocus()
     local ph = Text(searchBox, "GameFontDisableSmall", "LEFT", searchBox, "LEFT", 24, 1, "Search items...")
     local mag = searchBox:CreateTexture(nil, "OVERLAY")
     mag:SetTexture("Interface\\Common\\UI-Searchbox-Icon")
@@ -661,7 +667,27 @@ local function BuildFrame(parent)
         if text == "" then ph:Show() else ph:Hide() end
         Core.SetQuery(text)
     end)
-    searchBox:SetScript("OnEscapePressed", function(self) self:SetText(""); self:ClearFocus() end)
+    -- Report #88: Escape left the box holding the keyboard, so "b" landed in the
+    -- search field instead of opening bags.
+    --
+    -- ClearFocus runs BEFORE SetText, and the order is the whole point. SetText
+    -- fires OnTextChanged synchronously, and that handler rebuilds and repaints
+    -- the entire vault (Core.SetQuery -> Rebuild -> UI.Refresh) -- an empty query
+    -- is the widest possible rebuild, since nothing is filtered out. Anything that
+    -- raises in there aborts this handler where it stands, and with SetText first
+    -- that abort happens while the box still owns the keyboard, which is exactly
+    -- the reported symptom. Dropping focus first makes releasing the keyboard
+    -- independent of whether the refilter that follows survives.
+    searchBox:SetScript("OnEscapePressed", function(self)
+        self:ClearFocus()
+        self:SetText("")
+    end)
+
+    -- An EditBox hidden while focused keeps the keyboard in 3.3.5a -- it goes on
+    -- swallowing keypresses with nothing on screen to show where they are going.
+    -- The Vault is a Dashboard tab, so it is hidden out from under a focused
+    -- search box every time the player switches tab or closes the window.
+    frame:SetScript("OnHide", function() searchBox:ClearFocus() end)
 
     -- 5px right of the item frame (tablePanel/gridPanel's own left edge,
     -- which sits at PAD + LEFT_W + 12 from frame's left) -- computed here

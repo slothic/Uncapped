@@ -156,7 +156,7 @@ IndexStats()
 
 local TREES = {
     { key = "tempo",   label = "Tempo",
-      note = "Haste is converted to crit damage on this realm, so these four are what actually make you faster. Buy the one your rotation is limited by." },
+      note = "Haste is converted to crit damage on this realm, so these are what actually make you faster. The first four trim the time a cast, swing, cooldown or GCD takes; Multicast skips the time entirely by repeating the cast for free. Buy the one your rotation is limited by." },
     { key = "defence", label = "Defence",
       note = "Inside a keystone your dodge, parry and block are held to a ceiling. These raise your own ceilings -- but the key's depth divides them back down, so investment buys you DEPTH, not immunity." },
     { key = "utility", label = "Utility",

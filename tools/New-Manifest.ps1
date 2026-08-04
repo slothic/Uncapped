@@ -100,10 +100,26 @@ if (Test-Path $ExternalFiles) {
         foreach ($e in $external) {
             if (-not $e.path -or -not $e.url) { continue }
 
-            $cached = Join-Path $ExternalCache ($e.path -replace '[\\/]', '_')
+            # The cache key includes the URL, not just the destination path.
+            #
+            # These used to be pinned to a release tag whose asset name never changed, so
+            # "same path" implied "same bytes". They are now pinned to IMMUTABLE VERSIONED
+            # URLs on our own host (patch-enUS-U-2026.08.04a.MPQ), where one path maps to
+            # many different files over time. Keyed on path alone, publishing a new version
+            # would silently reuse the previous version's cached copy and write the OLD
+            # hash against the NEW url -- a manifest that every client is then guaranteed
+            # to reject, for everyone, at once. Exactly the failure the launcherSha256
+            # comment below describes, and worth spending twelve characters to prevent.
+            $sha = [Security.Cryptography.SHA256]::Create()
+            try {
+                $urlKey = ([BitConverter]::ToString(
+                    $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($e.url))
+                ) -replace '-', '').Substring(0, 12).ToLower()
+            } finally { $sha.Dispose() }
+            $cached = Join-Path $ExternalCache (($e.path -replace '[\\/]', '_') + '.' + $urlKey)
 
-            # Re-download only when absent. These are pinned to release tags, so the bytes
-            # behind a given URL do not change; delete the cache to force a refresh.
+            # Re-download only when absent. A given URL's bytes never change, so a cache
+            # hit is always correct; delete the cache to force a refresh.
             if (-not (Test-Path $cached)) {
                 Write-Host "  downloading $($e.path)..." -ForegroundColor DarkGray
                 $wc.DownloadFile($e.url, $cached)
@@ -112,10 +128,39 @@ if (Test-Path $ExternalFiles) {
             $item = Get-Item $cached
             if ($item.Length -eq 0) { throw "External file $($e.path) downloaded as 0 bytes." }
 
+            # Same reasoning as the zip signature check on archives below: a 403 page, an
+            # nginx 404 body or a truncated transfer is still a file, and would otherwise be
+            # published as a perfectly valid hash of the wrong thing.
+            $sig = [IO.File]::ReadAllBytes($cached)[0..3]
+            if ($sig[0] -ne 0x4D -or $sig[1] -ne 0x50 -or $sig[2] -ne 0x51 -or $sig[3] -ne 0x1A) {
+                throw "External file $($e.path) does not start with the MPQ magic bytes (got $($sig -join ',')). The host probably served an error page."
+            }
+
+            $actualHash = (Get-FileHash $cached -Algorithm SHA256).Hash.ToLower()
+
+            # An entry may pin the hash it expects. publish.sh prints it, so pasting the
+            # snippet it gives you gets this for free. It turns "the host served me
+            # something else" from a silent re-publish into a hard stop.
+            if ($e.PSObject.Properties['sha256'] -and $e.sha256) {
+                if ($e.sha256.ToLower() -ne $actualHash) {
+                    throw @"
+External file $($e.path) does not match the sha256 pinned in external-files.json.
+  pinned   $($e.sha256.ToLower())
+  actual   $actualHash
+  url      $($e.url)
+Either the host is serving different bytes than you published, or the pin is stale.
+Nothing was written.
+"@
+                }
+                Write-Host "    sha256 pin verified" -ForegroundColor DarkGray
+            } else {
+                Write-Warning "  $($e.path) has no sha256 pin in external-files.json - publishing whatever the host served."
+            }
+
             $files += [ordered]@{
                 path   = $e.path
                 url    = $e.url
-                sha256 = (Get-FileHash $cached -Algorithm SHA256).Hash.ToLower()
+                sha256 = $actualHash
                 size   = $item.Length
             }
             Write-Host ("  + {0,-32} {1,6} MB" -f $e.path, [math]::Round($item.Length / 1MB, 1)) -ForegroundColor Green

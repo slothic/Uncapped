@@ -1,22 +1,36 @@
 [
   {
-    "_comment": "WDM dungeon-map patches. Hosted from Trimitor's own releases rather than copied into this repo: 66 MB of binaries would bloat git history permanently, and upstream is the legitimate distribution point. Tags are pinned so a new upstream release cannot change what players get without us deciding to move.",
+    "_comment": "HOSTING: all four archives are now served from the realm's own VPS at http://152.53.115.249/patches/ instead of GitHub releases. URLs are IMMUTABLE and carry the version in the filename -- the bytes behind a URL never change, so a player who started a download an hour ago can resume it safely, and rolling back is repointing at the previous filename (which is still on disk). The path field is what lands in the client and never carries a version: load order depends only on the archive letter. To publish a new version see PUBLISHING-PATCHES.md.",
+    "_comment2": "MIRRORS: M and N are Trimitor's work and are NOT forked -- these are byte-identical copies of his release assets, still pinned to his tags, served from our host so that a deleted release or a dead repo cannot break new installs. The upstream each one came from is recorded in /srv/uncapped-patches/mirrors.tsv on the VPS, and a daily systemd timer (uncapped-mirror-check) reports when upstream ships a newer release carrying the same asset, or replaces the asset behind our pinned tag. Re-mirroring is always a deliberate act.",
+
     "path": "Data/enUS/patch-enUS-M.MPQ",
-    "url": "https://github.com/Trimitor/WDM-patch/releases/download/2.4.5-stable/patch-enUS-M.MPQ"
+    "url": "http://152.53.115.249/patches/patch-enUS-M-wdm2.4.5-stable.MPQ",
+    "sha256": "b69713077e19498d20efa5eeaefdba98850764db6bdc99e292bfbdf7b1c858d6",
+    "_upstream": "https://github.com/Trimitor/WDM-patch/releases/download/2.4.5-stable/patch-enUS-M.MPQ",
+    "_note": "Trimitor's WDM dungeon-map patch. Mirrored, not forked: identical bytes, his tag."
   },
   {
-    "_comment": "The -N archive only ships in beta tags upstream; it is the optional Caverns and Mines (microdungeons) expansion.",
     "path": "Data/enUS/patch-enUS-N.MPQ",
-    "url": "https://github.com/Trimitor/WDM-patch/releases/download/2.4.5-beta/patch-enUS-N.MPQ"
+    "url": "http://152.53.115.249/patches/patch-enUS-N-wdm2.4.5-beta.MPQ",
+    "sha256": "ebb6543ae32c392e1d52d6927d3a059517fb413ec6b152db4f0beaad9a0bbf29",
+    "_upstream": "https://github.com/Trimitor/WDM-patch/releases/download/2.4.5-beta/patch-enUS-N.MPQ",
+    "_note": "Caverns and Mines (microdungeons), the optional half of WDM. Only ships in Trimitor's BETA tags -- the newest tag in that repo is usually a -stable one that does not contain this file at all, which is why the drift checker compares against the newest release carrying this asset rather than the newest release."
   },
   {
-    "_comment": "Mount pack v1: mount models backported from Cata 4.3.4 + MoP 5.4.8 into 3.3.5a (1353 displays / 183 new models), plus patched CreatureModelData.dbc + CreatureDisplayInfo.dbc. Hosted from this repo's own releases, not committed to payload/, to keep ~290 MB of binaries out of git history -- same rationale as the WDM patches above. Tag is pinned so re-releasing under a new tag is a deliberate act.",
     "path": "Data/enUS/patch-enUS-Q.MPQ",
-    "url": "https://github.com/slothic/Uncapped/releases/download/mounts-v1/patch-enUS-Q.MPQ"
+    "url": "http://152.53.115.249/patches/patch-enUS-Q-v1.MPQ",
+    "sha256": "215d7d8e47e56310c450bf5918de442e274f4938464dd70b7dda6f8c47187795",
+    "_upstream": "https://github.com/slothic/Uncapped/releases/download/mounts-v1/patch-enUS-Q.MPQ",
+    "_note": "Mount pack: mount models backported from Cata 4.3.4 + MoP 5.4.8 into 3.3.5a (1353 displays / 183 new models), plus CreatureModelData.dbc and CreatureDisplayInfo.dbc. 298 MB and effectively static. Deliberately NOT folded into the consolidated DBC bundle: merging them would mean re-uploading and re-downloading 298 MB for every one-line DBC tweak. Keeping it separate costs one extra manifest entry and saves that every single release."
   },
   {
-    "_comment": "Client DBC patch (mounts-v6): the consolidated client DBC bundle. (1) Spell.dbc -- all client-side spell edits (GCD tuning etc., formerly payload patch-enUS-Z) + the 565 mount spells (850000-850564) for patch-Q, with the Red Mastiff (850139) at +15% speed. (2) AreaTable.dbc -- clears NO_FLY_ZONE on the 15 Dalaran subareas (restores Dalaran flying, lost when payload patch-Z was retired) and sets AREA_FLAG_OUTLAND on all Eastern Kingdoms + Kalimdor areas. (3) Map.dbc -- maps 0/1 ExpansionID -> 1 so the client permits flight in the old world. Replaces the old payload patch-enUS-Z (which sorted after patch-R and shadowed the mounts). Server loads a matching AreaTable.dbc from its data volume and has the Dalaran restricted-flight spell_area (58600) removed. (5) mounts-v9: AreaTable.dbc sets AREA_FLAG_OUTLAND on the 152 Blood Elf / Draenei areas (Eversong, Ghostlands, Silvermoon, Isle of Quel'Danas, Azuremyst, Bloodmyst, The Exodar and every sub-area) -- they sit on map 530 but resolve to Eastern Kingdoms/Kalimdor, so they fell through old-world flying and the client refused the mount cast. Server side is SpellInfoCorrections.cpp bloodElfDraeneiFlyAreas. Rebuilt by replacing that one DBC inside the v8 archive IN PLACE, never repacked from a file list -- a repack silently drops anything not on the list. (4) mounts-v8: spell 28204 renamed to \"SoulRush\" with a matching icon and buff tooltip -- it is the carrier aura for the Clearstreak system, whose name and icon can only come from the client's Spell.dbc.",
-    "path": "Data/enUS/patch-enUS-R.MPQ",
-    "url": "https://github.com/slothic/Uncapped/releases/download/mounts-v9/patch-enUS-R.MPQ"
+    "_comment": "THE consolidated client patch -- the only archive we rebuild. Carries every DBC the client needs from us, in one file, loaded after M/N/Q so it wins any DBC they also provide.",
+    "_history": "2026-08-04: replaces patch-enUS-R (Spell/AreaTable/Map), patch-enUS-S (LightFloatBand, fog) and patch-enUS-4 (Item.dbc), and retires patch-enUS-5 -- which was inert, every spell id in it already being in R, and R winning load order anyway. Built by ADDING Item.dbc and LightFloatBand.dbc to a copy of R rather than repacking from a file list; a repack silently drops anything not on the list. Verified by hashing the effective post-load-order view of the whole patch stack before and after: 5756 reachable entries both sides, 0 lost, 0 changed, all 12 DBCs byte-identical.",
+    "_letter": "U, not R. It has to sort after every archive it replaces -- and -S sorted AFTER -R. Reusing R would mean a client that had not yet pruned its old -S would load S's LightFloatBand.dbc over the consolidated one. Identical bytes today, so it would look fine; the day we change the fog it would silently serve the old fog instead. A letter past S cannot have that problem. V-Z stay free for a hotfix archive that needs to override this one.",
+    "_contents": "DBFilesClient\\Spell.dbc, AreaTable.dbc, Map.dbc, Item.dbc, LightFloatBand.dbc",
+
+    "path": "Data/enUS/patch-enUS-U.MPQ",
+    "url": "http://152.53.115.249/patches/patch-enUS-U-2026.08.04a.MPQ",
+    "sha256": "d64192379592d51ab85e4f3b2be9e03a279430151ecfa2de44d568842884fce0"
   }
 ]

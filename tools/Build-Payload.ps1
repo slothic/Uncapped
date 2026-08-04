@@ -223,9 +223,50 @@ if (Test-Path $externalManifest) {
                ForEach-Object { Split-Path $_.path -Leaf })
 }
 
+# Archives that have been CONSOLIDATED AWAY and must never ship again.
+#
+# These are not "not ours" like $stock -- they were ours, their contents now live
+# in patch-enUS-U, and shipping them alongside U would re-create exactly the
+# split we just removed. patch-enUS-S is the dangerous one: it sorts AFTER R and
+# would still override a DBC that U now owns.
+#
+# This list exists because the glob reads the working client's Data folder. A
+# copy of one of these left lying around on the build machine would otherwise be
+# picked up and re-published silently, undoing the consolidation with nothing to
+# notice. Named and reported rather than quietly filtered, so the reason is
+# visible in the build output.
+$retiredPatches = [ordered]@{
+    'patch-enUS-4.mpq' = 'Item.dbc -> folded into patch-enUS-U (2026-08-04)'
+    'patch-enUS-5.MPQ' = 'inert: every spell id already in R/U, which won load order anyway (2026-08-04)'
+    'patch-enUS-S.MPQ' = 'LightFloatBand.dbc (fog) -> folded into patch-enUS-U (2026-08-04)'
+    'patch-enUS-R.MPQ' = 'Spell/AreaTable/Map.dbc -> folded into patch-enUS-U (2026-08-04)'
+}
+
+# Excluding them from the copy is not enough on its own: a build WITHOUT -Clean
+# reuses the existing payload tree, so a retired archive staged by an earlier
+# build is still sitting there and would still ship. Remove it from the payload
+# too, so the guard holds no matter how the script is invoked.
+foreach ($name in $retiredPatches.Keys) {
+    $stale = Join-Path $dataOut $name
+    if (Test-Path $stale) {
+        Remove-Item $stale -Force
+        Write-Host "  - $name removed from payload (retired: $($retiredPatches[$name]))" -ForegroundColor Yellow
+    }
+}
+
 if (Test-Path $clientData) {
-    $custom = Get-ChildItem $clientData -Filter 'patch-enUS-*.mpq' -File |
+    $found  = Get-ChildItem $clientData -Filter 'patch-enUS-*.mpq' -File |
               Where-Object { $stock -notcontains $_.Name }
+
+    $custom = @()
+    foreach ($p in $found) {
+        $retiredKey = $retiredPatches.Keys | Where-Object { $_ -eq $p.Name }
+        if ($retiredKey) {
+            Write-Host "  - $($p.Name) (retired: $($retiredPatches[$retiredKey]))" -ForegroundColor Yellow
+            continue
+        }
+        $custom += $p
+    }
 
     if ($custom) {
         foreach ($p in $custom) {
