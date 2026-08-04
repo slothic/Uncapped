@@ -49,7 +49,7 @@ button:SetScript("OnLeave", function() GameTooltip:Hide() end)
 button:SetScript("OnClick", function(self)
     self:Disable()
     self:SetText("Landing...")
-    SendAddonMessage("REAGENTBANK", "RBTAXICANCEL:0", "WHISPER", UnitName("player"))
+    SendAddonMessage("REAGENTBANK", "UTAXICANCEL:0", "WHISPER", UnitName("player"))
 end)
 
 local function ResetButton()
@@ -85,11 +85,11 @@ watcher:SetScript("OnUpdate", function(self, delta)
 end)
 
 -- The reply rides the player's personal channel, which is a data pipe -- hide
--- it so "RBTAXI:1:Stormwind" never appears in chat. Registered here rather than
+-- it so "UTAXI:1:Stormwind" never appears in chat. Registered here rather than
 -- relying on ReagentBankCraft's filter, since the two addons are independent
 -- and either can be absent.
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and msg:find("^RBTAXI:") then
+    if msg and msg:find("^UTAXI:") then
         return true
     end
     return false
@@ -98,7 +98,7 @@ end)
 -- Prefix for the whole server->client pipe (see the transport note below).
 local ADDON_PIPE_PREFIX = "UNC"
 
--- Server reply: RBTAXI:<1|0>:<flight master name>
+-- Server reply: UTAXI:<1|0>:<flight master name>
 local listener = CreateFrame("Frame")
 listener:RegisterEvent("CHAT_MSG_CHANNEL")
 listener:RegisterEvent("CHAT_MSG_ADDON")
@@ -125,7 +125,7 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         return
     end
 
-    local ok, where = text:match("^RBTAXI:(%d):(.*)$")
+    local ok, where = text:match("^UTAXI:(%d):(.*)$")
     if not ok then
         return
     end

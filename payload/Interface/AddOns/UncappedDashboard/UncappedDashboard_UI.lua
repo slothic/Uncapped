@@ -88,6 +88,52 @@ local function BuildDashboardGroup(group)
         end)
         y = y - 26
     end
+
+    -- Combat text threshold. Unlike the toggles above, this one is LIVE.
+    --
+    -- The value belongs to Uncapped64bitUI, which owns the floaters, and is read
+    -- and written through its UncappedFCT_* API rather than its SavedVariables --
+    -- so this keeps working if that addon changes how it stores things.
+    --
+    -- The whole section is skipped when the API is absent, which also covers load
+    -- order: no hard dependency is declared, so Uncapped64bitUI may genuinely not
+    -- be present. A missing row beats a broken tab.
+    if UncappedFCT_GetHideUnder then
+        y = y - 10
+        UncappedUIKit.CreateText(group, "title", "TOPLEFT", group, "TOPLEFT", PAD, y, "Combat Text")
+        y = y - 30
+
+        local label = UncappedUIKit.CreateText(group, "highlightSmall", "TOPLEFT", group, "TOPLEFT", PAD, y - 6,
+            "Hide hits under")
+        label:SetWidth(110)
+        label:SetJustifyH("LEFT")
+
+        local box = UncappedUIKit.CreateValueBox(group, 90, 24, "off")
+        box:SetPoint("TOPLEFT", group, "TOPLEFT", PAD + 116, y)
+
+        local hint = UncappedUIKit.CreateText(group, "disableSmall", "TOPLEFT", group, "TOPLEFT", PAD + 214, y - 6,
+            "e.g. 500m -- blank or 0 shows everything")
+        hint:SetWidth(240)
+        hint:SetJustifyH("LEFT")
+
+        local function show()
+            local cur = UncappedFCT_GetHideUnder()
+            box:SetValue(cur > 0 and UncappedFCT_Abbrev(cur) or "")
+        end
+        show()
+
+        box.OnCommit = function(text)
+            -- Empty means "off", friendlier than making someone type a 0.
+            if (text or ""):match("^%s*$") then text = "0" end
+            if not UncappedFCT_SetHideUnder(text) then
+                return false   -- rejected; CreateValueBox reverts to the last good value
+            end
+            show()             -- re-render through Abbrev, so "500000000" comes back as "500.00M"
+            return true
+        end
+
+        y = y - 30
+    end
 end
 
 local function BuildContent()

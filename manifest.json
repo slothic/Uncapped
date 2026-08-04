@@ -1444,8 +1444,8 @@
                   {
                       "path":  "Interface/AddOns/ReagentBankCraft/ReagentBankCraft.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/ReagentBankCraft/ReagentBankCraft.lua",
-                      "sha256":  "f7eb3ca8ec22ad3e19d0edc198b96fc86d32871763194aa4c3211ab881ddde05",
-                      "size":  16451
+                      "sha256":  "2148d13676c0092e72089e3033f5827d1a4dacfcb694fb50ae4da1d6346b817f",
+                      "size":  16422
                   },
                   {
                       "path":  "Interface/AddOns/ReagentBankCraft/ReagentBankCraft.toc",
@@ -1648,8 +1648,8 @@
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
-                      "sha256":  "25130c7473887b83c0baae0ca5d2fc8c00fcbde063ae86f15e3e608df1484d63",
-                      "size":  70467
+                      "sha256":  "9d90afb78275566c6d4ceed61e591eea5d696a4f49de09efef1cc6d895a223fd",
+                      "size":  94063
                   },
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.toc",
@@ -1738,14 +1738,14 @@
                   {
                       "path":  "Interface/AddOns/UncappedAlerts/TaxiCancel.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedAlerts/TaxiCancel.lua",
-                      "sha256":  "07f2ca0d15108da65bd8eb511a472a0d0af41fae826d28872608b41117fd038b",
-                      "size":  5091
+                      "sha256":  "4895c7bd42bcefa073b708d5ce910592faa78a8a95367f75b3737b0e11687aa8",
+                      "size":  5086
                   },
                   {
                       "path":  "Interface/AddOns/UncappedAlerts/UncappedAlerts.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedAlerts/UncappedAlerts.lua",
-                      "sha256":  "b7a4c73e326d33638a6525de44d98283930431f0d3fc7c09f26d470e2bdeefd1",
-                      "size":  24798
+                      "sha256":  "dc251405617e3ce353e51df1d7b0bbcb782efd14cc3872be9900012c1754839d",
+                      "size":  24787
                   },
                   {
                       "path":  "Interface/AddOns/UncappedAlerts/UncappedAlerts.toc",
@@ -1810,8 +1810,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedDashboard_UI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedDashboard_UI.lua",
-                      "sha256":  "9702083adfcc7615cd3626c0458bed8655eabf9fcc2945ff7b3d8dc39c1d8b85",
-                      "size":  8001
+                      "sha256":  "7f30cf089bde5c1dccfe861afade421ec4ccd5907fd176e83a3491b517886829",
+                      "size":  10023
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedAnima/UncappedAnima.lua",
@@ -1822,8 +1822,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedForge/UncappedForge.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedForge/UncappedForge.lua",
-                      "sha256":  "1e13fc4f54dd673e2ceb04219a4adcf858fd9085c05ba073f02baeb03b405921",
-                      "size":  83286
+                      "sha256":  "af0d6071f5c665ae68b632796272f7db550be6e11c5f5750e344b75474faa524",
+                      "size":  83275
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedScrolls/UncappedScrolls.lua",
@@ -1876,8 +1876,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedHotzones/UncappedHotzones.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedHotzones/UncappedHotzones.lua",
-                      "sha256":  "8034383580dc935ae464f5971b1146f1f3c3c651408fa1ed7b68d1ad79c317d2",
-                      "size":  12133
+                      "sha256":  "b24a1e4e5157bf3846311cdf901a1da1f9c5b4c2047e1b25622ff8952e666f5d",
+                      "size":  12125
                   },
                   {
                       "path":  "Interface/AddOns/UncappedHotzones/UncappedHotzones.toc",
@@ -1886,10 +1886,22 @@
                       "size":  307
                   },
                   {
+                      "path":  "Interface/AddOns/UncappedLootFeed/UncappedLootFeed.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedLootFeed/UncappedLootFeed.lua",
+                      "sha256":  "6ebbfafd8c3ff1696b43d26819847ff12b8243320e016f4c93f63c93f4deb355",
+                      "size":  11827
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedLootFeed/UncappedLootFeed.toc",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedLootFeed/UncappedLootFeed.toc",
+                      "sha256":  "f40e64199512f687b8a2a69d29f7b051d818169ccbc7d21ec25f66ac203b6ac8",
+                      "size":  315
+                  },
+                  {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/UncappedMythic.lua",
-                      "sha256":  "4846d6c1be5ed184dd4c951daab8aad1476f1c12414cd16f04ed874155d65b08",
-                      "size":  57438
+                      "sha256":  "0663e01449d71dee88b38ec8d472c737f6b7c31f63be8db866b89979b6504132",
+                      "size":  59324
                   },
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.toc",
@@ -2080,8 +2092,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedRewards/UncappedRewards.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedRewards/UncappedRewards.lua",
-                      "sha256":  "707376d66a5b74a7fa8e78db8c3f97160a64a80ce0df74dc69c4bbbbf78aed8b",
-                      "size":  16352
+                      "sha256":  "b7875bde893b3c29767dd7e36a44430ee3b002ae9451220e8ae8228fda641cc0",
+                      "size":  16340
                   },
                   {
                       "path":  "Interface/AddOns/UncappedRewards/UncappedRewards.toc",
@@ -2146,8 +2158,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedUI/Controls/EditBox.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Controls/EditBox.lua",
-                      "sha256":  "edb6fcc481763977e205c8aaad91e6be96ff48523f1192d8147e6ee25933fd23",
-                      "size":  1489
+                      "sha256":  "cb125bb20ab3a319b5b0b76b00b89840f39b78b7ababb07095153fc158a489dc",
+                      "size":  3654
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Controls/ScrollFrame.lua",
@@ -2206,7 +2218,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "9544365d6bc0eb0b580572be28f014a03430aae9e95cd4f093d6ef4959983da0",
+                      "sha256":  "6a3442fced3da4f4090efecd177a80a54a4233766fc392b575583506df2569d8",
                       "size":  3695
                   },
                   {

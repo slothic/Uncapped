@@ -4,9 +4,9 @@
 -- currently-active Mythic+ hotzones: RAIDS in red, DUNGEONS in cyan, each with a
 -- live "time left" countdown.
 --
--- The server pushes the list on the player's personal channel (RBHOT) on login
+-- The server pushes the list on the player's personal channel (UHOT) on login
 -- and every ~15s (so it also picks up the hourly rotation); the countdown is
--- ticked down locally between pushes. The RBHOT lines are filtered out of chat.
+-- ticked down locally between pushes. The UHOT lines are filtered out of chat.
 
 -- ---------------------------------------------------------------------------
 -- Settings. Live values live in `db`; they are persisted to the account-wide
@@ -151,10 +151,10 @@ local function ApplyBar()
     end
 end
 
--- RBHOT:<name>~<kind>~<remaining>|<name>~<kind>~<remaining>   (payload may be empty)
+-- UHOT:<name>~<kind>~<remaining>|<name>~<kind>~<remaining>   (payload may be empty)
 local function OnData(payload, append)
     -- The server chunks the list across messages (255-byte pipe cap): the first
-    -- "RBHOT:" resets, each following "RBHOT+:" appends. Only reset on the first.
+    -- "UHOT:" resets, each following "UHOT+:" appends. Only reset on the first.
     if not append then zones = {} end
     local now = GetTime()
     for chunk in payload:gmatch("[^|]+") do
@@ -182,7 +182,7 @@ end
 
 -- Keep the protocol line out of chat.
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and msg:find("^RBHOT") then
+    if msg and msg:find("^UHOT") then
         return true
     end
     return false
@@ -239,12 +239,12 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         return
     end
 
-    local payload = msg:match("^RBHOT:(.*)$")
+    local payload = msg:match("^UHOT:(.*)$")
     if payload ~= nil then
         OnData(payload, false)   -- first message: reset the list
         return
     end
-    local more = msg:match("^RBHOT%+:(.*)$")
+    local more = msg:match("^UHOT%+:(.*)$")
     if more ~= nil then
         OnData(more, true)       -- continuation: append to the list
     end

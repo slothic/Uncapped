@@ -4,15 +4,15 @@
 -- at login, built earlier this session for loot notifications) instead of
 -- fighting the client's compiled-in local reagent check on the TradeSkill
 -- window. Flow:
---   1. Click "Withdraw Bank Mats" -> sends RBWITHDRAWALL:<spellId>
+--   1. Click "Withdraw Bank Mats" -> sends UWITHDRAWALL:<spellId>
 --   2. Server withdraws everything in the reagent bank for that recipe's
---      reagents into your real bags, replies RBWITHDRAWN:<spellId>
+--      reagents into your real bags, replies UWITHDRAWN:<spellId>
 --   3. Addon catches that reply and refreshes the recipe display, so the
 --      REAL "Create"/"Create All" buttons naturally become enabled, since
 --      the reagents are genuinely, physically in your bags now
 --   4. Craft normally with the real buttons -- no further addon
 --      involvement needed for the craft itself
---   5. Closing the TradeSkill window sends RBREDEPOSITALL:<spellId> ->
+--   5. Closing the TradeSkill window sends UREDEPOSITALL:<spellId> ->
 --      server redeposits whatever's left of what IT withdrew (never more
 --      than that, so materials you had beforehand or gathered separately
 --      are never touched)
@@ -23,7 +23,7 @@
 -- the like). Gathered materials cannot be bought and are reported instead.
 -- Bought mats go to bags, overflowing to the reagent bank if bags are full.
 --
--- The RBWITHDRAWN:/RBREDEPOSITED:/RBQUOTE:/RBBOUGHT: replies travel over the
+-- The UWITHDRAWN:/UREDEPOSITED:/UQUOTE:/UBOUGHT: replies travel over the
 -- same channel used for loot notifications, so they're filtered out of chat
 -- display entirely (see the ChatFrame_AddMessageEventFilter call below) --
 -- purely a data channel, nothing for the player to see.
@@ -98,13 +98,13 @@ function ReagentBankCraft_Send(command)
     SendAddonMessage("REAGENTBANK", command, "WHISPER", UnitName("player"))
 end
 
--- Hides our protocol replies (RBWITHDRAWN:/RBREDEPOSITED:/RBMAX:) from
+-- Hides our protocol replies (UWITHDRAWN:/UREDEPOSITED:/UMAX:) from
 -- ever displaying in any chat window, while still letting the
 -- CHAT_MSG_CHANNEL event fire normally so our own handler below still
 -- receives and processes it.
 local function ReagentBankChatFilter(self, event, msg, ...)
-    if msg:find("^RBWITHDRAWN:") or msg:find("^RBREDEPOSITED:") or msg:find("^RBMAX:")
-        or msg:find("^RBQUOTE:") or msg:find("^RBBOUGHT:") or msg:find("^RBBUYFAIL:")
+    if msg:find("^UWITHDRAWN:") or msg:find("^UREDEPOSITED:") or msg:find("^UMAX:")
+        or msg:find("^UQUOTE:") or msg:find("^UBOUGHT:") or msg:find("^UBUYFAIL:")
         then
         return true
     end
@@ -150,7 +150,7 @@ StaticPopupDialogs["REAGENTBANK_BUY_COUNT"] = {
         local spellId = ReagentBankCraft_GetSelectedRecipeSpellId()
         if spellId then
             ReagentBankCraft_PendingBuy = { spellId = spellId, count = count }
-            ReagentBankCraft_Send("RBBUYQUOTE:" .. spellId .. ":" .. count)
+            ReagentBankCraft_Send("UBUYQUOTE:" .. spellId .. ":" .. count)
         end
     end,
     EditBoxOnEnterPressed = function(self)
@@ -174,7 +174,7 @@ StaticPopupDialogs["REAGENTBANK_BUY_CONFIRM"] = {
     OnAccept = function()
         local pending = ReagentBankCraft_PendingBuy
         if pending then
-            ReagentBankCraft_Send("RBBUY:" .. pending.spellId .. ":" .. pending.count)
+            ReagentBankCraft_Send("UBUY:" .. pending.spellId .. ":" .. pending.count)
             ReagentBankCraft_PendingBuy = nil
         end
     end,
@@ -234,7 +234,7 @@ local function OnEvent(self, event, ...)
             local spellId = ReagentBankCraft_GetSelectedRecipeSpellId()
             if spellId then
                 lastWithdrawnSpellId = spellId
-                ReagentBankCraft_Send("RBWITHDRAWALL:" .. spellId)
+                ReagentBankCraft_Send("UWITHDRAWALL:" .. spellId)
             end
         end)
 
@@ -275,7 +275,7 @@ local function OnEvent(self, event, ...)
         -- OnHide fires for all of these).
         TradeSkillFrame:HookScript("OnHide", function()
             if lastWithdrawnSpellId then
-                ReagentBankCraft_Send("RBREDEPOSITALL:" .. lastWithdrawnSpellId)
+                ReagentBankCraft_Send("UREDEPOSITALL:" .. lastWithdrawnSpellId)
                 lastWithdrawnSpellId = nil
             end
         end)
@@ -306,9 +306,9 @@ local function OnEvent(self, event, ...)
             return
         end
 
-        -- RBQUOTE:<spellId>:<copper>:<kindsToBuy>:<kindsUnbuyable>
-        if text:find("^RBQUOTE:") then
-            local _, cost, kinds, unbuyable = text:match("^RBQUOTE:(%d+):(%d+):(%d+):(%d+)$")
+        -- UQUOTE:<spellId>:<copper>:<kindsToBuy>:<kindsUnbuyable>
+        if text:find("^UQUOTE:") then
+            local _, cost, kinds, unbuyable = text:match("^UQUOTE:(%d+):(%d+):(%d+):(%d+)$")
             cost, kinds, unbuyable = tonumber(cost) or 0, tonumber(kinds) or 0, tonumber(unbuyable) or 0
 
             if kinds == 0 then
@@ -331,9 +331,9 @@ local function OnEvent(self, event, ...)
             return
         end
 
-        -- RBBOUGHT:<spellId>:<copper>:<kindsDelivered>:<kindsUnbuyable>
-        if text:find("^RBBOUGHT:") then
-            local _, cost, delivered = text:match("^RBBOUGHT:(%d+):(%d+):(%d+):(%d+)$")
+        -- UBOUGHT:<spellId>:<copper>:<kindsDelivered>:<kindsUnbuyable>
+        if text:find("^UBOUGHT:") then
+            local _, cost, delivered = text:match("^UBOUGHT:(%d+):(%d+):(%d+):(%d+)$")
             DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[Reagent Bank]|r Bought "
                 .. (tonumber(delivered) or 0) .. " reagent type(s) for " .. FormatMoney(cost) .. ".")
             -- Refresh so the real Create button re-evaluates with the new mats.
@@ -343,8 +343,8 @@ local function OnEvent(self, event, ...)
             return
         end
 
-        if text:find("^RBBUYFAIL:") then
-            local reason = text:match("^RBBUYFAIL:%d+:(%a+)$")
+        if text:find("^UBUYFAIL:") then
+            local reason = text:match("^UBUYFAIL:%d+:(%a+)$")
             if reason == "money" then
                 DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[Reagent Bank]|r You cannot afford those reagents.")
             else
@@ -354,7 +354,7 @@ local function OnEvent(self, event, ...)
             return
         end
 
-        if text:find("^RBWITHDRAWN:") then
+        if text:find("^UWITHDRAWN:") then
             -- Refresh the reagent/button display now that items have
             -- actually arrived, so the real Create button re-evaluates
             -- and becomes enabled on its own.

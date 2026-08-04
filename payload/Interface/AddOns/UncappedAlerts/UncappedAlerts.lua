@@ -3,7 +3,7 @@
 -- Warns when the server announces a restart, and closes the game when -- and
 -- only when -- the restart ships a new client payload.
 --
--- TWO MODES. The server tells us which one applies (RBMODE:U / RBMODE:N):
+-- TWO MODES. The server tells us which one applies (UMODE:U / UMODE:N):
 --
 --   update    The launcher can only replace addon and patch files while WoW is
 --             closed. A player who sits on the "disconnected" dialog through
@@ -55,7 +55,7 @@ local elapsed = 0
 -- an already-open page so the checkbox/slider never show a stale value.
 local RefreshAlertsPanel = nil
 
--- Set from the server's RBMODE line. Not saved between sessions: it describes
+-- Set from the server's UMODE line. Not saved between sessions: it describes
 -- one specific restart, and a stale value from last week is worse than the
 -- default.
 local restartNeedsUpdate = true
@@ -298,7 +298,7 @@ local function MinimiseRestartUI()
 end
 
 -- Repaint everything that depends on the mode. Called both when the window
--- opens and when a late RBMODE line arrives mid-countdown, so the wording can
+-- opens and when a late UMODE line arrives mid-countdown, so the wording can
 -- never disagree with what is about to happen.
 local function ApplyPopupMode()
     if not restartWindow then
@@ -442,9 +442,9 @@ frame:SetScript("OnUpdate", function(self, delta)
 end)
 
 -- Server -> client lines on the addon channel:
---   RBMODE:U / RBMODE:N   sent when a countdown starts; says whether this
+--   UMODE:U / UMODE:N   sent when a countdown starts; says whether this
 --                         restart ships a new payload.
---   RBQUIT:<seconds>      sent a few seconds before the world goes down, in
+--   UQUIT:<seconds>      sent a few seconds before the world goes down, in
 --                         update mode only. Authoritative: it carries the real
 --                         remaining time and needs no text parsing, unlike the
 --                         built-in countdown which the client renders itself
@@ -452,7 +452,7 @@ end)
 --
 -- Filtered out of chat so they are never visible.
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and (msg:find("^RBQUIT:") or msg:find("^RBMODE:")) then
+    if msg and (msg:find("^UQUIT:") or msg:find("^UMODE:")) then
         return true
     end
     return false
@@ -487,7 +487,7 @@ quitListener:SetScript("OnEvent", function(self, event, a1, a2)
         return
     end
 
-    local mode = text:match("^RBMODE:(%a)$")
+    local mode = text:match("^UMODE:(%a)$")
     if mode then
         restartNeedsUpdate = (mode == "U")
         -- A countdown may already be running off the chat announcement, so
@@ -497,7 +497,7 @@ quitListener:SetScript("OnEvent", function(self, event, a1, a2)
         return
     end
 
-    if not text:match("^RBQUIT:(%d+)$") then
+    if not text:match("^UQUIT:(%d+)$") then
         return
     end
 

@@ -5,9 +5,9 @@
 -- Blizzard's own bar text suppressed so nothing flashes in behind ours.
 --
 -- Wire (personal channel, filtered out of chat):
---   RBHP:S:<realCur>:<realMax>                     -- the player themselves
---   RBHP:T:<realCur>:<realMax>:<visMax>:<stacks>   -- current target (may be a boss)
---   RBHP:U:<guidLow>:<realCur>:<realMax>           -- a group member (party/raid)
+--   UHP:S:<realCur>:<realMax>                     -- the player themselves
+--   UHP:T:<realCur>:<realMax>:<visMax>:<stacks>   -- current target (may be a boss)
+--   UHP:U:<guidLow>:<realCur>:<realMax>           -- a group member (party/raid)
 --
 -- Health is proxied on the wire (proxy% == real%), so we reconstruct real from
 -- the native bar: real = (nativeCur/nativeMax) * realMax. Power is NOT proxied
@@ -59,7 +59,11 @@ local HEALTH_PROXY_BUDGET = 2000000000
 -- Truncated/abbreviated: 1234 -> 1.2k, 2.8m, 4.53b, 9.99t. Shared by HP,
 -- damage, and stat displays so everything reads the same way.
 local function Abbrev(n)
-    if n >= 1e12 then return string.format("%.2fT", n / 1e12) end
+    -- No decimals from trillions up. At that scale the fraction is noise: nobody
+    -- acts differently on 522.44T than on 522T, and the extra characters cost
+    -- width on a health bar that is already tight. Below T they still earn their
+    -- place, because 1.2B vs 1.9B is a real difference to read at a glance.
+    if n >= 1e12 then return string.format("%dT", math.floor(n / 1e12 + 0.5)) end
     if n >= 1e9  then return string.format("%.2fB", n / 1e9)  end
     if n >= 1e6  then return string.format("%.2fM", n / 1e6)  end
     if n >= 1e3  then return string.format("%.1fK", n / 1e3)  end
@@ -75,68 +79,66 @@ local ShowRealHeal
 -- (referenced by the ADDON_LOADED handler and slash commands above them).
 local InitSavedVars
 local RefreshOptionsPanel
+local ApplyStatusTextDefaults
 
 -- ---------------------------------------------------------------------------
--- Overlay font strings, anchored to (and hidden with) a status bar.
+-- Bar text: wrap Blizzard's formatter instead of overlaying it.
 -- ---------------------------------------------------------------------------
-local function MakeLabel(anchor)
-    if not anchor then return nil end
-    local f = CreateFrame("Frame", nil, anchor)
-    -- Stay in the anchor's strata (a unit-frame bar, normally MEDIUM) rather than
-    -- forcing HIGH. Forcing a strata lifted the label out of the unit-frame layer,
-    -- so the HP text kept drawing on top of the world map, static-popup dialogs and
-    -- other higher-strata UI. Matching the anchor's strata and only bumping the
-    -- frame level keeps the text above the bar's own art while still being covered
-    -- by the map and dialogs exactly like the unit frame it annotates.
-    f:SetFrameStrata(anchor:GetFrameStrata())
-    f:SetFrameLevel(anchor:GetFrameLevel() + 5)
-    f:SetAllPoints(anchor)
-    local fs = f:CreateFontString(nil, "OVERLAY")
-    fs:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
-    fs:SetPoint("CENTER", anchor, "CENTER", 0, 0)
-    fs:SetTextColor(1, 1, 1)
-    fs:SetText("")
-    return fs
+-- This used to build our own FontString over every bar, blank Blizzard's, and
+-- re-hide it each time it tried to Show -- three mechanisms fighting the default
+-- UI for the same pixels, all of which had to be re-applied whenever a frame was
+-- created or recycled (hence the SuppressBlizzardText calls scattered through the
+-- event handler).
+--
+-- Blizzard already repaints every unit-frame bar's text through a single
+-- function, TextStatusBar_UpdateTextString, on exactly the events that change the
+-- value. Post-hooking that and rewriting the digits in place gets the same result
+-- with none of the fighting: Blizzard keeps ownership of layout, font, colour,
+-- anchoring and the statusText CVar modes, and we substitute only the number.
+--
+-- Three things fall out of this for free:
+--   * every bar Blizzard drives is covered -- target, focus, pet, raid, boss --
+--     not just the six frames the old hardcoded UNITS table listed;
+--   * third-party unit frames built on the stock template work too;
+--   * the 10Hz driver goes away, because Blizzard's own event cadence is already
+--     the right one (see the note where the driver used to be).
+--
+-- hooksecurefunc is a post-hook, so none of this taints the secure path.
+
+-- The bar's unit token. Blizzard sets .unit on unit-frame bars in
+-- UnitFrame_Initialize; fall back to the parent's unit for bars belonging to a
+-- custom frame built from the same template.
+local function BarUnit(bar)
+    if bar.unit then return bar.unit end
+    local p = bar.GetParent and bar:GetParent()
+    return p and p.unit or nil
 end
 
--- Suppress a Blizzard status-bar's own text so it can't clash with ours.
-local function SuppressBarText(bar)
-    if not bar then return end
+-- The FontString a bar paints its value into. Most bars carry it as .TextString,
+-- but some only have the globally-named one the template creates ("<bar>Text"),
+-- so both are tried -- the overlay code this replaced made the same allowance and
+-- dropping it would silently skip those bars.
+local function BarTextString(bar)
     local fs = bar.TextString
     if not fs and bar.GetName and bar:GetName() then
         fs = _G[bar:GetName() .. "Text"]
     end
-    if not fs then return end
-    fs:SetText("")
-    fs:Hide()
-    if not fs.__uncapped64Hidden then
-        fs.__uncapped64Hidden = true
-        hooksecurefunc(fs, "Show", function(self) self:Hide() end)  -- post-hook, no taint
-    end
+    return fs
 end
 
--- ---------------------------------------------------------------------------
--- The frames we decorate: unit token + its health bar + its power bar.
--- ---------------------------------------------------------------------------
-local UNITS = {
-    { unit = "player", hp = PlayerFrameHealthBar,       pp = PlayerFrameManaBar },
-    { unit = "target", hp = TargetFrameHealthBar,       pp = TargetFrameManaBar },
-    { unit = "party1", hp = PartyMemberFrame1HealthBar, pp = PartyMemberFrame1ManaBar },
-    { unit = "party2", hp = PartyMemberFrame2HealthBar, pp = PartyMemberFrame2ManaBar },
-    { unit = "party3", hp = PartyMemberFrame3HealthBar, pp = PartyMemberFrame3ManaBar },
-    { unit = "party4", hp = PartyMemberFrame4HealthBar, pp = PartyMemberFrame4ManaBar },
-}
-
-for _, e in ipairs(UNITS) do
-    e.hpLabel = MakeLabel(e.hp)
-    e.ppLabel = MakeLabel(e.pp)
-end
-
-local function SuppressBlizzardText()
-    for _, e in ipairs(UNITS) do
-        SuppressBarText(e.hp)
-        SuppressBarText(e.pp)
+-- Is this the parent frame's HEALTH bar rather than its power bar? Both are
+-- painted by the same formatter, but only health is proxied, so only health needs
+-- substituting -- power still fits 32-bit and Blizzard's own text is correct.
+local function IsHealthBar(bar)
+    local p = bar.GetParent and bar:GetParent()
+    if p then
+        if p.healthbar == bar then return true end
+        if p.manabar == bar then return false end
     end
+    -- Custom frame: fall back on the name, which the stock template derives from
+    -- the parent ("...HealthBar" / "...ManaBar").
+    local n = bar.GetName and bar:GetName()
+    return n ~= nil and n:find("HealthBar") ~= nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -145,6 +147,21 @@ end
 local selfData   = nil   -- { max }
 local targetData = nil   -- { max, visMax, stacks }
 local byGuid     = {}    -- [guidLow] = { max }   (group members)
+
+-- [absorb] Remaining shield on the player and on the current target, from UABS.
+--
+-- Server-fed and not derivable here: 3.3.5a has no client API for remaining
+-- absorb at all (UnitAura gives duration and stacks, never the amount), so
+-- unlike health there is no "the client already knows" case -- if the feed is
+-- silent, we genuinely do not know, and show nothing rather than guess.
+local absorbSelf, absorbTarget = 0, 0
+
+-- [spell tooltips] Server-computed damage per spell, keyed by spellId, plus the
+-- set already asked about so a hover storm sends one request rather than one per
+-- frame. Declared up here because the channel handler (above the tooltip code)
+-- writes into them. Both are wiped on a gear change -- see spellDmgWatcher.
+local spellDmgCache = {}
+local spellDmgAsked = {}
 
 -- What we last knew about a unit's real HP, keyed by full GUID string.
 --
@@ -184,19 +201,51 @@ local function RememberTargetHp(d)
 end
 
 -- Player GUIDs carry no high bits, so the full 0x-hex string parses to the low
--- counter -- the same number the server sends in RBHP:U.
+-- counter -- the same number the server sends in UHP:U.
 local function GuidLow(unit)
     local g = UnitGUID(unit)
     if not g then return nil end
     return tonumber(string.sub(g, 3), 16)
 end
 
+-- Unit tokens that can be showing another player from the UHP:U feed. Used to
+-- turn a GUID-keyed update back into the frames that need repainting. Party
+-- frames only: raid frames are not driven by the stock unit-frame formatter, so
+-- there is nothing here for them to refresh.
+local GROUP_UNITS = { "party1", "party2", "party3", "party4", "target", "focus" }
+
+-- The client's own max-health field, but ONLY when it is provably the real
+-- number rather than a proxy.
+--
+-- HealthProxyOf returns the value UNCHANGED whenever the real max fits under
+-- HEALTH_PROXY_BUDGET, and above it pins the visible max to exactly the budget.
+-- So a visible max STRICTLY below the budget is not a proxy at all: it IS the
+-- real figure, already here, the instant the unit exists -- which covers
+-- essentially everything anyone meets outside a deep keystone.
+--
+-- "Strictly" carries weight. A visible max of exactly the budget is ambiguous:
+-- it is either a unit whose real max happens to land there, or ANY saturated
+-- unit whatsoever. That case is not trusted, and the feed answers instead.
+--
+-- This applies to PLAYERS too. An earlier version excluded them, believing player
+-- health to be "proxied regardless of size". SetRealMaxHealth says otherwise --
+-- below the budget it writes the real value into the proxy field verbatim, for
+-- players exactly as for creatures. That mistaken exclusion is the whole reason
+-- the server still had to send a line for every unsaturated player in the group.
+local function NativeMaxIfExact(unit)
+    local vmax = UnitHealthMax(unit)
+    if vmax and vmax > 0 and vmax < HEALTH_PROXY_BUDGET then return vmax end
+    return nil
+end
+
 local function HpInfoFor(unit)
     if unit == "player" then
         if selfData then return selfData.max, 0, nil end
+        local vmax = NativeMaxIfExact(unit)
+        if vmax then return vmax, 0, nil end
     elseif unit == "target" then
         if targetData then return targetData.max, targetData.stacks or 0, targetData.visMax end
-        -- Fallback: a group member we already have HP for (RBHP:T can lag by a
+        -- Fallback: a group member we already have HP for (UHP:T can lag by a
         -- tick, and a far player only resolves once the server catches up).
         local low = GuidLow(unit)
         if low then
@@ -204,79 +253,140 @@ local function HpInfoFor(unit)
             if d then return d.max, 0, nil end
         end
 
-        -- Nothing from the server yet -- but often we do not need it.
-        --
-        -- The proxy in UNIT_FIELD_MAXHEALTH is not always an approximation. The
-        -- server's HealthProxyOf returns the real value UNCHANGED whenever the
-        -- real max fits under HEALTH_PROXY_BUDGET (2e9), and only compresses
-        -- above that, pinning the visible max to exactly the budget. So a visible
-        -- max strictly below 2e9 is not a proxy at all: it IS the real number,
-        -- already on the client, the instant the unit exists.
-        --
-        -- That covers essentially everything anyone targets outside a deep
-        -- keystone, and waiting on a push to be told a number we already hold is
-        -- the whole of the perceived delay.
-        --
-        -- At or above the budget the value is saturated and the real one is
-        -- unknowable here, so we show nothing and let the feed answer. Same for
-        -- players, whose health is proxied regardless of size. Guessing there
-        -- would paint a confidently wrong, far-too-small number, and a number
-        -- that is wrong without looking wrong is worse than a blank frame.
-        if not UnitIsPlayer(unit) then
-            local vmax = UnitHealthMax(unit)
-            if vmax and vmax > 0 and vmax < HEALTH_PROXY_BUDGET then return vmax, 0, nil end
-        end
+        local vmax = NativeMaxIfExact(unit)
+        if vmax then return vmax, 0, nil end
     else
         local low = GuidLow(unit)
         if low then
             local d = byGuid[low]
             if d then return d.max, 0, nil end
         end
+
+        local vmax = NativeMaxIfExact(unit)
+        if vmax then return vmax, 0, nil end
     end
     return nil
 end
 
-local function RenderHp(unit, label)
-    if not label then return end
-    if not UnitExists(unit) then label:SetText(""); return end
+-- The real current/max pair for a unit, or nil when there is nothing to
+-- substitute -- either the server has not answered yet, or (the common case) the
+-- client's own field is already the real number because the unit sits below the
+-- proxy budget. Returning nil is what lets Blizzard's own text stand unmodified.
+local function RealHealthPair(unit)
     local rmax, stacks, visMax = HpInfoFor(unit)
-    if not rmax then label:SetText(""); return end
+    if not rmax then return nil end
 
-    local cur, max
     if stacks and stacks > 0 and visMax then
         local phase = math.floor(visMax / 2)
-        cur = UnitHealth(unit) + stacks * phase
-        max = visMax + stacks * phase
-    else
-        local nmax = UnitHealthMax(unit)
-        local frac = (nmax > 0) and (UnitHealth(unit) / nmax) or 0
-        cur = frac * rmax
-        max = rmax
+        return UnitHealth(unit) + stacks * phase, visMax + stacks * phase
     end
-    label:SetText(Abbrev(cur) .. "  /  " .. Abbrev(max))
+
+    local nmax = UnitHealthMax(unit)
+    local frac = (nmax > 0) and (UnitHealth(unit) / nmax) or 0
+    return frac * rmax, rmax
 end
 
--- Power (mana/rage/energy/focus/runic) is not proxied -- read it natively.
-local function RenderPower(unit, label)
-    if not label then return end
-    if not UnitExists(unit) then label:SetText(""); return end
-    local max = UnitPowerMax(unit)
-    if not max or max <= 0 then label:SetText(""); return end
-    label:SetText(Abbrev(UnitPower(unit)) .. "  /  " .. Abbrev(max))
+-- Bars we have seen Blizzard paint, grouped by unit token, so a feed update can
+-- ask for a repaint of exactly the bars that show that unit. Weak keys: a frame
+-- that goes away (a raid frame on group change) must not be pinned here.
+--
+-- Populated from inside the hook rather than from a fixed list, so a bar we have
+-- never painted -- and which therefore has nothing to refresh -- is never in it.
+local barsByUnit = setmetatable({}, { __mode = "k" })
+
+local function RememberBar(unit, bar)
+    local t = barsByUnit[unit]
+    if not t then
+        t = setmetatable({}, { __mode = "k" })
+        barsByUnit[unit] = t
+    end
+    t[bar] = true
 end
 
--- One driver frame for every overlay.
-local driver = CreateFrame("Frame")
-local acc = 0
-driver:SetScript("OnUpdate", function(self, delta)
-    acc = acc + delta
-    if acc < 0.1 then return end
-    acc = 0
-    for _, e in ipairs(UNITS) do
-        RenderHp(e.unit, e.hpLabel)
-        RenderPower(e.unit, e.ppLabel)
+-- Substitute the real number into a bar Blizzard has just painted. Bails out
+-- (leaving Blizzard's text exactly as written) for power bars, for units we have
+-- no real figure for, and when the bar is not showing text at all.
+local function ApplyRealBarText(bar)
+    if type(bar) ~= "table" then return end
+    local fs = BarTextString(bar)
+    if not fs then return end
+    if not IsHealthBar(bar) then return end
+
+    local unit = BarUnit(bar)
+    if not unit or not UnitExists(unit) then return end
+    RememberBar(unit, bar)
+
+    -- Percentage display needs no substitution at all. The proxy is proportional
+    -- (proxy% == real%), so the percentage Blizzard already wrote is correct at
+    -- any scale -- it is only the absolute numbers that saturate. Leaving this
+    -- mode alone also means a player who prefers percentages keeps exactly the
+    -- stock UI, which the old always-on overlay took away from them.
+    -- Mirrors TextStatusBar_UpdateTextString's own condition verbatim (see
+    -- FrameXML/TextStatusBar.lua): a single boolean CVar, which any individual
+    -- bar may override in either direction. There is no "both" mode on 3.3.5a --
+    -- an earlier version of this checked a "statusTextDisplay" CVar for
+    -- "PERCENT"/"BOTH", and no such CVar exists on this client, so the guard
+    -- never once fired.
+    if (GetCVarBool("statusTextPercentage") or bar.showPercentage) and not bar.showNumeric then
+        return
     end
-end)
+
+    -- Absorb shield, appended as "(+12.4B)".
+    --
+    -- Text rather than a filled overlay on the bar. A retail-style overlay reads
+    -- better, but it means positioning a texture against a bar whose width, art
+    -- and anchoring differ across every unit frame and every third-party addon --
+    -- a lot of ways to end up with a stray rectangle on someone's screen. The
+    -- text rides the substitution that is already proven to work everywhere.
+    --
+    -- Shown on the player and target only, because those are the only two the
+    -- feed carries; a party frame with no shield figure simply omits it rather
+    -- than implying zero.
+    local shield = 0
+    if unit == "player" then shield = absorbSelf
+    elseif unit == "target" then shield = absorbTarget end
+
+    local cur, max = RealHealthPair(unit)
+    if not cur then
+        -- No real-health substitution needed, but there may still be a shield
+        -- worth showing -- append it to whatever Blizzard already wrote rather
+        -- than dropping the information.
+        if shield > 0 then
+            local t = fs:GetText()
+            if t and t ~= "" and not t:find("(+", 1, true) then
+                fs:SetText(t .. "  |cff40c0ff(+" .. Abbrev(shield) .. ")|r")
+            end
+        end
+        return
+    end
+
+    local text = Abbrev(cur) .. "  /  " .. Abbrev(max)
+    if shield > 0 then
+        text = text .. "  |cff40c0ff(+" .. Abbrev(shield) .. ")|r"
+    end
+    fs:SetText(text)
+end
+
+if type(TextStatusBar_UpdateTextString) == "function" then
+    hooksecurefunc("TextStatusBar_UpdateTextString", ApplyRealBarText)
+end
+
+-- Ask Blizzard to repaint a unit's bars.
+--
+-- The hook above only fires when Blizzard itself decides to repaint -- damage
+-- taken, target switched, power spent. A line arriving on our channel changes a
+-- number Blizzard has no reason to know changed, so the feed has to poke it.
+-- This is the replacement for the old 10Hz driver: instead of re-rendering
+-- everything 10 times a second on the chance something moved, we repaint the
+-- affected unit at the moment we learn it moved.
+local function RefreshUnitBars(unit)
+    local t = unit and barsByUnit[unit]
+    if not t then return end
+    if type(TextStatusBar_UpdateTextString) ~= "function" then return end
+    for bar in pairs(t) do
+        if BarTextString(bar) then TextStatusBar_UpdateTextString(bar) end
+    end
+end
 
 -- ---------------------------------------------------------------------------
 -- Channel plumbing.
@@ -287,13 +397,13 @@ end)
 -- The AllStats addon paints the whole paperdoll stat panel using the stock
 -- client APIs, which read 32-bit wire fields -- so once a stat is inflated past
 -- ~2.1e9 they show a low, capped number when you press C. The server feeds us
--- the REAL values over the channel (RBALL:...); right after AllStats repaints
+-- the REAL values over the channel (UALL:...); right after AllStats repaints
 -- its panel we overwrite the affected lines with the real, truncated numbers.
 -- The percentage lines (crit/dodge/parry/block) and mana regen already carry
 -- real values (they live in float fields), so those we just truncate in place.
 -- ---------------------------------------------------------------------------
-local realStats = {}   -- latest values from RBALL
-local allPending = {}  -- buffered RBALLA/RBALLB halves until both have arrived
+local realStats = {}   -- latest values from UALL
+local allPending = {}  -- buffered UALLA/UALLB halves until both have arrived
 
 -- The value FontString for an AllStats row: StatFrameTemplate names it
 -- "<frameName>StatText" (e.g. AllStatsFrameStat1 -> AllStatsFrameStat1StatText).
@@ -366,7 +476,7 @@ local function EnsureAllStatsHook()
     allStatsHooked = true
 end
 
--- [deep-keystone] The RBHP real* fields are a MANTISSA; the server appends a health
+-- [deep-keystone] The UHP real* fields are a MANTISSA; the server appends a health
 -- EXPONENT so effective HP == mantissa * 2^exponent. Past keystone ~+45 the mantissa
 -- alone reads as a boss at a small fraction of its real health.
 --
@@ -380,20 +490,41 @@ local function ApplyHpExponent(value, exponent)
 end
 
 local function OnLine(msg)
-    local sCur, sMax, sExp = msg:match("^RBHP:S:(%d+):(%d+):?(%d*)$")
+    -- Spell tooltip damage, answering a USPELLDMG request. Cached until gear
+    -- changes; no reply at all is a valid answer and leaves the tooltip bare.
+    local dmgSpell, dmgMin = msg:match("^USPELLDMGR:(%d+):(%d+):(%d+)$")
+    if dmgSpell then
+        spellDmgCache[tonumber(dmgSpell)] = tonumber(dmgMin)
+        return
+    end
+
+    -- Absorb shields: one line carries both ends. "0:0" arrives once when the
+    -- last shield expires, which is what clears the readout -- the server's dedup
+    -- then goes quiet until something changes.
+    local aSelf, aTarget = msg:match("^UABS:(%d+):(%d+)$")
+    if aSelf then
+        absorbSelf   = tonumber(aSelf)   or 0
+        absorbTarget = tonumber(aTarget) or 0
+        RefreshUnitBars("player")
+        RefreshUnitBars("target")
+        return
+    end
+
+    local sCur, sMax, sExp = msg:match("^UHP:S:(%d+):(%d+):?(%d*)$")
     if sMax then
         selfData = { max = ApplyHpExponent(tonumber(sMax), sExp) }
+        RefreshUnitBars("player")
         return
     end
 
     -- Comprehensive real character-sheet stats (past the 32-bit wire wall).
-    -- RBALL now arrives as two halves (RBALLA + RBALLB).
+    -- UALL now arrives as two halves (UALLA + UALLB).
     --
     -- Sixteen 64-bit fields is ~277 bytes at trillion scale, past the client's
     -- 255-byte addon-message cap -- it would have truncated silently on exactly
     -- the scaled characters this feed exists for. The halves are buffered and
     -- applied together, so a dropped or reordered one never paints a half-filled
-    -- stat panel. "RBALL:" (undivided) is still accepted from any realm still
+    -- stat panel. "UALL:" (undivided) is still accepted from any realm still
     -- running the older worldserver.
     local function ApplyRealStats(p)
         realStats = {
@@ -412,7 +543,7 @@ local function OnLine(msg)
         return t
     end
 
-    local bodyA = msg:match("^RBALLA:(.+)$")
+    local bodyA = msg:match("^UALLA:(.+)$")
     if bodyA then
         allPending.a = Tokens(bodyA)
         if allPending.b then
@@ -424,7 +555,7 @@ local function OnLine(msg)
         return
     end
 
-    local bodyB = msg:match("^RBALLB:(.+)$")
+    local bodyB = msg:match("^UALLB:(.+)$")
     if bodyB then
         allPending.b = Tokens(bodyB)
         if allPending.a then
@@ -437,42 +568,52 @@ local function OnLine(msg)
     end
 
     -- Legacy single-message form.
-    if msg:find("^RBALL:") then
+    if msg:find("^UALL:") then
         ApplyRealStats(Tokens(msg))
         return
     end
 
     -- Real (trillion-scale) outgoing melee/spell hit, past the 32-bit combat-log wall.
-    local dmg = msg:match("^RBDMG:(%d+)$")
+    local dmg = msg:match("^UDMG:(%d+)$")
     if dmg then
         if ShowRealDamage then ShowRealDamage(tonumber(dmg)) end
         return
     end
 
     -- Real (trillion-scale) outgoing heal, past the 32-bit combat-log wall.
-    local heal = msg:match("^RBHEAL:(%d+)$")
+    local heal = msg:match("^UHEAL:(%d+)$")
     if heal then
         if ShowRealHeal then ShowRealHeal(tonumber(heal)) end
         return
     end
 
-    local tCur, tMax, tVis, tStacks, tExp = msg:match("^RBHP:T:(%d+):(%d+):(%d+):(%d+):?(%d*)$")
+    local tCur, tMax, tVis, tStacks, tExp = msg:match("^UHP:T:(%d+):(%d+):(%d+):(%d+):?(%d*)$")
     if tMax then
         targetData = { max = ApplyHpExponent(tonumber(tMax), tExp), visMax = tonumber(tVis), stacks = tonumber(tStacks) }
         RememberTargetHp(targetData)
+        RefreshUnitBars("target")
         return
     end
 
-    local uLow, uCur, uMax, uExp = msg:match("^RBHP:U:(%d+):(%d+):(%d+):?(%d*)$")
+    local uLow, uCur, uMax, uExp = msg:match("^UHP:U:(%d+):(%d+):(%d+):?(%d*)$")
     if uMax then
-        byGuid[tonumber(uLow)] = { max = ApplyHpExponent(tonumber(uMax), uExp) }
+        local low = tonumber(uLow)
+        byGuid[low] = { max = ApplyHpExponent(tonumber(uMax), uExp) }
+
+        -- Repaint whichever frames currently show that player. The feed is keyed
+        -- by GUID, not by unit token, and the same character can be on several
+        -- frames at once (party3 and target and focus), so every token that
+        -- resolves to this GUID is refreshed rather than just the first.
+        for _, u in ipairs(GROUP_UNITS) do
+            if GuidLow(u) == low then RefreshUnitBars(u) end
+        end
         return
     end
 end
 
 -- Keep our protocol lines out of chat.
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and (msg:find("^RBHP:") or msg:find("^RBALL:") or msg:find("^RBDMG:") or msg:find("^RBHEAL:")) then
+    if msg and (msg:find("^UHP:") or msg:find("^UALL:") or msg:find("^UDMG:") or msg:find("^UHEAL:")) then
         return true
     end
     return false
@@ -497,14 +638,11 @@ local function OnTargetChanged()
         end
     end
 
-    -- Paint on this frame. The driver would otherwise get to it up to 100ms
-    -- later, which is exactly the kind of small hitch this change exists to
-    -- remove -- there is no point sourcing the number instantly and then sitting
-    -- on it.
-    if UNITS[2] then
-        RenderHp("target", UNITS[2].hpLabel)
-        RenderPower("target", UNITS[2].ppLabel)
-    end
+    -- Repaint on this frame rather than waiting. Blizzard repaints the target
+    -- bars on its own for the target switch, but it does so with whatever it
+    -- knew before the line above restored our cached figures, so the substitution
+    -- would otherwise land one repaint late.
+    RefreshUnitBars("target")
 end
 
 local listener = CreateFrame("Frame")
@@ -519,13 +657,21 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         if a1 == ADDON_NAME then
             InitSavedVars()   -- SavedVariables are guaranteed present now
             JoinChannelByName(UnitName("player"))
-            SuppressBlizzardText()
         end
         return
     end
 
+    if event == "PLAYER_ENTERING_WORLD" then
+        -- Late enough that the client's own CVar load has finished and will not
+        -- overwrite us (see the note on ApplyStatusTextDefaults).
+        if ApplyStatusTextDefaults then ApplyStatusTextDefaults() end
+    end
+
     if event == "PLAYER_ENTERING_WORLD" or event == "PARTY_MEMBERS_CHANGED" then
-        SuppressBlizzardText()  -- (re)hide Blizzard text as frames come/go
+        -- Nothing to re-apply as frames come and go: the formatter hook is
+        -- installed once on the shared function, so a bar created later is
+        -- covered the first time Blizzard paints it.
+        --
         -- Creature GUIDs do not survive a world change, and a fresh keystone can
         -- rescale the same mobs, so start the cache clean rather than carry
         -- entries that can only ever be wrong or dead.
@@ -558,7 +704,7 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
     end
     if not msg then return end
 
-    if msg:find("^RBHP:") or msg:find("^RBALL") or msg:find("^RBDMG:") or msg:find("^RBHEAL:") then
+    if msg:find("^UHP:") or msg:find("^UALL") or msg:find("^UDMG:") or msg:find("^UHEAL:") then
         OnLine(msg)
     end
 end)
@@ -566,8 +712,8 @@ end)
 -- Local smoke test (no server): /dev64
 SLASH_DEVUNCAPPED641 = "/dev64"
 SlashCmdList["DEVUNCAPPED64"] = function()
-    OnLine("RBHP:S:1500000000:1500000000")
-    OnLine("RBHP:T:87500000000:90000000000:1000000000:170")
+    OnLine("UHP:S:1500000000:1500000000")
+    OnLine("UHP:T:87500000000:90000000000:1000000000:170")
     DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[DEV] Uncapped64|r: injected test numbers.")
 end
 
@@ -614,13 +760,51 @@ local FCT_FONTS = {
 --   critPop      - font size crits grow to just after they land (px)
 --   popTime      - seconds that crit grow-in takes
 --   font         - key into FCT_FONTS (see the picker in the options panel)
+--   minFloat     - hide any floater below this value entirely (0 = show all)
 local CFG_DEFAULTS = {
     wiggleAmp = 10, wiggleFreq = 4.0, healDrop = 120, selfHealDrop = 30,
     spreadX = 25, spreadY = 30, normalSize = 20, critSize = 34,
     critPop = 54, popTime = 0.15, font = "morpheus",
+    minFloat = 0,
 }
 local Cfg = {}
 for k, v in pairs(CFG_DEFAULTS) do Cfg[k] = v end
+
+-- Parse a human-written threshold into a number: "500k", "2.5M", "1b", "750000".
+--
+-- The inverse of Abbrev, and it has to exist because nobody is going to type
+-- 500000000000 into a box -- the whole UI speaks in K/M/B/T, so the input must
+-- too. Forgiving about case, spaces and thousands separators; strict about
+-- everything else, returning nil so a typo is REJECTED rather than silently
+-- becoming a threshold that hides every number in the game.
+local function ParseAbbrev(s)
+    if type(s) == "number" then return s end
+    if type(s) ~= "string" then return nil end
+    s = s:gsub("%s+", ""):gsub(",", "")
+    if s == "" then return 0 end
+    local num, suf = s:match("^(%d+%.?%d*)([KkMmBbTt]?)$")
+    if not num then return nil end
+    local v = tonumber(num)
+    if not v then return nil end
+    return v * (({ k = 1e3, m = 1e6, b = 1e9, t = 1e12 })[suf:lower()] or 1)
+end
+
+-- Is this floater too small to be worth drawing?
+--
+-- Applies to incoming as well as outgoing, and to crits as well as ordinary hits.
+-- Both are deliberate: a number too small to read is too small to matter in
+-- either direction, and a crit under the player's own threshold is still noise.
+-- One rule with no exceptions, so the setting behaves exactly as it reads --
+-- "hide under this value" hiding some things under that value would be worse
+-- than not having it.
+--
+-- Defined up here rather than beside the FCT handlers because ShowRealDamage /
+-- ShowRealHeal (the UDMG/UHEAL feed path) sit above them and need it too;
+-- anything declared later would be captured as nil.
+local function FctBelowThreshold(amount)
+    local m = Cfg.minFloat or 0
+    return m > 0 and amount and amount < m
+end
 
 -- The resolved font path, kept in sync with Cfg.font. Reassigned at ADDON_LOADED
 -- and whenever the font changes from the panel or /dev64font.
@@ -643,7 +827,40 @@ InitSavedVars = function()
         pcall(SetCVar, "nameplateShowEnemies", "1")
         pcall(SetCVar, "nameplateShowFriends", "1")
     end
+
+    -- The status-text migration is NOT run here -- see ApplyStatusTextDefaults
+    -- below, which PLAYER_ENTERING_WORLD drives instead.
     if RefreshOptionsPanel then RefreshOptionsPanel() end
+end
+
+-- One-time status-text migration. Runs on PLAYER_ENTERING_WORLD, NOT ADDON_LOADED.
+--
+-- Bar text now rides on Blizzard's own status text rather than an overlay drawn
+-- over it, so the text has to be switched on and in a numeric mode or there is
+-- nothing for the hook to substitute into. Two things made earlier attempts at
+-- this silently do nothing:
+--
+--   * Wrong CVar names. 3.3.5a has no single "statusText", and no
+--     "statusTextDisplay" at all. Visibility is one CVar per frame type and
+--     numeric-vs-percentage is a separate boolean. Every bad name was swallowed
+--     by pcall, so there was no error to explain the non-effect. Names below are
+--     taken from FrameXML/TextStatusBar.lua and InterfaceOptionsPanels.xml.
+--   * Wrong timing. Setting them during ADDON_LOADED is too early -- the client
+--     finishes loading its own saved CVars afterwards and overwrites them.
+--
+-- Flag is versioned because two earlier broken attempts already set flags of
+-- their own on tester accounts; reusing a name would permanently skip exactly
+-- the people who still need this to run.
+ApplyStatusTextDefaults = function()
+    local db = Uncapped64bitUIDB
+    if not db or db.statusTextMigrated3 then return end
+    db.statusTextMigrated3 = true
+
+    for _, cv in ipairs({ "playerStatusText", "targetStatusText",
+                          "partyStatusText", "petStatusText" }) do
+        pcall(SetCVar, cv, "1")
+    end
+    pcall(SetCVar, "statusTextPercentage", "0")
 end
 
 -- Disable Blizzard's floating combat text AND the scrolling "combat text" so
@@ -788,12 +1005,14 @@ end
 -- Assigns the forward-declared handler: the server feeds real (trillion-scale)
 -- melee hits over the channel when they're past the 32-bit combat-log wall.
 ShowRealDamage = function(real)
+    if FctBelowThreshold(real) then return end
     FctSpawnText(Abbrev(real) .. "!", true, 1.0, 0.82, 0.0, true)
 end
 
 -- Real (trillion-scale) outgoing heal, fed over the channel when the client's
 -- own combat log would show the 32-bit-capped value. Heal green, "+" prefix.
 ShowRealHeal = function(real)
+    if FctBelowThreshold(real) then return end
     FctSpawnText("+" .. Abbrev(real), true, 0.4, 1.0, 0.4, true, true)
 end
 
@@ -835,12 +1054,13 @@ local fctPlayerGUID
 local function FctMine(guid) return guid == fctPlayerGUID or guid == UnitGUID("pet") end
 
 -- At/above the signed-32 combat-log wall the client only ever sees the capped
--- value, and the server feeds the REAL number over the channel (RBDMG/RBHEAL)
+-- value, and the server feeds the REAL number over the channel (UDMG/UHEAL)
 -- instead -- so drop our OWN combat-log floater there to avoid a stray double.
 local FCT_REAL_WALL = 2147483647
 
 local function FctDamage(srcGUID, dstGUID, amount, crit, isSpell)
     if not amount or amount <= 0 then return end
+    if FctBelowThreshold(amount) then return end
     if FctMine(srcGUID) and amount >= FCT_REAL_WALL then return end
     local label = Abbrev(amount) .. (crit and "!" or "")
     if FctMine(srcGUID) then
@@ -865,7 +1085,8 @@ end
 
 local function FctHeal(srcGUID, dstGUID, amount, crit)
     if not amount or amount <= 0 then return end
-    if FctMine(srcGUID) and amount >= FCT_REAL_WALL then return end  -- RBHEAL feed covers my own trillion heals
+    if FctBelowThreshold(amount) then return end
+    if FctMine(srcGUID) and amount >= FCT_REAL_WALL then return end  -- UHEAL feed covers my own trillion heals
     if dstGUID == fctPlayerGUID then
         FctSpawnText("+" .. Abbrev(amount), crit, 0.4, 1.0, 0.4, false, true)
     elseif FctMine(srcGUID) then
@@ -1009,7 +1230,7 @@ SlashCmdList["DEV64DMG"] = FctPreview
 -- "Increases Attack Power by -294967316" -- a plain int32 wrap of ~4.0e9.
 --
 -- The panel itself is already correct (ApplyAllStatsReal repaints it from the
--- RBALL feed), so there is nothing worth salvaging in the tooltip. Remove it
+-- UALL feed), so there is nothing worth salvaging in the tooltip. Remove it
 -- rather than maintain a second source of the same numbers that we would have
 -- to keep in sync and that can only ever be wrong past 2^31.
 --
@@ -1024,16 +1245,55 @@ local STAT_ROWS = {
     "Armor", "Defense", "Dodge", "Parry", "Block", "Resil",
 }
 
-local function StripStatTooltips()
+-- Rows whose true value the server already sends in the UALL feed, with the
+-- label to head the tooltip with. Only these can be stated truthfully; anything
+-- not listed keeps whatever AllStats built.
+local STAT_TOOLTIP_SOURCE = {
+    ["1"]           = { key = "str",   label = STAT_STRENGTH  or "Strength"      },
+    ["2"]           = { key = "agi",   label = STAT_AGILITY   or "Agility"       },
+    ["3"]           = { key = "sta",   label = STAT_STAMINA   or "Stamina"       },
+    ["4"]           = { key = "int",   label = STAT_INTELLECT or "Intellect"     },
+    ["5"]           = { key = "spi",   label = STAT_SPIRIT    or "Spirit"        },
+    ["MeleePower"]  = { key = "map",   label = MELEE_ATTACK_POWER  or "Attack Power" },
+    ["RangePower"]  = { key = "rap",   label = RANGED_ATTACK_POWER or "Ranged Attack Power" },
+    ["SpellDamage"] = { key = "sp",    label = "Spell Power"    },
+    ["SpellHeal"]   = { key = "heal",  label = "Healing Power"  },
+    ["Armor"]       = { key = "armor", label = ARMOR or "Armor" },
+    ["Defense"]     = { key = "def",   label = DEFENSE or "Defense" },
+    ["MeleeExpert"] = { key = "exp",   label = "Expertise"      },
+}
+
+-- Repair the stat-panel hover instead of deleting it.
+--
+-- This used to strip the tooltips outright: AllStats paints its rows with the
+-- stock PaperDollFrame_Set* helpers, which also install Blizzard's tooltip
+-- handlers, and those recompute from the 32-bit client fields. On a scaled
+-- character the hover then flatly contradicted the row it was attached to --
+-- Strength reading 3.45B in the panel while its tooltip claimed "Increases
+-- Attack Power by -294967316", a plain int32 wrap.
+--
+-- Deleting them did stop the contradiction, but it also took away every stat
+-- tooltip on the character sheet, permanently, for everyone. The panel itself is
+-- repainted from the UALL feed and is correct -- so the same feed can supply the
+-- hover, and the information comes back instead of going away.
+--
+-- Only rows the feed actually carries are rewritten. Blizzard's SECOND line
+-- (tooltip2) is dropped for those rows rather than recomputed, because it states
+-- a DERIVED effect ("increases attack power by N") whose formula is class- and
+-- talent-specific. Replicating that here would create a second source of truth
+-- that silently drifts from the server's. A true headline beats a plausible
+-- guess, so the row states what the stat IS and stops there.
+local function FixStatTooltips()
+    local r = realStats
     for _, suffix in ipairs(STAT_ROWS) do
         local f = _G["AllStatsFrameStat" .. suffix]
         if f then
-            f:SetScript("OnEnter", nil)
-            f:SetScript("OnLeave", nil)
-            -- PaperDollFrame_Set* stash the strings on the frame itself; clear
-            -- them too so nothing can resurrect the tooltip from stale fields.
-            f.tooltip = nil
-            f.tooltip2 = nil
+            local src = STAT_TOOLTIP_SOURCE[suffix]
+            local v = src and r and r[src.key]
+            if v then
+                f.tooltip  = HIGHLIGHT_FONT_COLOR_CODE .. src.label .. " " .. Abbrev(v) .. FONT_COLOR_CODE_CLOSE
+                f.tooltip2 = nil
+            end
         end
     end
 end
@@ -1048,19 +1308,19 @@ end
 --
 -- PrintStats is looked up globally at call time from both paths, so hooking it
 -- catches every repaint.
-local function InstallStatTooltipStripper()
+local function InstallStatTooltipFixer()
     if type(PrintStats) ~= "function" then return false end
-    hooksecurefunc("PrintStats", StripStatTooltips)
+    hooksecurefunc("PrintStats", FixStatTooltips)
     return true
 end
 
-if not InstallStatTooltipStripper() then
+if not InstallStatTooltipFixer() then
     -- Load-order fallback: wait until AllStats is in, then hook.
     local waiter = CreateFrame("Frame")
     waiter:RegisterEvent("ADDON_LOADED")
     waiter:RegisterEvent("PLAYER_LOGIN")
     waiter:SetScript("OnEvent", function(self)
-        if InstallStatTooltipStripper() then
+        if InstallStatTooltipFixer() then
             self:UnregisterAllEvents()
         end
     end)
@@ -1069,7 +1329,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Item tooltips (haste stat lines AND proc / equip-effect lines like Tempest
 -- Keep's "chance to increase attack speed by N%") are handled by the unified
--- RewriteSpellHaste below, which also hooks OnTooltipSetItem. It substitutes
+-- RewriteTooltipLines below, which also hooks OnTooltipSetItem. It substitutes
 -- in place, so proc text keeps its "chance on hit..." context (a whole-line
 -- rewrite would have destroyed it). See the spell / talent tooltip section.
 -- ---------------------------------------------------------------------------
@@ -1117,28 +1377,173 @@ local function rewriteHasteLine(t)
     s = s:gsub("[Hh]aste", CDMG)
     return s
 end
-local function RewriteSpellHaste(tt)
+-- Abbreviate any large number embedded in a line of tooltip text.
+--
+-- Threshold matches AbbrevRow's, and for the same reason: below 100k the raw
+-- figure reads better than an abbreviation -- "45231" is perfectly legible and
+-- "45.2K" throws away precision for nothing. Above it, an unabbreviated number on
+-- a scaled realm is a wall of digits nobody parses at a glance.
+--
+-- Deliberately conservative about what it matches. Item level, required level,
+-- durability, stack sizes and every other small integer fall under the threshold
+-- and are left exactly alone, so this cannot quietly rewrite "Requires Level 80".
+local function AbbrevNumbersIn(s)
+    return (s:gsub("%d+%.?%d*", function(n)
+        local v = tonumber(n)
+        if v and v >= 100000 then return Abbrev(v) end
+        return n
+    end))
+end
+
+-- One pass over a tooltip's lines doing both jobs: the haste -> crit-damage
+-- relabel (only on lines that mention it) and large-number abbreviation (on every
+-- line, including the right-hand column, where item tooltips put armour values,
+-- damage ranges and stat totals).
+local function RewriteTooltipLines(tt)
     if not tt or not tt.GetName then return end
     local name = tt:GetName()
     if not name then return end
     for i = 1, tt:NumLines() do
-        local fs = _G[name .. "TextLeft" .. i]
-        local t = fs and fs:GetText()
-        if t then
-            local low = t:lower()
-            if low:find("haste") or low:find("attack speed") or low:find("casting speed") then
-                local nt = rewriteHasteLine(t)
+        for _, side in ipairs({ "TextLeft", "TextRight" }) do
+            local fs = _G[name .. side .. i]
+            local t = fs and fs:GetText()
+            if t and t ~= "" then
+                local nt = t
+                -- Haste relabel is left-column only: it rewrites prose, and the
+                -- right column carries bare values, never sentences.
+                if side == "TextLeft" then
+                    local low = t:lower()
+                    if low:find("haste") or low:find("attack speed") or low:find("casting speed") then
+                        nt = rewriteHasteLine(nt)
+                    end
+                end
+                nt = AbbrevNumbersIn(nt)
                 if nt ~= t then fs:SetText(nt) end
             end
         end
     end
 end
+
+-- ---------------------------------------------------------------------------
+-- Spell tooltip damage.
+-- ---------------------------------------------------------------------------
+-- The $s placeholders were stripped from the spell descriptions in the MPQ, so
+-- tooltips read "dealing Holy damage" with no figure. They had to go: the client
+-- fills them from int32 spell data, which at this realm's scaling rendered as a
+-- wrapped negative. The number is therefore injected here instead.
+--
+-- Request/reply rather than a push. Pushing a value for every spell in the book,
+-- kept current as gear changes, is exactly the standing traffic just removed from
+-- the HP feed; a tooltip is opened rarely and deliberately, so we ask only when
+-- one is opened. The answer is cached and the cache is dropped when gear changes,
+-- since that is what moves the number.
+--
+-- Fail-silent by design: no reply means the tooltip is left exactly as it is
+-- today. A missing number is a non-improvement; a confidently wrong one is worse
+-- than what we started with, on a realm where nobody can eyeball the magnitude.
+local function RequestSpellDamage(spellId)
+    if not spellId or spellDmgCache[spellId] or spellDmgAsked[spellId] then return end
+    spellDmgAsked[spellId] = true
+    SendAddonMessage("REAGENTBANK", "USPELLDMG:" .. spellId, "WHISPER", UnitName("player"))
+end
+
+-- Gear (or anything else that moves spell power) invalidates every cached
+-- figure. Cheaper and far more reliable than trying to work out which spells a
+-- given item affects.
+local spellDmgWatcher = CreateFrame("Frame")
+spellDmgWatcher:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+spellDmgWatcher:RegisterEvent("UNIT_INVENTORY_CHANGED")
+spellDmgWatcher:SetScript("OnEvent", function()
+    spellDmgCache = {}
+    spellDmgAsked = {}
+end)
+
+local function AppendSpellDamage(tt)
+    if not tt or not tt.GetSpell then return end
+
+    local _, _, spellId = tt:GetSpell()
+    if not spellId then return end
+
+    local dmg = spellDmgCache[spellId]
+    if not dmg then
+        RequestSpellDamage(spellId)
+        return          -- answer arrives asynchronously; next hover shows it
+    end
+
+    -- Guard against stacking the line if the tooltip is re-rendered without
+    -- being cleared.
+    local name = tt:GetName()
+    if name then
+        for i = 1, tt:NumLines() do
+            local fs = _G[name .. "TextLeft" .. i]
+            local t  = fs and fs:GetText()
+            if t and t:find("Approx.", 1, true) then return end
+        end
+    end
+
+    tt:AddLine("Approx. " .. Abbrev(dmg) .. " with your stats", 1, 0.82, 0)
+    tt:Show()   -- re-fit; the tooltip has grown by a line
+end
+
 for _, tname in ipairs({ "GameTooltip", "ItemRefTooltip", "ShoppingTooltip1", "ShoppingTooltip2" }) do
     local tt = _G[tname]
     if tt and tt.HookScript then
-        tt:HookScript("OnTooltipSetSpell", RewriteSpellHaste)
-        tt:HookScript("OnTooltipSetItem",  RewriteSpellHaste)   -- item stat + proc-effect lines
+        tt:HookScript("OnTooltipSetSpell", RewriteTooltipLines)
+        tt:HookScript("OnTooltipSetSpell", AppendSpellDamage)
+        tt:HookScript("OnTooltipSetItem",  RewriteTooltipLines)   -- item stat + proc-effect lines
+        tt:HookScript("OnTooltipSetUnit",  RewriteTooltipLines)   -- creature hover: level, health
     end
+end
+
+-- ---------------------------------------------------------------------------
+-- Pet stat panel.
+-- ---------------------------------------------------------------------------
+-- The pet sheet is computed entirely client-side from the pet's own fields, so
+-- unlike the character sheet there is no feed to substitute from. The numbers it
+-- shows are still true up to the cap -- they are simply long enough at this
+-- realm's scale to run past the edge of their frames and become unreadable.
+--
+-- So this abbreviates in place and does not invent anything: purely a legibility
+-- fix, which is exactly why it is safe to apply blind where the character sheet
+-- needed the server to answer first. If pet stats ever saturate, that wants the
+-- feed treatment instead, and this will not paper over it -- a capped number
+-- abbreviates to a capped number.
+--
+-- Placed after AbbrevNumbersIn deliberately: it is a local, so anything above its
+-- definition would capture nil.
+local PET_STAT_FRAMES = {
+    "PetStatFrame1", "PetStatFrame2", "PetStatFrame3", "PetStatFrame4", "PetStatFrame5",
+    "PetArmorFrame", "PetAttackPowerFrame", "PetDamageFrame", "PetSpellDamageFrame",
+    "PetMagicResFrame1", "PetMagicResFrame2", "PetMagicResFrame3",
+    "PetMagicResFrame4", "PetMagicResFrame5", "PetMagicResFrame6",
+}
+
+local function AbbrevPetFrame(name)
+    local f = _G[name]
+    if not f then return end
+
+    local fs = _G[name .. "StatText"]
+    if fs then
+        local t = fs:GetText()
+        if t and t ~= "" then
+            local nt = AbbrevNumbersIn(t)
+            if nt ~= t then fs:SetText(nt) end
+        end
+    end
+
+    -- The hover strings are rebuilt by PetPaperDollFrame_UpdateStats on every
+    -- refresh, so rewriting them from a post-hook is safe: ours is always the
+    -- last word, and never compounds on an already-abbreviated string.
+    if f.tooltip  then f.tooltip  = AbbrevNumbersIn(f.tooltip)  end
+    if f.tooltip2 then f.tooltip2 = AbbrevNumbersIn(f.tooltip2) end
+end
+
+local function FixPetStats()
+    for _, n in ipairs(PET_STAT_FRAMES) do AbbrevPetFrame(n) end
+end
+
+if type(PetPaperDollFrame_UpdateStats) == "function" then
+    hooksecurefunc("PetPaperDollFrame_UpdateStats", FixPetStats)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1548,4 +1953,74 @@ SlashCmdList["UNCAPPEDFCT"] = function()
     -- opens Interface options but doesn't scroll to our category.
     InterfaceOptionsFrame_OpenToCategory(optPanel)
     InterfaceOptionsFrame_OpenToCategory(optPanel)
+end
+
+-- ---------------------------------------------------------------------------
+-- Public API for the combat-text threshold.
+-- ---------------------------------------------------------------------------
+-- Exposed so other addons -- specifically the Dashboard's settings tab -- can read
+-- and write this without reaching into Uncapped64bitUIDB. A second addon poking at
+-- this one's SavedVariables layout would break silently the day that layout
+-- changed, and neither side would be obviously at fault.
+--
+-- The parser and formatter are exported alongside the setter deliberately. A UI
+-- that formatted or parsed the value its own way would drift from how every other
+-- number in the game is written, which is the entire point of having one Abbrev.
+
+function UncappedFCT_GetHideUnder()
+    return Cfg.minFloat or 0
+end
+
+-- Returns the value actually stored, or nil when `v` could not be parsed. Callers
+-- must treat nil as "reject the input" -- never as zero, which would turn a typo
+-- into "show everything" silently.
+function UncappedFCT_SetHideUnder(v)
+    local n = ParseAbbrev(v)
+    if not n then return nil end
+
+    Cfg.minFloat = n
+    Uncapped64bitUIDB = Uncapped64bitUIDB or {}
+    Uncapped64bitUIDB.fct = Uncapped64bitUIDB.fct or {}
+    Uncapped64bitUIDB.fct.minFloat = n
+    if RefreshOptionsPanel then RefreshOptionsPanel() end
+    return n
+end
+
+function UncappedFCT_ParseAbbrev(s) return ParseAbbrev(s) end
+function UncappedFCT_Abbrev(n)      return Abbrev(n)      end
+
+-- Hide combat text below a threshold: /hideunder 500m   (/hideunder 0 = show all)
+--
+-- Accepts the same K/M/B/T vocabulary the rest of the UI speaks, so the value can
+-- be typed the way it is read. A malformed argument is refused outright rather
+-- than coerced -- "hide under 0" and "hide under everything" are one typo apart,
+-- and guessing between them would silently blank the player's combat text.
+SLASH_UNCAPPEDHIDEUNDER1 = "/hideunder"
+SlashCmdList["UNCAPPEDHIDEUNDER"] = function(msg)
+    msg = (msg or ""):gsub("^%s+", ""):gsub("%s+$", "")
+
+    if msg == "" then
+        local cur = UncappedFCT_GetHideUnder()
+        if cur > 0 then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[Uncapped]|r hiding combat text under " ..
+                Abbrev(cur) .. ".  /hideunder 0 to show everything.")
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[Uncapped]|r showing all combat text. " ..
+                "Try |cffffff00/hideunder 500m|r to hide small hits.")
+        end
+        return
+    end
+
+    local v = UncappedFCT_SetHideUnder(msg)
+    if not v then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff4040[Uncapped]|r could not read \"" .. msg ..
+            "\". Use a number, optionally with K, M, B or T -- e.g. |cffffff00500m|r.")
+        return
+    end
+
+    if v > 0 then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[Uncapped]|r hiding combat text under " .. Abbrev(v) .. ".")
+    else
+        DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[Uncapped]|r showing all combat text.")
+    end
 end

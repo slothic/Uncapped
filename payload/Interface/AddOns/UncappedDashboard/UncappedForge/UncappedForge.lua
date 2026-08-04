@@ -653,10 +653,10 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
     -- channel and predates the Forge -- see the source-panel block near the
     -- bottom of this file. Buffer until the terminator, then draw once.
     --
-    -- RBSRC:<itemId>:<kind>:<chanceTenths>:<spawns>:<dungeon>:<name>|<zone>|<via>
-    elseif body:find("^RBSRC:") then
+    -- USRC:<itemId>:<kind>:<chanceTenths>:<spawns>:<dungeon>:<name>|<zone>|<via>
+    elseif body:find("^USRC:") then
         local kind, chance, spawns, dungeon, rest =
-            body:match("^RBSRC:%d+:(%d+):(%d+):(%d+):(%d+):(.*)$")
+            body:match("^USRC:%d+:(%d+):(%d+):(%d+):(%d+):(.*)$")
         if rest then
             local name, zone, via = rest:match("^(.-)|(.-)|(.*)$")
             UncappedForge_SourceBufferAdd({
@@ -670,7 +670,7 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
             })
         end
 
-    elseif body:find("^RBSRCEND:") then
+    elseif body:find("^USRCEND:") then
         UncappedForge_ShowSources(UncappedForge_SourcePendingName())
     end
 end)
@@ -1667,12 +1667,12 @@ end)
 -- TradeSkill reagent buttons, which the Forge replaces -- so for anyone using
 -- the Forge (the default) it had quietly become unreachable.
 --
--- Server side is unchanged and needs no rebuild: RBSOURCE goes out on the same
--- REAGENTBANK transport the Forge already uses, and the RBSRC/RBSRCEND replies
+-- Server side is unchanged and needs no rebuild: USOURCE goes out on the same
+-- REAGENTBANK transport the Forge already uses, and the USRC/USRCEND replies
 -- arrive as UNC addon messages, which the comms handler above already receives.
 --
--- Sources arrive one line at a time (RBSRC) followed by a terminator
--- (RBSRCEND), so lines accumulate in sourceBuffer and the window only redraws
+-- Sources arrive one line at a time (USRC) followed by a terminator
+-- (USRCEND), so lines accumulate in sourceBuffer and the window only redraws
 -- once the terminator lands. Redrawing per line would flicker and, worse, show
 -- a half-populated list as if it were complete.
 -- ---------------------------------------------------------------------------
@@ -1809,7 +1809,7 @@ sourceFrame.scroll:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, SOURCE_ROW_HEIGHT, RenderSources)
 end)
 
--- Called from the comms handler when RBSRCEND lands.
+-- Called from the comms handler when USRCEND lands.
 function UncappedForge_ShowSources(itemName)
     RebuildSourceRows()
     RestoreSourceWindow()
@@ -1824,7 +1824,7 @@ function UncappedForge_QuerySources(itemId, itemName)
     if not itemId then return end
     sourceBuffer = {}
     pendingSourceName = itemName
-    Send("RBSOURCE:" .. itemId)
+    Send("USOURCE:" .. itemId)
 end
 
 -- Exposed for the comms handler, which is defined above this block.

@@ -8,7 +8,7 @@
 --   * a boss log with engage markers and kill splits.
 --
 -- Rides the player's personal channel like the other Uncapped addons, and
--- filters the RBMS / RBMT / RBMR / RBMB protocol lines out of chat.
+-- filters the UMS / UMT / UMR / UMB protocol lines out of chat.
 --
 -- Two things the server owns that this addon used to guess at, and must not
 -- guess at again -- both were real bugs:
@@ -174,7 +174,22 @@ local function RefreshBossLog()
         local b = run.bosses[i]
         if b then
             if b.done then
-                frame.bossRows[i]:SetText(string.format("|cff00ff00v|r %s  |cffaaaaaa%s|r", b.name, fmtTime(b.split)))
+                -- Fight duration first, run split second and dimmer. A bare time
+                -- beside a boss name reads as "how long that took", so the number
+                -- in that position must be the one people assume it is; the split
+                -- keeps its place for anyone actually tracking a run, in brackets
+                -- where it cannot be mistaken for the fight length.
+                if b.duration then
+                    frame.bossRows[i]:SetText(string.format(
+                        "|cff00ff00v|r %s  |cffaaaaaa%s|r |cff666666(@%s)|r",
+                        b.name, fmtTime(b.duration), fmtTime(b.split)))
+                else
+                    -- Engage never seen, so no duration exists. Show the split
+                    -- explicitly marked rather than unlabelled where a duration
+                    -- would normally sit.
+                    frame.bossRows[i]:SetText(string.format(
+                        "|cff00ff00v|r %s  |cff666666(@%s)|r", b.name, fmtTime(b.split)))
+                end
             else
                 frame.bossRows[i]:SetText(string.format("|cffffcc00>|r %s", b.name))
             end
@@ -273,7 +288,7 @@ local function StartRun(remaining, level, trashNeeded, token)
     frame:Show()
 end
 
--- Timer-only resync (RBMR). Rebases the countdown without touching the bar or
+-- Timer-only resync (UMR). Rebases the countdown without touching the bar or
 -- the boss log -- sent on every death, so the penalty shows up on the clock the
 -- instant it is charged instead of only being felt when the run fails.
 local function ResyncTimer(remaining)
@@ -282,9 +297,21 @@ local function ResyncTimer(remaining)
     run.limit = remaining
 end
 
+-- `engagedAt` is a local GetTime() stamp, not a server value.
+--
+-- The server sends a SPLIT with the kill -- seconds since the run began -- which
+-- is the right thing for a splits board but is not how long the fight took. Those
+-- read the same for the first boss and diverge badly by the last: a Black Temple
+-- run on 2026-08-04 showed 54:58 against the Illidari Council for a fight that
+-- lasted about fifty seconds, and it was reported as the timer being broken.
+--
+-- Timing it client-side needs no wire change and no server rebuild, and works on
+-- untimed raids where there is no countdown to derive elapsed from. If the engage
+-- was never seen -- addon loaded mid-fight, or a resync -- duration stays nil and
+-- the row falls back to showing the split alone.
 local function EngageBoss(name)
     if run.bossIndex[name] then return end
-    table.insert(run.bosses, { name = name, done = false, split = 0 })
+    table.insert(run.bosses, { name = name, done = false, split = 0, engagedAt = GetTime() })
     run.bossIndex[name] = #run.bosses
     RefreshBossLog()
 end
@@ -292,11 +319,16 @@ end
 local function KillBoss(name, split)
     local idx = run.bossIndex[name]
     if not idx then
+        -- Kill without a preceding engage: nothing to measure from.
         table.insert(run.bosses, { name = name, done = true, split = split })
         run.bossIndex[name] = #run.bosses
     else
-        run.bosses[idx].done = true
-        run.bosses[idx].split = split
+        local b = run.bosses[idx]
+        b.done  = true
+        b.split = split
+        if b.engagedAt then
+            b.duration = GetTime() - b.engagedAt
+        end
     end
     RefreshBossLog()
 end
@@ -309,7 +341,7 @@ end
 
 -- Hide the protocol lines from chat.
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and (msg:find("^RBMS:") or msg:find("^RBMT:") or msg:find("^RBMR:") or msg:find("^RBMB:")) then
+    if msg and (msg:find("^UMS:") or msg:find("^UMT:") or msg:find("^UMR:") or msg:find("^UMB:")) then
         return true
     end
     return false
@@ -384,8 +416,8 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         return
     end
 
-    -- RBMS:<remainingSec>:<level>:<requiredKills>:<runToken>
-    local remaining, level, needed, token = msg:match("^RBMS:(%d+):(%d+):(%d+):(%d+)$")
+    -- UMS:<remainingSec>:<level>:<requiredKills>:<runToken>
+    local remaining, level, needed, token = msg:match("^UMS:(%d+):(%d+):(%d+):(%d+)$")
     if remaining then
         StartRun(tonumber(remaining), tonumber(level), tonumber(needed), tonumber(token))
         return
@@ -393,33 +425,33 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
 
     -- Older 3-field form (a realm still on the previous worldserver). No run
     -- token, so every one of these is treated as a fresh run.
-    local oldLimit, oldLevel, oldTotal = msg:match("^RBMS:(%d+):(%d+):(%d+)$")
+    local oldLimit, oldLevel, oldTotal = msg:match("^UMS:(%d+):(%d+):(%d+)$")
     if oldLimit then
         StartRun(tonumber(oldLimit), tonumber(oldLevel), tonumber(oldTotal), nil)
         return
     end
 
-    -- RBMR:<remainingSec> -- timer rebase only (death penalty applied).
-    local resync = msg:match("^RBMR:(%d+)$")
+    -- UMR:<remainingSec> -- timer rebase only (death penalty applied).
+    local resync = msg:match("^UMR:(%d+)$")
     if resync then
         ResyncTimer(tonumber(resync))
         return
     end
 
-    -- RBMT:<killed>:<requiredKills>
-    local killed, needKills = msg:match("^RBMT:(%d+):(%d+)$")
+    -- UMT:<killed>:<requiredKills>
+    local killed, needKills = msg:match("^UMT:(%d+):(%d+)$")
     if killed then
         UpdateTrash(tonumber(killed), tonumber(needKills))
         return
     end
 
-    -- RBMB:e:<name>  (engage)   or   RBMB:k:<name>:<seconds>  (kill)
-    local ename = msg:match("^RBMB:e:(.+)$")
+    -- UMB:e:<name>  (engage)   or   UMB:k:<name>:<seconds>  (kill)
+    local ename = msg:match("^UMB:e:(.+)$")
     if ename then
         EngageBoss(ename)
         return
     end
-    local kname, ksplit = msg:match("^RBMB:k:(.+):(%d+)$")
+    local kname, ksplit = msg:match("^UMB:k:(.+):(%d+)$")
     if kname then
         KillBoss(kname, tonumber(ksplit))
         return
@@ -1170,13 +1202,13 @@ end
 -- worldserver learns to emit it. Format is fixed here so both ends can be written
 -- against it:
 --
---   RBMA:<key>,<key>,...   set the run's affix list (announces newcomers)
---   RBMX:<key>             announce one affix right now (it triggered)
+--   UMA:<key>,<key>,...   set the run's affix list (announces newcomers)
+--   UMX:<key>             announce one affix right now (it triggered)
 --
 -- Keys are the catalogue keys above, not numeric ids, so a server-side reorder
 -- cannot silently repoint an affix at the wrong card.
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and (msg:find("^RBMA:") or msg:find("^RBMX:") or msg:find("^RBMI:")) then return true end
+    if msg and (msg:find("^UMA:") or msg:find("^UMX:") or msg:find("^UMI:")) then return true end
     return false
 end)
 
@@ -1210,9 +1242,9 @@ affixListener:SetScript("OnEvent", function(self, event, a1, a2)
     end
     if not msg then return end
 
-    -- RBMI:<freezeSeconds>:<key>,<key>,... -- run start. Sent once, when the server
+    -- UMI:<freezeSeconds>:<key>,<key>,... -- run start. Sent once, when the server
     -- has just rooted the group; drives the countdown and the full intro sequence.
-    local secs, ilist = msg:match("^RBMI:(%d+):(.*)$")
+    local secs, ilist = msg:match("^UMI:(%d+):(.*)$")
     if secs then
         local keys = {}
         for k in ilist:gmatch("[^,]+") do keys[#keys + 1] = k end
@@ -1220,7 +1252,7 @@ affixListener:SetScript("OnEvent", function(self, event, a1, a2)
         return
     end
 
-    local list = msg:match("^RBMA:(.*)$")
+    local list = msg:match("^UMA:(.*)$")
     if list then
         local keys = {}
         for k in list:gmatch("[^,]+") do keys[#keys + 1] = k end
@@ -1228,7 +1260,7 @@ affixListener:SetScript("OnEvent", function(self, event, a1, a2)
         return
     end
 
-    local one = msg:match("^RBMX:(%S+)$")
+    local one = msg:match("^UMX:(%S+)$")
     if one then
         UncappedMythicAffix_Announce(one)
         return

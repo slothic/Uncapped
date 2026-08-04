@@ -1,12 +1,12 @@
 -- UncappedRewards
 --
 -- The Mythic+ completion window. When you finish a keystone the server sends the
--- FULL reward list (RBCHEST) and your global rank for the clear (RBRANK); this
+-- FULL reward list (UCHEST) and your global rank for the clear (URANK); this
 -- pops a shiny frame with a gold screen-flash, your rank + clear time, and a
 -- SCROLLABLE list of everything you won (mouse wheel to scroll).
 --
 -- Rides the player's personal channel like the other addons, and filters the
--- RBCHEST / RBRANK lines out of chat so only the window shows them.
+-- UCHEST / URANK lines out of chat so only the window shows them.
 
 local VISIBLE = 10   -- reward rows visible at once (rest reached by scrolling); driven by db.rows
 local MAXROWS = 20   -- font strings pre-created so "rows shown" can change live
@@ -84,7 +84,7 @@ frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
 frame.title:SetPoint("TOP", frame.chest, "BOTTOM", 0, -6)
 frame.title:SetTextColor(1.0, 0.82, 0.0)
 
--- Rank + clear time (filled by RBRANK).
+-- Rank + clear time (filled by URANK).
 frame.rank = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 frame.rank:SetPoint("TOP", frame.title, "BOTTOM", 0, -4)
 
@@ -228,7 +228,7 @@ local function ApplyPosition()
     end
 end
 
--- The level the currently-shown window is for (to match a following RBRANK).
+-- The level the currently-shown window is for (to match a following URANK).
 local shownLevel = nil
 
 local function Show(level, list)
@@ -263,7 +263,7 @@ end
 
 -- Hide the protocol lines from chat.
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and (msg:find("^RBCHEST:") or msg:find("^RBRANK:")) then
+    if msg and (msg:find("^UCHEST:") or msg:find("^URANK:")) then
         return true
     end
     return false
@@ -336,8 +336,8 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
     end
     a1 = msg  -- parsers below read a1; keep it pointing at the normalised body
 
-    -- RBCHEST:<level>:<name>x<count>|<name>x<count>|...
-    local level, rest = msg:match("^RBCHEST:(%d+):(.*)$")
+    -- UCHEST:<level>:<name>x<count>|<name>x<count>|...
+    local level, rest = msg:match("^UCHEST:(%d+):(.*)$")
     if level then
         local list = {}
         for chunk in rest:gmatch("[^|]+") do
@@ -350,8 +350,8 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         return
     end
 
-    -- RBRANK:<map>:<level>:<rank>:<total>:<durationMs>:<bestMs>
-    local rmap, rlevel, rrank, rtotal, rms, rbest = a1:match("^RBRANK:(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
+    -- URANK:<map>:<level>:<rank>:<total>:<durationMs>:<bestMs>
+    local rmap, rlevel, rrank, rtotal, rms, rbest = a1:match("^URANK:(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
     if rlevel then
         SetRank(tonumber(rlevel), tonumber(rrank), tonumber(rtotal), tonumber(rms), tonumber(rbest))
         return
