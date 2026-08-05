@@ -227,6 +227,13 @@
                             Content="CHECK FOR UPDATES" Height="32" Margin="0,8,0,0"
                             IsEnabled="False" Click="OnCheckForUpdates" />
 
+                    <!-- Only shown when the client actually needs it. A permanently visible
+                         REPAIR button invites people to press it on a healthy install and
+                         re-download 4 GB for nothing. -->
+                    <Button x:Name="RepairButton" Style="{StaticResource GhostButton}"
+                            Content="REPAIR CLIENT" Height="32" Margin="0,8,0,0"
+                            Visibility="Collapsed" Click="OnRepair" />
+
                     <!-- A WrapPanel rather than a StackPanel: four links do not fit on one
                          300px line, and a horizontal StackPanel would silently clip the last
                          one instead of moving it down. -->

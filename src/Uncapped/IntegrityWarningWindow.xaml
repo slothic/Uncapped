@@ -1,0 +1,58 @@
+<Window x:Class="Uncapped.IntegrityWarningWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Client check"
+        Width="560" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="#12080C" Foreground="#E8DFEA"
+        FontFamily="Segoe UI" FontSize="13">
+
+    <StackPanel Margin="22">
+
+        <TextBlock x:Name="Headline"
+                   FontSize="17" FontWeight="SemiBold" Foreground="#F0E6F2"
+                   TextWrapping="Wrap" Margin="0,0,0,12" />
+
+        <TextBlock x:Name="Explanation"
+                   TextWrapping="Wrap" Foreground="#C9BDCC" Margin="0,0,0,12" />
+
+        <Border Background="#1B1016" CornerRadius="8" Padding="12,10" Margin="0,0,0,14">
+            <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="ProblemList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,3">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="86" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Grid.Column="0" Text="{Binding Label}"
+                                           Foreground="{Binding Colour}" FontWeight="SemiBold" />
+
+                                <TextBlock Grid.Column="1" Text="{Binding Path}"
+                                           Foreground="#E8DFEA" TextWrapping="Wrap"
+                                           FontFamily="Consolas" FontSize="12" />
+
+                                <TextBlock Grid.Column="2" Text="{Binding Size}"
+                                           Foreground="#8E8391" Margin="10,0,0,0" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <TextBlock x:Name="Footnote" TextWrapping="Wrap" Foreground="#8E8391"
+                   FontSize="12" Margin="0,0,0,16" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="CloseButton" Content="Not now" Width="110" Height="32"
+                    Margin="0,0,10,0" IsCancel="True" Click="OnClose" />
+            <Button x:Name="RepairButton" Content="Repair" Width="130" Height="32"
+                    IsDefault="True" Click="OnRepair" />
+        </StackPanel>
+    </StackPanel>
+</Window>

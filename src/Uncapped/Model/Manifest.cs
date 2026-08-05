@@ -57,6 +57,17 @@ public sealed class Manifest
     /// </summary>
     [JsonPropertyName("donateUrl")] public string? DonateUrl { get; set; }
 
+    /// <summary>
+    /// Where <see cref="Baseline"/> is published — the hashes of the stock client underneath
+    /// our payload, which is what lets the launcher tell a legitimate install from one carrying
+    /// files from somewhere else.
+    ///
+    /// Null disables integrity verification entirely and falls back to checking only the files
+    /// listed here. That is the pre-1.10 behaviour, and it is the off switch if the baseline
+    /// ever turns out to be flagging something legitimate.
+    /// </summary>
+    [JsonPropertyName("baselineUrl")] public string? BaselineUrl { get; set; }
+
     /// <summary>Fallback news, used when no newsUrl is set or the fetch fails.</summary>
     [JsonPropertyName("news")] public List<NewsItem> News { get; set; } = new();
     [JsonPropertyName("files")] public List<ManifestFile> Files { get; set; } = new();

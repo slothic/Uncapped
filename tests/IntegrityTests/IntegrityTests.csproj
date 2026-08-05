@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A console harness for IntegrityVerifier, not a unit-test framework run.
+
+    It compiles the verifier and its dependencies directly out of the launcher project
+    rather than referencing it: the launcher is a WPF app targeting net9.0-windows and
+    pulling it in whole would drag the UI, WinForms and the App entry point into a
+    console process for no benefit. The files listed below are the entire dependency
+    closure of the thing under test.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Uncapped.Tests</RootNamespace>
+    <AssemblyName>IntegrityTests</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Mirrors the launcher's own <Using> block. The services under test rely on these
+         being global; without them every file fails on FileInfo and HttpClient. -->
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The warning dialog, so the harness can render it. New XAML that nothing else
+         exercises, and the binding names inside a DataTemplate only fail at runtime. -->
+    <Page Include="..\..\src\Uncapped\IntegrityWarningWindow.xaml">
+      <Link>IntegrityWarningWindow.xaml</Link>
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Compile Include="..\..\src\Uncapped\IntegrityWarningWindow.xaml.cs">
+      <Link>IntegrityWarningWindow.xaml.cs</Link>
+      <DependentUpon>IntegrityWarningWindow.xaml</DependentUpon>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+
+    <Compile Include="..\..\src\Uncapped\Model\Baseline.cs" />
+    <Compile Include="..\..\src\Uncapped\Model\Manifest.cs" />
+    <Compile Include="..\..\src\Uncapped\Model\LauncherState.cs" />
+    <Compile Include="..\..\src\Uncapped\Services\IntegrityVerifier.cs" />
+    <Compile Include="..\..\src\Uncapped\Services\RepairService.cs" />
+    <Compile Include="..\..\src\Uncapped\Services\SyncService.cs" />
+    <Compile Include="..\..\src\Uncapped\Services\ClientLocale.cs" />
+    <Compile Include="..\..\src\Uncapped\Services\ConfigWtf.cs" />
+    <Compile Include="..\..\src\Uncapped\Services\Hashing.cs" />
+    <Compile Include="..\..\src\Uncapped\Logging.cs" />
+    <Compile Include="..\..\src\Uncapped\AppPaths.cs" />
+  </ItemGroup>
+
+</Project>

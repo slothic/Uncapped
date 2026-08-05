@@ -48,6 +48,22 @@ public sealed class LauncherState
     /// </summary>
     [JsonPropertyName("viewDistanceRaised")] public bool ViewDistanceRaised { get; set; }
 
+    /// <summary>
+    /// Hashes already computed for this install, keyed by install-root-relative path.
+    ///
+    /// This is what makes verifying 16 GB on every launch affordable. SHA-256 over the whole
+    /// client costs about a minute on an NVMe drive and several on a spinning disk, which is
+    /// not something to spend on every PLAY. A cached entry is trusted only while the file's
+    /// size AND last-write time are both unchanged, so any rewrite — corruption, a patcher, a
+    /// hand-edit — invalidates it and the file is re-hashed.
+    ///
+    /// Worst case if a file were somehow modified with its size and timestamp preserved: the
+    /// launcher trusts a stale hash. That is a deliberate trade for a launcher that starts in
+    /// seconds, and the server-side version gate is still behind it.
+    /// </summary>
+    [JsonPropertyName("verifiedFiles")]
+    public Dictionary<string, VerifiedFile> VerifiedFiles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
     public static LauncherState Load()
@@ -66,6 +82,11 @@ public sealed class LauncherState
             state.InstalledArchives = new Dictionary<string, string>(
                 state.InstalledArchives, StringComparer.OrdinalIgnoreCase);
 
+            // Same trap as above: the hash cache is keyed by path and would miss on a casing
+            // difference, re-hashing 16 GB on every launch while looking like it worked.
+            state.VerifiedFiles = new Dictionary<string, VerifiedFile>(
+                state.VerifiedFiles, StringComparer.OrdinalIgnoreCase);
+
             return state;
         }
         catch
@@ -81,4 +102,20 @@ public sealed class LauncherState
         Directory.CreateDirectory(AppPaths.DataDir);
         File.WriteAllText(AppPaths.StateFile, JsonSerializer.Serialize(this, Options));
     }
+}
+
+/// <summary>
+/// One remembered hash, valid only while the file it describes is untouched.
+///
+/// Both size and write time are recorded because either alone is too weak: a corrupted MPQ can
+/// keep its length, and a file copied back from a backup can keep its timestamp.
+/// </summary>
+public sealed class VerifiedFile
+{
+    [JsonPropertyName("size")] public long Size { get; set; }
+
+    /// <summary>UTC ticks, so a state file does not change meaning across a DST boundary.</summary>
+    [JsonPropertyName("writtenTicks")] public long WrittenTicks { get; set; }
+
+    [JsonPropertyName("sha256")] public string Sha256 { get; set; } = "";
 }

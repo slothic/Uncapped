@@ -1,7 +1,13 @@
 # Publishing a client patch
 
 How a change to the client MPQ patches reaches players. Companion to
-`PUBLISHING-ADDONS.md`, which covers the payload and addons.
+`PUBLISHING-ADDONS.md` (the payload and addons) and `PUBLISHING-BASELINE.md`
+(the stock-client hashes that decide whether PLAY is enabled at all).
+
+> A patch published here is picked up by the integrity check automatically — it
+> is a `manifest.json` entry, and the manifest is half of what the check reads.
+> Nothing extra to do. `baseline.json` covers only the *stock* client and does
+> not change when you cut a patch.
 
 Patches are **not** in `payload/` and **not** in git — they are hundreds of
 megabytes of binaries. They are hosted on the realm's own VPS and pinned by URL

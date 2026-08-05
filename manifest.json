@@ -1,8 +1,8 @@
 {
     "manifestVersion":  1,
-    "launcherVersion":  "1.9.0",
-    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.9.0/Uncapped.exe",
-    "launcherSha256":  "9147b439fd5180972c9c5e4f97b5e4cbb298a938174eb26c0c16d6d53709c6dc",
+    "launcherVersion":  "1.10.0",
+    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.10.0/Uncapped.exe",
+    "launcherSha256":  "c07abcb2157884d6475a4e72bfb2b4509c1753af778223a2fadf0715f9de210b",
     "realm":  {
                   "name":  "Uncapped",
                   "address":  "152.53.115.249",
@@ -31,6 +31,7 @@
     "crashReportWebhook":  null,
     "hardenClient":  true,
     "largeAddressAware":  true,
+    "baselineUrl":  "http://152.53.115.249/baseline.json",
     "newsUrl":  "http://152.53.115.249:8080/news.json",
     "donateUrl":  "https://ko-fi.com/uncapped",
     "news":  [

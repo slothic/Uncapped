@@ -24,6 +24,15 @@ param(
     # (./webregistration:/var/www/html). Editing that file updates the news for everyone with
     # no rebuild, no restart and no release. Empty falls back to the manifest's news array.
     [string]$NewsUrl         = 'http://152.53.115.249:8080/news.json',
+    # Where baseline.json is published -- the hashes of the stock client under our payload,
+    # which is what lets the launcher tell a legitimate install from one carrying files from
+    # another server. Regenerate it with New-Baseline.ps1; this only points at it.
+    #
+    # ⚠ Set to '' to turn the whole integrity check off for every player. That is the intended
+    # off switch if it ever starts flagging something legitimate -- and it is also what an
+    # accidental omission here would do, which is why it has a default rather than being
+    # inherited from whatever happened to be in the previous manifest.
+    [string]$BaselineUrl     = 'http://152.53.115.249/baseline.json',
     # Where the launcher's support button points. Empty hides the button outright, so this
     # is also the off switch. Published here rather than compiled into the exe because it
     # has already moved once (PayPal -> Ko-fi) and a URL in the binary makes that a release.
@@ -347,6 +356,9 @@ if ($NewsUrl) { $newsUrlValue = $NewsUrl }
 $donateUrlValue = $null
 if ($DonateUrl) { $donateUrlValue = $DonateUrl }
 
+$baselineUrlValue = $null
+if ($BaselineUrl) { $baselineUrlValue = $BaselineUrl }
+
 $manifest = [ordered]@{
     manifestVersion = 1
     launcherVersion = $LauncherVersion
@@ -392,6 +404,8 @@ $manifest = [ordered]@{
     crashReportWebhook = $crashWebhookValue
     hardenClient       = $HardenClient
     largeAddressAware  = $LargeAddressAware
+
+    baselineUrl = $baselineUrlValue
 
     newsUrl = $newsUrlValue
     # Null hides the launcher's support button rather than pointing it nowhere.

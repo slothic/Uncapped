@@ -29,6 +29,45 @@ public partial class MainWindow : Window
     private bool _readyToPlay;
     private bool _closing;
 
+    /// <summary>What a legitimate client is made of. Null when the manifest publishes none.</summary>
+    private Baseline? _baseline;
+
+    /// <summary>
+    /// The last verification result, kept so the REPAIR button knows what it is repairing
+    /// without re-hashing 16 GB to find out again.
+    /// </summary>
+    private IntegrityReport? _report;
+
+    /// <summary>
+    /// Whether the player has already been shown, and dismissed, the warning about files that
+    /// are not ours. Per-run rather than persisted: it is not nagging if it happens once per
+    /// launcher start, and unlike the third-party addon warning this one describes a client
+    /// that we genuinely cannot vouch for.
+    /// </summary>
+    private bool _foreignWarningShown;
+
+    /// <summary>
+    /// Guards SyncAndPrepareAsync against re-entering itself.
+    ///
+    /// Repair finishes by re-verifying, which means calling the sync — and the sync is what
+    /// offers Repair in the first place. Without this, pressing Repair from the dialog runs a
+    /// second sync inside the first one, two of them writing the same game folder at once.
+    /// </summary>
+    private bool _syncing;
+
+    /// <summary>
+    /// Set when the player asks for a repair from the warning dialog, and acted on only once
+    /// the sync that raised the dialog has fully unwound.
+    /// </summary>
+    private bool _repairRequested;
+
+    /// <summary>
+    /// Whether a repair has already run without the player pressing anything since. Stops a
+    /// fault the repair cannot actually fix from becoming a loop of
+    /// verify -> warn -> repair -> verify. One automatic attempt, then it is their move.
+    /// </summary>
+    private bool _autoRepairUsed;
+
     public MainWindow(HttpClient http, LauncherConfig config, LauncherState state)
     {
         _http = http;
@@ -73,7 +112,10 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             // Offline is not fatal: if we already know where the client is, the player should
-            // still be able to play on whatever they last synced.
+            // still be able to play on whatever they last synced. But "we cannot reach GitHub"
+            // is not a reason to stop checking the files that are already on disk — that used
+            // to enable PLAY on no evidence whatsoever, which made being offline the simplest
+            // way to launch a client nothing had ever verified.
             SetStatus($"Could not reach the update server — {ex.Message}");
             Log.Write(ex.ToString());
 
@@ -81,7 +123,7 @@ public partial class MainWindow : Window
             {
                 _installPath = _state.InstallPath;
                 ShowVersions(new ClientVersions(ClientVersionService.ReadInstalled(_installPath), null, null, true));
-                EnablePlay("Playing offline with your current files.");
+                await VerifyOfflineAsync();
             }
 
             // Leave the check button live either way: the network coming back is exactly the
@@ -351,7 +393,38 @@ public partial class MainWindow : Window
 
     // ---------- sync ----------
 
+    /// <summary>
+    /// Runs the sync, then acts on a repair the player asked for while it was running.
+    ///
+    /// Split from the body below so the repair starts only after this call has completely
+    /// unwound — Repair re-verifies by calling back into the sync, and starting that from
+    /// inside the sync's own try/finally had two of them updating the same folder at once.
+    /// </summary>
     private async Task SyncAndPrepareAsync()
+    {
+        if (_syncing) return;
+
+        _syncing = true;
+        try { await SyncAndPrepareCoreAsync(); }
+        finally { _syncing = false; }
+
+        if (!_repairRequested) return;
+
+        _repairRequested = false;
+
+        // One automatic go. If the client is still broken afterwards the REPAIR CLIENT button
+        // is on screen and says so; retrying forever would just hammer the patch host.
+        if (_autoRepairUsed)
+        {
+            Log.Write("repair: already attempted once since the last player action; not retrying");
+            return;
+        }
+
+        _autoRepairUsed = true;
+        await RepairAsync();
+    }
+
+    private async Task SyncAndPrepareCoreAsync()
     {
         if (_manifest is null || _installPath is null) return;
 
@@ -437,9 +510,16 @@ public partial class MainWindow : Window
                 catch (OperationCanceledException) { return; }
                 catch (Exception ex)
                 {
+                    // Previously: EnablePlay("You can still play, but your files may be out of
+                    // date."). They could not, in any useful sense — an out-of-date payload is
+                    // precisely what version_gate.lua disconnects them for, roughly 25 seconds
+                    // after they reach the character screen. Letting them launch converted a
+                    // clear launcher error into an unexplained kick from the realm.
                     Log.Write(ex.ToString());
-                    SetStatus($"Update failed — {ex.Message}");
-                    EnablePlay("You can still play, but your files may be out of date.");
+                    BlockPlay($"Update failed — {ex.Message}");
+                    SetSummary("PLAY is off until the update finishes. " +
+                               "Press CHECK FOR UPDATES to try again.");
+                    ShowRepair(true);
                     return;
                 }
 
@@ -504,33 +584,336 @@ public partial class MainWindow : Window
             if (outcome.Errors.Count > 0)
             {
                 foreach (var e in outcome.Errors) Log.Write($"sync: {e}");
+
                 // Deliberately not recorded as synced: a partial sync must be retried on the next
                 // PLAY rather than skipped because the manifest hash happens to match.
-                EnablePlay($"Ready, but {outcome.Errors.Count} file(s) failed to update. See launcher.log.");
-            }
-            else
-            {
-                _state.LastManifestHash = _manifestHash;
-                _state.Save();
-
-                // Archives are counted separately from files: installing ArkInventory unpacks
-                // 171 files the manifest never lists individually, so reporting only
-                // outcome.Downloaded would say "Updated 0 file(s)." after real work happened.
-                var summary = outcome.Downloaded > 0 ? $"Updated {outcome.Downloaded} file(s)." : "";
-                if (outcome.ArchivesInstalled > 0)
-                    summary = (summary.Length > 0 ? summary + " " : "")
-                            + $"Installed {outcome.ArchivesInstalled} addon(s).";
-
-                EnablePlay(outcome.ChangedAnything
-                    ? (summary.Length > 0 ? summary : "Updated.")
-                    : "Up to date.");
+                //
+                // This used to let the player through with "Ready, but N file(s) failed to
+                // update." It is exactly the client the server's version gate then kicks 25
+                // seconds after login, which reads as the realm being broken. A launcher that
+                // cannot finish updating has not made a playable client, and saying so is the
+                // whole point of the button.
+                BlockPlay($"{outcome.Errors.Count} file(s) could not be updated.");
+                SetSummary("PLAY is off until every file updates cleanly. " +
+                           "Press CHECK FOR UPDATES to try again — launcher.log says what failed.");
+                ShowRepair(true);
+                return;
             }
 
-            // Otherwise the activity line is left reading "Checking your files (552/552)",
-            // which looks like it stopped halfway rather than finished.
-            SetStatus("Ready.");
+            // Archives are counted separately from files: installing ArkInventory unpacks
+            // 171 files the manifest never lists individually, so reporting only
+            // outcome.Downloaded would say "Updated 0 file(s)." after real work happened.
+            var summary = outcome.Downloaded > 0 ? $"Updated {outcome.Downloaded} file(s)." : "";
+            if (outcome.ArchivesInstalled > 0)
+                summary = (summary.Length > 0 ? summary + " " : "")
+                        + $"Installed {outcome.ArchivesInstalled} addon(s).";
+
+            if (!outcome.ChangedAnything) summary = "Up to date.";
+            else if (summary.Length == 0) summary = "Updated.";
+
+            // Everything above only proves our own payload is right. The client is 16 GB of
+            // files we did not publish, and until 1.10 nothing looked at any of them.
+            await VerifyAndDecideAsync(manifest, installPath, locale, summary);
         }
         finally { SetBusy(false); }
+    }
+
+    // ---------- integrity ----------
+
+    /// <summary>
+    /// Verifies an offline start against the last manifest and baseline we cached.
+    ///
+    /// Deliberately still a hard gate. The one thing being offline genuinely prevents is
+    /// learning about a NEWER release — it does not prevent checking that the files already
+    /// on disk are the ones we last published, and that is what decides whether the client
+    /// works. With no cached manifest there is nothing to check against and nothing to
+    /// honestly claim, so PLAY stays off until the network comes back.
+    /// </summary>
+    private async Task VerifyOfflineAsync()
+    {
+        if (_installPath is null) return;
+
+        var cached = ManifestService.LoadCached();
+        if (cached is null)
+        {
+            BlockPlay("Could not reach the update server, and nothing has been downloaded yet.");
+            SetSummary("PLAY is off until the launcher can check your files at least once. " +
+                       "Press CHECK FOR UPDATES when you are back online.");
+            return;
+        }
+
+        _manifest = cached.Manifest;
+        _manifestHash = cached.Hash;
+
+        var locale = ClientLocale.Detect(_installPath);
+        if (locale is null)
+        {
+            BlockPlay("That game folder cannot be used.");
+            return;
+        }
+
+        Log.Write("integrity: offline start, verifying against the cached manifest and baseline");
+        await VerifyAndDecideAsync(cached.Manifest, _installPath, locale, "Offline — using your current files.");
+    }
+
+    /// <summary>
+    /// Verifies the whole client and decides whether PLAY is allowed.
+    ///
+    /// Three outcomes:
+    ///
+    ///   * Clean — PLAY on, nothing said beyond the usual summary.
+    ///   * Files missing or altered — PLAY OFF, warning shown, REPAIR offered. This is the
+    ///     case that used to reach the login screen and get kicked.
+    ///   * Only unrecognised extras — PLAY stays ON, but the player is told once that we
+    ///     cannot recognise their install as a legitimate Uncapped release, and REPAIR stays
+    ///     available. An extra file is their business; it is not ours to refuse to launch over.
+    ///
+    /// A client with no published baseline verifies our payload alone, which is what every
+    /// launcher before 1.10 did.
+    /// </summary>
+    private async Task VerifyAndDecideAsync(
+        Manifest manifest, string installPath, ClientLocale? locale, string summary)
+    {
+        _report = null;
+
+        _baseline ??= await new BaselineService(_http).LoadAsync(manifest, _cts.Token);
+
+        if (_baseline is null)
+        {
+            // No baseline to check against. The payload sync above already succeeded, so this
+            // is the old behaviour rather than a failure — but PLAY is granted on strictly
+            // less evidence, and the log should say so when someone asks why a bad client
+            // got through.
+            Log.Write("integrity: no baseline available; verified manifest files only");
+            _state.LastManifestHash = _manifestHash;
+            _state.Save();
+            ShowRepair(false);
+            EnablePlay(summary);
+            SetStatus("Ready.");
+            return;
+        }
+
+        IntegrityReport report;
+        try
+        {
+            var reporter = new Progress<SyncProgress>(p =>
+            {
+                SetStatus($"{p.Status}  ({p.Completed}/{p.Total})");
+                SetProgress(p.Total == 0 ? 1 : (double)p.Completed / p.Total);
+            });
+
+            report = await new IntegrityVerifier(installPath, manifest, _baseline, locale, _state)
+                .VerifyAsync(reporter, _cts.Token);
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            // A verifier that throws must not become a way to play unverified. It also must
+            // not permanently brick a launcher over a bug in our own scanning code, so this
+            // says plainly what happened and leaves CHECK FOR UPDATES as the way to retry.
+            Log.Write($"integrity: verification failed — {ex}");
+            BlockPlay("Your game files could not be checked.");
+            SetSummary("PLAY is off because the file check did not finish. " +
+                       "Press CHECK FOR UPDATES to try again — launcher.log has the details.");
+            ShowRepair(true);
+            return;
+        }
+
+        _report = report;
+        SetProgress(1);
+
+        Log.Write($"integrity: {report.Checked} checked, {report.Skipped} absent-and-optional, " +
+                  $"{report.BytesHashed / (1024 * 1024)} MB hashed, {report.Problems.Count} problem(s)");
+
+        foreach (var p in report.Problems.Take(40))
+            Log.Write($"integrity: {p.Fault} {(p.Blocking ? "(blocking) " : "")}{p.Path}");
+
+        if (report.Problems.Count > 40)
+            Log.Write($"integrity: … and {report.Problems.Count - 40} more");
+
+        if (report.Clean)
+        {
+            _state.LastManifestHash = _manifestHash;
+            _state.Save();
+            ShowRepair(false);
+            EnablePlay(summary);
+            SetStatus("Ready.");
+            return;
+        }
+
+        ShowRepair(true);
+
+        if (!report.CanPlay)
+        {
+            var n = report.Blocking.Count();
+            BlockPlay($"{n} game file(s) are missing or altered.");
+            SetSummary("PLAY is off until this is fixed. Press REPAIR CLIENT to download clean copies.");
+
+            ShowIntegrityWarning(report);
+            return;
+        }
+
+        // Foreign files only. Playable, but not something we can vouch for.
+        _state.LastManifestHash = _manifestHash;
+        _state.Save();
+
+        var foreignCount = report.Foreign.Count();
+        EnablePlay($"{summary} {foreignCount} file(s) in your game folder are not ours — press REPAIR CLIENT.".Trim());
+        SetStatus("Ready.");
+
+        ShowIntegrityWarning(report);
+    }
+
+    /// <summary>
+    /// Shows the problem list, and runs the repair if that is what they choose.
+    ///
+    /// Shown at most once per launcher run for the playable case, so someone who has decided
+    /// to keep a foreign file is not asked again every time they press PLAY. The blocking case
+    /// is always shown: there, the dialog is the explanation for why the button is dead.
+    /// </summary>
+    private void ShowIntegrityWarning(IntegrityReport report)
+    {
+        if (report.CanPlay && _foreignWarningShown) return;
+        _foreignWarningShown = true;
+
+        var dialog = new IntegrityWarningWindow(report) { Owner = this };
+        dialog.ShowDialog();
+
+        // Recorded rather than acted on: see SyncAndPrepareAsync. Starting the repair from
+        // here would re-enter the sync that is still on the stack above us.
+        if (dialog.RepairRequested) _repairRequested = true;
+    }
+
+    private void ShowRepair(bool visible) => Dispatcher.Invoke(() =>
+        RepairButton.Visibility = visible ? Visibility.Visible : Visibility.Collapsed);
+
+    private async void OnRepair(object sender, RoutedEventArgs e)
+    {
+        // A deliberate press is always honoured, and re-arms the one automatic attempt.
+        _autoRepairUsed = false;
+        await RepairAsync();
+    }
+
+    /// <summary>
+    /// Puts the client back to what a release actually is, then re-verifies.
+    ///
+    /// Re-verification is not optional: repair is only worth anything if the result is checked,
+    /// and a download that silently failed would otherwise leave PLAY enabled on the strength
+    /// of having tried.
+    /// </summary>
+    private async Task RepairAsync()
+    {
+        if (_installPath is null || _manifest is null) return;
+
+        var installPath = _installPath;
+        var manifest = _manifest;
+
+        if (GameProcess.IsRunning(installPath))
+        {
+            MessageBox.Show(
+                "World of Warcraft is running.\n\nClose it before repairing — game files cannot " +
+                "be replaced while the client has them open.",
+                "Game is running", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        // Re-verify first when we have nothing to go on. Pressing REPAIR after a launcher
+        // restart should not be a no-op just because the report lives in memory.
+        var report = _report;
+
+        SetBusy(true);
+        try
+        {
+            var locale = ClientLocale.Detect(installPath);
+            var reporter = new Progress<SyncProgress>(p =>
+            {
+                SetStatus($"{p.Status}  ({p.Completed}/{p.Total})");
+                SetProgress(p.Total == 0 ? 1 : (double)p.Completed / p.Total);
+            });
+
+            if (report is null && _baseline is not null)
+            {
+                SetStatus("Checking your game files…");
+                report = await new IntegrityVerifier(installPath, manifest, _baseline, locale, _state)
+                    .VerifyAsync(reporter, _cts.Token);
+            }
+
+            var repair = new RepairService(_http);
+            var restored = 0;
+            var quarantined = 0;
+            var errors = new List<string>();
+
+            if (report is not null)
+            {
+                var broken = report.Problems
+                    .Where(p => p.Fault is IntegrityFault.Missing or IntegrityFault.Corrupt)
+                    .ToList();
+
+                if (broken.Count > 0)
+                {
+                    SetStatus($"Restoring {broken.Count} file(s)…");
+                    var outcome = await repair.RestoreAsync(installPath, broken, _state, reporter, _cts.Token);
+                    restored = outcome.Restored;
+                    errors.AddRange(outcome.Errors);
+                }
+
+                // Moving someone's file is asked for separately and by name, even though they
+                // already pressed a button called Repair. "Repair" does not obviously mean
+                // "take this away", and the file may be the only copy they have.
+                var archives = report.Problems.Where(p => p.IsForeignArchive).ToList();
+                if (archives.Count > 0 && ConfirmQuarantine(archives))
+                {
+                    var outcome = repair.Quarantine(installPath, archives, _state);
+                    quarantined = outcome.Quarantined;
+                    errors.AddRange(outcome.Errors);
+                }
+            }
+
+            foreach (var error in errors) Log.Write($"repair: {error}");
+
+            Log.Write($"repair: restored {restored}, quarantined {quarantined}, {errors.Count} error(s)");
+
+            // Whatever happened, the answer now comes from re-reading the disk rather than
+            // from what we intended to do to it.
+            SetStatus("Re-checking your game files…");
+            await SyncAndPrepareAsync();
+
+            if (restored > 0 || quarantined > 0)
+            {
+                var parts = new List<string>();
+                if (restored > 0) parts.Add($"restored {restored} file(s)");
+                if (quarantined > 0) parts.Add($"moved {quarantined} file(s) to Data\\_disabled");
+                SetSummary($"Repair {string.Join(" and ", parts)}.");
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Log.Write($"repair: {ex}");
+            SetStatus($"Repair failed — {ex.Message}");
+            MessageBox.Show($"The repair could not finish.\n\n{ex.Message}", "Repair failed",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally { SetBusy(false); }
+    }
+
+    private bool ConfirmQuarantine(IReadOnlyList<IntegrityProblem> archives)
+    {
+        var names = string.Join(Environment.NewLine,
+            archives.Take(12).Select(a => "    " + a.Path));
+
+        if (archives.Count > 12) names += $"{Environment.NewLine}    … and {archives.Count - 12} more";
+
+        var answer = MessageBox.Show(
+            "These files are not part of any Uncapped release:" + Environment.NewLine + Environment.NewLine +
+            names + Environment.NewLine + Environment.NewLine +
+            "They will be MOVED to Data\\_disabled inside your game folder, not deleted — the " +
+            "game stops loading them and you can drag them back at any time." + Environment.NewLine +
+            Environment.NewLine +
+            "Move them?",
+            "Files we do not recognise", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+        return answer == MessageBoxResult.Yes;
     }
 
     // ---------- publish gate ----------
@@ -623,6 +1006,9 @@ public partial class MainWindow : Window
 
     private async void OnCheckForUpdates(object sender, RoutedEventArgs e)
     {
+        // A player action, so the single automatic repair attempt is available again.
+        _autoRepairUsed = false;
+
         SetBusy(true);
         try { await CheckForUpdatesAsync(); }
         catch (OperationCanceledException) { }

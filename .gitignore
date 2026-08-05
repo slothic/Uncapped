@@ -1,6 +1,13 @@
 # Build output
 src/**/bin/
 src/**/obj/
+tests/**/bin/
+tests/**/obj/
+
+# Staging tree for New-Baseline.ps1 -Stage: ~16 GB of stock client files copied under
+# their published names. Publish-Baseline.sh does not need it (it renames on upload via
+# scp), so this only exists if someone asks for it explicitly.
+.baseline-stage/
 
 # Download cache for externally hosted files (the WDM MPQ patches). Only ever used to
 # compute hashes at manifest time - players fetch these from upstream, not from here.
@@ -21,6 +28,10 @@ src/Uncapped/webhook.local.txt
 
 # payload/ and manifest.json are generated but MUST be committed:
 # they are what the launcher actually downloads.
+#
+# baseline.json is generated too and is also committed, even though players fetch it from
+# the VPS rather than from here. It is the record of what a legitimate client is made of,
+# and regenerating it needs a pristine 17 GB install nobody will reliably still have.
 
 # Internal planning notes. This repo is public: the handoff contains server-side detail and
 # a written record of the client-distribution decision, neither of which needs publishing.

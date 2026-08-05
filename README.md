@@ -9,15 +9,26 @@ Client launcher and auto-updater for the Uncapped realm (WotLK 3.3.5a, AzerothCo
 | Path | What it is |
 |---|---|
 | `src\Uncapped\` | The C# / .NET 9 WPF launcher. |
+| `tests\IntegrityTests\` | Console harness for the client integrity check. Run it before shipping changes to it. |
 | `tools\Build-Payload.ps1` | Stages addons + MPQs into `payload\`, normalising zips to folders. |
 | `tools\New-Manifest.ps1` | Hashes `payload\` and writes `manifest.json`. |
+| `tools\New-Baseline.ps1` | Hashes a stock client and writes `baseline.json`. Rarely run. |
+| `tools\Publish-Baseline.sh` | Uploads the baseline's files to the VPS and verifies them there. |
+| `tools\patch-host-nginx.conf` | Source of truth for the VPS patch host's nginx config. |
 | `payload\` | Generated. Mirrors the WoW install root. Commit this. |
 | `manifest.json` | Generated. The launcher's only source of truth. Commit this. |
+| `baseline.json` | Generated. What a legitimate *stock* client is made of. Commit this. |
 
 ---
 
 > **Changing an addon?** See [`PUBLISHING-ADDONS.md`](PUBLISHING-ADDONS.md) — a self-contained
 > guide for a session that only needs to ship an addon change. No release, no version bump.
+>
+> **Changing an MPQ patch?** See [`PUBLISHING-PATCHES.md`](PUBLISHING-PATCHES.md).
+>
+> **Touching `baseline.json`, `New-Baseline.ps1`, or `baselineUrl`?** See
+> [`PUBLISHING-BASELINE.md`](PUBLISHING-BASELINE.md) **first**. That machinery decides whether
+> PLAY is enabled, so getting it wrong blocks every player at once rather than failing quietly.
 
 ## Publishing an update
 
@@ -76,8 +87,25 @@ dotnet publish -c Release
 Then set `launcherVersion`, `launcherUrl`, and `launcherSha256` in the manifest, bump
 `<Version>` in `Uncapped.csproj`, and push. Existing installs self-update on next launch.
 
-Self-update is **disabled while `launcherUrl` is null**, which is the current state — set it
-when you cut the first release.
+> ⚠ **Those three fields must describe ONE build.** A partial update has silently killed
+> self-update realm-wide twice — once with the version left at 1.0.0 through four releases,
+> once with a new version and hash pointing at the previous release's URL, which ran for three
+> days with nothing on screen. `New-Manifest.ps1` now downloads `launcherUrl` and proves it
+> hashes to `launcherSha256` before writing anything, so let it do that rather than hand-editing
+> all three.
+>
+> Diagnostic: a leftover `%LOCALAPPDATA%\Uncapped\Uncapped.new.exe` whose version is *older*
+> than the installed one is this bug. The failure goes to the UI, not `launcher.log`.
+
+Also run the integrity harness before cutting a build — it is the only thing that exercises
+the code deciding whether PLAY is enabled:
+
+```powershell
+cd C:\Wotlk\Launcher\tests\IntegrityTests
+dotnet run -c Release                                          # 34 synthetic cases
+dotnet run -c Release -- "C:\Wotlk\Client\Uncapped_NativeCT"   # real client, real data
+dotnet run -c Release -- --dialog                              # renders the warning dialog to PNG
+```
 
 ---
 
@@ -115,8 +143,11 @@ To switch back to a no-prerequisite build, set `<SelfContained>true</SelfContain
 ## What it does on launch
 
 1. Deletes the previous `.old` self-update leftover.
-2. Fetches the manifest. If unreachable but a valid install is remembered, it lets the player
-   play offline on whatever they last synced.
+2. Fetches the manifest, and caches it. If unreachable but a valid install is remembered, it
+   verifies against the **cached** manifest and baseline and plays offline on that. It does not
+   simply trust the disk: being unable to reach GitHub says nothing about whether the files
+   already installed are the ones we published. With nothing ever cached there is nothing to
+   check, and `PLAY` stays off until the network returns.
 3. Self-updates if the manifest advertises a newer version.
 4. Finds the install: remembered path → registry → common locations → folder picker. If none,
    offers to torrent the client. On a freshly downloaded client it then starts the game once
@@ -136,6 +167,15 @@ To switch back to a no-prerequisite build, set `<SelfContained>true</SelfContain
 7. Hashes manifest files on disk, downloads only what differs, verifies each download's
    SHA-256 before moving it into place. Downloads that arrive but hash wrong are treated as the
    same stale-CDN case: it waits for those specific files and syncs again, twice at most.
+   **A sync that cannot finish leaves `PLAY` off.** It used to let the player through with
+   "Ready, but N file(s) failed to update", which produced exactly the client the server's
+   version gate disconnects ~25 s after login — a clear launcher error turned into an
+   unexplained kick from the realm.
+7a. Verifies the whole client against `baseline.json` — all 16 GB, cached by
+   `(size, last-write-time)` so it costs ~10 s once and ~0.01 s thereafter. Missing or altered
+   required files switch `PLAY` off and offer **REPAIR CLIENT**; files that belong to no
+   Uncapped release are reported as unrecognised but do **not** block launching. See
+   [`PUBLISHING-BASELINE.md`](PUBLISHING-BASELINE.md).
 8. Writes `realmlist.wtf` (root **and** `Data\enUS\`) and fixes `realmList` in `WTF\Config.wtf`.
 9. Force-enables StatFeed and ReagentBankCraft in every `AddOns.txt`.
 10. Clears `Cache\WDB` if anything changed.

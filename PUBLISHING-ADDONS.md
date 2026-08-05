@@ -7,6 +7,11 @@ Nothing here builds or releases the launcher. Addon changes never need either.
 
 ---
 
+> **Related:** [`PUBLISHING-PATCHES.md`](PUBLISHING-PATCHES.md) for MPQ patches,
+> [`PUBLISHING-BASELINE.md`](PUBLISHING-BASELINE.md) for the client integrity check.
+> An addon change needs nothing from the baseline: your files are hashed through
+> `manifest.json`, which the check already reads.
+
 ## Where addons come from
 
 | Addon | Source of truth | Who owns it |
