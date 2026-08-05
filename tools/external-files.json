@@ -2,7 +2,6 @@
   {
     "_comment": "HOSTING: all four archives are now served from the realm's own VPS at http://152.53.115.249/patches/ instead of GitHub releases. URLs are IMMUTABLE and carry the version in the filename -- the bytes behind a URL never change, so a player who started a download an hour ago can resume it safely, and rolling back is repointing at the previous filename (which is still on disk). The path field is what lands in the client and never carries a version: load order depends only on the archive letter. To publish a new version see PUBLISHING-PATCHES.md.",
     "_comment2": "MIRRORS: M and N are Trimitor's work and are NOT forked -- these are byte-identical copies of his release assets, still pinned to his tags, served from our host so that a deleted release or a dead repo cannot break new installs. The upstream each one came from is recorded in /srv/uncapped-patches/mirrors.tsv on the VPS, and a daily systemd timer (uncapped-mirror-check) reports when upstream ships a newer release carrying the same asset, or replaces the asset behind our pinned tag. Re-mirroring is always a deliberate act.",
-
     "path": "Data/enUS/patch-enUS-M.MPQ",
     "url": "http://152.53.115.249/patches/patch-enUS-M-wdm2.4.5-stable.MPQ",
     "sha256": "b69713077e19498d20efa5eeaefdba98850764db6bdc99e292bfbdf7b1c858d6",
@@ -28,9 +27,22 @@
     "_history": "2026-08-04: replaces patch-enUS-R (Spell/AreaTable/Map), patch-enUS-S (LightFloatBand, fog) and patch-enUS-4 (Item.dbc), and retires patch-enUS-5 -- which was inert, every spell id in it already being in R, and R winning load order anyway. Built by ADDING Item.dbc and LightFloatBand.dbc to a copy of R rather than repacking from a file list; a repack silently drops anything not on the list. Verified by hashing the effective post-load-order view of the whole patch stack before and after: 5756 reachable entries both sides, 0 lost, 0 changed, all 12 DBCs byte-identical.",
     "_letter": "U, not R. It has to sort after every archive it replaces -- and -S sorted AFTER -R. Reusing R would mean a client that had not yet pruned its old -S would load S's LightFloatBand.dbc over the consolidated one. Identical bytes today, so it would look fine; the day we change the fog it would silently serve the old fog instead. A letter past S cannot have that problem. V-Z stay free for a hotfix archive that needs to override this one.",
     "_contents": "DBFilesClient\\Spell.dbc, AreaTable.dbc, Map.dbc, Item.dbc, LightFloatBand.dbc",
-
     "path": "Data/enUS/patch-enUS-U.MPQ",
     "url": "http://152.53.115.249/patches/patch-enUS-U-2026.08.04a.MPQ",
     "sha256": "d64192379592d51ab85e4f3b2be9e03a279430151ecfa2de44d568842884fce0"
+  },
+  {
+    "_comment": "THE PATCHED CLIENT EXECUTABLE. Stock 3.3.5a 12340 with LARGE_ADDRESS_AWARE set and an import-table entry for UncappedCT.dll, which is what gets our code loaded before the client's entry point runs. Shipped whole rather than patched on the player's machine: every install then runs a byte-identical binary we can verify by hash, instead of the output of patch logic running on 40 different machines. The path is the RENAMED name the launcher's client hardening uses -- ClientHardening deletes a stock Wow.exe when this file is present, so the install ends up with exactly one runnable client.",
+    "path": "UncappedClient.dat",
+    "url": "http://152.53.115.249/patches/UncappedClient-2026.08.05a.dat",
+    "sha256": "eabd235bd8fab5dbdeb75f20e7d3466b091c79484f825990d2c1cac5399f7a78",
+    "_note": "Not in payload/ and never committed: it is a modified Blizzard binary, and the payload tree is a public git repo."
+  },
+  {
+    "_comment": "THE INJECTED RUNTIME. A HARD dependency of the executable above -- import injection means the loader resolves it before any game code runs, so if this file is missing the client does not start at all (exit 0xC0000135, STATUS_DLL_NOT_FOUND). The launcher checks for it before every launch and tells the player to add an antivirus exclusion, because a real-time scanner quarantining it AFTER the sync verified it is the realistic way it goes missing. Built /MT so KERNEL32 is its only import: a 3.3.5a install has no reason to have a VC redistributable.",
+    "path": "UncappedCT.dll",
+    "url": "http://152.53.115.249/patches/UncappedCT-2026.08.05a.dll",
+    "sha256": "92168b77f3ee62a10489f50a76cf564a0933ea4c4fd9ff6d4a24057094bd874c",
+    "_note": "Must stay in step with the executable above: they share the wire-magnitude codec and the native-channel frame format. Publish them together, always."
   }
 ]

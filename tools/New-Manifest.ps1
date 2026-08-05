@@ -51,6 +51,12 @@ param(
     [string]$LauncherUrl     = '',
     # Leave empty to have it computed from -LauncherExe, if that file exists.
     [string]$LauncherSha256  = '',
+
+    # Escape hatch for regenerating the manifest with no network (or before the release
+    # asset has been uploaded). Skips the launcherUrl/launcherSha256 agreement check --
+    # which is the check that catches a self-update that would fail for every player, so
+    # do not make a habit of it.
+    [switch]$SkipLauncherUrlCheck,
     [string]$LauncherExe     = 'C:\Wotlk\Launcher\src\Uncapped\bin\Release\net9.0-windows\win-x64\publish\Uncapped.exe',
     # Files served from somewhere other than this repo (the WDM MPQ patches, which live in
     # Trimitor's releases). Downloaded once to a cache purely so we can hash them.
@@ -131,9 +137,27 @@ if (Test-Path $ExternalFiles) {
             # Same reasoning as the zip signature check on archives below: a 403 page, an
             # nginx 404 body or a truncated transfer is still a file, and would otherwise be
             # published as a perfectly valid hash of the wrong thing.
+            #
+            # The expected signature depends on what the entry is. This used to assume MPQ
+            # for everything, which was true while the only externally hosted files were the
+            # client patches -- the game executable and its injected DLL are now served the
+            # same way, and they start with "MZ". An entry with no known extension is still
+            # checked, against nothing being served at all, because a zero-length or
+            # error-page response is the failure this exists to catch.
             $sig = [IO.File]::ReadAllBytes($cached)[0..3]
-            if ($sig[0] -ne 0x4D -or $sig[1] -ne 0x50 -or $sig[2] -ne 0x51 -or $sig[3] -ne 0x1A) {
-                throw "External file $($e.path) does not start with the MPQ magic bytes (got $($sig -join ',')). The host probably served an error page."
+            $ext = [IO.Path]::GetExtension($e.path).ToLower()
+            switch -Regex ($ext) {
+                '^\.(exe|dll|dat)$' {
+                    if ($sig[0] -ne 0x4D -or $sig[1] -ne 0x5A) {
+                        throw "External file $($e.path) does not start with the MZ magic bytes (got $($sig -join ',')). The host probably served an error page."
+                    }
+                    Write-Host "    PE signature ok" -ForegroundColor DarkGray
+                }
+                default {
+                    if ($sig[0] -ne 0x4D -or $sig[1] -ne 0x50 -or $sig[2] -ne 0x51 -or $sig[3] -ne 0x1A) {
+                        throw "External file $($e.path) does not start with the MPQ magic bytes (got $($sig -join ',')). The host probably served an error page."
+                    }
+                }
             }
 
             $actualHash = (Get-FileHash $cached -Algorithm SHA256).Hash.ToLower()
@@ -252,6 +276,42 @@ if (-not $launcherHash -and $LauncherUrl -and (Test-Path $LauncherExe)) {
 }
 if ($LauncherUrl -and -not $launcherHash) {
     Write-Warning "launcherUrl is set but no hash could be determined - self-update will not verify the download."
+}
+
+# PROVE the launcher triple is self-consistent instead of trusting that whoever ran this
+# passed a matching set.
+#
+# The carry-forward above defends the two failure modes that had already happened. It could
+# not defend the one that had not: v1.8.4 was published with -LauncherVersion and
+# -LauncherSha256 but WITHOUT -LauncherUrl, so the url was inherited from v1.8.2 while the
+# version and hash moved on. The manifest then advertised 1.8.4, pinned 1.8.4's bytes, and
+# pointed at 1.8.2's download. Every client older than 1.8.4 fetched 1.8.2, failed the hash
+# check, and refused to update -- self-update was dead realm-wide, silently, for three days.
+#
+# Fetching 2 MB at publish time settles every permutation of that at once, and turns a
+# realm-wide silent failure into a local hard stop. Same principle as the external-file pins.
+if ($LauncherUrl -and $launcherHash -and -not $SkipLauncherUrlCheck) {
+    Write-Host "`nVerifying launcherUrl serves launcherSha256..." -ForegroundColor Cyan
+    $probe = Join-Path $env:TEMP ("uncapped-launcher-check-" + [guid]::NewGuid().ToString('N') + ".bin")
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        (New-Object Net.WebClient).DownloadFile($LauncherUrl, $probe)
+        $served = (Get-FileHash $probe -Algorithm SHA256).Hash.ToLower()
+        if ($served -ne $launcherHash.ToLower()) {
+            throw @"
+launcherUrl does not serve the bytes launcherSha256 pins.
+  version  $LauncherVersion
+  url      $LauncherUrl
+  pinned   $($launcherHash.ToLower())
+  served   $served
+Self-update would download that file, fail its hash check and refuse to update -- for every
+player at once, with nothing on screen to say so. Either upload this build to the release the
+url names, or pass the -LauncherUrl that matches it.
+Nothing was written.
+"@
+        }
+        Write-Host "  launcherUrl and launcherSha256 agree" -ForegroundColor DarkGray
+    } finally { Remove-Item $probe -Force -ErrorAction SilentlyContinue }
 }
 
 # Preserve any news already written by hand.

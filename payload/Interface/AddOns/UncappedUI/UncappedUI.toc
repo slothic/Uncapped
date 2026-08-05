@@ -5,6 +5,7 @@
 ## Version: 0.0.0
 ## SavedVariables: UncappedUIDB, UncappedUIDemoDB
 
+UncappedNative.lua
 UncappedUI.lua
 Themes\ThemeManager.lua
 Themes\DefaultTheme.lua

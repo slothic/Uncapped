@@ -63,7 +63,10 @@ function Core.GetDB()
     local maxW = (Core.Buttons and Core.Buttons.GetMaxWidth and Core.Buttons.GetMaxWidth()) or 740
     db.width = max(minW, min(maxW, tonumber(db.width) or defaults.width))
     local minH = (Core.Buttons and Core.Buttons.GetRequiredHeight and Core.Buttons.GetRequiredHeight()) or 480
-    db.height = max(minH, min(700, tonumber(db.height) or defaults.height))
+    -- Ceiling comes from Buttons (screen-derived) rather than a literal, so a
+    -- size saved on one monitor cannot open off the bottom of a smaller one.
+    local maxH = (Core.Buttons and Core.Buttons.GetMaxHeight and Core.Buttons.GetMaxHeight()) or 700
+    db.height = max(minH, min(maxH, tonumber(db.height) or defaults.height))
 
     db.modules = db.modules or {}
     for _, mod in ipairs(Core.MODULES) do

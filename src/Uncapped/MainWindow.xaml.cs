@@ -776,6 +776,21 @@ public partial class MainWindow : Window
                 catch (Exception ex) { Log.Write($"view distance: {ex.Message}"); }
             }
 
+            // Last thing before launching, and after the sync has had its chance to put the
+            // file back. Import injection makes the DLL a hard loader dependency, so a
+            // missing one is not a degraded client -- it is a client that will not start,
+            // with an error message that blames nothing the player can act on.
+            if (_manifest is not null &&
+                InjectedRuntime.DescribeProblem(_manifest, installPath) is { } problem)
+            {
+                Log.Write($"launch blocked: {InjectedRuntime.DllName} missing from {installPath}");
+                MessageBox.Show(problem, "Missing game file",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                SetStatus($"{InjectedRuntime.DllName} is missing — see the message above.");
+                PlayButton.IsEnabled = true;
+                return;
+            }
+
             GameProcess.Launch(installPath);
 
             // Copied after launch so it lands on the clipboard while the player is heading

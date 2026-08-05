@@ -47,7 +47,27 @@ local STAT_TOP_GAP = 17       -- gap from the summary divider to Strength
 local CREDIT_H     = 16       -- reserved strip at the bottom for the credit
 local COMPACT_H    = HEADER_H + (SUMMARY_ROW * 3) + 14
 local MIN_WIDTH    = 220      -- narrower than this and the stat rows collide
-local MAX_WIDTH    = 400
+-- Reported as "make the Stat Feed window re-sizeable" (#126). It always had a
+-- grip; what it did not have was anywhere to go. The default width IS
+-- MIN_WIDTH (220) and the default height IS the expanded minimum (330), so the
+-- window opens pinned against both floors -- the only direction available is
+-- bigger -- and the width ceiling sat at 400. Grabbing the grip and having it
+-- stop after 180 pixels reads as "does not resize", not "resizes a little".
+--
+-- Every width-dependent measurement in here is proportional (LayoutStatColumns
+-- splits the block by fraction; the earned-stat bars are a share of it), so
+-- there was never a layout reason for a ceiling that low.
+local MAX_WIDTH    = 720
+-- Height is the honest half: frame sizes are UIParent units, not monitor
+-- pixels, and UIParent is ~768 units tall at the default UI scale on any
+-- monitor -- so the old 700 was already ~91% of the screen and there was
+-- nothing to win. It only bites players who turn the UI-scale slider down,
+-- which makes UIParent taller in units. Derived rather than a literal so that
+-- case is covered without pretending the common one was broken.
+local MAX_HEIGHT_ABS = 1100   -- absolute; the screen below is the real ceiling
+-- Not cosmetic: size a window flush to the screen edge and the bottom-right
+-- grip ends up under that edge with no comfortable way to drag it back.
+local SCREEN_MARGIN = 60
 local BAR_WIDTH_BONUS = 50    -- minimum visual weight added to earned stat bars
 local LOG_MIN_H    = 32       -- ~2 feed lines; below this the feed is pointless
 local STAT_BLOCK_TOP          -- top offset for the stat rows
@@ -104,6 +124,15 @@ FEED_ONLY_MIN = math.ceil(FEED_ONLY_MIN / 10) * 10
 
 local function ExpandedMinHeight(showStats)
     return showStats and EXPANDED_MIN or FEED_ONLY_MIN
+end
+
+-- Height ceiling, measured against the screen rather than a literal. The old
+-- one was 700, which was most of a monitor when it was written and half a
+-- window now. math.* spelled out because the floor/min/max locals are
+-- declared further down the file than this.
+local function MaxHeight()
+    local screen = math.floor((UIParent:GetHeight() or 768) - SCREEN_MARGIN)
+    return math.max(EXPANDED_MIN, math.min(MAX_HEIGHT_ABS, screen))
 end
 
 -- Spelling variants the server may send, mapped to the display name above.
@@ -231,7 +260,7 @@ local function GetDB()
     db.bgAlpha = SavedNumber(db.bgAlpha, DEFAULTS.bgAlpha, 0, 1)
     db.showBars = SavedBoolean(db.showBars, DEFAULTS.showBars)
     db.showStats = SavedBoolean(db.showStats, DEFAULTS.showStats)
-    db.height = SavedNumber(db.height, DEFAULTS.height, ExpandedMinHeight(db.showStats))
+    db.height = SavedNumber(db.height, DEFAULTS.height, ExpandedMinHeight(db.showStats), MaxHeight())
     db.titleColor = SavedColor(db.titleColor, DEFAULTS.titleColor)
     db.layout = floor(SavedNumber(db.layout, DEFAULTS.layout, DEFAULTS.layout))
 
@@ -241,6 +270,7 @@ local function GetDB()
     if (db.height or 0) < ExpandedMinHeight(db.showStats) then
         db.height = ExpandedMinHeight(db.showStats)
     end
+    if (db.height or 0) > MaxHeight() then db.height = MaxHeight() end
     if (db.width or 0) < MIN_WIDTH then db.width = MIN_WIDTH end
     if (db.width or 0) > MAX_WIDTH then db.width = MAX_WIDTH end
 
@@ -699,7 +729,7 @@ local function BuildWindow()
     frame:SetMovable(true)
     frame:SetResizable(true)
     frame:SetMinResize(MIN_WIDTH, EXPANDED_MIN)
-    if frame.SetMaxResize then frame:SetMaxResize(MAX_WIDTH, 700) end
+    if frame.SetMaxResize then frame:SetMaxResize(MAX_WIDTH, MaxHeight()) end
     frame:EnableMouse(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)

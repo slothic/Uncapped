@@ -11,6 +11,7 @@ local RECACHE_INTERVAL = 300
 
 local floor, min, max = math.floor, math.min, math.max
 local format, lower, find, match, gmatch = string.format, string.lower, string.find, string.match, string.gmatch
+local strsub = string.sub
 local tinsert, tremove, sort = table.insert, table.remove, table.sort
 
 local Core = _G.UncappedVault or {}
@@ -918,46 +919,90 @@ local function LoadDemo()
 end
 Core.LoadDemo = LoadDemo
 
+--[[ Row parsing and snapshot finalisation, factored out of the addon-message
+     handler so the native channel can reuse both verbatim.
+
+     The native frame carries the IDENTICAL row text -- it just arrives whole
+     instead of in 240-byte chunks -- so sharing the parser is what keeps the two
+     transports from drifting apart. If the row format ever changes, it changes
+     in exactly one place. ]]
+local function ParseRows(text)
+    local any8 = false
+    for e, rp, c, q, cls, subc, ilvl, icon in gmatch(text, "(%-?%d+),(%-?%d+),(%d+),(%d+),(%d+),(%d+),(%d+),([^;]*);") do
+        any8 = true
+        staging[#staging + 1] = {
+            e = tonumber(e), rp = tonumber(rp), c = tonumber(c), q = tonumber(q),
+            cls = tonumber(cls), sub = tonumber(subc), ilvl = tonumber(ilvl),
+            icon = (icon ~= "" and ("Interface\\Icons\\" .. icon)) or nil,
+            n = "",
+        }
+    end
+    -- Legacy 5-field rows, for a server older than the 8-field format.
+    if not any8 then
+        for e, rp, c, q, icon in gmatch(text, "(%-?%d+),(%-?%d+),(%d+),(%d+),([^;]*);") do
+            staging[#staging + 1] = {
+                e = tonumber(e), rp = tonumber(rp), c = tonumber(c), q = tonumber(q),
+                icon = (icon ~= "" and ("Interface\\Icons\\" .. icon)) or nil,
+                n = "",
+            }
+        end
+    end
+end
+
+local function FinalizeSnapshot()
+    ClearItems()
+    for idx, it in ipairs(staging) do
+        it.added = #staging - idx
+        Core.items[#Core.items + 1] = it
+        EnqueueWarm(it.e)
+    end
+    staging = {}
+    Core.cacheLoaded = true
+    Core.SaveCache()
+    Notify("snapshot")
+    if pendingManualRefresh then
+        pendingManualRefresh = false
+        if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r refreshed.") end
+    end
+end
+
+--[[ Native path: the entire snapshot in one frame on topic "VAULT".
+
+     Payload is "<total>\n" followed by the same rows the chunked path sends. The
+     count is checked rather than trusted -- a mismatch means the payload was
+     truncated or the format drifted, and it is worth saying so out loud rather
+     than silently showing someone a vault that is missing items.
+
+     Registration is conditional and failure is not an error: without the DLL,
+     UncappedNative is absent or unavailable and the server keeps chunking. ]]
+if UncappedNative and UncappedNative.IsAvailable() then
+    UncappedNative.Register("VAULT", function(payload)
+        local nl = find(payload, "\n", 1, true)
+        if not nl then return end
+
+        local claimed = tonumber(strsub(payload, 1, nl - 1))
+        staging = {}
+        ParseRows(strsub(payload, nl + 1))
+
+        if claimed and claimed ~= #staging and DEFAULT_CHAT_FRAME then
+            DEFAULT_CHAT_FRAME:AddMessage(format(
+                "|cff40c0ff[Vault]|r snapshot mismatch: server sent %d rows, parsed %d. Please report this.",
+                claimed, #staging))
+        end
+
+        FinalizeSnapshot()
+    end)
+end
+
 local comms = CreateFrame("Frame")
 comms:RegisterEvent("CHAT_MSG_ADDON")
 comms:SetScript("OnEvent", function(_, _, a1, a2)
     if a1 ~= ADDON_PIPE_PREFIX or not a2 then return end
     local text = a2
     if find(text, "^VLTROW:") then
-        local any8 = false
-        for e, rp, c, q, cls, subc, ilvl, icon in gmatch(text, "(%-?%d+),(%-?%d+),(%d+),(%d+),(%d+),(%d+),(%d+),([^;]*);") do
-            any8 = true
-            staging[#staging + 1] = {
-                e = tonumber(e), rp = tonumber(rp), c = tonumber(c), q = tonumber(q),
-                cls = tonumber(cls), sub = tonumber(subc), ilvl = tonumber(ilvl),
-                icon = (icon ~= "" and ("Interface\\Icons\\" .. icon)) or nil,
-                n = "",
-            }
-        end
-        if not any8 then
-            for e, rp, c, q, icon in gmatch(text, "(%-?%d+),(%-?%d+),(%d+),(%d+),([^;]*);") do
-                staging[#staging + 1] = {
-                    e = tonumber(e), rp = tonumber(rp), c = tonumber(c), q = tonumber(q),
-                    icon = (icon ~= "" and ("Interface\\Icons\\" .. icon)) or nil,
-                    n = "",
-                }
-            end
-        end
+        ParseRows(text)
     elseif find(text, "^VLTEND:") then
-        ClearItems()
-        for idx, it in ipairs(staging) do
-            it.added = #staging - idx
-            Core.items[#Core.items + 1] = it
-            EnqueueWarm(it.e)
-        end
-        staging = {}
-        Core.cacheLoaded = true
-        Core.SaveCache()
-        Notify("snapshot")
-        if pendingManualRefresh then
-            pendingManualRefresh = false
-            if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r refreshed.") end
-        end
+        FinalizeSnapshot()
     elseif find(text, "^VLTWDONE:") then
         local e, rp, given, remaining = match(text, "^VLTWDONE:(%d+):(%-?%d+):(%d+):(%d+)$")
         if e then

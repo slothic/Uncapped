@@ -89,12 +89,42 @@ local CONTENT_GAP = 10
 local CONTENT_MIN_WIDTH = 320
 local CONTENT_DEFAULT_WIDTH = 380
 -- Universal ceiling: unlike the floor, this is the same for every tab.
-local CONTENT_MAX_WIDTH = 920 -- was 520; +400 per request
+local CONTENT_MAX_WIDTH = 1400 -- was 920; the screen cap below is the real limit
 
 local MIN_WIDTH = WINDOW_MARGIN + PANEL_WIDTH + CONTENT_GAP + CONTENT_MIN_WIDTH + WINDOW_MARGIN
 local DEFAULT_WIDTH = WINDOW_MARGIN + PANEL_WIDTH + CONTENT_GAP + CONTENT_DEFAULT_WIDTH + WINDOW_MARGIN
-local MAX_WIDTH = WINDOW_MARGIN + PANEL_WIDTH + CONTENT_GAP + CONTENT_MAX_WIDTH + WINDOW_MARGIN
-local MAX_HEIGHT = 700
+local MAX_WIDTH_ABS = WINDOW_MARGIN + PANEL_WIDTH + CONTENT_GAP + CONTENT_MAX_WIDTH + WINDOW_MARGIN
+local MAX_HEIGHT_ABS = 1400
+
+-- Related to "make the Loot Feed window resizeable" (#125). Be careful reading
+-- these numbers: frame sizes are in UIParent units, NOT monitor pixels, and
+-- UIParent is about 768 units tall at the default UI scale whatever the
+-- monitor is (width is 768 * aspect, so ~1365 at 16:9). So the old literals --
+-- 700 tall, ~1250 wide -- were already about 91% of the screen in both
+-- directions, and raising them on their own would have changed almost nothing.
+--
+-- What they DID cost is players who turn the UI-scale slider down, which makes
+-- UIParent bigger in units (~850+ tall): for them 700 really was a low
+-- ceiling, and a literal cannot know that. Deriving from UIParent covers both
+-- cases and cannot go stale.
+--
+-- The jarring half of #125 was not the ceiling at all -- see the note above
+-- Buttons.Build about the window re-centering itself after every resize.
+--
+-- SCREEN_MARGIN is not cosmetic. Size a window flush to the screen edge and
+-- the bottom-right grip ends up under that edge: SetClampedToScreen keeps the
+-- frame on screen, but leaves no comfortable place to grab it and drag back.
+local SCREEN_MARGIN = 60
+
+function Buttons.GetMaxWidth()
+    local screen = math.floor((UIParent:GetWidth() or 1024) - SCREEN_MARGIN)
+    return math.max(MIN_WIDTH, math.min(MAX_WIDTH_ABS, screen))
+end
+
+function Buttons.GetMaxHeight()
+    local screen = math.floor((UIParent:GetHeight() or 768) - SCREEN_MARGIN)
+    return math.max(REQUIRED_HEIGHT, math.min(MAX_HEIGHT_ABS, screen))
+end
 
 -- TOPLEFT + BOTTOMLEFT (both left-edge anchors, no horizontal conflict)
 -- plus an explicit SetWidth -- lets the panel stretch vertically with the
@@ -139,17 +169,17 @@ local function CreateNavButton(panel, tab)
     return b
 end
 
--- Re-centers the window on screen at its current size -- same TOPLEFT-anchor
--- math Build() uses to open centered, just recomputed against whatever size
--- the resize grip left it at. Passed as CreateWindow's onResizeStop, so it
--- fires once the user releases the grip rather than continuously while
--- dragging (a live re-anchor mid-drag would fight StartSizing's own anchor).
-local function RecenterWindow(win)
-    local screenW, screenH = UIParent:GetWidth(), UIParent:GetHeight()
-    local w, h = win:GetWidth(), win:GetHeight()
-    win:ClearAllPoints()
-    win:SetPoint("TOPLEFT", UIParent, "TOPLEFT", (screenW - w) / 2, -(screenH - h) / 2)
-end
+-- The window used to re-center itself the instant you let go of the resize
+-- grip (passed as CreateWindow's onResizeStop). That is gone: with a taller
+-- ceiling you drag the grip several times to find a size you like, and having
+-- the window teleport to the middle of the screen after every drag is most of
+-- what made resizing feel broken rather than merely limited.
+--
+-- Nothing depended on it. Opening centered is Build()'s job, computed fresh
+-- from the saved size each session, and the TOPLEFT anchor set there -- not
+-- this function -- is what keeps the grip growing the window down-and-right
+-- instead of symmetrically around its center. SetClampedToScreen keeps a
+-- resize from pushing the frame off the edge.
 
 function Buttons.Build()
     if window then return end
@@ -177,10 +207,9 @@ function Buttons.Build()
         title = "Dashboard",
         width = DEFAULT_WIDTH, height = REQUIRED_HEIGHT,
         minWidth = MIN_WIDTH, minHeight = REQUIRED_HEIGHT,
-        maxWidth = MAX_WIDTH, maxHeight = MAX_HEIGHT,
+        maxWidth = Buttons.GetMaxWidth(), maxHeight = Buttons.GetMaxHeight(),
         resizable = true,
         persistPosition = false,
-        onResizeStop = RecenterWindow,
         db = db,
         -- Below the bags, not above them. The kit defaults to HIGH, which is the
         -- same strata Blizzard's ContainerFrames use, so the tie broke on frame
@@ -262,14 +291,6 @@ function Buttons.GetMinWidth()
     return MIN_WIDTH
 end
 
-function Buttons.GetMaxWidth()
-    return MAX_WIDTH
-end
-
-function Buttons.GetMaxHeight()
-    return MAX_HEIGHT
-end
-
 -- SetMinResize takes both dimensions at once, so the width and height floors
 -- set by whichever tab is active are tracked here and reapplied together --
 -- otherwise raising one would silently reset the other back to its opts.*
@@ -289,7 +310,7 @@ end
 
 -- Raises the window's resize floor to fit the currently active tab's own
 -- content (e.g. a button row that would overflow below a certain width),
--- without touching the ceiling -- MAX_WIDTH stays the same for every tab.
+-- without touching the ceiling -- GetMaxWidth() is the same for every tab.
 -- `contentWidth` is in content-panel pixels, not window pixels; pass nil/0
 -- to fall back to the general-purpose CONTENT_MIN_WIDTH floor. Widens the
 -- window immediately if it's currently narrower than the new floor.
@@ -297,7 +318,7 @@ function Buttons.SetMinContentWidth(contentWidth)
     if not window then return end
     local minW = WINDOW_MARGIN + PANEL_WIDTH + CONTENT_GAP
         + math.max(CONTENT_MIN_WIDTH, contentWidth or 0) + WINDOW_MARGIN
-    currentMinWidth = math.min(minW, MAX_WIDTH)
+    currentMinWidth = math.min(minW, Buttons.GetMaxWidth())
     ApplyMinResize()
 end
 
@@ -307,7 +328,7 @@ end
 -- REQUIRED_HEIGHT (what the nav button column alone needs).
 function Buttons.SetMinContentHeight(windowHeight)
     if not window then return end
-    currentMinHeight = math.min(math.max(REQUIRED_HEIGHT, windowHeight or 0), MAX_HEIGHT)
+    currentMinHeight = math.min(math.max(REQUIRED_HEIGHT, windowHeight or 0), Buttons.GetMaxHeight())
     ApplyMinResize()
 end
 
