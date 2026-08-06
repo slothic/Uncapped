@@ -66,7 +66,8 @@ local state = {
     sortAsc = false,
     page = 1,
     pageSize = 12,
-    gridPageSize = 104,
+    gridCols = 1,
+    gridAvail = 0,
     viewMode = "list",
     mode = "browse",
 }
@@ -435,18 +436,73 @@ function Core.SetPageSize(n)
     Notify("pagesize")
 end
 
--- Grid-view page size, same story as SetPageSize above but for gridPageSize:
--- it used to be a fixed 104, tuned for a tall standalone window, and stayed
--- fixed even after the Dashboard embed shrank the panel -- so a page kept
--- laying out 104 slots' worth of icons regardless of how many rows actually
--- fit, and the overflow rendered past gridPanel's bottom edge. UncappedVault_UI.lua
--- now recomputes this from gridPanel's actual current height and column count
--- (see RefreshGridRowCount there) and calls this whenever it changes.
-function Core.SetGridPageSize(n)
-    n = math.floor(tonumber(n) or state.gridPageSize)
-    if n < 1 then n = 1 end
-    if n == state.gridPageSize then return end
-    state.gridPageSize = n
+Core.gridPages = Core.gridPages or {}
+
+local GRID_ROW_PX  = 44   -- GRID_SLOT (38) + GRID_GAP (6)
+local GRID_HEAD_PX = 36   -- GRID_HEADER_H (30) + GRID_GAP (6)
+
+-- Page boundaries for the grid, walked exactly the way RefreshGrid draws.
+--
+-- This used to be a single gridPageSize: a flat rows*cols CELL count that the
+-- pager then used to slice gridLayout, which is a list of ENTRIES. Those are not
+-- the same unit. Category headers are entries that occupy no cell -- a header
+-- closes whatever row is in progress and then takes a full-width line of its
+-- own -- so a page budgeted for rows*cols cells was handed rows*cols entries and
+-- drew far more rows than fit. The overflow ran off the bottom of the panel
+-- (and off the screen on a maximised window), and because one "page" now
+-- swallowed the whole vault, PageCount came back as 1 and there was nothing to
+-- turn to. Both halves of report #130 are that one unit mismatch.
+--
+-- Cost each entry in PIXELS instead, mirroring RefreshGrid's own cursor, and
+-- keep real per-page boundaries rather than a size.
+function Core.BuildGridPages()
+    local pages = Core.gridPages
+    while #pages > 0 do tremove(pages) end
+
+    local cols  = max(1, state.gridCols or 1)
+    local avail = max(GRID_ROW_PX, state.gridAvail or GRID_ROW_PX)
+    local n = #Core.gridLayout
+    if n == 0 then
+        pages[1] = { 1, 0 }
+        return
+    end
+
+    local i = 1
+    while i <= n do
+        local first = i
+        local y, col = 0, 0          -- y: rows already closed; col: row in progress
+        while i <= n do
+            local e = Core.gridLayout[i]
+            local ny, ncol = y, col
+            if e.header then
+                if ncol > 0 then ny = ny + GRID_ROW_PX; ncol = 0 end
+                ny = ny + GRID_HEAD_PX
+            else
+                ncol = ncol + 1
+                if ncol >= cols then ny = ny + GRID_ROW_PX; ncol = 0 end
+            end
+            local used = ny + (ncol > 0 and GRID_ROW_PX or 0)
+            if i > first and used > avail then break end
+            y, col = ny, ncol
+            i = i + 1
+        end
+        -- A lone entry taller than the whole budget still has to land
+        -- somewhere, or this loops forever on it.
+        if i == first then i = first + 1 end
+        pages[#pages + 1] = { first, i - 1 }
+    end
+end
+
+-- Grid metrics from the UI, in the units the layout actually uses: icon columns
+-- across, and pixels of vertical room a page has.
+function Core.SetGridMetrics(cols, availPx)
+    cols = math.floor(tonumber(cols) or 0)
+    availPx = math.floor(tonumber(availPx) or 0)
+    if cols < 1 then cols = 1 end
+    if availPx < GRID_ROW_PX then availPx = GRID_ROW_PX end
+    if cols == state.gridCols and availPx == state.gridAvail then return end
+    state.gridCols, state.gridAvail = cols, availPx
+    Core.BuildGridPages()
     state.page = max(1, min(Core.PageCount(), state.page))
     Notify("pagesize")
 end
@@ -597,13 +653,14 @@ function Core.Rebuild()
     Core.subcategoryCounts = subCounts
 
     BuildGridLayout()
+    Core.BuildGridPages()
     local pages = Core.PageCount()
     if state.page > pages then state.page = pages end
 end
 
 function Core.PageCount()
     if state.viewMode == "grid" then
-        return max(1, math.ceil(#Core.gridLayout / state.gridPageSize))
+        return max(1, #Core.gridPages)
     end
     return max(1, math.ceil(#Core.filtered / state.pageSize))
 end
@@ -618,9 +675,10 @@ function Core.PageItems()
 end
 
 function Core.PageGridEntries()
-    local start = ((state.page - 1) * state.gridPageSize) + 1
     local out = {}
-    for i = start, min(#Core.gridLayout, start + state.gridPageSize - 1) do
+    local bounds = Core.gridPages[state.page]
+    if not bounds then return out end
+    for i = bounds[1], bounds[2] do
         out[#out + 1] = Core.gridLayout[i]
     end
     return out

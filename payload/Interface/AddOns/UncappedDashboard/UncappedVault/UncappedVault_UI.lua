@@ -440,7 +440,7 @@ end
 
 local function RefreshInfo()
     -- Guarded like every other Refresh* function here: RefreshGridRowCount's
-    -- initial call in BuildFrame can cascade into this (via SetGridPageSize ->
+    -- initial call in BuildFrame can cascade into this (via SetGridMetrics ->
     -- Notify("pagesize") -> UI.Refresh) before footerBar is built further down
     -- in that same function.
     if not footerBar then return end
@@ -505,22 +505,20 @@ end
 local RefreshGrid
 
 -- Same overflow bug RefreshRowCount fixes for the list view, but for rows of
--- icons instead of rows of text: gridPageSize used to be a fixed 104, which
--- kept laying out 104 slots' worth of icons regardless of how many rows
--- actually fit in gridPanel's real (embedded, much shorter) height, so the
--- overflow rendered past its bottom edge. Recomputed from gridPanel's actual
--- current height and GridCols() instead, same as RefreshRowCount does for
--- tablePanel -- GRID_FOOT_H reserves the space the page prev/next/text row
--- below the icons needs.
+-- icons instead of rows of text.
+--
+-- This used to hand Core a single number: rows * GridCols(), i.e. how many
+-- CELLS fit. Core then used it to slice gridLayout, which counts ENTRIES --
+-- and category headers are entries that take a full-width line rather than a
+-- cell, so every header on a page pushed the real layout further past the
+-- bottom of the panel. Core walks the entries in pixels now, so all it needs
+-- from here is the two measurements only the UI knows: how many columns wide,
+-- and how many pixels tall a page may be. GRID_FOOT_H reserves the space the
+-- page prev/next/text row below the icons needs.
 local GRID_FOOT_H = 54
 local function RefreshGridRowCount()
     if not gridPanel then return end
-    local avail = gridPanel:GetHeight() - 12 - GRID_FOOT_H
-    local rows = max(1, floor(avail / (GRID_SLOT + GRID_GAP)))
-    local fit = rows * GridCols()
-    if fit ~= Core.state.gridPageSize then
-        Core.SetGridPageSize(fit)
-    end
+    Core.SetGridMetrics(GridCols(), gridPanel:GetHeight() - 12 - GRID_FOOT_H)
     RefreshGrid()
 end
 
@@ -599,9 +597,9 @@ function UI.Refresh()
         gridPanel:Show()
         -- RefreshGridRowCount, not RefreshGrid directly: switching TO grid view
         -- only changes visibility, not gridPanel's size, so OnSizeChanged never
-        -- fires here -- without recomputing here too, gridPageSize could still
-        -- be whatever it was left at from BuildFrame (possibly before gridPanel
-        -- had a real height yet), and never correct itself.
+        -- fires here -- without recomputing here too, the grid metrics could
+        -- still be whatever they were left at from BuildFrame (possibly before
+        -- gridPanel had a real height yet), and never correct themselves.
         RefreshGridRowCount()
     else
         gridPanel:Hide()

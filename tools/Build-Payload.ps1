@@ -73,8 +73,9 @@ $retired = @{
 # and the one time it is forgotten they ship silently. Excluding them by rule instead.
 # To ship one for real: remove it here and treat it as a normal addon release.
 $devOnly = @{
-    'UncappedFlightLog' = 'dev instrumentation, never reviewed for release'
-    'UncappedSoundLab'  = 'dev tool for auditioning sound kits, not player-facing'
+    'UncappedFlightLog'    = 'dev instrumentation, never reviewed for release'
+    'UncappedSoundLab'     = 'dev tool for auditioning sound kits, not player-facing'
+    'UncappedRouteBuilder' = 'dev tool for authoring rocket paths in-game, not player-facing'
 }
 
 function Add-AddonFolder {

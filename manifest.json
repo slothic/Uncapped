@@ -1835,14 +1835,14 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault.lua",
-                      "sha256":  "9ccf59f29663df5e2873bfcf559e419b2fc8b3d42c5b39c7dd8b7e1a3972d6fb",
-                      "size":  37941
+                      "sha256":  "5263c5b8eea43a3aeb3c33d47ae57e22c61d1e317df15ef36a3589e5f0e941ff",
+                      "size":  40097
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault_UI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault_UI.lua",
-                      "sha256":  "40e748da0cf6f064b38649894377db9becd6167541fb0858c9fee12110f7087b",
-                      "size":  41186
+                      "sha256":  "3c016af06a54501f49faa8424e4ee5c714029f8881fadcb20de3b497324a0db9",
+                      "size":  41178
                   },
                   {
                       "path":  "Interface/AddOns/UncappedGCD/UncappedGCD.lua",
@@ -2063,8 +2063,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedQuests/UncappedQuests.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/UncappedQuests.lua",
-                      "sha256":  "7a81ecf1b673c493ad3abc718472b2dc1edaa7eab34f0a56a45b694c679868dd",
-                      "size":  45958
+                      "sha256":  "b6d92e774574d35194686fac01f37e4cfa0b52cf20efed4b35a2e527e6da020c",
+                      "size":  48215
                   },
                   {
                       "path":  "Interface/AddOns/UncappedQuests/UncappedQuests.toc",

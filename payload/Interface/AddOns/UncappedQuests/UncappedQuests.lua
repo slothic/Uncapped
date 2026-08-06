@@ -529,6 +529,40 @@ local function CreatePin(i)
     return pin
 end
 
+-- A quest POI carries exactly one WorldMapArea: whatever quest_poi.WorldMapAreaId
+-- names. For a city that is nearly always the SURROUNDING ZONE, not the city's own
+-- map. Measured on the realm's own data: of the turn-in POIs standing inside
+-- Thunder Bluff, 135 are tagged Mulgore against 9 tagged Thunder Bluff; inside
+-- Undercity, 207 are tagged Tirisfal against 26 tagged Undercity. Matching that id
+-- raw against the map on screen drew those pins on the zone map and nowhere else,
+-- and the correctly-tagged minority is why the report said "often", not "always".
+--
+-- Containment is required in this direction specifically. Merely overlapping
+-- rectangles would leak Thunder Bluff pins onto every neighbour whose bounds cross
+-- it (the Kalimdor continent map contains the city centre); a strict sub-map can
+-- only ever be the inset.
+local function SubMapOf(currentMap, poiArea)
+    local c = UncappedMapAreas and UncappedMapAreas[currentMap]
+    local p = UncappedMapAreas and UncappedMapAreas[poiArea]
+    if not (c and p) then return false end
+    if c[1] ~= p[1] then return false end            -- different continent
+    -- left/right bound world Y, top/bottom world X; both run high-to-low.
+    return c[2] <= p[2] and c[3] >= p[3] and c[4] <= p[4] and c[5] >= p[5]
+end
+
+-- Where this POI sits on the map currently drawn, or nil if it is not on it.
+-- City maps are sub-rectangles of their zone's map in the same world space, so a
+-- POI inside one is inside both -- re-project the POI's WORLD position, the same
+-- thing AvailableGiverPins already does for the available-quest layer.
+local function PinPosOnMap(o, currentMap)
+    if o.dbcArea == currentMap then return o.x, o.y end
+    if not SubMapOf(currentMap, o.dbcArea) then return nil end
+    local mapID, mx, my = UQ.MapPos(currentMap, o.wx, o.wy)
+    if not (mapID and mx and my) then return nil end
+    if mx < 0 or mx > 1 or my < 0 or my > 1 then return nil end
+    return mx, my
+end
+
 -- ---------------------------------------------------------------------------
 -- objectives
 -- ---------------------------------------------------------------------------
@@ -606,7 +640,8 @@ local function Update()
             show = false
         end
 
-        if show and o.dbcArea == currentMap then
+        local mapX, mapY = PinPosOnMap(o, currentMap)
+        if show and mapX then
             used = used + 1
             local pin = pins[used] or CreatePin(used)
 
@@ -628,7 +663,7 @@ local function Update()
 
             pin:ClearAllPoints()
             pin:SetPoint("CENTER", WorldMapButton, "TOPLEFT",
-                o.x * width, -o.y * height)
+                mapX * width, -mapY * height)
             pin:Show()
 
             -- Paint the area. The radius arrives in YARDS, so it has to be
@@ -637,8 +672,11 @@ local function Update()
             -- Per axis, so the painted shape matches the objective's real
             -- proportions. World X is the map's VERTICAL axis and world Y its
             -- horizontal one -- the same transpose the pin coordinates use.
-            local pxH = UQ.YardsToPixels(o.dbcArea, o.halfY, width)          -- across
-            local pxV = UQ.YardsToPixels(o.dbcArea, o.halfX, width)          -- down
+            -- currentMap, not o.dbcArea: on a city map the pin is re-projected
+            -- into a far more zoomed-in map, and keeping the zone's scale here
+            -- would paint the area as a pinprick.
+            local pxH = UQ.YardsToPixels(currentMap, o.halfY, width)          -- across
+            local pxV = UQ.YardsToPixels(currentMap, o.halfX, width)          -- down
             local cap = width * BLOB_MAX_FRACTION
             if pxH then pxH = math.min(pxH, cap) end
             if pxV then pxV = math.min(pxV, cap) end
@@ -671,7 +709,7 @@ local function Update()
                     local px = {}
                     local minPX, minPY = nil, nil
                     for i = 1, #o.verts, 2 do
-                        local _, mx, my = UQ.MapPos(o.dbcArea, o.verts[i], o.verts[i + 1])
+                        local _, mx, my = UQ.MapPos(currentMap, o.verts[i], o.verts[i + 1])
                         if not mx then px = nil break end
                         local sx, sy = mx * width, my * height
                         px[#px + 1] = sx
