@@ -39,13 +39,29 @@ local BUG_PREFIX = "!bug "
 local MAX_MESSAGE = 255 -- SendChatMessage's own hard cap on this client
 local MAX_TITLE = 80    -- keeps "[title]" from eating the whole message budget
 
+-- Chunked transport (suggestion #145, "give us more room to make suggestions").
+--
+-- SendChatMessage cannot carry more than 255 bytes, which is why in-game reports
+-- topped out around 292 characters while anyone writing the same report in
+-- Discord could use 1200. Nothing downstream was the limit -- the outbox already
+-- took 900 and the database column is longtext -- so the whole cap was this send.
+--
+-- Addon messages are capped at 255 each too, so the report is split across
+-- several and reassembled server-side by bug_report_chunked.cpp. Each chunk
+-- carries its own index, the total and the kind, so order does not matter and a
+-- lost chunk means the report never completes rather than arriving truncated.
+local TRANSPORT_PREFIX = "REAGENTBANK"   -- shared client->server transport
+local MAX_CHUNKS = 10                    -- must match MAX_CHUNKS server-side
+local CHUNK_BODY = 180                   -- leaves room for "UBUGC:10/10:s:" and the prefix
+local MAX_LONG_REPORT = 1500             -- under the server's 1800 commit trim
+
 UncappedBugReporter = UncappedBugReporter or {}
 local BR = UncappedBugReporter
 BR.MAX_TITLE = MAX_TITLE
 -- Message budget: total cap minus "!bug ", the "[]" wrapper, and one space
 -- before the message -- computed against the shortest possible title (empty)
 -- so it's always a safe upper bound regardless of the title actually used.
-BR.MAX_REPORT = MAX_MESSAGE - #BUG_PREFIX - 3
+BR.MAX_REPORT = MAX_LONG_REPORT
 
 local DEFAULTS = {
     point = { "CENTER", "UIParent", "CENTER", 0, 80 },
@@ -120,28 +136,34 @@ function BR.Send(title, message)
     if title == "" then title = DeriveTitle(message) end
     if #title > MAX_TITLE then title = title:sub(1, MAX_TITLE) end
 
-    local id = WorldChannelIndex()
-    if not id then
-        EnsureWorldChannel()
-        id = WorldChannelIndex()
-    end
-    if not id then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff8040[Bug Report]|r Not in the World channel yet -- try again in a moment.")
-        return false
+    -- The title (already capped above) rides inside its own brackets so the
+    -- Discord side can pull it out verbatim instead of synthesizing one by
+    -- truncating the message body.
+    local full = "[" .. title .. "] " .. WithZoneContext(message)
+
+    -- Trim here rather than letting the transport do it silently -- a report cut
+    -- off mid-sentence with no warning is worse than one visibly shortened.
+    if #full > MAX_LONG_REPORT then
+        full = full:sub(1, MAX_LONG_REPORT)
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff8040[Bug Report]|r That was over "
+            .. MAX_LONG_REPORT .. " characters, so the end was trimmed.")
     end
 
-    -- Trim to the channel's own cap rather than letting SendChatMessage do it
-    -- silently -- a report cut off mid-sentence with no warning is worse than
-    -- one visibly shortened here. The title (already capped above) rides
-    -- inside its own brackets so the Discord side can pull it out verbatim
-    -- instead of synthesizing one by truncating the message body.
-    local full = BUG_PREFIX .. "[" .. title .. "] " .. WithZoneContext(message)
-    if #full > MAX_MESSAGE then
-        full = full:sub(1, MAX_MESSAGE)
+    local n = math.ceil(#full / CHUNK_BODY)
+    if n < 1 then n = 1 end
+    if n > MAX_CHUNKS then n = MAX_CHUNKS end
+
+    local kind = BR.sendAsSuggestion and "s" or "b"
+    for i = 1, n do
+        SendAddonMessage(TRANSPORT_PREFIX,
+            "UBUGC:" .. i .. "/" .. n .. ":" .. kind .. ":"
+                .. full:sub((i - 1) * CHUNK_BODY + 1, i * CHUNK_BODY),
+            "WHISPER", UnitName("player"))
     end
 
-    SendChatMessage(full, "CHANNEL", nil, id)
-    DEFAULT_CHAT_FRAME:AddMessage("|cffff8040[Bug Report]|r Sent -- thank you!")
+    -- No "sent!" here on purpose: the server confirms once it has reassembled
+    -- every chunk, and tells you how many characters actually landed. Saying it
+    -- from this side would claim success for a report that never completed.
     return true
 end
 

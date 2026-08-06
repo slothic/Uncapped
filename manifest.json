@@ -1739,8 +1739,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedBugReporter/UncappedBugReporter.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedBugReporter/UncappedBugReporter.lua",
-                      "sha256":  "8ee67a100dd8785886f8325e4af8a2f8bf4122c388f27a93f229b4fe9765c477",
-                      "size":  7025
+                      "sha256":  "bf02b224ea8707a7d17b548e4cee77b8bcccdac3417cd609b471d7177fdd0cc9",
+                      "size":  8438
                   },
                   {
                       "path":  "Interface/AddOns/UncappedBugReporter/UncappedBugReporter.toc",
