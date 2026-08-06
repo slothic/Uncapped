@@ -1649,6 +1649,31 @@ watcher:SetScript("OnEvent", function(_, event, arg1)
     end
 
     if event == "TRADE_SKILL_SHOW" and db.replaceTradeSkill then
+        -- TRADE_SKILL_SHOW is not "a profession was opened". It fires for every
+        -- tradeskill window in the game, and 3.3.5a builds several class
+        -- abilities as tradeskills: Death Knight Runeforging (skill line 776),
+        -- rogue Poisons, hunter Beast Training. Replacing those wholesale meant a
+        -- DK literally could not runeforge -- the window was hidden and the Forge
+        -- opened over it, showing nothing, because the server's recipe index
+        -- deliberately excludes class skills (CraftingIndex.cpp only accepts
+        -- SKILL_CATEGORY_PROFESSION and SKILL_CATEGORY_SECONDARY). Report #184.
+        --
+        -- CloseTradeSkill() below is the half that actually broke it: it ends the
+        -- server-side tradeskill session, so bailing out has to happen BEFORE it,
+        -- not just before the OpenInDashboard.
+        --
+        -- The test is maxRank, not the skill's name: class tradeskills report a
+        -- rank and max of 0 while any real profession has a max of at least 75,
+        -- and unlike a string compare that holds on every locale.
+        if IsTradeSkillLinked and IsTradeSkillLinked() then
+            return   -- someone else's linked profession -- never ours to replace
+        end
+
+        local _, _, skillMax = GetTradeSkillLine()
+        if not skillMax or skillMax == 0 then
+            return   -- Runeforging / Poisons / Beast Training: leave Blizzard's window alone
+        end
+
         -- Hiding it here rather than in a TradeSkillFrame OnShow hook: the
         -- frame is loaded on demand (Blizzard_TradeSkillUI), so it may not
         -- exist yet the first time a profession is opened.

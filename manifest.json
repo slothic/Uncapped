@@ -1805,8 +1805,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedForge/UncappedForge.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedForge/UncappedForge.lua",
-                      "sha256":  "af0d6071f5c665ae68b632796272f7db550be6e11c5f5750e344b75474faa524",
-                      "size":  83275
+                      "sha256":  "86ffa5beecca5707545c6a57e921c52f9f3b3a6db1769f6ccb3e9d31f1014836",
+                      "size":  84762
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedScrolls/UncappedScrolls.lua",
