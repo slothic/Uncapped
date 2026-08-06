@@ -30,6 +30,18 @@ MPQ_FILE_REPLACEEXISTING = 0x80000000
 MPQ_COMPRESSION_ZLIB     = 0x02
 STREAM_FLAG_READ_ONLY    = 0x100
 
+# The compression argument to SFileWriteFile is only consulted when the file was
+# CREATED asking to be compressed. Without this bit in SFileCreateFile's flags,
+# StormLib stores the payload raw and silently ignores MPQ_COMPRESSION_ZLIB --
+# there is no error and the archive is perfectly valid, just enormous.
+#
+# Measured 2026-08-06 adding a 49.5 MB Spell.dbc to patch-enUS-U:
+#     without the flag   56,330,243 bytes
+#     with it            11,336,350 bytes
+# Byte-identical on read-back either way, which is exactly why this went unnoticed:
+# build-patch.py verifies CONTENT, and the content was always correct.
+MPQ_FILE_COMPRESS        = 0x00000200
+
 # SFILE_FIND_DATA on this x64 Windows build. Probed empirically rather than
 # assumed: a pointer scan located szPlainName at +264 pointing back into
 # cFileName, which pins cFileName[MAX_PATH=260] plus 4 bytes of alignment.
@@ -150,7 +162,8 @@ def add_files(archive, entries, max_files=64):
         for name, payload in entries:
             f = ctypes.c_void_p()
             if not s.SFileCreateFile(h, name.encode('ascii'), 0, len(payload), 0,
-                                     MPQ_FILE_REPLACEEXISTING, ctypes.byref(f)):
+                                     MPQ_FILE_COMPRESS | MPQ_FILE_REPLACEEXISTING,
+                                     ctypes.byref(f)):
                 raise RuntimeError('SFileCreateFile(%s) failed (%d)'
                                    % (name, ctypes.get_last_error()))
             if not s.SFileWriteFile(f, payload, len(payload), MPQ_COMPRESSION_ZLIB):
