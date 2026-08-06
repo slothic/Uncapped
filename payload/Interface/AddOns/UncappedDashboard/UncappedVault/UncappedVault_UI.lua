@@ -834,10 +834,26 @@ local function BuildFrame(parent)
     depositBtn:SetPoint("BOTTOMRIGHT", -PAD - 8, 20)
     depositBtn:SetBackdropColor(RED[1], RED[2], RED[3], 0.95)
     depositBtn.text:SetTextColor(RGB(GOLD))
+    -- Holding an item: deposit that one (the drag-and-drop path). Empty-handed:
+    -- deposit everything in bags the keep rule does not protect. The button used
+    -- to only switch mode when clicked with nothing held, which looked broken.
     depositBtn:SetScript("OnClick", function()
         Core.SetMode("deposit")
-        if CursorHasItem() then Core.DepositCursor() end
+        if CursorHasItem() then
+            Core.DepositCursor()
+        else
+            Core.DepositAllBags()
+        end
     end)
+    depositBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Deposit Items", 1, 1, 1)
+        GameTooltip:AddLine("Click to send everything in your bags to the Vault.", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine("Hearthstone, keystone, ammo and quest items you still need stay put.", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine("You can also drag an item here to deposit just that one.", 0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
+    end)
+    depositBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- Gold/Arena Points moved to the Dashboard's own nav panel (see
     -- DashboardButtons.lua) so they stay visible on every tab, not just

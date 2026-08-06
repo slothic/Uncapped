@@ -1835,14 +1835,14 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault.lua",
-                      "sha256":  "5263c5b8eea43a3aeb3c33d47ae57e22c61d1e317df15ef36a3589e5f0e941ff",
-                      "size":  40097
+                      "sha256":  "7b98ab6998a431b6bd9791d30f4900240cd2274ae72a4a86284b4285a7d072ff",
+                      "size":  49300
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault_UI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault_UI.lua",
-                      "sha256":  "3c016af06a54501f49faa8424e4ee5c714029f8881fadcb20de3b497324a0db9",
-                      "size":  41178
+                      "sha256":  "a775e537b08079df2e3ee9fdcc28711b610505ebaef9a63cd02647aa9d190b62",
+                      "size":  42099
                   },
                   {
                       "path":  "Interface/AddOns/UncappedGCD/UncappedGCD.lua",
@@ -2225,7 +2225,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "30f0b0678057d92cfd1a8359de4eeb3d60aa50fdf77ebb4248375bed08eb419c",
+                      "sha256":  "b693b34fd81a51a36801aebdf7bfc86e47cc0a3f25e84ea7180b2ade15e6f742",
                       "size":  3593
                   },
                   {
@@ -2920,9 +2920,9 @@
                   },
                   {
                       "path":  "UncappedCT.dll",
-                      "url":  "http://152.53.115.249/patches/UncappedCT-2026.08.05a.dll",
-                      "sha256":  "92168b77f3ee62a10489f50a76cf564a0933ea4c4fd9ff6d4a24057094bd874c",
-                      "size":  129024
+                      "url":  "http://152.53.115.249/patches/UncappedCT-2026.08.06a.dll",
+                      "sha256":  "dfb85d8a92b1b3f141b8d0735ac4824d3ffa3d4f546b22e21698ef1d3e9e0057",
+                      "size":  132608
                   }
               ],
     "archives":  [

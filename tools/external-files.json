@@ -42,8 +42,8 @@
   {
     "_comment": "THE INJECTED RUNTIME. A HARD dependency of the executable above -- import injection means the loader resolves it before any game code runs, so if this file is missing the client does not start at all (exit 0xC0000135, STATUS_DLL_NOT_FOUND). The launcher checks for it before every launch and tells the player to add an antivirus exclusion, because a real-time scanner quarantining it AFTER the sync verified it is the realistic way it goes missing. Built /MT so KERNEL32 is its only import: a 3.3.5a install has no reason to have a VC redistributable.",
     "path": "UncappedCT.dll",
-    "url": "http://152.53.115.249/patches/UncappedCT-2026.08.05a.dll",
-    "sha256": "92168b77f3ee62a10489f50a76cf564a0933ea4c4fd9ff6d4a24057094bd874c",
+    "url": "http://152.53.115.249/patches/UncappedCT-2026.08.06a.dll",
+    "sha256": "dfb85d8a92b1b3f141b8d0735ac4824d3ffa3d4f546b22e21698ef1d3e9e0057",
     "_note": "Must stay in step with the executable above: they share the wire-magnitude codec and the native-channel frame format. Publish them together, always."
   }
 ]

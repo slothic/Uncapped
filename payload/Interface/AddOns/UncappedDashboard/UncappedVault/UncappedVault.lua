@@ -6,13 +6,33 @@ local ADDON_PIPE_PREFIX = "UNC"
 local TRANSPORT_PREFIX = "REAGENTBANK"
 local FORCE_LIVE = true
 local ADDON = "UncappedVault"
-local CACHE_VERSION = 1
-local RECACHE_INTERVAL = 300
+-- Bump this whenever the MEANING of a cached field changes, not just its shape.
+-- v2: the server now reports quest-shaped items as class 12 so they file under
+-- "Quest Items". Rows cached under v1 carry the item's real class (Bloodcap is
+-- 15/MISC), so without a bump every existing client keeps showing them in
+-- Miscellaneous forever -- a cached snapshot means no snapshot is ever requested.
+local CACHE_VERSION = 2
+--[[ Full-resync interval.
+
+     This used to be the ONLY way the window ever learned the vault had changed,
+     which is why it was 300s: nothing pushed, so it had to poll. The server now
+     sends VLTUPD whenever a row moves, so this is no longer the mechanism -- it
+     is a backstop for the cases where a push can go missing, and those are
+     EVENTS rather than durations: the native handler table is zeroed on
+     reconnect, and the DLL capability flag is cleared on login rather than
+     logout, so a crash or a kick can leave it stale.
+
+     Lengthened rather than deleted, deliberately. Deleting it without
+     event-driven resync on reconnect would trade a wasteful poll for a silent
+     failure mode; a long backstop costs one snapshot per quarter hour.
+]]
+local RECACHE_INTERVAL = 900
 
 local floor, min, max = math.floor, math.min, math.max
 local format, lower, find, match, gmatch = string.format, string.lower, string.find, string.match, string.gmatch
 local strsub = string.sub
 local tinsert, tremove, sort = table.insert, table.remove, table.sort
+local tconcat = table.concat
 
 local Core = _G.UncappedVault or {}
 _G.UncappedVault = Core
@@ -798,6 +818,11 @@ function Core.LoadCache()
         EnqueueWarm(it.e)
     end
     Core.cacheLoaded = true
+    -- Also push on the CACHED path, not just after a fresh snapshot. A login
+    -- with a valid SavedVariables cache requests no snapshot at all, so without
+    -- this the client-side counts would stay empty for the whole session.
+    -- Resolved through Core because the function is defined further down.
+    if Core.PushVaultCountsToClient then Core.PushVaultCountsToClient() end
     Notify("cache")
     return true
 end
@@ -925,6 +950,18 @@ function Core.Withdraw(item, count)
     Core.Send(format("VLTWD:%d:%d:%d", item.e, item.rp or 0, count))
 end
 
+-- Bulk deposit: hand the whole decision to the server.
+--
+-- Deliberately NOT a loop of VLTDEP over our own bags. That would be 50+ addon
+-- messages in one burst (the chat throttle drops those), and the client cannot
+-- see the keep-in-bags rule, so it would have to guess which items are eligible
+-- and would drift from the loot path the moment that rule changed. One token,
+-- server decides, server replies with a summary.
+function Core.DepositAllBags()
+    if Core.demo then return end
+    Core.Send("VLTDEPALL")
+end
+
 local lastPickup
 if hooksecurefunc then
     hooksecurefunc("PickupContainerItem", function(bag, slot)
@@ -1007,6 +1044,119 @@ local function ParseRows(text)
     end
 end
 
+--[[ Push item totals into the injected DLL, so the CLIENT counts vault stock.
+
+     The 3.3.5 client works out quest objective progress ("3/5") and tradeskill
+     reagent availability by scanning bags itself, in the engine -- neither number
+     comes from the server. So a vaulted turn-in item shows 0/5 even when the
+     server will happily accept the hand-in, and a recipe greys out even when the
+     server would allow the craft. No Lua wrapper reaches either: both live below
+     FrameXML. UncappedCT.dll hooks the engine's count function and adds whatever
+     we hand it here.
+
+     Totals are summed ACROSS SUFFIXES because the engine counts by item entry --
+     the vault keys rows on (entry, randomPropertyId), so several rows can be the
+     same item.
+
+     Silently skipped when the DLL is absent. The hook is scoped to a handful of
+     call sites, so this can only ever affect those; everything else keeps the
+     stock bags-only answer.
+]]
+local function PushVaultCountsToClient()
+    if type(UncappedVault_SetCounts) ~= "function" then return end
+
+    local totals = {}
+    for _, it in ipairs(Core.items) do
+        local e = it.e
+        if e and e > 0 and it.c and it.c > 0 then
+            totals[e] = (totals[e] or 0) + it.c
+        end
+    end
+
+    local parts, n = {}, 0
+    for e, c in pairs(totals) do
+        n = n + 1
+        parts[n] = e .. ":" .. floor(c)
+    end
+
+    pcall(UncappedVault_SetCounts, tconcat(parts, ";"))
+
+    --[[ Nudge the tradeskill window, or it renders one craft behind.
+
+         The engine now returns vault-inclusive reagent counts, but the Blizzard
+         tradeskill frame only re-queries them on its OWN events. So after a
+         craft the numbers we just pushed sit unread until the NEXT craft fires a
+         TRADE_SKILL_UPDATE -- which is exactly the "first smelt didn't tick, the
+         second one did" symptom: the display was always one operation stale.
+
+         Guarded on every name: Blizzard_TradeSkillUI is load-on-demand, so none
+         of this exists until the player has opened a profession at least once.
+    ]]
+    if TradeSkillFrame and TradeSkillFrame:IsShown() then
+        --[[ Force a full skill-list REBUILD.
+
+             This is the part that actually moves the "create all" figure, and it
+             took a per-call trace of the engine to find. Two things re-read item
+             counts, and only one of them re-reads on demand:
+
+               GetTradeSkillReagentInfo  -- re-queried on any frame refresh, so
+                                            the reagent line was always correct
+               the craftable count       -- computed ONCE, for every reagent of
+                                            every recipe, during a wholesale list
+                                            rebuild
+
+             So redrawing rows (TradeSkillFrame_Update) or re-picking the recipe
+             (TradeSkillFrame_SetSelection) both leave the craftable number at
+             whatever the last rebuild produced. Re-applying the item-level filter
+             to its OWN current value forces the rebuild with no visible change to
+             what the player has selected or filtered.
+        ]]
+        -- Re-applying the filter to its OWN value does nothing: the client
+        -- early-outs when the value has not changed. Nudge it off and back so
+        -- each transition forces the rebuild, restoring what the player had.
+        if type(GetTradeSkillItemLevelFilter) == "function"
+            and type(SetTradeSkillItemLevelFilter) == "function" then
+            local lo, hi = GetTradeSkillItemLevelFilter()
+            lo, hi = lo or 0, hi or 0
+            pcall(SetTradeSkillItemLevelFilter, lo, (hi == 0) and 1 or 0)
+            pcall(SetTradeSkillItemLevelFilter, lo, hi)
+        end
+
+        -- And ask the frame's own handler to run the TRADE_SKILL_UPDATE path,
+        -- which is what rebuilds after a craft. Belt and braces: whichever of
+        -- these actually triggers the rebuild, the other is harmless.
+        local onEvent = TradeSkillFrame.GetScript and TradeSkillFrame:GetScript("OnEvent")
+        if onEvent then
+            pcall(onEvent, TradeSkillFrame, "TRADE_SKILL_UPDATE")
+        end
+
+        -- Re-render the list...
+        if type(TradeSkillFrame_Update) == "function" then
+            pcall(TradeSkillFrame_Update)
+        end
+
+        --[[ ...and re-select the current recipe, which is the part that actually
+             matters.
+
+             TradeSkillFrame_Update only redraws ROWS. The "create all" maximum
+             lives in the quantity input box and is computed once, in
+             TradeSkillFrame_SetSelection, when a recipe is picked -- so
+             re-rendering leaves it at whatever it was when you selected the
+             recipe. That is why the figure only moved on the SECOND craft: the
+             first craft's completion re-selected the recipe, revealing the
+             count from before it.
+        ]]
+        if type(TradeSkillFrame_SetSelection) == "function"
+            and type(GetTradeSkillSelectionIndex) == "function" then
+            local sel = GetTradeSkillSelectionIndex()
+            if sel and sel > 0 then
+                pcall(TradeSkillFrame_SetSelection, sel)
+            end
+        end
+    end
+end
+Core.PushVaultCountsToClient = PushVaultCountsToClient
+
 local function FinalizeSnapshot()
     ClearItems()
     for idx, it in ipairs(staging) do
@@ -1017,6 +1167,7 @@ local function FinalizeSnapshot()
     staging = {}
     Core.cacheLoaded = true
     Core.SaveCache()
+    PushVaultCountsToClient()
     Notify("snapshot")
     if pendingManualRefresh then
         pendingManualRefresh = false
@@ -1061,6 +1212,47 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
         ParseRows(text)
     elseif find(text, "^VLTEND:") then
         FinalizeSnapshot()
+    elseif find(text, "^VLTUPD:") then
+        --[[ Rows the server changed since it last told us.
+
+             Sent whenever the vault moves for any reason -- a craft, a quest
+             turn-in, loot banking -- rather than only on an explicit refresh.
+             Before this the window (and the DLL's client-side counts) stayed
+             frozen at load time, so a max-craftable figure would sit still while
+             the materials behind it were being spent.
+
+             Amounts are ABSOLUTE, so applying one twice is harmless and a dropped
+             message self-corrects on the next update for that row. Amount 0 means
+             the stack is gone.
+        ]]
+        local touched = false
+        for e, rp, amount in gmatch(text, "(%d+),(%-?%d+),(%d+);") do
+            e, rp, amount = tonumber(e), tonumber(rp), tonumber(amount)
+            local it = FindRow(e, rp)
+            if amount <= 0 then
+                if it then
+                    for k, v in ipairs(Core.items) do
+                        if v == it then tremove(Core.items, k) break end
+                    end
+                    if Core.selectedItem == it then Core.selectedItem = nil end
+                    touched = true
+                end
+            elseif it then
+                if it.c ~= amount then it.c = amount touched = true end
+            else
+                -- A row we have never seen: the server knows the amount but not
+                -- the display fields, so ask for a full snapshot rather than
+                -- inventing an entry the window cannot render.
+                Core.RequestSnapshot()
+                return
+            end
+        end
+
+        if touched then
+            Core.SaveCache()
+            PushVaultCountsToClient()
+            Notify("update")
+        end
     elseif find(text, "^VLTWDONE:") then
         local e, rp, given, remaining = match(text, "^VLTWDONE:(%d+):(%-?%d+):(%d+):(%d+)$")
         if e then
@@ -1082,6 +1274,26 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
         end
     elseif find(text, "^VLTWDFAIL:") then
         if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r couldn't withdraw -- bags full, or not enough left in the vault.") end
+    elseif find(text, "^VLTDEPALLDONE:") then
+        local stacks, items, kept = match(text, "^VLTDEPALLDONE:(%d+):(%d+):(%d+)$")
+        if stacks then
+            stacks, items, kept = tonumber(stacks), tonumber(items), tonumber(kept)
+            Core.depositCount = Core.depositCount + stacks
+            if DEFAULT_CHAT_FRAME then
+                if stacks > 0 then
+                    DEFAULT_CHAT_FRAME:AddMessage(format(
+                        "|cff40c0ff[Vault]|r deposited |cffffffff%s|r item(s) in |cffffffff%s|r stack(s).",
+                        Core.Comma(items), Core.Comma(stacks)))
+                else
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r nothing in your bags to deposit.")
+                end
+                if kept > 0 then
+                    DEFAULT_CHAT_FRAME:AddMessage(format(
+                        "|cff40c0ff[Vault]|r |cffffd100%d|r item(s) stay in your bags on purpose.", kept))
+                end
+            end
+            Notify("deposit")
+        end
     elseif find(text, "^VLTDEPFAIL:") then
         local why = match(text, "^VLTDEPFAIL:(%a+)")
         local reason = (why == "quest" and "quest items") or (why == "bag" and "bags")
