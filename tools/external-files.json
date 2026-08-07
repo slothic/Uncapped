@@ -42,8 +42,9 @@
   {
     "_comment": "THE INJECTED RUNTIME. A HARD dependency of the executable above -- import injection means the loader resolves it before any game code runs, so if this file is missing the client does not start at all (exit 0xC0000135, STATUS_DLL_NOT_FOUND). The launcher checks for it before every launch and tells the player to add an antivirus exclusion, because a real-time scanner quarantining it AFTER the sync verified it is the realistic way it goes missing. Built /MT so KERNEL32 is its only import: a 3.3.5a install has no reason to have a VC redistributable.",
     "path": "UncappedCT.dll",
-    "url": "http://152.53.115.249/patches/UncappedCT-2026.08.06a.dll",
-    "sha256": "dfb85d8a92b1b3f141b8d0735ac4824d3ffa3d4f546b22e21698ef1d3e9e0057",
-    "_note": "Must stay in step with the executable above: they share the wire-magnitude codec and the native-channel frame format. Publish them together, always."
+    "url": "http://152.53.115.249/patches/UncappedCT-2026.08.07a.dll",
+    "sha256": "c3d799bbf9b3163934405f5a9910da372d0d1f5ba82b8161912e89a61687b7b6",
+    "_note": "Must stay in step with the executable above: they share the wire-magnitude codec and the native-channel frame format. Publish them together, always.",
+    "_history": "2026-08.07a: hooks 0x0058CBFB, the QUESTGIVER DIALOG's required-item check -- report #239, the greyed Continue/Complete button when the quest's items were in the Vault. The client runs that check itself before any packet is sent, so no server change could reach it; auto-accept/auto-complete completing the same turn-in while the button stayed dead is what proved it was client-side. Verified in-game before publishing: 'HOOKED site ret=0058CBFB item=11316 bags=0 vault=1 -> 1', Continue enabled, quest handed in. ⚠ The executable is NOT republished alongside this one despite the note above: that rule guards the shared wire codec and frame format, and this change touches neither -- it only adds an entry to kVaultAwareReturns. Two earlier guesses (0x005E2797 / 0x005E27B0), inferred from disassembly rather than observed, never fire at a questgiver and were removed."
   }
 ]
