@@ -468,12 +468,57 @@ Core.EquipSlotFor = EquipSlotFor
 
      Deliberately class PROFICIENCY, not "spec". A fury warrior sees every
      weapon a warrior can hold, because the alternative is guessing at builds. ]]
+--[[ Armour subclass: 1 cloth, 2 leather, 3 mail, 4 plate.
+
+     TWO entries per class, because armour proficiency is LEARNED, not innate --
+     report #234, a level 19 hunter shown mail he cannot wear until 40. Warriors,
+     paladins and death knights train plate at 40; hunters and shamans train mail
+     at 40. Until then they wear the tier below, and a filter called "only gear I
+     can use" that shows them the tier above is lying.
+
+     Death knights start at 55 so their `early` value is unreachable in practice;
+     it is filled in rather than left nil so nobody has to wonder whether the
+     omission was deliberate. ]]
+local ARMOR_TRAIN_LEVEL = 40
 local ARMOR_SPEC = {
     WARRIOR = 4, PALADIN = 4, DEATHKNIGHT = 4,
     HUNTER = 3, SHAMAN = 3,
     ROGUE = 2, DRUID = 2,
     MAGE = 1, WARLOCK = 1, PRIEST = 1,
 }
+local ARMOR_SPEC_EARLY = {
+    WARRIOR = 3, PALADIN = 3, DEATHKNIGHT = 3,
+    HUNTER = 2, SHAMAN = 2,
+    ROGUE = 2, DRUID = 2,
+    MAGE = 1, WARLOCK = 1, PRIEST = 1,
+}
+
+-- The armour tier this character can actually wear right now.
+local function ArmorSpecFor(class)
+    if (UnitLevel("player") or 0) >= ARMOR_TRAIN_LEVEL then
+        return ARMOR_SPEC[class]
+    end
+    return ARMOR_SPEC_EARLY[class]
+end
+
+--[[ Required level, cached onto the row exactly like it.eq above.
+
+     GetItemInfo's 5th return is minLevel. Same contract as the equip-slot cache:
+     a nil answer means the item cache has not replied YET, not that the item has
+     no requirement -- so it is stored as 0 (no requirement) only once GetItemInfo
+     has actually answered, and until then callers must not hide anything. ]]
+local function MinLevelFor(it)
+    local cached = it.rl
+    if cached ~= nil then return cached end
+
+    local name, _, _, _, minLevel = GetItemInfo(it.e)
+    if not name then return nil end
+
+    it.rl = tonumber(minLevel) or 0
+    Core.cacheDirty = true
+    return it.rl
+end
+Core.MinLevelFor = MinLevelFor
 
 -- Armour subclasses 7-10 are the class relic slots; each belongs to exactly one.
 local RELIC_SUB = { PALADIN = 7, DRUID = 8, SHAMAN = 9, DEATHKNIGHT = 10 }
@@ -514,6 +559,24 @@ local function IsRelevantToPlayer(it)
     local cls = tonumber(it.cls) or 15
     local sub = tonumber(it.sub) or 0
 
+    --[[ LEVEL FIRST, and it applies to every class of item, not just gear.
+
+         Report #234: a level 19 hunter had "only gear I can use" on and was still
+         shown every high-level weapon in the vault. Proficiency was the only test,
+         so a level 1 rogue and a level 80 rogue saw an identical list.
+
+         Deliberately NOT gated on cls, because a required level means the same
+         thing on a weapon, a piece of armour and a use-item.
+
+         nil means GetItemInfo has not answered yet -- never hide on a
+         not-yet-known answer, same rule the armour branch already follows for
+         it.eq. Hiding something the player owns because a cache was cold is the
+         one failure this toggle must not have. ]]
+    local minLevel = MinLevelFor(it)
+    if minLevel and minLevel > (UnitLevel("player") or 0) then
+        return false
+    end
+
     if cls == 16 then
         local id = GLYPH_CLASS_ID[class]
         return (not id) or sub == id
@@ -543,7 +606,8 @@ local function IsRelevantToPlayer(it)
         if sub == 0 then return true end
         if sub == 6 then return SHIELD_CLASSES[class] == true end
         if sub >= 7 and sub <= 10 then return RELIC_SUB[class] == sub end
-        return ARMOR_SPEC[class] == sub
+        -- ArmorSpecFor, not ARMOR_SPEC: a hunter is leather until 40 (report #234).
+        return ArmorSpecFor(class) == sub
     end
 
     return true
