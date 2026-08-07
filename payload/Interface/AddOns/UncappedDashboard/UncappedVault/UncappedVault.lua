@@ -1569,6 +1569,50 @@ local function PushVaultCountsToClient()
             end
         end
     end
+
+    --[[ Nudge the QUEST objective tracker, for exactly the reason the tradeskill
+         window above needs nudging -- this is the same bug on a surface nobody
+         covered.
+
+         The engine now answers quest item counts with the vault included (the
+         hooked sites in UncappedCT), but Blizzard's objective tracker and quest
+         log only re-read them on their OWN events: QUEST_LOG_UPDATE, and bag
+         changes. Loot that is auto-deposited goes STRAIGHT TO THE VAULT and never
+         touches a bag, so no event fires and the tracker keeps drawing the number
+         it drew last time.
+
+         That is the "objective tracker not updating" report, and it is why
+         opening the ledger appeared to fix it -- the ledger burst forced a redraw
+         as a side effect, so the tracker looked broken until something unrelated
+         made it repaint.
+
+         So: after the counts land, tell the quest UI to repaint. Both calls are
+         cheap and idempotent, and each is guarded because a stripped or replaced
+         UI may not define them.
+
+         ⚠ Deliberately NOT firing a fake QUEST_LOG_UPDATE. That event is watched
+         by half the addon ecosystem (and by our own ledger), and synthesising it
+         to repaint one frame would have every listener re-derive its whole world
+         several times a minute. Call the two redraws we actually want instead. ]]
+    if type(QuestWatch_Update) == "function" then
+        pcall(QuestWatch_Update)
+    end
+    if QuestLogFrame and QuestLogFrame:IsShown() and type(QuestLog_Update) == "function" then
+        pcall(QuestLog_Update)
+    end
+
+    --[[ The ledger's own map pins and objective arrow read the same counts, so
+         they go stale in the same breath.
+
+         ⚠ `UncappedQuests`, not `UQ`. UQ is only a FILE-LOCAL alias inside the
+         UncappedQuests addon (`local UQ = UncappedQuests` at the top of each of
+         its files); from this addon it is simply nil, and the whole block would
+         have silently done nothing. Guarded anyway -- UncappedQuests is a
+         separate addon and can be absent or disabled. ]]
+    local uq = UncappedQuests
+    if uq and type(uq.RefreshPins) == "function" then
+        pcall(uq.RefreshPins)
+    end
 end
 Core.PushVaultCountsToClient = PushVaultCountsToClient
 
@@ -1716,6 +1760,13 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
          unreachable), which is why the vault held none. The old wording read as
          transient, so the obvious response was to free bag slots and retry, which
          could not have worked. ]]
+    --[[ Keys are a trap of their own. Player::CanStoreItem sends a keyring-family
+         item to the KEYRING and returns the failure immediately if it won't fit --
+         it never falls back to ordinary bag slots. So this fails with the bags
+         wide open, and "bags full" sends the player to clear space that was never
+         the problem. Report #238, The Violet Hold Key. ]]
+    elseif find(text, "^VLTWDKEYRING:") then
+        if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r couldn't withdraw -- your keyring is full. Keys only go in the keyring, never in bags, so free a keyring slot rather than bag space.") end
     elseif find(text, "^VLTWDNONE:") then
         if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r couldn't withdraw -- the vault holds none of that. Some items (keystones, hearthstone, class reagents) are deliberately kept in your bags and never stored.") end
     elseif find(text, "^VLTDEPALLDONE:") then
