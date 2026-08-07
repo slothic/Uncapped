@@ -2203,6 +2203,43 @@ if type(PetPaperDollFrame_UpdateStats) == "function" then
 end
 
 -- ---------------------------------------------------------------------------
+-- Pet tab self-heal (report #151: "no pet tab, and no level 1 mount").
+--
+-- The Pet tab of the character sheet is CharacterFrameTab2. Blizzard's
+-- PetPaperDollFrame_UpdateIsAvailable() hides it whenever, at the instant it
+-- runs, the player has no pet UI and GetNumCompanions("CRITTER") and
+-- GetNumCompanions("MOUNT") are both zero -- and the only things that ever call
+-- it are the pet events and COMPANION_LEARNED / COMPANION_UNLEARNED.
+--
+-- That makes the hidden state LATCH. PLAYER_ENTERING_WORLD does not re-evaluate
+-- it, a class with no combat pet gets no pet events to re-evaluate it either,
+-- and once the tab is hidden ToggleCharacter() refuses to open the frame
+-- (PetPaperDollFrame.hidden is set), so the one remaining path that would have
+-- re-run the check -- showing the frame -- is closed off too. A player who is
+-- unlucky about WHEN the client recounted its companions loses the tab for the
+-- rest of the session, and with it the only place mounts are listed. Which
+-- reads exactly like "I don't have a mount".
+--
+-- Re-running the check on login and whenever the spellbook changes costs
+-- nothing and turns a stuck session into a self-correcting one.
+-- Deliberately one-way: this only ever RESTORES the tab, it never hides one.
+-- Calling UpdateIsAvailable() outright would also take the tab away on a
+-- transient zero -- and its "nothing to show" branch would eject the player
+-- from the frame they were reading. Hiding is still Blizzard's job, on its own
+-- events; all we do is undo a latch that should not have happened.
+local petTabWatcher = CreateFrame("Frame")
+petTabWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+petTabWatcher:RegisterEvent("SPELLS_CHANGED")
+petTabWatcher:SetScript("OnEvent", function()
+    if not CharacterFrameTab2 or CharacterFrameTab2:IsShown() then return end
+    if not (HasPetUI() or GetNumCompanions("CRITTER") > 0 or GetNumCompanions("MOUNT") > 0) then return end
+
+    if type(PetPaperDollFrame_UpdateIsAvailable) == "function" then
+        PetPaperDollFrame_UpdateIsAvailable()
+    end
+end)
+
+-- ---------------------------------------------------------------------------
 -- Spell tooltip: strip the computed damage / healing figures.
 --
 -- The client builds these itself from Spell.dbc tokens and its OWN capped stat

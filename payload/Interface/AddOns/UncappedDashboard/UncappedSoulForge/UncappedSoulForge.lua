@@ -422,8 +422,17 @@ local function BuildUI(parent)
   -- ---- controls ----
   local ac = CreateFrame("CheckButton", "UncappedSoulforgeAC", f, "InterfaceOptionsCheckButtonTemplate")
   ac:SetPoint("TOPLEFT", 4, -104)
-  _G[ac:GetName().."Text"]:SetText("Auto-consume junk gear \226\134\146  souls + transmog")
-  ac:SetScript("OnClick", function(self) send("ICAC:" .. (self:GetChecked() and 1 or 0)) end)
+  _G[ac:GetName().."Text"]:SetText("Auto-consume junk gear \226\134\146  souls + transmog (destroys it)")
+  -- Ticking this only ASKS. The server arms a confirmation and replies ICACWARN,
+  -- which raises the popup below; nothing is enabled until the player accepts it.
+  -- Unticking is immediate. The box is put straight back to the server's value so
+  -- it never shows a state the server has not agreed to -- the ICSF push that
+  -- follows is the authority either way.
+  ac:SetScript("OnClick", function(self)
+    local want = self:GetChecked() and 1 or 0
+    self:SetChecked(state.sf.autoconsume)
+    send("ICAC:" .. want)
+  end)
   f.acCheck = ac
 
   local ao = CreateFrame("CheckButton", "UncappedSoulforgeAO", f, "InterfaceOptionsCheckButtonTemplate")
@@ -1373,6 +1382,14 @@ local function OnLine(body)
       state.sf.autoopen = ao == "1"
       if UI then UI:RefreshForge() end
     end
+  elseif cmd == "ICACWARN" then         -- <secondsToConfirm>
+    -- The server has armed a confirmation and changed nothing yet. Say plainly
+    -- what enabling this does; the wording is deliberately blunt, because the
+    -- old one-line checkbox was not and people lost gear to it.
+    -- Match the server's arm window, so the popup cannot outlive the confirmation
+    -- it would send.
+    StaticPopupDialogs["UNCAPPED_SF_AUTOCONSUME"].timeout = tonumber(rest) or 60
+    StaticPopup_Show("UNCAPPED_SF_AUTOCONSUME")
   elseif cmd == "ICSFDING" then         -- <levelsGained>
     if UI then UI:Ding() end
     msg("|cff9CC243The Soulforge grows stronger!|r Extraction is now higher.")
@@ -1596,6 +1613,22 @@ StaticPopupDialogs["UNCAPPED_SOCKET_REMOVE"] = {
 }
 
 -- ---- StaticPopup: confirm Soulbind Duplicates ----------------------------
+-- Raised by ICACWARN, never by the checkbox directly: the server arms the
+-- confirmation and this is the only thing that sends the accept. The wording is
+-- deliberately blunt -- the old one-line checkbox was not, and people lost gear
+-- to it without ever understanding what they had switched on.
+StaticPopupDialogs["UNCAPPED_SF_AUTOCONSUME"] = {
+  text = "|cffff2020This permanently destroys gear.|r\n\n"
+      .. "While Auto-consume is on, every |cffffffffuncommon, rare or epic|r weapon and armour "
+      .. "piece you are |cffffffffnot wearing|r is rendered down for souls -- out of your bags "
+      .. "|cffffffffand out of your Vault|r -- automatically, within seconds. It cannot be "
+      .. "undone, and you are not asked again each time.\n\n"
+      .. "Only the |cffffffffWhitelist|r protects an item.\n\nTurn Auto-consume on?",
+  button1 = "Yes, destroy my spare gear", button2 = CANCEL,
+  OnAccept = function() send("ICAC:1:CONFIRM") end,
+  timeout = 60, whileDead = 1, hideOnEscape = 1, showAlert = 1,
+}
+
 StaticPopupDialogs["UNCAPPED_SF_SOULBIND_ALL"] = {
   text = "Soulbind every exact duplicate of the gear you're wearing (from bags AND vault) onto it?\n\nThe duplicates are consumed. This cannot be undone.",
   button1 = ACCEPT, button2 = CANCEL,

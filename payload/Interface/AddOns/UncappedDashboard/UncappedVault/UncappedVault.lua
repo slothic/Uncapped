@@ -81,7 +81,13 @@ local state = {
     category = "all",
     subcategory = "all",
     quality = -1,
-    slot = "all",
+    -- Equipment slot ("head", "twohand", ...). Orthogonal to category/
+    -- subcategory on purpose: "Plate" in the sidebar + "Chest" here is the
+    -- question report #218 actually asked, and it needs both axes at once.
+    equipSlot = "all",
+    -- Hide anything this character's class cannot use. Off by default -- see
+    -- SetClassOnly.
+    classOnly = false,
     sort = "recent",
     sortAsc = false,
     page = 1,
@@ -117,6 +123,93 @@ local SLOT_LABELS = {
     misc = "Miscellaneous",
 }
 Core.SLOT_LABELS = SLOT_LABELS
+
+--[[ Equipment slot -- the one gearing dimension the wire does NOT carry.
+
+     custom_vault_item denormalises class/subclass/quality/item_level precisely
+     so this browser can bucket items without touching the client's item cache,
+     and the VLTROW format ships all four. InventoryType is not among them, so
+     the thing report #218 asks for by name ("maybe even each equipment slot")
+     is the only part with no server-side answer.
+
+     It is still resolvable here: GetItemInfo's 9th return is the equip-location
+     TOKEN ("INVTYPE_HEAD"), not a localised string, so it is safe to key on --
+     SubcategoryFor has keyed on it for necks/rings/trinkets since day one.
+     What changes is that the answer is now resolved ONCE and cached onto the
+     row (and saved with it), instead of re-queried for every armour and weapon
+     row on every rebuild -- i.e. on every keystroke in the search box, which a
+     ten-thousand-row vault feels.
+
+     Normalised to our own short keys rather than kept as INVTYPE_* strings so
+     the several tokens that mean one slot to a player (CHEST/ROBE,
+     RANGED/RANGEDRIGHT) collapse into one bucket. ]]
+local EQUIP_FROM_INVTYPE = {
+    INVTYPE_HEAD = "head",
+    INVTYPE_NECK = "neck",
+    INVTYPE_SHOULDER = "shoulder",
+    INVTYPE_CLOAK = "back",
+    INVTYPE_CHEST = "chest",
+    INVTYPE_ROBE = "chest",
+    INVTYPE_BODY = "shirt",
+    INVTYPE_TABARD = "tabard",
+    INVTYPE_WRIST = "wrist",
+    INVTYPE_HAND = "hands",
+    INVTYPE_WAIST = "waist",
+    INVTYPE_LEGS = "legs",
+    INVTYPE_FEET = "feet",
+    INVTYPE_FINGER = "finger",
+    INVTYPE_TRINKET = "trinket",
+    INVTYPE_WEAPON = "onehand",
+    INVTYPE_2HWEAPON = "twohand",
+    INVTYPE_WEAPONMAINHAND = "mainhand",
+    INVTYPE_WEAPONOFFHAND = "offhand",
+    INVTYPE_HOLDABLE = "held",
+    INVTYPE_SHIELD = "shield",
+    INVTYPE_RANGED = "ranged",
+    INVTYPE_RANGEDRIGHT = "ranged",
+    INVTYPE_THROWN = "thrown",
+    INVTYPE_RELIC = "relic",
+    INVTYPE_BAG = "bag",
+    INVTYPE_QUIVER = "bag",
+    INVTYPE_AMMO = "ammo",
+}
+
+-- Paper-doll order, top-down then weapons, so the Slot dropdown and the
+-- "sort by slot" column both read the way a character sheet does rather than
+-- alphabetically (Back, Chest, Feet, Finger, Hands, Head... helps nobody).
+local EQUIP_SLOT_ORDER = {
+    "head", "neck", "shoulder", "back", "chest", "shirt", "tabard",
+    "wrist", "hands", "waist", "legs", "feet", "finger", "trinket",
+    "onehand", "mainhand", "offhand", "twohand", "held", "shield",
+    "ranged", "thrown", "relic", "bag", "ammo",
+}
+Core.EQUIP_SLOT_ORDER = EQUIP_SLOT_ORDER
+
+local EQUIP_LABELS = {
+    head = "Head", neck = "Neck", shoulder = "Shoulder", back = "Back",
+    chest = "Chest", shirt = "Shirt", tabard = "Tabard", wrist = "Wrist",
+    hands = "Hands", waist = "Waist", legs = "Legs", feet = "Feet",
+    finger = "Finger", trinket = "Trinket",
+    onehand = "One-Hand", mainhand = "Main Hand", offhand = "Off Hand",
+    twohand = "Two-Hand", held = "Held In Off-hand", shield = "Shield",
+    ranged = "Ranged", thrown = "Thrown", relic = "Relic",
+    bag = "Bag", ammo = "Ammo",
+}
+Core.EQUIP_LABELS = EQUIP_LABELS
+
+local EQUIP_SLOT_INDEX = {}
+for i, key in ipairs(EQUIP_SLOT_ORDER) do EQUIP_SLOT_INDEX[key] = i end
+
+-- Defined up here rather than beside the proficiency tables further down
+-- because GetDB reads it, and GetDB comes first.
+local playerClass
+local function PlayerClass()
+    if not playerClass and UnitClass then
+        playerClass = select(2, UnitClass("player"))
+    end
+    return playerClass
+end
+Core.PlayerClass = PlayerClass
 
 -- MUST list every category CategoryFor() can return (see CLASS_CAT and
 -- SUB_TRADE_CAT below). This is not just the sidebar's row order: BuildGridLayout
@@ -195,7 +288,7 @@ local SUBCATEGORY_DEFS = {
         { key = "sword2", label = "Two-Handed Swords", sub = 8 },
         { key = "staff", label = "Staves", sub = 10 },
         { key = "fist", label = "Fist Weapons", sub = 13 },
-        { key = "offhand", label = "Off-Hand", equips = { INVTYPE_WEAPONOFFHAND = true, INVTYPE_HOLDABLE = true } },
+        { key = "offhand", label = "Off-Hand", eqs = { offhand = true, held = true } },
         { key = "misc", label = "Miscellaneous", sub = 14 },
         { key = "dagger", label = "Daggers", sub = 15 },
         { key = "thrown", label = "Thrown", sub = 16 },
@@ -204,9 +297,9 @@ local SUBCATEGORY_DEFS = {
         { key = "fishing", label = "Fishing Poles", sub = 20 },
     },
     armor = {
-        { key = "neck", label = "Necklaces", equip = "INVTYPE_NECK" },
-        { key = "finger", label = "Rings", equip = "INVTYPE_FINGER" },
-        { key = "trinket", label = "Trinkets", equip = "INVTYPE_TRINKET" },
+        { key = "neck", label = "Necklaces", eq = "neck" },
+        { key = "finger", label = "Rings", eq = "finger" },
+        { key = "trinket", label = "Trinkets", eq = "trinket" },
         { key = "misc", label = "Miscellaneous", sub = 0 },
         { key = "cloth", label = "Cloth", sub = 1 },
         { key = "leather", label = "Leather", sub = 2 },
@@ -282,12 +375,19 @@ function Core.GetDB()
     local defaults = {
         autoBagSync = true,
         viewMode = "list",
+        classOnly = false,
     }
     for k, v in pairs(defaults) do
         if db[k] == nil then db[k] = CopyDefault(v) end
     end
     db.viewMode = (db.viewMode == "grid") and "grid" or "list"
     state.viewMode = db.viewMode
+    -- Saved per ACCOUNT, like everything else in UncappedVaultDB, but the
+    -- answer is per CHARACTER: a paladin's "my class only" must not still be
+    -- narrowing to plate when you log in on the mage. Stored as the class token
+    -- it was set for, and only honoured when that matches who is logged in.
+    local cls = PlayerClass()
+    state.classOnly = (cls ~= nil and db.classOnly == cls)
     return db
 end
 
@@ -326,17 +426,143 @@ local function SlotFor(it)
 end
 Core.SlotFor = SlotFor
 
+--[[ Equipment slot for a row, resolved once and remembered.
+
+     it.eq is tri-state on purpose:
+       nil -- never resolved. The client's item cache had no answer yet, so we
+              know nothing. Callers that HIDE things must treat this as "show".
+       ""  -- resolved, and the item does not go in an equipment slot at all
+              (ore, a potion, a glyph). Cached so trade goods stop re-querying.
+       key -- one of EQUIP_SLOT_ORDER.
+
+     GetItemInfo returning nil is the cold-cache signal; an equippable item
+     whose cache entry exists always has a non-empty 9th return. Core.EnqueueWarm
+     already asks the server for every row's cache entry on snapshot and on
+     cache load, so cold is a startup condition, not a steady state -- and the
+     warmer's Notify("icons") re-runs Rebuild as answers land, so buckets fill
+     in rather than staying wrong. ]]
+local function EquipSlotFor(it)
+    local cached = it.eq
+    if cached ~= nil then
+        if cached == "" then return nil end
+        return cached
+    end
+
+    local name, _, _, _, _, _, _, _, equipLoc = GetItemInfo(it.e)
+    if not name then return nil end
+
+    it.eq = EQUIP_FROM_INVTYPE[equipLoc or ""] or ""
+    Core.cacheDirty = true
+    if it.eq == "" then return nil end
+    return it.eq
+end
+Core.EquipSlotFor = EquipSlotFor
+
+--[[ "Only what my class can use."
+
+     Report #218 is a GEARING request ("would make gearing up from mythic bags
+     a lot easier"), and the biggest single cut is the three armour types the
+     player will never equip. This narrows exactly three item classes -- weapons,
+     armour, glyphs -- and nothing else. A filter that also hid your ore would
+     not be a gearing filter, it would be the next bug report.
+
+     Deliberately class PROFICIENCY, not "spec". A fury warrior sees every
+     weapon a warrior can hold, because the alternative is guessing at builds. ]]
+local ARMOR_SPEC = {
+    WARRIOR = 4, PALADIN = 4, DEATHKNIGHT = 4,
+    HUNTER = 3, SHAMAN = 3,
+    ROGUE = 2, DRUID = 2,
+    MAGE = 1, WARLOCK = 1, PRIEST = 1,
+}
+
+-- Armour subclasses 7-10 are the class relic slots; each belongs to exactly one.
+local RELIC_SUB = { PALADIN = 7, DRUID = 8, SHAMAN = 9, DEATHKNIGHT = 10 }
+local SHIELD_CLASSES = { WARRIOR = true, PALADIN = true, SHAMAN = true }
+
+-- Glyph subclass IS the class id, which is why glyphs get to play here at all.
+local GLYPH_CLASS_ID = {
+    WARRIOR = 1, PALADIN = 2, HUNTER = 3, ROGUE = 4, PRIEST = 5,
+    DEATHKNIGHT = 6, SHAMAN = 7, MAGE = 8, WARLOCK = 9, DRUID = 11,
+}
+
+local function Prof(...)
+    local t = {}
+    for i = 1, select("#", ...) do t[select(i, ...)] = true end
+    return t
+end
+
+-- Weapon subclass ids, 3.3.5a: 0 axe1, 1 axe2, 2 bow, 3 gun, 4 mace1, 5 mace2,
+-- 6 polearm, 7 sword1, 8 sword2, 10 staff, 13 fist, 15 dagger, 16 thrown,
+-- 18 crossbow, 19 wand.
+local WEAPON_PROFICIENCY = {
+    WARRIOR     = Prof(0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 13, 15, 16, 18),
+    PALADIN     = Prof(0, 1, 4, 5, 6, 7, 8),
+    HUNTER      = Prof(0, 1, 2, 3, 6, 7, 8, 10, 13, 15, 16, 18),
+    ROGUE       = Prof(0, 2, 3, 4, 7, 13, 15, 16, 18),
+    PRIEST      = Prof(4, 10, 15, 19),
+    DEATHKNIGHT = Prof(0, 1, 4, 5, 6, 7, 8),
+    SHAMAN      = Prof(0, 1, 4, 5, 10, 13, 15),
+    MAGE        = Prof(7, 10, 15, 19),
+    WARLOCK     = Prof(7, 10, 15, 19),
+    DRUID       = Prof(4, 5, 6, 10, 13, 15),
+}
+
+local function IsRelevantToPlayer(it)
+    local class = PlayerClass()
+    if not class then return true end
+
+    local cls = tonumber(it.cls) or 15
+    local sub = tonumber(it.sub) or 0
+
+    if cls == 16 then
+        local id = GLYPH_CLASS_ID[class]
+        return (not id) or sub == id
+    end
+
+    if cls == 2 then
+        local prof = WEAPON_PROFICIENCY[class]
+        if not prof then return true end
+        -- 14 miscellaneous and 20 fishing poles are not class-gated.
+        if sub == 14 or sub == 20 then return true end
+        return prof[sub] == true
+    end
+
+    if cls == 4 then
+        --[[ Slot decides before subclass, and it has to.
+
+             A cloak is armour subclass CLOTH and a ring/neck/trinket is armour
+             subclass MISC, so judging armour by subclass alone would hide every
+             cloak in the vault from a paladin -- the exact "my gear vanished"
+             failure this toggle must not have. ]]
+        local eq = EquipSlotFor(it)
+        -- Never hide what we could not judge: nil eq here means the item cache
+        -- has not answered yet, not that the item has no slot (that is "").
+        if it.eq == nil then return true end
+        if eq == "back" or eq == "neck" or eq == "finger" or eq == "trinket" then return true end
+
+        if sub == 0 then return true end
+        if sub == 6 then return SHIELD_CLASSES[class] == true end
+        if sub >= 7 and sub <= 10 then return RELIC_SUB[class] == sub end
+        return ARMOR_SPEC[class] == sub
+    end
+
+    return true
+end
+Core.IsRelevantToPlayer = IsRelevantToPlayer
+
 local function SubcategoryFor(it, cat)
     local defs = SUBCATEGORY_DEFS[cat]
     if not defs then return "all" end
 
-    local equipLoc
+    -- Slot-keyed buckets (necks/rings/trinkets, and off-hands which span two
+    -- equip locations) win over subclass-keyed ones, since a ring's armour
+    -- subclass is only ever MISC.
     if cat == "armor" or cat == "weapon" then
-        equipLoc = select(9, GetItemInfo(it.e))
-        if equipLoc and equipLoc ~= "" then
+        local eq = EquipSlotFor(it)
+        if eq then
             for i = 1, #defs do
-                if defs[i].equip == equipLoc then return defs[i].key end
-                if defs[i].equips and defs[i].equips[equipLoc] then return defs[i].key end
+                if defs[i].eq == eq then return defs[i].key end
+                if defs[i].eqs and defs[i].eqs[eq] then return defs[i].key end
             end
         end
     end
@@ -399,7 +625,7 @@ function Core.ResetFilters()
     state.category = "all"
     state.subcategory = "all"
     state.quality = -1
-    state.slot = "all"
+    state.equipSlot = "all"
     state.page = 1
     Notify("filter")
 end
@@ -410,10 +636,36 @@ function Core.SetQuality(q)
     Notify("filter")
 end
 
-function Core.SetSlot(slot)
-    state.slot = slot or "all"
+function Core.SetEquipSlot(slot)
+    state.equipSlot = slot or "all"
     state.page = 1
     Notify("filter")
+end
+
+--[[ Deliberately defaults OFF and is not sticky across classes.
+
+     The tempting default is ON -- a paladin genuinely does not care about
+     cloth. But this is a STORAGE window, and a storage window that silently
+     shows you less than you put in it reads as data loss, not as a filter.
+     People also gear alts out of this vault, which is the case that makes
+     "hide what you cannot wear" wrong by default.
+
+     The compromise is that when it IS on, Core.hiddenByClass carries the count
+     it removed so the footer can say so out loud. ]]
+function Core.SetClassOnly(on)
+    on = on and true or false
+    -- Written to the DB BEFORE state, because GetDB re-derives state.classOnly
+    -- from the stored value on its way out and would otherwise clobber this.
+    -- Stored as the class token so it cannot leak onto another character; false
+    -- rather than nil when off, so the default merge leaves it alone.
+    Core.GetDB().classOnly = on and (PlayerClass() or false) or false
+    state.classOnly = on
+    state.page = 1
+    Notify("filter")
+end
+
+function Core.ToggleClassOnly()
+    Core.SetClassOnly(not state.classOnly)
 end
 
 function Core.SetSort(key)
@@ -545,9 +797,17 @@ local SORTERS = {
         if (a.c or 0) ~= (b.c or 0) then return (a.c or 0) > (b.c or 0) end
         return ResolveName(a) < ResolveName(b)
     end,
+    -- Sorts by real equipment slot in paper-doll order first (head, neck,
+    -- shoulder, ...), so "sort by slot" on a pile of mythic-bag gear actually
+    -- groups the helms together. Items with no slot fall to the end and keep
+    -- the old type-name ordering among themselves.
     slot = function(a, b)
+        local ai = EQUIP_SLOT_INDEX[EquipSlotFor(a) or ""] or 999
+        local bi = EQUIP_SLOT_INDEX[EquipSlotFor(b) or ""] or 999
+        if ai ~= bi then return ai < bi end
         local as, bs = SlotFor(a), SlotFor(b)
         if as ~= bs then return as < bs end
+        if (a.ilvl or 0) ~= (b.ilvl or 0) then return (a.ilvl or 0) > (b.ilvl or 0) end
         return ResolveName(a) < ResolveName(b)
     end,
     recent = function(a, b)
@@ -555,32 +815,67 @@ local SORTERS = {
     end,
 }
 
+--[[ Grid buckets.
+
+     Headers used to be top-level categories and only that, so drilling into
+     Armor gave one "Armor" header and then an undifferentiated wall of icons --
+     precisely the "comb through it all" report #218 describes, just in icon
+     form. When a category with subcategories is selected and no single
+     subcategory is pinned, bucket by SUBCATEGORY instead, so Armor shows
+     Plate / Mail / Leather / Cloth / Rings / Trinkets headers.
+
+     The page pager below costs entries in pixels and treats any header the
+     same, so emitting more of them needs nothing from it. ]]
 local function BuildGridLayout()
     local grid = Core.gridLayout
     while #grid > 0 do tremove(grid) end
 
+    local sorter = SORTERS[state.sort] or SORTERS.recent
+    local function Emit(key, label, bucket)
+        if not bucket or #bucket == 0 then return end
+        sort(bucket, function(a, b)
+            if state.sortAsc then return sorter(b, a) end
+            return sorter(a, b)
+        end)
+        grid[#grid + 1] = { header = true, key = key, label = label, count = #bucket }
+        for i = 1, #bucket do
+            grid[#grid + 1] = { item = bucket[i] }
+        end
+    end
+
+    local cat = state.category or "all"
+    local defs = (state.subcategory or "all") == "all" and SUBCATEGORY_DEFS[cat] or nil
+
+    if defs then
+        local bySub = {}
+        for _, it in ipairs(Core.filtered) do
+            local key = SubcategoryFor(it, cat)
+            local bucket = bySub[key]
+            if not bucket then bucket = {}; bySub[key] = bucket end
+            bucket[#bucket + 1] = it
+        end
+        for _, def in ipairs(defs) do
+            Emit(def.key, def.label, bySub[def.key])
+            bySub[def.key] = nil
+        end
+        -- SubcategoryFor's catch-all bucket. Nothing in SUBCATEGORY_DEFS claims
+        -- it, so without this it would render nowhere -- the same way gems and
+        -- glyphs went invisible when they were missing from CATEGORY_ORDER.
+        Emit("other", "Other", bySub.other)
+        return
+    end
+
     local byCategory = {}
     for _, it in ipairs(Core.filtered) do
-        local cat = CategoryFor(it)
-        local bucket = byCategory[cat]
-        if not bucket then bucket = {}; byCategory[cat] = bucket end
+        local key = CategoryFor(it)
+        local bucket = byCategory[key]
+        if not bucket then bucket = {}; byCategory[key] = bucket end
         bucket[#bucket + 1] = it
     end
 
-    local sorter = SORTERS[state.sort] or SORTERS.recent
     for _, key in ipairs(CATEGORY_ORDER) do
         if key ~= "all" then
-            local bucket = byCategory[key]
-            if bucket and #bucket > 0 then
-                sort(bucket, function(a, b)
-                    if state.sortAsc then return sorter(b, a) end
-                    return sorter(a, b)
-                end)
-                grid[#grid + 1] = { header = true, key = key, label = CATEGORY_LABELS[key] or key, count = #bucket }
-                for i = 1, #bucket do
-                    grid[#grid + 1] = { item = bucket[i] }
-                end
-            end
+            Emit(key, CATEGORY_LABELS[key] or key, byCategory[key])
         end
     end
 end
@@ -590,34 +885,74 @@ function Core.Rebuild()
     local category = state.category or "all"
     local subcategory = state.subcategory or "all"
     local quality = tonumber(state.quality) or -1
-    local slot = state.slot or "all"
+    local equipSlot = state.equipSlot or "all"
+    local classOnly = state.classOnly and true or false
     local filtered = Core.filtered
     while #filtered > 0 do tremove(filtered) end
 
     Core.totalItems, Core.spaceUsed = 0, 0
+    Core.hiddenByClass = 0
     local counts = {}
     local subCounts = {}
+    -- Which equipment slots this vault actually contains, so the Slot dropdown
+    -- can offer only those. Twenty-five dead menu entries on an account that
+    -- banked nothing but ore is not a sub-section, it is a wall.
+    local eqCounts = {}
     for _, key in ipairs(CATEGORY_ORDER) do counts[key] = 0 end
     for _, it in ipairs(Core.items) do
         local name = ResolveName(it)
         local cat = CategoryFor(it)
         local subcat = SubcategoryFor(it, cat)
-        local itemSlot = SlotFor(it)
+        local eq = EquipSlotFor(it)
         local count = tonumber(it.c) or 0
         Core.totalItems = Core.totalItems + count
         Core.spaceUsed = Core.spaceUsed + 1
-        counts.all = (counts.all or 0) + count
-        counts[cat] = (counts[cat] or 0) + count
-        subCounts[cat] = subCounts[cat] or {}
-        subCounts[cat][subcat] = (subCounts[cat][subcat] or 0) + count
 
-        if (q == "" or lower(name):find(q, 1, true))
-            and (category == "all" or category == cat)
-            and (subcategory == "all" or subcategory == subcat)
-            and (quality < 0 or (it.q or 0) == quality)
-            and (slot == "all" or itemSlot == slot) then
-            filtered[#filtered + 1] = it
+        --[[ classOnly is a HIDE, not a filter, so it is applied here -- above
+             the counting -- rather than alongside query/quality/slot below.
+
+             The sidebar counts have to agree with what the sidebar shows. If
+             this were just another clause in the filter test, a paladin with
+             "my class only" on would see "Armor 412" in the sidebar and 96 rows
+             in the table, and the first thing anyone does with that is report
+             it as a counting bug. ]]
+        if classOnly and not IsRelevantToPlayer(it) then
+            Core.hiddenByClass = Core.hiddenByClass + count
+        else
+            counts.all = (counts.all or 0) + count
+            counts[cat] = (counts[cat] or 0) + count
+            subCounts[cat] = subCounts[cat] or {}
+            subCounts[cat][subcat] = (subCounts[cat][subcat] or 0) + count
+            if eq then eqCounts[eq] = (eqCounts[eq] or 0) + count end
+
+            if (q == "" or lower(name):find(q, 1, true))
+                and (category == "all" or category == cat)
+                and (subcategory == "all" or subcategory == subcat)
+                and (quality < 0 or (it.q or 0) == quality)
+                and (equipSlot == "all" or eq == equipSlot) then
+                filtered[#filtered + 1] = it
+            end
         end
+    end
+
+    -- Rebuilt in place: the UI's dropdown reads this list every refresh.
+    local eqRows = Core.equipSlots or {}
+    Core.equipSlots = eqRows
+    while #eqRows > 0 do tremove(eqRows) end
+    for _, key in ipairs(EQUIP_SLOT_ORDER) do
+        if eqCounts[key] then
+            eqRows[#eqRows + 1] = { key = key, label = EQUIP_LABELS[key] or key, count = eqCounts[key] }
+        end
+    end
+    -- A slot the player has filtered down to can still empty out (they emptied
+    -- it, or turned "my class only" on). Drop back to All rather than leaving
+    -- the window stuck on a selection with no way to tell it is stuck.
+    if equipSlot ~= "all" and not eqCounts[equipSlot] then
+        state.equipSlot = "all"
+        state.page = 1
+        -- One re-run, never a loop: the pass below cannot take this branch
+        -- again now that the selection is "all".
+        return Core.Rebuild()
     end
 
     local sorter = SORTERS[state.sort] or SORTERS.recent
@@ -742,6 +1077,11 @@ local function CopyItem(it)
         n = it.n or "",
         added = tonumber(it.added) or 0,
         days = tonumber(it.days) or nil,
+        -- Resolved equipment slot ("head", "" for unequippable, nil for
+        -- not-yet-known). Saved with the row so a returning player gets the
+        -- slot sub-sections populated on the very first frame instead of
+        -- watching them fill in as the item cache warms.
+        eq = it.eq,
     }
 end
 
@@ -824,6 +1164,9 @@ function Core.LoadCache()
     -- Resolved through Core because the function is defined further down.
     if Core.PushVaultCountsToClient then Core.PushVaultCountsToClient() end
     Notify("cache")
+    -- Same reason as in FinalizeSnapshot: Rebuild resolved equipment slots for
+    -- rows saved before that field existed, and they are worth keeping.
+    if Core.cacheDirty then Core.SaveCache() end
     return true
 end
 
@@ -850,6 +1193,14 @@ warmer:SetScript("OnUpdate", function(_, dt)
     if iconsDirty then
         iconsDirty = false
         Notify("icons")
+        --[[ Persist ONCE, when the queue finally drains.
+
+             Notify above re-runs Rebuild, which is what resolves and caches
+             each row's equipment slot as its item-cache entry lands -- so the
+             slot data is only worth saving after the last one has. Saving on
+             every flush instead would rewrite the whole SavedVariables table
+             five times a second for the length of a cold warm-up. ]]
+        if #warmQueue == 0 and Core.cacheDirty then Core.SaveCache() end
     end
 end)
 
@@ -1169,6 +1520,16 @@ local function FinalizeSnapshot()
     Core.SaveCache()
     PushVaultCountsToClient()
     Notify("snapshot")
+    --[[ Second, conditional save.
+
+         The Rebuild inside Notify is what resolves each row's equipment slot
+         for the items the client's item cache already knew about -- and that
+         happens after the save above, so without this those answers are thrown
+         away and re-derived every single login. Not merged INTO the first save
+         because the first one is the one that must survive a broken UI refresh:
+         a snapshot has to reach SavedVariables whether or not the window
+         redraws cleanly. ]]
+    if Core.cacheDirty then Core.SaveCache() end
     if pendingManualRefresh then
         pendingManualRefresh = false
         if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r refreshed.") end
@@ -1298,7 +1659,18 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
         local why = match(text, "^VLTDEPFAIL:(%a+)")
         local reason = (why == "quest" and "quest items") or (why == "bag" and "bags")
             or (why == "bound" and "soulbound items") or "that item"
-        if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r can't deposit " .. reason .. ".") end
+        if why == "kept" then
+            -- Things the Vault stores as a COUNT would lose what makes them
+            -- individual: a part-looted lockbox would come back unopened, a
+            -- half-used trinket would come back full.
+            if DEFAULT_CHAT_FRAME then
+                DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r that one stays in your bags "
+                    .. "-- it holds something of its own (loot inside it, or charges left), "
+                    .. "and the Vault only stores a count.")
+            end
+        elseif DEFAULT_CHAT_FRAME then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r can't deposit " .. reason .. ".")
+        end
     end
 end)
 

@@ -1,6 +1,6 @@
 -- UncappedLootFeed -- loot as it happens, with a watchlist, as a Dashboard tab.
 --
--- WHY A CLIENT-ONLY FEED  (unchanged, and load-bearing)
+-- WHY MOSTLY CLIENT-ONLY  (the original reasoning, now with one exception)
 --   CHAT_MSG_LOOT already carries every line the player is entitled to see,
 --   including OTHER group members' loot ("Bob receives loot: ..."). So the
 --   interesting case -- knowing the thing you are farming just dropped for
@@ -10,6 +10,25 @@
 --
 --   The cost is that it only sees loot while you are in range to be told, which
 --   is the same limit chat has, and is what a player expects.
+--
+-- THE EXCEPTION: THE VAULT  (report #214)
+--   "CHAT_MSG_LOOT carries every line" stopped being true when the Vault started
+--   auto-routing loot. An item that goes straight to the Vault never generates a
+--   CHAT_MSG_LOOT line at all -- the server announces it on the personal loot
+--   CHANNEL instead (LootVault::Ingest -> GrandmasterLoot::NotifyPlayerChannel).
+--   So the only loot still reaching this feed was what STAYS IN BAGS: quest
+--   items, .keep-listed items, lockboxes -- plus other players' loot lines. Which
+--   is exactly what was reported: "it only shows quest items".
+--
+--   The channel line cannot be scraped for it: it carries the item NAME only, and
+--   everything here keys on item ID (see below). So the server now also pushes a
+--   structured "ULFV:" addon message carrying the id, and this file consumes it.
+--   That is ONE message per drop for the looter only -- not per player per drop,
+--   which is the traffic the original note was rejecting -- and bulk operations
+--   are batched server-side into a handful of messages rather than hundreds.
+--
+--   Bag loot and Vault loot are tagged (entry.src) and can be filtered apart, so
+--   a player who does not care about the Vault stream can turn it off.
 --
 -- THE WATCHLIST  (unchanged)
 --   Matching is by item ID, resolved from the item link, NOT by name. Names are
@@ -42,18 +61,37 @@ local LF = _G.UncappedLootFeed or {}
 _G.UncappedLootFeed = LF
 
 LF.ADDON = ADDON
-LF.version = "0.2"
+LF.version = "0.3"
 
 local DEFAULTS = {
     maxLines    = 100,      -- ring size; older entries fall off
     sound       = true,     -- play a sound when a watched item drops
     alert       = true,     -- raid-warning banner when a watched item drops
-    watchedOnly = false,    -- feed filter; OFF by default -- the feed shows ALL loot
     watch       = {},       -- [itemId] = itemName, kept for display only
+
+    -- ---- feed filters (#214: "options of filtering what loot you want to see")
+    -- Every one of these defaults to "show everything", because a filter a player
+    -- did not ask for looks exactly like the bug this feature was reported as.
+    watchedOnly = false,    -- only items on the watchlist
+    minQuality  = 0,        -- 0 = any; otherwise the ITEM_QUALITY_* floor
+    showBags    = true,     -- loot that landed in your bags (CHAT_MSG_LOOT)
+    showVault   = true,     -- loot the server auto-routed to the Vault (ULFV)
+    showOthers  = true,     -- other players' loot lines
 }
 
 local db
 local feed = {}   -- newest LAST; the UI reverses for display
+
+-- Prefix for the whole server->client addon pipe; see
+-- ReagentBankChannelProtocol::ADDON_MESSAGE_PREFIX. Every server push shares it,
+-- with the command tag as the first token of the body.
+local ADDON_PIPE_PREFIX = "UNC"
+
+-- Where a feed entry came from. Stored on the entry rather than derived, because
+-- "it went to the Vault" is a fact about the event, not about the item.
+local SRC_BAG   = "bag"
+local SRC_VAULT = "vault"
+LF.SRC_BAG, LF.SRC_VAULT = SRC_BAG, SRC_VAULT
 
 -- ---------------------------------------------------------------------------
 -- Saved variables
@@ -144,19 +182,112 @@ local function Push(entry)
     Notify()
 end
 
+-- ---------------------------------------------------------------------------
+-- Filters
+-- ---------------------------------------------------------------------------
+-- Quality is resolved through the baked table (UncappedLootFeedData), NOT from
+-- the link's colour code: the launcher wipes Cache/WDB every launch, so a link's
+-- colour is the server's own answer and is always right, but a Vault entry has
+-- no link at all and would otherwise be unfilterable. One source for both.
+--
+-- Memoised onto the entry at capture time so a repaint of a 100-row feed does
+-- not do 100 lookups; recomputed later if it was unknown then (an item the
+-- client had never seen and the baked table did not carry).
+local function QualityOf(e)
+    if e.q then return e.q end
+    local Data = _G.UncappedLootFeedData
+    local q = Data and Data.QualityFor(e.id)
+    e.q = q
+    return q
+end
+
+-- An entry is shown unless a filter positively rejects it. Unknowns pass: hiding
+-- a line because a lookup failed is the same visible bug as #214 itself.
+local function Passes(e)
+    if e.overflow then
+        -- "and N more stacks went to the Vault" -- a Vault event with no item, so
+        -- it answers only to the Vault toggle.
+        return db.showVault ~= false
+    end
+
+    if db.watchedOnly and db.watch[e.id] == nil then return false end
+
+    if e.src == SRC_VAULT then
+        if db.showVault == false then return false end
+    elseif db.showBags == false then
+        return false
+    end
+
+    if not e.mine and db.showOthers == false then return false end
+
+    local minQ = db.minQuality or 0
+    if minQ > 0 then
+        local q = QualityOf(e)
+        if q and q < minQ then return false end
+    end
+
+    return true
+end
+LF.Passes = Passes
+
 -- Newest first, which is what a scrolling panel wants (the old chat-style
 -- window put newest at the bottom because it had no scrollbar to speak of).
--- Honours the watchedOnly filter.
+-- Honours every filter above.
 function LF.GetFeed()
     local out = {}
-    local onlyWatched = db and db.watchedOnly
+    if not db then return out end
     for i = #feed, 1, -1 do
         local e = feed[i]
-        if not onlyWatched or db.watch[e.id] ~= nil then
-            out[#out + 1] = e
-        end
+        if Passes(e) then out[#out + 1] = e end
     end
     return out
+end
+
+-- How many entries the filters are currently hiding, so the status line can say
+-- so -- an empty feed with a filter on is otherwise indistinguishable from a
+-- feed that is genuinely not receiving anything, which is how #214 read.
+function LF.FilteredOutCount()
+    if not db then return 0 end
+    local n = 0
+    for i = 1, #feed do
+        if not Passes(feed[i]) then n = n + 1 end
+    end
+    return n
+end
+
+-- True when anything is narrowing the feed. Used by the UI to decide whether to
+-- offer a "show everything" reset.
+function LF.AnyFilterActive()
+    if not db then return false end
+    return (db.watchedOnly and true or false)
+        or (db.minQuality or 0) > 0
+        or db.showBags == false
+        or db.showVault == false
+        or db.showOthers == false
+end
+
+function LF.ResetFilters()
+    if not db then return end
+    db.watchedOnly = false
+    db.minQuality  = 0
+    db.showBags    = true
+    db.showVault   = true
+    db.showOthers  = true
+    Notify()
+end
+
+-- Single setter so the UI never writes db keys directly and every change
+-- repaints. Unknown keys are ignored rather than stored.
+local FILTER_KEYS = { watchedOnly = true, minQuality = true, showBags = true, showVault = true, showOthers = true }
+function LF.SetFilter(key, value)
+    if not db or not FILTER_KEYS[key] then return end
+    db[key] = value
+    Notify()
+end
+
+function LF.GetFilter(key)
+    if not db then return nil end
+    return db[key]
 end
 
 function LF.ClearFeed()
@@ -269,6 +400,7 @@ local function OnLoot(msg)
     if mine then who = "You" end
 
     local watched = db.watch[id] ~= nil
+    local Data = _G.UncappedLootFeedData
 
     Push({
         id      = id,
@@ -277,10 +409,78 @@ local function OnLoot(msg)
         mine    = mine,
         count   = count,
         watched = watched,
+        src     = SRC_BAG,
+        q       = Data and Data.QualityFor(id) or nil,
         time    = time and time() or 0,
     })
 
     if watched then Alert(who, link) end
+end
+
+-- ---------------------------------------------------------------------------
+-- Vault loot  (server push -- see the note at the top of this file)
+-- ---------------------------------------------------------------------------
+-- Wire format, over the shared "UNC" pipe:
+--     ULFV:<itemId>,<count>,<randomPropId>;<itemId>,<count>,<randomPropId>;...
+--     ULFVX:<stacks>
+--
+-- One shape for both the single drop and the batched bulk case, so this is one
+-- parser. Rows are deltas ("this much was just banked"), not the absolute
+-- amounts VLTUPD carries -- a feed is a log of events, and two identical drops
+-- are two lines, not one.
+--
+-- No link and no name on the wire: the id is the only thing that cannot be
+-- ambiguous or localised, and the client resolves the rest itself (baked table
+-- first, then whatever the live cache knows). Same rule the watchlist follows.
+local function OnVaultLoot(body)
+    local rows = body:match("^ULFV:(.*)$")
+    if rows then
+        for idText, countText, propText in rows:gmatch("(%d+),(%d+),(%-?%d+);") do
+            local id = tonumber(idText)
+            local count = tonumber(countText) or 1
+            if id then
+                local watched = db.watch[id] ~= nil
+                local Data = _G.UncappedLootFeedData
+
+                Push({
+                    id      = id,
+                    -- Resolved at render time instead: a Vault item is very often
+                    -- one the client has never seen, so a link captured here would
+                    -- be nil forever even after the cache fills in.
+                    link    = nil,
+                    prop    = tonumber(propText) or 0,
+                    who     = "You",
+                    mine    = true,
+                    count   = count,
+                    watched = watched,
+                    src     = SRC_VAULT,
+                    q       = Data and Data.QualityFor(id) or nil,
+                    time    = time and time() or 0,
+                })
+
+                if watched then
+                    Alert("You", (Data and Data.ColoredName(id)) or ("item " .. id))
+                end
+            end
+        end
+        return true
+    end
+
+    local more = body:match("^ULFVX:(%d+)$")
+    if more then
+        -- The server itemises at most 100 stacks per bulk operation; this is the
+        -- tail so a big sweep does not silently look smaller than it was.
+        Push({
+            overflow = tonumber(more) or 0,
+            src      = SRC_VAULT,
+            mine     = true,
+            who      = "You",
+            time     = time and time() or 0,
+        })
+        return true
+    end
+
+    return false
 end
 
 -- ---------------------------------------------------------------------------
@@ -368,7 +568,15 @@ SlashCmdList["UNCAPPEDLOOTFEED"] = function(msg)
         return
     end
 
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Loot Feed]|r /lootfeed | want <item> | unwant <item> | list | clear  -- all of these are in the Dashboard's Loot Feed tab too.")
+    -- The escape hatch for a player who has filtered themselves into an empty
+    -- feed and cannot find which toggle did it. Same button exists in the tab.
+    if cmd == "all" or cmd == "showall" or cmd == "filters" then
+        LF.ResetFilters()
+        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Loot Feed]|r filters cleared -- showing all loot, bags and Vault.")
+        return
+    end
+
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Loot Feed]|r /lootfeed | want <item> | unwant <item> | list | clear | all  -- all of these are in the Dashboard's Loot Feed tab too.")
 end
 
 -- ---------------------------------------------------------------------------
@@ -377,14 +585,26 @@ end
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("ADDON_LOADED")
 ev:RegisterEvent("CHAT_MSG_LOOT")
-ev:SetScript("OnEvent", function(self, event, a1)
+-- Vault loot never produces a CHAT_MSG_LOOT line -- see the note at the top.
+-- CHAT_MSG_ADDON is never rendered by the client, so nothing leaks into chat if
+-- another addon on the same pipe is missing.
+ev:RegisterEvent("CHAT_MSG_ADDON")
+ev:SetScript("OnEvent", function(self, event, a1, a2)
     if event == "ADDON_LOADED" then
         if a1 ~= ADDON then return end
         InitDB()
         return
     end
 
-    if event == "CHAT_MSG_LOOT" and db then
+    if not db then return end
+
+    if event == "CHAT_MSG_LOOT" then
         OnLoot(a1 or "")
+        return
+    end
+
+    -- CHAT_MSG_ADDON: a1 = prefix, a2 = body.
+    if event == "CHAT_MSG_ADDON" and a1 == ADDON_PIPE_PREFIX and a2 then
+        OnVaultLoot(a2)
     end
 end)

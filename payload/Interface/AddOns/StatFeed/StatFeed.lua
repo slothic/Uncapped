@@ -57,7 +57,15 @@ local MIN_WIDTH    = 220      -- narrower than this and the stat rows collide
 -- Every width-dependent measurement in here is proportional (LayoutStatColumns
 -- splits the block by fraction; the earned-stat bars are a share of it), so
 -- there was never a layout reason for a ceiling that low.
-local MAX_WIDTH    = 720
+--
+-- FOLLOW-UP: 720 was still a literal, while the HEIGHT ceiling right below it
+-- had already been rewritten to measure the screen. Those two should never have
+-- been decided differently -- frame sizes are UIParent units and UIParent is
+-- ~1365 units wide at 16:9 default scale, so 720 was a little over half the
+-- screen and, worse, OnSizeChanged actively SNAPS the frame back to it mid-drag.
+-- A grip that yanks the window back out of your hand is the exact complaint in
+-- #126, just at a bigger number than before. Derived the same way as the height.
+local MAX_WIDTH_ABS = 1400    -- absolute; the screen below is the real ceiling
 -- Height is the honest half: frame sizes are UIParent units, not monitor
 -- pixels, and UIParent is ~768 units tall at the default UI scale on any
 -- monitor -- so the old 700 was already ~91% of the screen and there was
@@ -133,6 +141,15 @@ end
 local function MaxHeight()
     local screen = math.floor((UIParent:GetHeight() or 768) - SCREEN_MARGIN)
     return math.max(EXPANDED_MIN, math.min(MAX_HEIGHT_ABS, screen))
+end
+
+-- Same rule for width. Kept as a function rather than a constant computed once
+-- at load: UIParent's size in units changes when the player moves the UI-scale
+-- slider, and a ceiling captured at login would then be wrong for the rest of
+-- the session in whichever direction the slider moved.
+local function MaxWidth()
+    local screen = math.floor((UIParent:GetWidth() or 1024) - SCREEN_MARGIN)
+    return math.max(MIN_WIDTH, math.min(MAX_WIDTH_ABS, screen))
 end
 
 -- Spelling variants the server may send, mapped to the display name above.
@@ -253,7 +270,7 @@ local function GetDB()
     db.point = VALID_POINTS[db.point] and db.point or DEFAULTS.point
     db.x = SavedNumber(db.x, DEFAULTS.x)
     db.y = SavedNumber(db.y, DEFAULTS.y)
-    db.width = SavedNumber(db.width, DEFAULTS.width, MIN_WIDTH, MAX_WIDTH)
+    db.width = SavedNumber(db.width, DEFAULTS.width, MIN_WIDTH, MaxWidth())
     db.shown = SavedBoolean(db.shown, DEFAULTS.shown)
     db.collapsed = SavedBoolean(db.collapsed, DEFAULTS.collapsed)
     db.maxLines = floor(SavedNumber(db.maxLines, DEFAULTS.maxLines, 50, 500))
@@ -272,7 +289,7 @@ local function GetDB()
     end
     if (db.height or 0) > MaxHeight() then db.height = MaxHeight() end
     if (db.width or 0) < MIN_WIDTH then db.width = MIN_WIDTH end
-    if (db.width or 0) > MAX_WIDTH then db.width = MAX_WIDTH end
+    if (db.width or 0) > MaxWidth() then db.width = MaxWidth() end
 
     return db
 end
@@ -669,6 +686,30 @@ local function SavePosition()
     end
 end
 
+-- Re-derived rather than set once at build. UIParent's size IN UNITS changes
+-- when the player moves the UI-scale slider or the resolution changes, so a
+-- ceiling captured at login is wrong for the rest of the session -- too low for
+-- someone who scaled down (the original #126 complaint), and too high for
+-- someone who scaled up, which lets the grip drag the frame off the screen.
+--
+-- Also pulls the frame back inside a ceiling that just shrank: SetMaxResize
+-- constrains future drags, it does not resize a frame that is already bigger.
+local function ApplyResizeCeiling()
+    if not frame then return end
+
+    local maxW, maxH = MaxWidth(), MaxHeight()
+    if frame.SetMaxResize then frame:SetMaxResize(maxW, maxH) end
+
+    local w, h = frame:GetWidth(), frame:GetHeight()
+    local over = false
+    if w > maxW then frame:SetWidth(maxW); over = true end
+    if h > maxH and not GetDB().collapsed then frame:SetHeight(maxH); over = true end
+    if over then
+        SavePosition()
+        dirty = true
+    end
+end
+
 -- ---------------------------------------------------------------------------
 -- Window
 -- ---------------------------------------------------------------------------
@@ -729,7 +770,7 @@ local function BuildWindow()
     frame:SetMovable(true)
     frame:SetResizable(true)
     frame:SetMinResize(MIN_WIDTH, EXPANDED_MIN)
-    if frame.SetMaxResize then frame:SetMaxResize(MAX_WIDTH, MaxHeight()) end
+    ApplyResizeCeiling()
     frame:EnableMouse(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
@@ -739,11 +780,13 @@ local function BuildWindow()
         dirty = true
     end)
     -- Bars are sized off the frame width, so a resize has to repaint them.
-    frame:SetScript("OnSizeChanged", function(self)
-        if self:GetWidth() > MAX_WIDTH then
-            self:SetWidth(MAX_WIDTH)
-            SavePosition()
-        end
+    --
+    -- No width clamp here any more. SetMaxResize already stops the grip at the
+    -- ceiling, so this second clamp only ever fired when the two disagreed --
+    -- and when it did it called SetWidth from inside OnSizeChanged, i.e. it
+    -- re-entered itself mid-drag to yank the frame back. That is what "the
+    -- window won't resize" felt like from the player's side (#126).
+    frame:SetScript("OnSizeChanged", function()
         dirty = true
     end)
 
@@ -942,6 +985,10 @@ local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("CHAT_MSG_ADDON")
+-- The resize ceiling is measured against UIParent, which changes size in units
+-- when either of these fires -- see ApplyResizeCeiling. #126.
+events:RegisterEvent("UI_SCALE_CHANGED")
+events:RegisterEvent("DISPLAY_SIZE_CHANGED")
 events:SetScript("OnUpdate", function(self, elapsed)
     if startupDelayPending then
         startupDelayElapsed = startupDelayElapsed + (elapsed or arg1 or 0)
@@ -988,6 +1035,11 @@ events:SetScript("OnEvent", function(self, evt, a1, a2)
         dirty = true
         Repaint(true)
         if RegisterAddonMessagePrefix then RegisterAddonMessagePrefix(ADDON_PREFIX) end
+        return
+    end
+
+    if e == "UI_SCALE_CHANGED" or e == "DISPLAY_SIZE_CHANGED" then
+        ApplyResizeCeiling()
         return
     end
 
@@ -1090,14 +1142,19 @@ function BuildOptions()
             if heightSlider then heightSlider.uncappedRefresh() end
         end)
 
-    local widthSlider = L:Slider("Window width", MIN_WIDTH, MAX_WIDTH, 10,
+    -- Both sliders take their ceiling from the same functions the resize grip
+    -- does. They used to be literals (MAX_WIDTH, and a bare 700 for height),
+    -- which is how the height slider ended up capping 400px BELOW what the grip
+    -- would let you drag to after the grip's own ceiling was raised -- two
+    -- controls for one number, disagreeing. #126.
+    local widthSlider = L:Slider("Window width", MIN_WIDTH, MaxWidth(), 10,
         function() return GetDB().width end,
         function(v)
             GetDB().width = v
             if frame then frame:SetWidth(v); dirty = true end
         end, "%d px")
 
-    heightSlider = L:Slider("Window height", FEED_ONLY_MIN, 700, 10,
+    heightSlider = L:Slider("Window height", FEED_ONLY_MIN, MaxHeight(), 10,
         function()
             local db = GetDB()
             return max(db.height, ExpandedMinHeight(db.showStats))

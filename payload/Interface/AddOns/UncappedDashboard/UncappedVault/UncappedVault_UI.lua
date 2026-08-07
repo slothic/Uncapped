@@ -24,13 +24,15 @@ local ICON = 36
 local GRID_SLOT = 38
 local GRID_GAP = 6
 local GRID_HEADER_H = 30
-local CATEGORY_START_Y = 80  -- clears the List/Grid buttons above it (bottom edge at -76) with a small gap
+-- Clears the List/Grid buttons (bottom edge at -76) AND the "my class only"
+-- check button below them (-80 to -104), with a small gap.
+local CATEGORY_START_Y = 108
 local CATEGORY_ROW_H = 24
 
 local frame, searchBox, categoryPanel, categoryScroll, tablePanel, gridPanel, footerBar
 local rows, catRows, gridSlots, gridHeaders = {}, {}, {}, {}
 local viewButtons = {}
-local qualityDD, slotDD
+local qualityDD, slotDD, classOnlyCheck
 
 local GOLD = { 1.00, 0.82, 0.22 }
 local BLUE = { 0.30, 0.62, 1.00 }
@@ -114,11 +116,20 @@ local function QualityName(q)
     return Core.QUALITY_LABELS[q or 1] or "Common"
 end
 
+-- `choices` may be a plain list or a function returning one. The equipment-slot
+-- dropdown offers only the slots the vault currently holds, and that set moves
+-- with every deposit, withdrawal and "my class only" toggle -- a list captured
+-- once at build time would go stale the first time anything changed.
 local function Dropdown(parent, name, width, choices, get, set)
+    local function List()
+        if type(choices) == "function" then return choices() end
+        return choices
+    end
+
     local dd = CreateFrame("Frame", name, parent, "UIDropDownMenuTemplate")
     UIDropDownMenu_SetWidth(dd, width)
     UIDropDownMenu_Initialize(dd, function()
-        for _, choice in ipairs(choices) do
+        for _, choice in ipairs(List()) do
             local info = UIDropDownMenu_CreateInfo()
             info.text = choice.text
             info.value = choice.value
@@ -131,12 +142,16 @@ local function Dropdown(parent, name, width, choices, get, set)
             UIDropDownMenu_AddButton(info)
         end
     end)
-    for _, choice in ipairs(choices) do
-        if choice.value == get() then
-            UIDropDownMenu_SetSelectedValue(dd, choice.value)
-            UIDropDownMenu_SetText(dd, choice.text)
-            break
+    dd.CurrentText = function()
+        for _, choice in ipairs(List()) do
+            if choice.value == get() then return choice.text end
         end
+        return nil
+    end
+    local text = dd.CurrentText()
+    if text then
+        UIDropDownMenu_SetSelectedValue(dd, get())
+        UIDropDownMenu_SetText(dd, text)
     end
     return dd
 end
@@ -444,7 +459,35 @@ local function RefreshInfo()
     -- Notify("pagesize") -> UI.Refresh) before footerBar is built further down
     -- in that same function.
     if not footerBar then return end
-    footerBar.label:SetText("Vault Space Used:  |cffffd100" .. Core.Comma(Core.spaceUsed) .. "|r")
+    local text = "Vault Space Used:  |cffffd100" .. Core.Comma(Core.spaceUsed) .. "|r"
+    -- Says out loud that the window is showing less than it holds. A storage
+    -- UI that quietly hides rows gets reported as missing items; one that
+    -- prints the number it hid does not.
+    local hidden = Core.hiddenByClass or 0
+    if Core.state.classOnly and hidden > 0 then
+        text = text .. "        |cffb8b8b8" .. Core.Comma(hidden) .. " hidden by \"only gear I can use\"|r"
+    end
+    footerBar.label:SetText(text)
+end
+
+local ARMOR_TYPE_NAME = { [1] = "Cloth", [2] = "Leather", [3] = "Mail", [4] = "Plate" }
+
+-- The "Slot / Type" column used to print the item's top-level category, so
+-- every one of a hundred armour rows said "Armor" -- a column that only ever
+-- repeats the sidebar selection you are already looking at. It says "Plate
+-- Legs" / "Two-Hand" / "Trinket" now, and falls back to the category name
+-- only for things that go in no slot at all (ore, potions, glyphs).
+local function SlotText(it)
+    local eq = Core.EquipSlotFor(it)
+    if not eq then return Core.SLOT_LABELS[Core.SlotFor(it)] or "Item" end
+
+    local label = Core.EQUIP_LABELS[eq] or eq
+    -- Cloaks are armour subclass CLOTH, so "Cloth Back" would be true and
+    -- useless -- nobody picks a cloak by armour type.
+    if (it.cls == 4) and eq ~= "back" and ARMOR_TYPE_NAME[it.sub or 0] then
+        label = ARMOR_TYPE_NAME[it.sub] .. " " .. label
+    end
+    return label
 end
 
 local function RefreshRows()
@@ -466,7 +509,7 @@ local function RefreshRows()
             row.rarity:SetText(QualityName(it.q))
             row.rarity:SetTextColor(QualityColor(it.q))
             row.qty:SetText(Core.Comma(it.c or 0))
-            row.slot:SetText(Core.SLOT_LABELS[Core.SlotFor(it)] or "Item")
+            row.slot:SetText(SlotText(it))
             row:Show()
         else
             row.item = nil
@@ -588,8 +631,12 @@ function UI.Refresh()
     if not frame or not tablePanel or not gridPanel then return end
     UIDropDownMenu_SetSelectedValue(qualityDD, Core.state.quality)
     UIDropDownMenu_SetText(qualityDD, Core.QUALITY_LABELS[Core.state.quality] or "All Qualities")
-    UIDropDownMenu_SetSelectedValue(slotDD, Core.state.slot)
-    UIDropDownMenu_SetText(slotDD, Core.SLOT_LABELS[Core.state.slot] or "All Slots")
+    -- Read back through the dropdown's own live choice list rather than a
+    -- static label table: the entries carry counts, and Core.Rebuild can reset
+    -- the selection to "all" underneath us when the chosen slot empties out.
+    UIDropDownMenu_SetSelectedValue(slotDD, Core.state.equipSlot)
+    UIDropDownMenu_SetText(slotDD, slotDD.CurrentText() or "All Slots")
+    if classOnlyCheck then classOnlyCheck:SetChecked(Core.state.classOnly and true or false) end
     RefreshViewButtons()
     RefreshCategories()
     if Core.state.viewMode == "grid" then
@@ -703,18 +750,25 @@ local function BuildFrame(parent)
     }, function() return Core.state.quality end, Core.SetQuality)
     qualityDD:SetPoint("TOPLEFT", frame, "TOPLEFT", ITEM_FRAME_LEFT + 5, -49)
 
-    slotDD = Dropdown(frame, "UncappedVaultSlot", 140, {
-        { value = "all", text = "All Slots" },
-        { value = "weapon", text = "Weapons" },
-        { value = "armor", text = "Armor" },
-        { value = "consumable", text = "Consumables" },
-        { value = "trade", text = "Trade Goods" },
-        { value = "gem", text = "Gems" },
-        { value = "glyph", text = "Glyphs" },
-        { value = "recipe", text = "Recipes" },
-        { value = "quest", text = "Quest Items" },
-        { value = "misc", text = "Miscellaneous" },
-    }, function() return Core.state.slot end, Core.SetSlot)
+    --[[ Equipment slot.
+
+         This replaces the old "Slot" dropdown, which listed Weapons / Armor /
+         Consumables / ... -- the same ten entries the category sidebar already
+         offers, with counts, one click away. Two controls over one axis is not
+         redundancy, it is a contradiction: the sidebar and the dropdown ANDed
+         together, so picking Armor in one and Weapons in the other produced an
+         empty window with no indication of which control to undo.
+
+         So the dropdown gets the axis the sidebar does not have -- the real
+         equipment slot -- and the sidebar keeps armour type and weapon
+         subclass. They compose instead of fighting: Plate + Chest. ]]
+    slotDD = Dropdown(frame, "UncappedVaultSlot", 140, function()
+        local out = { { value = "all", text = "All Slots" } }
+        for _, row in ipairs(Core.equipSlots or {}) do
+            out[#out + 1] = { value = row.key, text = row.label .. "  (" .. Core.Comma(row.count) .. ")" }
+        end
+        return out
+    end, function() return Core.state.equipSlot end, Core.SetEquipSlot)
     slotDD:SetPoint("LEFT", qualityDD, "RIGHT", 18, 0)
 
     categoryPanel = Panel(frame)
@@ -731,6 +785,42 @@ local function BuildFrame(parent)
     viewButtons.list, viewButtons.grid = listView, gridView
     listView:SetScript("OnClick", function() Core.SetViewMode("list") end)
     gridView:SetScript("OnClick", function() Core.SetViewMode("grid") end)
+
+    --[[ "Only what I can use."
+
+         Lives in the sidebar rather than the dropdown row because it is not a
+         third filter axis competing with Quality and Slot -- it is a lens over
+         the whole window, and it changes the sidebar's own counts. Putting it
+         where those counts are is what makes that legible.
+
+         Off by default: see Core.SetClassOnly. ]]
+    classOnlyCheck = CreateFrame("CheckButton", "UncappedVaultClassOnly", categoryPanel, "UICheckButtonTemplate")
+    classOnlyCheck:SetWidth(24); classOnlyCheck:SetHeight(24)
+    classOnlyCheck:SetPoint("TOPLEFT", categoryPanel, "TOPLEFT", 12, -80)
+    local classLabel = Text(categoryPanel, "GameFontHighlightSmall", "LEFT", classOnlyCheck, "RIGHT", 2, 1, "Only gear I can use")
+    classLabel:SetJustifyH("LEFT")
+    classLabel:SetWordWrap(false)
+    classLabel:SetWidth(LEFT_W - 50)
+    classOnlyCheck:SetScript("OnClick", function(self)
+        Core.SetClassOnly(self:GetChecked() and true or false)
+    end)
+    local function ClassOnlyTooltip(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Only gear I can use", 1, 1, 1)
+        local localized, class = UnitClass("player")
+        GameTooltip:AddLine("Hides weapons, armor and glyphs a "
+            .. (localized or "character") .. " can't equip or learn.", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine("Armor type, weapon proficiency and glyph class only "
+            .. "-- rings, necks, trinkets and cloaks always stay visible, and "
+            .. "nothing outside your gear is ever hidden.", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine("Turn it off to gear an alt.", 0.6, 0.6, 0.6, true)
+        if class and Core.state.classOnly and (Core.hiddenByClass or 0) > 0 then
+            GameTooltip:AddLine(Core.Comma(Core.hiddenByClass) .. " item(s) hidden right now.", 1, 0.82, 0.22, true)
+        end
+        GameTooltip:Show()
+    end
+    classOnlyCheck:SetScript("OnEnter", ClassOnlyTooltip)
+    classOnlyCheck:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- Category/subcategory list -- windowed the same way the item table's
     -- rows are (see RefreshCategories), so it scrolls instead of running

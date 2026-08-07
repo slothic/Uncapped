@@ -1,8 +1,8 @@
 ## Interface: 30300
 ## Title: Uncapped Loot Feed
-## Notes: A scrolling feed of loot as it drops, with a watchlist that calls out items you are farming for. Lives in the Dashboard.
+## Notes: A scrolling feed of loot as it drops -- bags and Vault -- with filters and a watchlist that calls out items you are farming for. Lives in the Dashboard.
 ## Author(s): Slothic, MentalMonk
-## Version: 0.2
+## Version: 0.3
 ## OptionalDeps: UncappedUI, UncappedDashboard, UncappedOptions, UncappedAlerts
 ## SavedVariables: UncappedLootFeedDB
 

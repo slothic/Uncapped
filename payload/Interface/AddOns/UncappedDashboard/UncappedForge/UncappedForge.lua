@@ -585,6 +585,7 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
             busy      = "a craft is already running",
             missing   = "you're missing materials it can't make or buy",
             outofmats = "not enough of that material left",
+            harvestshort = "the milling/prospecting didn't turn up enough -- it's a roll, so try again",
             cannot    = "that can't be processed",
             money     = "you can't afford that",
             cancelled = "cancelled",

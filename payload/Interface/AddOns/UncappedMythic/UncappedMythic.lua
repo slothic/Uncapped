@@ -27,7 +27,22 @@
 
 -- Defaults for every saved setting (persisted in UncappedMythicDB).
 local DEFAULTS = {
-    bossLines     = 6,                   -- how many boss rows the log can show
+    -- Report #207: 0 = AUTO, show every boss the run actually has.
+    --
+    -- This used to be a flat 6, which was not a frame-pool limit (the pool has
+    -- always grown on demand) but a render limit: RefreshBossLog only ever drew
+    -- rows 1..bossLines, so on any dungeon with more than six encounters the
+    -- extras arrived from the server, were stored, and were then silently
+    -- dropped on the floor with nothing on screen to say so. Reported from
+    -- Scholomance, which has seven. Raising 6 to 8 would just move the cliff --
+    -- Karazhan and Naxxramas have far more -- so the count now follows the run.
+    bossLines     = 0,                   -- boss rows to show; 0 = auto (all of them)
+    -- Migration marker, and it MUST default to false. Saved settings are merged
+    -- over these defaults, and an existing user has no saved value for a key that
+    -- did not exist before -- so if this defaulted to true the migration below
+    -- would read "already done" on the very first login and never fire, leaving
+    -- everyone on their saved 6. See the ADDON_LOADED handler.
+    bossLinesAuto = false,
     scale         = 1.0,                 -- HUD frame scale
     pos           = nil,                 -- saved { point=, x=, y= } after dragging
     colComplete   = { 0.1, 0.8, 0.1 },   -- enemy-forces bar, goal reached
@@ -144,8 +159,25 @@ local function fmtTime(seconds)
     return string.format("%s%d:%02d", neg and "-" or "", m, s)
 end
 
+-- Report #207: how many boss rows this run should be drawing right now.
+--
+-- One definition, used by both the renderer and the frame sizer so they can
+-- never disagree about how tall the log is. bossLines = 0 means auto: every boss
+-- the run has. A non-zero value is an explicit user cap, for anyone who would
+-- rather keep the HUD short on a long raid.
+local function VisibleBossCount()
+    local n = #run.bosses
+    if db.bossLines and db.bossLines > 0 and db.bossLines < n then
+        return db.bossLines
+    end
+    return n
+end
+
 local function ResizeFrame()
-    local rows = math.min(#run.bosses, db.bossLines)
+    local rows = VisibleBossCount()
+    -- Plus the "... and N more" line RefreshBossLog adds when a user cap is
+    -- hiding bosses, or the frame would clip its own overflow notice.
+    if #run.bosses > rows then rows = rows + 1 end
     local base = run.timed and 96 or 72   -- no timer row on an untimed raid
     frame:SetHeight(base + rows * 14 + 12)
 end
@@ -170,7 +202,12 @@ local function ApplyTimerVisibility()
 end
 
 local function RefreshBossLog()
-    for i = 1, db.bossLines do
+    -- Report #207: draw exactly as many rows as this run needs, creating them on
+    -- demand. EnsureBossRow has always been an unbounded lazy pool -- the only
+    -- thing capping the log at six was this loop's upper bound.
+    local shown = VisibleBossCount()
+    for i = 1, shown do
+        EnsureBossRow(i):Show()
         local b = run.bosses[i]
         if b then
             if b.done then
@@ -197,17 +234,34 @@ local function RefreshBossLog()
             frame.bossRows[i]:SetText("")
         end
     end
-    ResizeFrame()
-end
 
--- Grow/shrink the pool of boss rows live when the count setting changes.
-local function ApplyBossLines(n)
-    db.bossLines = n
-    for i = 1, n do EnsureBossRow(i):Show() end
-    for i = n + 1, #frame.bossRows do
+    -- Anything the pool still holds beyond what this run needs (a previous,
+    -- longer dungeon, or a user cap that was just lowered) is blanked and
+    -- hidden rather than left showing a stale name.
+    for i = shown + 1, #frame.bossRows do
         frame.bossRows[i]:SetText("")
         frame.bossRows[i]:Hide()
     end
+
+    -- Report #207: say so when a user cap is hiding bosses, instead of the log
+    -- just stopping. The old fixed 6 gave no indication at all that a seventh
+    -- boss existed, which is why this was reported as the tracker being broken
+    -- rather than as a setting.
+    local total = #run.bosses
+    if total > shown then
+        local more = EnsureBossRow(shown + 1)
+        more:Show()
+        more:SetText(string.format("|cff808080... and %d more (raise the row limit)|r", total - shown))
+    end
+
+    ResizeFrame()
+end
+
+-- Grow/shrink the visible boss rows live when the count setting changes.
+-- RefreshBossLog owns both the creation and the hiding now, so this only has to
+-- record the new cap and repaint.
+local function ApplyBossLines(n)
+    db.bossLines = n
     RefreshBossLog()
 end
 
@@ -371,6 +425,18 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
                 -- empty anyway. Without this the affix settings reset every login.
                 if type(s.affix) == "table" then db.affix = s.affix end
             end
+            -- Report #207: one-time migration off the old fixed 6.
+            --
+            -- Changing the DEFAULT to auto does nothing for anyone who has
+            -- already logged in once: their saved 6 is merged back in above and
+            -- keeps truncating Scholomance exactly as before. Everyone still
+            -- sitting on the stale default is moved to auto once, and the marker
+            -- means someone who deliberately picks 6 afterwards keeps it.
+            if not db.bossLinesAuto then
+                db.bossLinesAuto = true
+                if db.bossLines == 6 then db.bossLines = 0 end
+            end
+
             UncappedMythicDB = db
             frame:SetScale(db.scale)
             ApplyPosition()
@@ -480,7 +546,11 @@ if UncappedUI then
         "The keystone-run HUD: countdown timer, enemy-forces bar and boss splits.")
 
     L:Header("Layout")
-    track(L:Slider("Boss log rows shown", 3, 12, 1,
+    -- Report #207: 0 is AUTO and is the default -- the log grows to fit whatever
+    -- the dungeon has. The slider is now a cap for anyone who wants the HUD kept
+    -- short, not the thing that decides how many bosses exist. Top end raised to
+    -- 20 so an explicit cap can still cover the longest raid.
+    track(L:Slider("Boss log rows (0 = auto, fit the dungeon)", 0, 20, 1,
         function() return db.bossLines end,
         function(v) ApplyBossLines(v) end, "%d"))
     track(L:Slider("HUD scale", 0.5, 2.0, 0.05,
