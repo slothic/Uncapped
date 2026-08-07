@@ -1677,7 +1677,67 @@ comms:RegisterEvent("CHAT_MSG_ADDON")
 comms:SetScript("OnEvent", function(_, _, a1, a2)
     if a1 ~= ADDON_PIPE_PREFIX or not a2 then return end
     local text = a2
-    if find(text, "^VLTROW:") then
+    --[[ Tested BEFORE "^VLTROW:" deliberately.
+
+         The two are already unambiguous -- "^VLTROW:" requires the colon, and
+         this line spells VLTROWUPD: -- but that safety rests entirely on an
+         anchor and a colon that a later edit could relax without noticing.
+         Matching the longer token first makes the order do the work instead. ]]
+    if find(text, "^VLTROWUPD:") then
+        --[[ Stacks the server has just CREATED, in the full snapshot row format.
+
+             ★ THIS IS WHAT KEEPS A BRAND-NEW ROW OFF THE SNAPSHOT PATH. VLTUPD
+             below carries an amount and nothing else, so a row we have never
+             seen cannot be built from it -- that branch asks for a whole new
+             snapshot instead. ~30 KB, over a pipe the client itself throttles,
+             for every distinct item that reaches the Vault for the first time. A
+             player farming a quest item hits that on the very first drop; and if
+             one of those requests is throttled away the row never arrives at
+             all, because every later VLTUPD for it lands in the same unknown-row
+             branch and bails out again. The count then stays frozen wherever it
+             was.
+
+             That is the reported symptom: "Skullsplitter Tusk 0/18" sitting at
+             zero while tusks keep dropping, with the Quest Ledger showing the
+             right number the whole time -- the ledger is server-fed and never
+             consults this table. It looked self-healing because anything that
+             forced a snapshot to land (opening the window, the 300s ticker) fixed
+             it until the next new item.
+
+             Arrives BEFORE the VLTUPD for the same tick, so by the time that one
+             is parsed the row exists and its unknown-row branch never fires.
+
+             Amounts are ABSOLUTE, as everywhere in this protocol, so a row that
+             turns out to already exist is simply corrected -- applying this twice
+             is harmless.
+
+             `icon` comes through EMPTY: it lives only in the server's icon table
+             and is not worth a query per tick. ItemIcon() already falls back to
+             GetItemInfo(), and the next full snapshot fills it in. ]]
+        local touched = false
+        for e, rp, c, q, cls, subc, ilvl, icon in gmatch(text, "(%-?%d+),(%-?%d+),(%d+),(%d+),(%d+),(%d+),(%d+),([^;]*);") do
+            e, rp, c = tonumber(e), tonumber(rp), tonumber(c)
+            local it = FindRow(e, rp)
+            if it then
+                if it.c ~= c then it.c = c touched = true end
+            else
+                Core.items[#Core.items + 1] = CopyItem({
+                    e = e, rp = rp, c = c, q = tonumber(q),
+                    cls = tonumber(cls), sub = tonumber(subc), ilvl = tonumber(ilvl),
+                    icon = (icon ~= "" and ("Interface\\Icons\\" .. icon)) or nil,
+                    n = "",
+                })
+                EnqueueWarm(e)
+                touched = true
+            end
+        end
+
+        if touched then
+            Core.SaveCache()
+            PushVaultCountsToClient()
+            Notify("update")
+        end
+    elseif find(text, "^VLTROW:") then
         ParseRows(text)
     elseif find(text, "^VLTEND:") then
         FinalizeSnapshot()

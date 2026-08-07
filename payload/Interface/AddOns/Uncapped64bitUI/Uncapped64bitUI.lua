@@ -822,9 +822,30 @@ end
 -- Defined up here rather than beside the FCT handlers because ShowRealDamage /
 -- ShowRealHeal (the UDMG/UHEAL feed path) sit above them and need it too;
 -- anything declared later would be captured as nil.
+--
+-- ONE EXCEPTION, AND IT IS THE OTHER HALF OF REPORTS #199 / #221.
+--
+-- A drawn number that lands inside the wire band is not a number: it is a
+-- SATURATED hit whose true magnitude has been encoded into the low bits (server
+-- side, WireMagnitude in Damage64Log.h). Whatever it reads as -- always around
+-- 2.14B -- the hit itself was at least 2,147,483,520 and in practice far larger.
+-- Comparing that against a threshold players set in the TRILLIONS hid precisely
+-- the biggest hits in the game while letting small ones through, which is the
+-- exact inversion the server side of this filter had. Fail open: a saturated hit
+-- is never "too small to be worth drawing".
+--
+-- Only the band is exempted, not everything above CT_MATCH_FLOOR. A genuine,
+-- unsaturated hit that would have landed in the band is pushed to BAND_BASE - 1
+-- by the encoder precisely so the band means one thing, and that value still
+-- means what it says -- so it stays filterable.
+local CT_BAND_BASE_MIN = 2145386496   -- WireMagnitude::BAND_BASE
+local CT_BAND_BASE_MAX = 2147483647   -- INT32_MAX
+
 local function FctBelowThreshold(amount)
     local m = Cfg.minFloat or 0
-    return m > 0 and amount and amount < m
+    if m <= 0 or not amount then return false end
+    if amount >= CT_BAND_BASE_MIN and amount <= CT_BAND_BASE_MAX then return false end
+    return amount < m
 end
 
 -- The resolved font path, kept in sync with Cfg.font. Reassigned at ADDON_LOADED
