@@ -1427,6 +1427,94 @@ listener:SetScript("OnUpdate", function()
     Send("QLGET")
 end)
 
+--[[ One QL* line, from whichever transport carried it.
+
+     Factored out because the ledger now arrives two ways -- as individual addon
+     messages, or as one native frame whose lines are split apart below -- and
+     both must dispatch IDENTICALLY. Calling OnLine directly from the native path
+     would have quietly skipped QLOK/QLEV/QLT, which are handled here and not
+     there. ]]
+local function DispatchLine(message)
+    -- Server's verdict on which quests are genuinely takeable. Routed here
+    -- because this frame already owns the QL* pipe.
+    if message:sub(1, 5) == "QLOK:" then
+        if UQ.OnVerifiedAvailable then UQ.OnVerifiedAvailable(message:sub(6), false) end
+        return
+    end
+    -- Which game events are running. Cached on UQ so the giver filter can
+    -- drop quests whose giver only spawns during a holiday.
+    if message:sub(1, 5) == "QLEV:" then
+        UQ.ActiveEvents = UQ.ActiveEvents or {}
+        for id in message:sub(6):gmatch("%d+") do
+            UQ.ActiveEvents[tonumber(id)] = true
+        end
+        return
+    end
+
+    if message == "QLOKEND" then
+        if UQ.OnVerifiedAvailable then UQ.OnVerifiedAvailable("", true) end
+        return
+    end
+
+    -- One quest's description text. Kept OUT of OnLine deliberately: that
+    -- parser is the ledger burst, and a QLT line is not ledger data. It is
+    -- also why the tag is QLT* and not a widened QLQ -- see the file header.
+    if message:sub(1, 3) == "QLT" then
+        OnText(message)
+        return
+    end
+
+    OnLine(message)
+end
+
+--[[ Native path: the whole QLB..QLE burst in one frame on topic "QLEDGER".
+
+     The lines are byte-identical to the ones the addon-message path sends; only
+     the packaging differs. That is the point -- an addon message caps at 255
+     bytes, so a ~100-quest ledger is several hundred of them, and the window
+     only swaps in a new quest list when the closing QLE lands. A burst the
+     client throttles away leaves the previous snapshot on screen with nothing
+     to signal it went stale. A single frame cannot be caught half-way.
+
+     Registration is conditional and failure is not an error: without the DLL,
+     UncappedNative is absent and the server keeps sending addon messages. ]]
+if UncappedNative and UncappedNative.IsAvailable() then
+    --[[ Tell the server THIS ADDON can decode the frame.
+
+         The DLL's own announcement is not the same claim: it says the opcode
+         handler exists, and that handler only routes a frame to whichever addon
+         registered its topic. Announcing native is UncappedUI's job, and a client
+         can have an up-to-date UncappedUI alongside a copy of THIS file that
+         predates the QLEDGER topic -- in which case a frame routes to nobody and
+         the ledger window is simply empty. So the claim has to come from here.
+
+         Deferred to PLAYER_ENTERING_WORLD because the addon pipe is not usable at
+         file-load time. Until it lands the server chunks, which is correct and is
+         what every client did before today. ]]
+    local announce = CreateFrame("Frame")
+    announce:RegisterEvent("PLAYER_ENTERING_WORLD")
+    announce:SetScript("OnEvent", function(self)
+        self:UnregisterAllEvents()
+        Send("QLNATIVE:1")
+    end)
+
+    UncappedNative.Register("QLEDGER", function(payload)
+        local at, n = 1, #payload
+        while at <= n do
+            local nl = payload:find("\n", at, true)
+            if not nl then
+                DispatchLine(payload:sub(at))
+                return
+            end
+
+            -- A trailing newline makes the last slice empty; skip rather than
+            -- feed the parsers an empty string.
+            if nl > at then DispatchLine(payload:sub(at, nl - 1)) end
+            at = nl + 1
+        end
+    end)
+end
+
 listener:SetScript("OnEvent", function(_, event, prefix, message)
     if event == "ADDON_LOADED" then
         -- `prefix` carries the addon name for this event.
@@ -1444,36 +1532,7 @@ listener:SetScript("OnEvent", function(_, event, prefix, message)
         if prefix ~= PIPE or not message then return end
         if message:sub(1, 2) ~= "QL" then return end
 
-        -- Server's verdict on which quests are genuinely takeable. Routed here
-        -- because this frame already owns the QL* pipe.
-        if message:sub(1, 5) == "QLOK:" then
-            if UQ.OnVerifiedAvailable then UQ.OnVerifiedAvailable(message:sub(6), false) end
-            return
-        end
-        -- Which game events are running. Cached on UQ so the giver filter can
-        -- drop quests whose giver only spawns during a holiday.
-        if message:sub(1, 5) == "QLEV:" then
-            UQ.ActiveEvents = UQ.ActiveEvents or {}
-            for id in message:sub(6):gmatch("%d+") do
-                UQ.ActiveEvents[tonumber(id)] = true
-            end
-            return
-        end
-
-        if message == "QLOKEND" then
-            if UQ.OnVerifiedAvailable then UQ.OnVerifiedAvailable("", true) end
-            return
-        end
-
-        -- One quest's description text. Kept OUT of OnLine deliberately: that
-        -- parser is the ledger burst, and a QLT line is not ledger data. It is
-        -- also why the tag is QLT* and not a widened QLQ -- see the file header.
-        if message:sub(1, 3) == "QLT" then
-            OnText(message)
-            return
-        end
-
-        OnLine(message)
+        DispatchLine(message)
         return
     end
 
