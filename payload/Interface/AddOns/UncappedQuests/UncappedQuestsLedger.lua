@@ -1317,16 +1317,37 @@ end
 -- slots are 4 and 5 while the POIs are 0 and 1. Matching those raw would have
 -- found nothing and kept painting both areas -- which is the bug this exists to
 -- fix. Sorting by slot and taking the ordinal converts one space to the other.
-local function ObjectivesDoneByPoiIndex(q)
-    local sorted = {}
-    for _, obj in ipairs(q.objectives or {}) do
-        sorted[#sorted + 1] = obj
-    end
-    table.sort(sorted, function(a, b) return (a.index or 0) < (b.index or 0) end)
+--[[ Which objectives are finished, keyed by the index quest_poi uses.
 
+     ★ KEY BY THE OBJECTIVE'S REAL INDEX, NOT ITS ORDINAL POSITION.
+
+     This used to sort the objectives and key the result by ordinal (0, 1, 2...).
+     That silently mis-keys every ITEM objective, because the two index spaces
+     are not the same:
+
+       creature / GO objectives   index 0..3
+       item objectives            index QUEST_OBJECTIVES_COUNT + i, i.e. 4..7
+
+     and quest_poi.ObjectiveIndex stores the REAL index. Worked example, quest
+     577 "Some Assembly Required" -- one item objective, so:
+
+       server sends   QLO index 4
+       quest_poi has  ObjectiveIndex 4 (the objective area), -1 (the turn-in)
+       old code wrote done[0]; the lookup asked done[4] -> nil -> "not done"
+
+     So a finished collect-N-items objective was never recognised as finished and
+     the arrow kept routing the player back to where they had already been.
+
+     ★ This is also why "kill quests work, item quests don't" -- creature
+     objectives sit at 0..3, where ordinal and real index coincide by accident,
+     so they were never affected and the bug looked like it was about item drops
+     specifically. It was about the keying all along. ]]
+local function ObjectivesDoneByPoiIndex(q)
     local done = {}
-    for ord, obj in ipairs(sorted) do
-        done[ord - 1] = (obj.need or 0) > 0 and (obj.have or 0) >= obj.need
+    for _, obj in ipairs(q.objectives or {}) do
+        if obj.index then
+            done[obj.index] = (obj.need or 0) > 0 and (obj.have or 0) >= obj.need
+        end
     end
     return done
 end
