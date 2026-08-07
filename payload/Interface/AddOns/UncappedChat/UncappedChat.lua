@@ -164,7 +164,20 @@ local function buildUI()
     local p, _, rp, x, y = self:GetPoint()
     db().point = { p, "UIParent", rp, x, y }
   end)
-  tinsert(UISpecialFrames, ADDON .. "Panel")     -- Esc closes it
+  --[[ Deliberately NOT in UISpecialFrames.
+
+       That list is Blizzard's "Escape closes this", and it is meant for windows
+       you open, use and dismiss -- a loot roll, a vendor, a talent pane. Chat is
+       none of those: it is a thing you leave up and read out of the corner of
+       your eye, and Blizzard's own chat frames are not on the list either.
+
+       While it WAS on the list, every Escape closed the window -- and Escape is
+       pressed constantly for unrelated reasons (clearing a target, backing out of
+       a menu, stopping a cast), so the chat kept vanishing and had to be reopened
+       by hand. Reported by Craesa: "Uchat keeps closing when pressing Esc key
+       meaning we have too constantly open it back up".
+
+       The titlebar X and /uchat both still close it. ]]
   ui.frame = f
 
   local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")

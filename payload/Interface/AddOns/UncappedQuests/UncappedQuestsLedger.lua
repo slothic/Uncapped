@@ -1649,6 +1649,24 @@ function UQ.HookQuestLog()
         HideUIPanel(QuestLogFrame)
 
         if not ui.frame then BuildFrame() end
+
+        --[[ TOGGLE, not open.
+
+             ToggleQuestLog decides what to do by asking whether QuestLogFrame is
+             shown -- and we hide it a line above, every time. So on the second
+             press it still looks closed to Blizzard, gets shown again, lands back
+             in this hook, and re-opens the ledger. The key could only ever open;
+             it could never close. Reported as "pressing L opens the new quest
+             log, but pressing it again doesn't close it".
+
+             Toggling on OUR frame instead is what makes the second press mean
+             what the player expects. The Blizzard-log button is unaffected: it
+             sets `bypass` and returns above this. ]]
+        if ui.frame:IsShown() then
+            ui.frame:Hide()
+            return
+        end
+
         ui.frame:Show()
         Send("QLGET")
         Render()
