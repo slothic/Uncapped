@@ -318,6 +318,13 @@ arrow.tex = arrow:CreateTexture(nil, "OVERLAY")
 arrow.tex:SetAllPoints()
 arrow.tex:SetTexture(ARROW_TEXTURE)
 
+-- Say so. The three lines above ARE the "heading" sheet applied by hand -- size
+-- and texture both -- so the marker UseSheet reads has to agree, or it describes
+-- a state the frame is not in. Leaving it nil here is how the two got to
+-- disagree in the first place. (UseSheet no longer trusts it alone, but a marker
+-- that lies is still worth not writing.)
+arrow.uqSheet = "heading"
+
 -- ---------------------------------------------------------------------------
 -- Use button -- press the item the nearest objective wants
 -- ---------------------------------------------------------------------------
@@ -784,10 +791,31 @@ local SHEETS = {
 }
 
 local function UseSheet(frame, which)
-    if frame.uqSheet == which then return end
-
     local sheet = SHEETS[which]
     if not sheet then return end
+
+    --[[ ★ VERIFY, don't just trust the marker.
+
+         The marker was the only evidence the swap had happened, which makes it
+         the single point of failure for the very thing it guards: if the frame's
+         real size and `uqSheet` ever disagree, the early-out reads as "already
+         applied" and NOTHING EVER RETRIES. Stuck stretched until reload -- which
+         is the symptom recurring after this function was supposed to have fixed
+         it.
+
+         And they started out disagreeing. The frame is built at 56x42 with the
+         heading texture at creation, but `uqSheet` is left nil there, so the
+         marker never described the constructed state to begin with.
+
+         Checking the actual width costs one number compare per frame and makes
+         the invariant self-healing: any drift, from any cause, is corrected on
+         the next tick instead of persisting. That matters more than knowing
+         which path caused it -- the previous pass tried to close the paths one
+         by one and the symptom came back.
+
+         Width alone is enough: the two sheets differ on it (56 vs 53), and it is
+         set in the same breath as the height. ]]
+    if frame.uqSheet == which and frame:GetWidth() == sheet.w then return end
 
     frame.tex:SetTexture(sheet.texture)
     frame:SetWidth(sheet.w)

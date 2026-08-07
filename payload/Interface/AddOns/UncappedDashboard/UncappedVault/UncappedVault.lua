@@ -1697,8 +1697,27 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
             end
             Notify("withdraw")
         end
+    --[[ Wording deliberately UNCHANGED, so this file is safe to ship ahead of the
+         server that learns to send VLTWDNONE.
+
+         Until that server is live, VLTWDFAIL still covers both causes, and
+         narrowing this text to "no room in your bags" would make it confidently
+         wrong for the holds-none case -- worse than the vague version it
+         replaced. It can be narrowed once VLTWDNONE is actually being sent. ]]
     elseif find(text, "^VLTWDFAIL:") then
         if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r couldn't withdraw -- bags full, or not enough left in the vault.") end
+    --[[ The vault holds none of that item. A DIFFERENT failure from bags-full and
+         it needs the opposite reaction: making room will never help.
+
+         Report #238: a player tried to pull a Mythic keystone out and got
+         "bags full, or not enough left in the vault" -- one message covering both
+         causes. Keystones are deliberately never vaultable (they are consumed
+         from bags to start a run, so a vaulted one makes the whole system
+         unreachable), which is why the vault held none. The old wording read as
+         transient, so the obvious response was to free bag slots and retry, which
+         could not have worked. ]]
+    elseif find(text, "^VLTWDNONE:") then
+        if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r couldn't withdraw -- the vault holds none of that. Some items (keystones, hearthstone, class reagents) are deliberately kept in your bags and never stored.") end
     elseif find(text, "^VLTDEPALLDONE:") then
         local stacks, items, kept = match(text, "^VLTDEPALLDONE:(%d+):(%d+):(%d+)$")
         if stacks then
