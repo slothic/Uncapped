@@ -24,6 +24,12 @@ local ICON = 36
 local GRID_SLOT = 38
 local GRID_GAP = 6
 local GRID_HEADER_H = 30
+-- Strip along the top of the grid panel holding its sort button. Grid view has
+-- no clickable column headers, so without this there is no way to reach the
+-- sort from it at all (report #267). Reserved out of the page height in
+-- RefreshGridRowCount and out of the first row's y in RefreshGrid -- both, or
+-- the bottom row runs under the pager.
+local GRID_SORT_H = 32
 -- Clears the List/Grid buttons (bottom edge at -76) AND the "my class only"
 -- check button below them (-80 to -104), with a small gap.
 local CATEGORY_START_Y = 108
@@ -32,7 +38,7 @@ local CATEGORY_ROW_H = 24
 local frame, searchBox, categoryPanel, categoryScroll, tablePanel, gridPanel, footerBar
 local rows, catRows, gridSlots, gridHeaders = {}, {}, {}, {}
 local viewButtons = {}
-local qualityDD, slotDD, classOnlyCheck
+local qualityDD, slotDD, classOnlyCheck, gridSortBtn
 
 local GOLD = { 1.00, 0.82, 0.22 }
 local BLUE = { 0.30, 0.62, 1.00 }
@@ -227,12 +233,56 @@ local function RelayoutColumns()
     end
 end
 
+-- What each column's ordering actually does, shown on hover. Written out
+-- because the useful part of report #267 is the TIEBREAK, and a tiebreak is
+-- invisible until someone tells you it is there.
+local SORT_TIPS = {
+    recent   = "Most recently banked first.",
+    name     = "A to Z.",
+    level    = "Highest item level first, then rarity.",
+    rarity   = "Legendary first, then highest item level.",
+    quantity = "Largest stack first.",
+    slot     = "Paper-doll order, then highest item level.",
+}
+
+-- Long-form names for the grid's single sort button, which has room to say
+-- "Item Level" where a table column only had room for "Lvl".
+local SORT_LABELS = {
+    recent = "Recent", name = "Name", level = "Item Level",
+    rarity = "Rarity", quantity = "Quantity", slot = "Slot / Type",
+}
+local SORT_CYCLE = { "recent", "name", "level", "rarity", "quantity", "slot" }
+
 local function SortHeader(parent, label, key)
     local b = Button(parent, label, 10, TABLE_HEAD_H - 6)
     b.key = key
+    b.label = label
     b:SetScript("OnClick", function() Core.SetSort(key) end)
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText("Sort by " .. (self.label or ""))
+        if SORT_TIPS[key] then GameTooltip:AddLine(SORT_TIPS[key], 1, 1, 1) end
+        GameTooltip:AddLine("Click again to reverse.", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
     headers[key] = b
     return b
+end
+
+-- Which column is sorted, and which way. Nothing marked it before, so the only
+-- way to find out was to read the list and infer it -- and inferring a sort off
+-- a page of mixed loot is exactly the "bit all over" feeling report #267
+-- describes. The active header goes gold (the same treatment the List/Grid and
+-- category buttons use) and carries the direction caret.
+local function RefreshSortHeaders()
+    local active = Core.state.sort
+    local caret = Core.state.sortAsc and " |cff808080^|r" or " |cff808080v|r"
+    for key, b in pairs(headers) do
+        local on = (key == active)
+        SetButtonActive(b, on)
+        b.text:SetText((b.label or "") .. (on and caret or ""))
+    end
 end
 
 local function CreateRow(parent, index)
@@ -561,8 +611,17 @@ local RefreshGrid
 local GRID_FOOT_H = 54
 local function RefreshGridRowCount()
     if not gridPanel then return end
-    Core.SetGridMetrics(GridCols(), gridPanel:GetHeight() - 12 - GRID_FOOT_H)
+    Core.SetGridMetrics(GridCols(), gridPanel:GetHeight() - 12 - GRID_SORT_H - GRID_FOOT_H)
     RefreshGrid()
+end
+
+-- Label always states the current sort rather than implying it -- same
+-- one-button idiom (and same wording) as the Quest Ledger's sort control.
+local function RefreshGridSort()
+    if not gridSortBtn then return end
+    local key = Core.state.sort or "recent"
+    gridSortBtn.text:SetText("Sort: " .. (SORT_LABELS[key] or key)
+        .. (Core.state.sortAsc and " |cff808080^|r" or " |cff808080v|r"))
 end
 
 function RefreshGrid()
@@ -571,7 +630,8 @@ function RefreshGrid()
     local cols = GridCols()
     local entries = Core.PageGridEntries()
     local headerIndex, slotIndex = 0, 0
-    local x, y = 12, -12
+    -- Starts below the sort strip, not at the panel's own top edge.
+    local x, y = 12, -12 - GRID_SORT_H
     local col = 0
 
     for _, entry in ipairs(entries) do
@@ -638,6 +698,8 @@ function UI.Refresh()
     UIDropDownMenu_SetText(slotDD, slotDD.CurrentText() or "All Slots")
     if classOnlyCheck then classOnlyCheck:SetChecked(Core.state.classOnly and true or false) end
     RefreshViewButtons()
+    RefreshSortHeaders()
+    RefreshGridSort()
     RefreshCategories()
     if Core.state.viewMode == "grid" then
         tablePanel:Hide()
@@ -906,6 +968,36 @@ local function BuildFrame(parent)
     gridPanel = Panel(frame)
     gridPanel:SetPoint("TOPLEFT", categoryPanel, "TOPRIGHT", 12, 0)
     gridPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, FOOTER_H + 12)
+    -- Grid's stand-in for the list view's clickable column headers. Left-click
+    -- cycles the key, right-click reverses -- both routed through the same
+    -- Core.SetSort the headers use, so the two views cannot drift apart and the
+    -- choice is remembered either way (see GetDB).
+    gridSortBtn = Button(gridPanel, "Sort: Recent", 168, 24)
+    gridSortBtn:SetPoint("TOPLEFT", gridPanel, "TOPLEFT", 12, -8)
+    gridSortBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    gridSortBtn:SetScript("OnClick", function(_, button)
+        local key = Core.state.sort or "recent"
+        if button == "RightButton" then
+            Core.SetSort(key)       -- same key = flip direction
+            return
+        end
+        local index = 1
+        for i, k in ipairs(SORT_CYCLE) do
+            if k == key then index = i end
+        end
+        Core.SetSort(SORT_CYCLE[(index % #SORT_CYCLE) + 1])
+    end)
+    gridSortBtn:SetScript("OnEnter", function(self)
+        local key = Core.state.sort or "recent"
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
+        GameTooltip:SetText("Sort")
+        if SORT_TIPS[key] then GameTooltip:AddLine(SORT_TIPS[key], 1, 1, 1) end
+        GameTooltip:AddLine("Left-click cycles the order.", 0.7, 0.7, 0.7)
+        GameTooltip:AddLine("Right-click reverses it.", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    gridSortBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
     gridPanel.pageText = Text(gridPanel, "GameFontHighlightSmall", "BOTTOM", gridPanel, "BOTTOM", 0, 19, "Page 1 of 1")
     local gridPrev = Button(gridPanel, "<", 36, 28)
     gridPrev:SetPoint("BOTTOM", gridPanel, "BOTTOM", -70, 12)

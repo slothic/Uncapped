@@ -612,6 +612,16 @@ local function BuildFrame()
     f:Hide()
     ui.frame = f
 
+    -- Report #270: Escape closes it, like every stock window. UISpecialFrames
+    -- only calls Hide(), which is exactly what the [X] and /ql already do, so
+    -- all three routes end up in the same place.
+    --
+    -- Escape while the search box has focus does NOT reach here: a focused
+    -- EditBox eats the key and runs its own OnEscapePressed (below), which
+    -- drops focus. First Escape leaves the box, second Escape closes the
+    -- window -- the same two-step the Vault's search box has.
+    tinsert(UISpecialFrames, "UncappedQuestLedgerFrame")
+
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOP", f, "TOP", 0, -16)
     title:SetText("|cffffd100Quest Ledger|r")
@@ -701,6 +711,12 @@ local function BuildFrame()
     searchBox:SetScript("OnEditFocusLost", function(self)
         if (self:GetText() or "") == "" then ph:Show() end
     end)
+
+    -- An EditBox hidden while it still owns the keyboard goes on swallowing
+    -- keypresses in 3.3.5a with nothing on screen to show where they are going
+    -- -- so closing the ledger by any route ([X], /ql, the L key, Escape) has
+    -- to hand the keyboard back. Same fix as the Vault's search box.
+    f:SetScript("OnHide", function() searchBox:ClearFocus() end)
 
     local blizz = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     blizz:SetWidth(110)

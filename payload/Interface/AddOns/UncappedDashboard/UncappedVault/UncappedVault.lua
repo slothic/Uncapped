@@ -211,6 +211,17 @@ local function PlayerClass()
 end
 Core.PlayerClass = PlayerClass
 
+-- The sort keys SORTERS (defined much further down, after the helpers it needs)
+-- actually implements. Duplicated up here for the same reason as PlayerClass:
+-- GetDB validates the saved sort and GetDB comes first. Any key added to SORTERS
+-- must be added here too, or it will be silently rejected on load and fall back
+-- to "recent".
+local SORT_KEYS = {
+    name = true, level = true, rarity = true, quantity = true,
+    slot = true, recent = true,
+}
+Core.SORT_KEYS = SORT_KEYS
+
 -- MUST list every category CategoryFor() can return (see CLASS_CAT and
 -- SUB_TRADE_CAT below). This is not just the sidebar's row order: BuildGridLayout
 -- walks THIS table to emit the grid's buckets, so a category missing here is
@@ -376,12 +387,23 @@ function Core.GetDB()
         autoBagSync = true,
         viewMode = "list",
         classOnly = false,
+        sort = "recent",
+        sortAsc = false,
     }
     for k, v in pairs(defaults) do
         if db[k] == nil then db[k] = CopyDefault(v) end
     end
     db.viewMode = (db.viewMode == "grid") and "grid" or "list"
     state.viewMode = db.viewMode
+    -- Report #267: the chosen sort used to live in `state` only, so every
+    -- login reset the vault to "recent" -- picking Rarity fixed the window for
+    -- exactly as long as you kept it open, which is a fair part of why it read
+    -- as "bit all over". Validated against SORT_KEYS rather than trusted, so a
+    -- SavedVariables file written by a newer build (or hand-edited) can't leave
+    -- state.sort pointing at a sorter that does not exist here.
+    if not SORT_KEYS[db.sort] then db.sort = "recent" end
+    db.sortAsc = db.sortAsc and true or false
+    state.sort, state.sortAsc = db.sort, db.sortAsc
     -- Saved per ACCOUNT, like everything else in UncappedVaultDB, but the
     -- answer is per CHARACTER: a paladin's "my class only" must not still be
     -- narrowing to plate when you log in on the mage. Stored as the class token
@@ -732,13 +754,23 @@ function Core.ToggleClassOnly()
     Core.SetClassOnly(not state.classOnly)
 end
 
+-- Clicking the column you are already sorted by flips the direction; clicking
+-- any other column switches to it, descending (= "best first" for every key
+-- except name).
+--
+-- GetDB is called FIRST and deliberately: it re-derives state.sort/sortAsc from
+-- the stored values on its way out, so calling it after deciding would quietly
+-- undo the decision -- the same trap SetClassOnly documents.
 function Core.SetSort(key)
+    local db = Core.GetDB()
+    local sort, asc
     if state.sort == key then
-        state.sortAsc = not state.sortAsc
+        sort, asc = state.sort, not state.sortAsc
     else
-        state.sort = key or "recent"
-        state.sortAsc = false
+        sort, asc = (SORT_KEYS[key] and key or "recent"), false
     end
+    db.sort, db.sortAsc = sort, asc
+    state.sort, state.sortAsc = sort, asc
     state.page = 1
     Notify("sort")
 end
@@ -849,12 +881,29 @@ local SORTERS = {
         if an == bn then return (a.e or 0) < (b.e or 0) end
         return an < bn
     end,
+    --[[ Report #267: "organise by level as well as rarity -- at the moment
+         bit all over".
+
+         Rarity and level are not competing sorts, they are one ordering with
+         two keys, and the missing piece was only ever the tiebreak. Sorting by
+         Rarity used to fall through to NAME inside a quality band, so a vault
+         full of epics came out alphabetical -- an ilvl 284 helm sitting under
+         an ilvl 80 one because A comes before R. Rarity now breaks ties on item
+         level, and Level breaks ties on rarity, so whichever column you click
+         the other is still doing useful work and both read as "best first".
+
+         ilvl is already on the wire (the 8-field VLT row -- see ParseRows), so
+         this costs nothing extra to fetch. Items the server reports at 0 (a
+         handful of legacy rows) sort to the bottom of their band rather than
+         disappearing. ]]
     level = function(a, b)
         if (a.ilvl or 0) ~= (b.ilvl or 0) then return (a.ilvl or 0) > (b.ilvl or 0) end
+        if (a.q or 0) ~= (b.q or 0) then return (a.q or 0) > (b.q or 0) end
         return ResolveName(a) < ResolveName(b)
     end,
     rarity = function(a, b)
         if (a.q or 0) ~= (b.q or 0) then return (a.q or 0) > (b.q or 0) end
+        if (a.ilvl or 0) ~= (b.ilvl or 0) then return (a.ilvl or 0) > (b.ilvl or 0) end
         return ResolveName(a) < ResolveName(b)
     end,
     quantity = function(a, b)

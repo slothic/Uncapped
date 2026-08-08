@@ -1775,8 +1775,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedDashboard.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedDashboard.lua",
-                      "sha256":  "1631566a9e1d39aa9c8c03ebbc158f42637c791779251ef5e1ca310f7e6110f5",
-                      "size":  7329
+                      "sha256":  "22184d674af8ed3acf26dbd8d1f7c369eeefca49bda7ee47d6f233c7a240a15f",
+                      "size":  6157
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedDashboard.toc",
@@ -1823,8 +1823,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedTransmog/UncappedTransmog.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedTransmog/UncappedTransmog.lua",
-                      "sha256":  "1ff3ef8c9ed56cd3c65aa7301de0e4ed98d1a7d6a2e356a24ea4ed14917698fa",
-                      "size":  53431
+                      "sha256":  "0f09a0fe28fa32954d4fc24570fabc91d809380dd1a58292867c98b76ef9547a",
+                      "size":  64851
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedTransmog/UncappedTransmogData.lua",
@@ -1835,14 +1835,14 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault.lua",
-                      "sha256":  "d468db58437f5d9276837c97296880a84ed027f78b7fb4c10796aa720c5ad289",
-                      "size":  76202
+                      "sha256":  "07d2143505b257ce0bb64e414f06d5e33fdb51df3966e4f9dd429575ea2eb6b1",
+                      "size":  78963
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault_UI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault_UI.lua",
-                      "sha256":  "d1a2c087fd0524e01c88a5561486d2c30e9b5129059ed94f653eaa5c18b4ee54",
-                      "size":  47017
+                      "sha256":  "d6f789d50d81f6dc877670fb953cbcccc2cc1583072c1b867c192494e966edcd",
+                      "size":  51497
                   },
                   {
                       "path":  "Interface/AddOns/UncappedGCD/UncappedGCD.lua",
@@ -2087,8 +2087,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedQuests/UncappedQuestsLedger.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/UncappedQuestsLedger.lua",
-                      "sha256":  "318704421348c4c2ee4bb103d6488af0494596f206b66c2f3c49b1fcc4f70c0f",
-                      "size":  70175
+                      "sha256":  "a57dcde06b12bc6a9a546cefa7494f9e02da268df6b7010d881af6afbe9155bc",
+                      "size":  71125
                   },
                   {
                       "path":  "Interface/AddOns/UncappedRewards/UncappedRewards.lua",
@@ -2225,7 +2225,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "03800afebfcb0f5daba40ddebb2d410fcec006f490fc12f972c3a6347a3a5935",
+                      "sha256":  "d4a20519b2c673ad3fec2f76e071329b049b2558f21c5f263c1fe99806d19c19",
                       "size":  3593
                   },
                   {
@@ -2908,9 +2908,9 @@
                   },
                   {
                       "path":  "Data/enUS/patch-enUS-U.MPQ",
-                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.08.07a.MPQ",
-                      "sha256":  "1e13f8a203b2e95a2c517a672e6e98ee848dc6031d770af3147720e52eb3df65",
-                      "size":  11447763
+                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.08.08a.MPQ",
+                      "sha256":  "0430395547d0e168aefbc3635c86b9e94facef8c101ae6f3fd430b8abc40cfee",
+                      "size":  16001833
                   },
                   {
                       "path":  "UncappedClient.dat",

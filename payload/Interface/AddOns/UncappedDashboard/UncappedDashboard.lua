@@ -103,61 +103,36 @@ local function Toggle()
 end
 Core.Toggle = Toggle
 
--- This server has no PvP content, so the default "PVP" micro-button (bottom
--- of the main menu bar) and its default H keybind (TOGGLEPVPFRAME) would
--- otherwise just open a frame with nothing useful in it. Repointed to open
--- the Dashboard instead: reassign the global function the click/keybind
--- actually calls, rather than touching Bindings.xml or the button's own
--- OnClick script. The icon is a stock Blizzard texture standing in until
--- real Uncapped theme art exists (see AI Context.md's note on Draft\UI\'s
--- placeholder theme).
+-- This server has no PvP content, so the default "PVP" micro-button (bottom of
+-- the main menu bar) and its default H keybind (TOGGLEPVPFRAME) would otherwise
+-- just open a frame with nothing useful in it. Repointed to open the Dashboard
+-- instead: reassign the global function the click/keybind actually calls, rather
+-- than touching Bindings.xml or the button's own OnClick script.
+--
+-- ★ THE BUTTON KEEPS ITS STOCK BLIZZARD ARTWORK, DELIBERATELY.
+--
+--   It used to be re-skinned with Interface\Icons\Trade_Engineering as a
+--   placeholder "until real Uncapped theme art exists". That art never arrived,
+--   and the stand-in outlived its welcome: the Engineering icon is a GEAR WHEEL,
+--   which reads as a settings button, so people saw the honour icon apparently
+--   turn into a cog and reported it as a bug. A placeholder that looks like a
+--   fault is worse than no placeholder.
+--
+--   Removed rather than swapped for a different icon. Not touching the textures
+--   at all is strictly simpler than restoring them: the previous code had to
+--   hide every texture region on the button first, because Blizzard's
+--   micro-button art carries baked-in border/icon regions at the ORIGINAL
+--   (taller, label-inclusive) size that showed through and mis-anchored anything
+--   drawn over them. All of that fiddling exists only to support a custom icon.
+--   No custom icon, no fiddling, no way for it to go wrong at load time.
+--
+-- ⚠ Known cosmetic mismatch, accepted: the button still LOOKS like the PvP
+--   button and its tooltip still says so, while opening the Dashboard. That is
+--   the trade for having a stock-looking UI, and it is the owner's call
+--   (2026-08-08). Revisit if real theme art is ever made.
 local function InstallPVPButtonHook()
     if TogglePVPFrame then
         TogglePVPFrame = Toggle
-    end
-    if PVPMicroButton then
-        -- Blizzard's micro-button art is more than just the swappable Normal/
-        -- Pushed/Disabled textures -- there's baked-in border/icon artwork as
-        -- other texture regions on the same button, inherited with whatever
-        -- size/anchor the ORIGINAL (taller, label-inclusive) micro-button
-        -- graphic used. Left alone, that art still shows through/behind our
-        -- replacement (reported: old icon visible in front, ours sitting too
-        -- high) and our new textures inherit the wrong offset/size. Hiding
-        -- every texture region first, then explicitly centering/sizing only
-        -- the ones we actually set, avoids both problems regardless of what
-        -- those regions happen to be named.
-        for i = 1, select("#", PVPMicroButton:GetRegions()) do
-            local region = select(i, PVPMicroButton:GetRegions())
-            if region and region.GetObjectType and region:GetObjectType() == "Texture" then
-                region:Hide()
-            end
-        end
-
-        -- Explicit fixed size, centered -- an edge-inset fill still came out
-        -- too tall since the button itself is taller than a plain icon
-        -- needs to be. CENTER + a fixed size doesn't depend on
-        -- GetWidth/GetHeight (which can read 0/stale at PLAYER_LOGIN before
-        -- the micro bar has finished laying itself out) at all, so it's
-        -- still safe regardless of timing.
-        local ICON_SIZE = 16
-        local function SkinTexture(tex)
-            if not tex then return end
-            tex:ClearAllPoints()
-            tex:SetPoint("CENTER", PVPMicroButton, "CENTER", 0, 0)
-            tex:SetWidth(ICON_SIZE)
-            tex:SetHeight(ICON_SIZE)
-            tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-            tex:Show()
-        end
-
-        PVPMicroButton:SetNormalTexture("Interface\\Icons\\Trade_Engineering")
-        PVPMicroButton:SetPushedTexture("Interface\\Icons\\Trade_Engineering")
-        PVPMicroButton:SetDisabledTexture("Interface\\Icons\\Trade_Engineering")
-        PVPMicroButton:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
-
-        SkinTexture(PVPMicroButton:GetNormalTexture())
-        SkinTexture(PVPMicroButton:GetPushedTexture())
-        SkinTexture(PVPMicroButton:GetDisabledTexture())
     end
 end
 

@@ -157,11 +157,18 @@ end
 local collection   = {}   -- [displayId] = true
 local collCount    = 0
 local favorites    = {}   -- [displayId] = true
-local equipment    = {}   -- [slot] = { entry, fakeEntry, fakeDisp, cls, sub, inv }
+local equipment    = {}   -- [slot] = { entry, fakeEntry, fakeDisp, cls, sub, inv, cost }
 local outfits        = {}   -- [presetId] = { name, items = { [slot] = {entry, disp} } }
 local outfitStaging  = {}   -- filled while a TMSET batch streams in
 local outfitBatchDone = true
 local maxSets        = 10
+
+-- Prices, in copper, quoted by the server (see TMEQC / TMSETEND / TMHI).
+-- The cost of wearing a look is a property of the GEAR being re-skinned, not
+-- of the look, so it lives on the equipment record and is the same number
+-- whichever appearance is picked for that slot.
+local hiddenFree     = true  -- is hiding a slot free on this realm?
+local outfitSaveCost = 0     -- what "Save current" would charge right now
 
 local currentSlot  = 0
 local selected     = nil  -- selected row (a parsed appearance)
@@ -176,7 +183,7 @@ local results      = {}
 local sourceLines  = {}
 local sourceFor    = nil
 
-local frame, grid, modelFrame, scroll, sourceText, countText, subDD
+local frame, grid, modelFrame, scroll, sourceText, countText, subDD, costText, applyBtn
 local slotButtons  = {}
 local cells        = {}
 
@@ -489,6 +496,117 @@ local function Refresh()
 end
 
 -- =====================================================================
+-- Money
+--
+-- Transmogrifying costs gold on this realm, and for a long time this window
+-- was the only place you could do it while being the one place that never
+-- said so -- the gossip menu it replaced printed the price on every line.
+-- Everything below exists so the number is on screen BEFORE the click, and
+-- so a big one has to be agreed to.
+-- =====================================================================
+
+-- Ask before spending at least this much, in copper. 10g by default: an
+-- ordinary level-80 epic sits either side of that, so the first look you try
+-- explains itself and a full re-mog of cheap gear does not nag.
+local DEFAULT_CONFIRM_AT = 100000
+
+local function ConfirmAt()
+    local v = UncappedTransmogDB and UncappedTransmogDB.confirmAt
+    if v == nil then return DEFAULT_CONFIRM_AT end
+    return v
+end
+
+local function Coins(copper)
+    if not copper or copper <= 0 then return "|cff40ff40free|r" end
+    return GetCoinTextureString(copper)
+end
+
+-- What pressing Wear costs in a slot. Zero is a real answer (the realm can
+-- turn the charge off), nil means the server has not quoted this slot yet --
+-- both are treated as "nothing to warn about".
+local function SlotCost(slotId)
+    local eq = equipment[slotId or currentSlot]
+    return (eq and eq.cost) or 0
+end
+
+local function CanAfford(copper)
+    return GetMoney() >= (copper or 0)
+end
+
+StaticPopupDialogs["UNCAPPED_TRANSMOG_SPEND"] = {
+    text = "%s",
+    button1 = ACCEPT,
+    button2 = CANCEL,
+    OnAccept = function(self) if self.uncappedRun then self.uncappedRun() end end,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+}
+
+-- Run `act`, but put the price in front of the player first if it is worth
+-- stopping for. The very first charge always stops, however small: being
+-- billed for a button you pressed to browse is the whole complaint, and it
+-- only needs explaining once (the flag is account-wide, like the collection).
+local function ConfirmSpend(copper, what, act)
+    copper = copper or 0
+
+    local firstTime = copper > 0 and not (UncappedTransmogDB and UncappedTransmogDB.costSeen)
+    local threshold = ConfirmAt()
+    local needsAsk = copper > 0 and (firstTime or (threshold >= 0 and copper >= threshold))
+
+    if not needsAsk then
+        act()
+        return
+    end
+
+    local body = string.format("%s costs %s.\n\nYou have %s.", what, Coins(copper), Coins(GetMoney()))
+    if firstTime then
+        body = body .. "\n\n|cffffd100Transmogrifying is charged every time you apply a look|r -- "
+                    .. "trying appearances on is not free. Set where this warning kicks in under "
+                    .. "ESC > Interface > AddOns > Uncapped > Transmog."
+    end
+    if not CanAfford(copper) then
+        body = body .. "\n\n|cffff4040You cannot afford this.|r"
+    end
+
+    local dialog = StaticPopup_Show("UNCAPPED_TRANSMOG_SPEND", body)
+    if not dialog then
+        -- All popup slots taken; better to drop the click than to spend
+        -- unannounced.
+        DEFAULT_CHAT_FRAME:AddMessage("|cff9d4edd[Transmog]|r that costs " .. Coins(copper) .. " -- try again in a moment.")
+        return
+    end
+
+    dialog.uncappedRun = function()
+        UncappedTransmogDB = UncappedTransmogDB or {}
+        UncappedTransmogDB.costSeen = true
+        act()
+    end
+end
+
+-- The price line under the action buttons -- the thing the window was
+-- missing. Repainted whenever the slot or the equipment snapshot changes.
+local function UpdateCostText()
+    if not costText then return end
+
+    local eq = equipment[currentSlot]
+    if not eq or not eq.entry or eq.entry == 0 then
+        costText:SetText("|cff808080Nothing equipped in this slot.|r")
+        return
+    end
+
+    local cost = SlotCost(currentSlot)
+    if cost <= 0 then
+        costText:SetText("|cff40ff40Wearing a look here is free.|r")
+        return
+    end
+
+    local colour = CanAfford(cost) and "|cffffd100" or "|cffff4040"
+    costText:SetText(colour .. "Wear costs|r " .. Coins(cost)
+        .. "\n|cff808080Charged every time you press Wear.|r")
+end
+
+-- =====================================================================
 -- Tooltip
 -- =====================================================================
 local function ShowCellTooltip(cell)
@@ -511,7 +629,14 @@ local function ShowCellTooltip(cell)
     GameTooltip:AddLine(" ")
     if collection[row.disp] then
         GameTooltip:AddLine("Collected", 0.1, 1, 0.1)
-        GameTooltip:AddLine("Click to wear this appearance.", 0.5, 0.5, 0.5)
+        local cost = SlotCost(currentSlot)
+        if cost > 0 then
+            -- Priced on the tooltip as well as under the buttons, because the
+            -- fastest way to wear something here is to double-click the cell
+            -- the cursor is already over.
+            GameTooltip:AddLine("Wearing this costs " .. Coins(cost), 1, 0.82, 0)
+        end
+        GameTooltip:AddLine("Click to preview, double-click to wear.", 0.5, 0.5, 0.5)
     else
         GameTooltip:AddLine("Not collected", 1, 0.3, 0.3)
         GameTooltip:AddLine("Click to see where it comes from.", 0.5, 0.5, 0.5)
@@ -548,15 +673,31 @@ local function ApplySelected()
         return
     end
 
-    Send(string.format("TMAPPLY:%d:%d", currentSlot, selected.disp))
+    local slot, disp = currentSlot, selected.disp
+    local cost = SlotCost(slot)
+
+    -- No "you spent X" line here: the server prints its own receipt for
+    -- anything it actually charged, and two of them is one too many.
+    ConfirmSpend(cost, "Wearing " .. (selected.name or "this appearance"), function()
+        Send(string.format("TMAPPLY:%d:%d", slot, disp))
+    end)
 end
 
+-- Reverting a slot to the gear's own look is free on every configuration --
+-- the server never reaches its cost block for it.
 local function ClearSlot()
     Send(string.format("TMAPPLY:%d:0", currentSlot))
 end
 
 local function HideSlot()
-    Send(string.format("TMAPPLY:%d:%d", currentSlot, HIDDEN_DISPLAY))
+    local slot = currentSlot
+    -- Hiding is priced like any other apply unless the realm makes it free,
+    -- which it currently does.
+    local cost = hiddenFree and 0 or SlotCost(slot)
+
+    ConfirmSpend(cost, "Hiding this slot", function()
+        Send(string.format("TMAPPLY:%d:%d", slot, HIDDEN_DISPLAY))
+    end)
 end
 
 local function ToggleFavorite(row)
@@ -630,6 +771,7 @@ local function SelectSlot(slotId)
     ResetScroll()
     RebuildSubFilter()
     ResetModel()
+    UpdateCostText()
     Refresh()
 end
 
@@ -757,23 +899,68 @@ local function BuildFrame(parent)
     end)
 
     -- ---- action buttons under the preview ------------------------------
-    local applyBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    applyBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     applyBtn:SetWidth(74); applyBtn:SetHeight(22)
     applyBtn:SetPoint("TOPLEFT", modelFrame, "BOTTOMLEFT", 0, -6)
     applyBtn:SetText("Wear")
     applyBtn:SetScript("OnClick", ApplySelected)
+    applyBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Wear the selected appearance")
+        local cost = SlotCost(currentSlot)
+        if cost > 0 then
+            GameTooltip:AddLine("Costs " .. Coins(cost), 1, 0.82, 0)
+            GameTooltip:AddLine("You have " .. Coins(GetMoney()), 0.8, 0.8, 0.8)
+            GameTooltip:AddLine("The charge applies to every look you put on, not just the first.", 0.6, 0.6, 0.6, true)
+        else
+            GameTooltip:AddLine("Free", 0.1, 1, 0.1)
+        end
+        GameTooltip:Show()
+    end)
+    applyBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     local hideBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     hideBtn:SetWidth(74); hideBtn:SetHeight(22)
     hideBtn:SetPoint("LEFT", applyBtn, "RIGHT", 4, 0)
     hideBtn:SetText("Hide slot")
     hideBtn:SetScript("OnClick", HideSlot)
+    hideBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Show nothing in this slot")
+        local cost = hiddenFree and 0 or SlotCost(currentSlot)
+        if cost > 0 then
+            GameTooltip:AddLine("Costs " .. Coins(cost), 1, 0.82, 0)
+        else
+            GameTooltip:AddLine("Free", 0.1, 1, 0.1)
+        end
+        GameTooltip:Show()
+    end)
+    hideBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     local clearBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     clearBtn:SetWidth(74); clearBtn:SetHeight(22)
     clearBtn:SetPoint("LEFT", hideBtn, "RIGHT", 4, 0)
     clearBtn:SetText("Reset")
     clearBtn:SetScript("OnClick", ClearSlot)
+    clearBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Put the slot back to how the gear really looks")
+        GameTooltip:AddLine("Free", 0.1, 1, 0.1)
+        GameTooltip:Show()
+    end)
+    clearBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- ---- the price ------------------------------------------------------
+    -- Directly under the button that spends it. Two lines, so it has room to
+    -- say that the charge repeats -- the surprise was never really the price,
+    -- it was being billed again for every look tried on.
+    costText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    costText:SetPoint("TOPLEFT", applyBtn, "BOTTOMLEFT", 0, -8)
+    costText:SetWidth(PREVIEW_W + 8)
+    costText:SetJustifyH("LEFT")
+    costText:SetJustifyV("TOP")
+    costText:SetHeight(30)
+    costText:SetText("")
 
     -- ---- search + filters ----------------------------------------------
     local search = CreateFrame("EditBox", "UncappedTransmogSearch", frame, "InputBoxTemplate")
@@ -1040,13 +1227,27 @@ function UncappedTransmogOutfits()
                 DEFAULT_CHAT_FRAME:AddMessage("|cff9d4edd[Transmog]|r name the outfit first.")
                 return
             end
-            Send("TMSETSAVE:" .. name)
-            nameBox:SetText("")
+            -- Saving is the expensive one: it is priced off every appearance
+            -- in the outfit and then multiplied, so it routinely runs to
+            -- hundreds of gold where a single slot costs tens.
+            ConfirmSpend(outfitSaveCost, "Saving \"" .. name .. "\"", function()
+                Send("TMSETSAVE:" .. name)
+                nameBox:SetText("")
+            end)
         end)
+        saveBtn:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Save the look you are wearing")
+            GameTooltip:AddLine("Costs " .. Coins(outfitSaveCost), 1, 0.82, 0)
+            GameTooltip:AddLine("Wearing a saved outfit again is free.", 0.6, 0.6, 0.6)
+            GameTooltip:Show()
+        end)
+        saveBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        outfitFrame.saveBtn = saveBtn
 
         local hint = outfitFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         hint:SetPoint("BOTTOM", 0, 22)
-        hint:SetText("Saves whatever you are currently transmogrified into.")
+        outfitFrame.hint = hint
     end
 
     for i, row in ipairs(outfitFrame.rows) do
@@ -1060,6 +1261,10 @@ function UncappedTransmogOutfits()
             row:Hide()
         end
     end
+
+    -- Repainted on every open and on every TMSETEND, because the quote tracks
+    -- what the character currently has on.
+    outfitFrame.hint:SetText("Saving costs " .. Coins(outfitSaveCost) .. " -- wearing one again is free.")
 
     outfitFrame:Show()
 end
@@ -1130,7 +1335,15 @@ end
 -- =====================================================================
 local comms = CreateFrame("Frame")
 comms:RegisterEvent("CHAT_MSG_ADDON")
-comms:SetScript("OnEvent", function(_, _, prefix, text)
+-- The price line is coloured by whether you can actually pay it, so it has to
+-- follow the purse as well as the slot.
+comms:RegisterEvent("PLAYER_MONEY")
+comms:SetScript("OnEvent", function(_, event, prefix, text)
+    if event == "PLAYER_MONEY" then
+        UpdateCostText()
+        return
+    end
+
     if prefix ~= ADDON_PIPE_PREFIX or not text then return end
     if text:sub(1, 2) ~= "TM" then return end
 
@@ -1140,6 +1353,10 @@ comms:SetScript("OnEvent", function(_, _, prefix, text)
     elseif text:find("^TMHI:") then
         local _, sets, maxN = text:match("^TMHI:(%d+):(%d+):(%d+)")
         if maxN then maxSets = tonumber(maxN) end
+        -- Matched separately: the flag was appended to a line older servers
+        -- send seven fields of, and a single pattern would then match nothing.
+        local free = text:match("^TMHI:%d+:%d+:%d+:%d+:%d+:%d+:%d+:(%d+)")
+        if free then hiddenFree = (free == "1") end
 
     elseif text:find("^TMPK:") then
         local seq, chunk = text:match("^TMPK:(%d+):(.*)$")
@@ -1197,9 +1414,20 @@ comms:SetScript("OnEvent", function(_, _, prefix, text)
             }
         end
 
+    elseif text:find("^TMEQC:") then
+        -- Arrives right behind its own TMEQ line, which has already rebuilt
+        -- the slot record this writes into.
+        local slot, copper = text:match("^TMEQC:(%d+):(%d+)$")
+        local eq = slot and equipment[tonumber(slot)]
+        if eq then
+            eq.cost = tonumber(copper)
+            if tonumber(slot) == currentSlot then UpdateCostText() end
+        end
+
     elseif text:find("^TMEQEND") then
         -- Eligibility and the subclass list both depend on what is equipped,
         -- and the window is opened before this snapshot lands.
+        UpdateCostText()
         if frame and frame:IsShown() then
             RebuildSubFilter()
             Refresh()
@@ -1230,6 +1458,9 @@ comms:SetScript("OnEvent", function(_, _, prefix, text)
     elseif text:find("^TMSETEND:") then
         local _, maxN = text:match("^TMSETEND:(%d+):(%d+)")
         if maxN then maxSets = tonumber(maxN) end
+
+        local saveCost = text:match("^TMSETEND:%d+:%d+:(%d+)")
+        outfitSaveCost = tonumber(saveCost) or 0
 
         wipe(outfits)
         for id, outfit in pairs(outfitStaging) do outfits[id] = outfit end
@@ -1308,6 +1539,35 @@ if UncappedUI then
         UncappedTransmogDB.collectionCount = nil
         Send("TMSYNC:4294967295")
     end, 160)
+
+    L:Gap()
+    L:Header("Cost")
+    L:Note("Putting a look on charges gold, every time -- the price is set by the piece of gear you are "
+        .. "re-skinning, so it is the same whichever appearance you pick. It is shown under the Wear "
+        .. "button and on each appearance's tooltip. Resetting a slot back to your real gear is free, "
+        .. "and so is hiding one.", 60)
+    local costDD = L:Dropdown("Ask before spending", {
+        { value = 0,       text = "Always ask" },
+        { value = 10000,   text = "Ask above 1g" },
+        { value = 100000,  text = "Ask above 10g" },
+        { value = 1000000, text = "Ask above 100g" },
+        { value = -1,      text = "Never ask" },
+    }, function()
+        UncappedTransmogDB = UncappedTransmogDB or {}
+        local v = UncappedTransmogDB.confirmAt
+        if v == nil then return DEFAULT_CONFIRM_AT end
+        return v
+    end, function(v)
+        UncappedTransmogDB = UncappedTransmogDB or {}
+        UncappedTransmogDB.confirmAt = v
+    end, 160)
+
+    -- This file runs before saved variables are guaranteed to be in place, so
+    -- the dropdown re-reads its value every time the page is opened rather
+    -- than trusting what it saw at load.
+    panel.refresh = function()
+        if costDD.uncappedRefresh then costDD.uncappedRefresh() end
+    end
 
     UncappedTransmogPanel = panel
 end
