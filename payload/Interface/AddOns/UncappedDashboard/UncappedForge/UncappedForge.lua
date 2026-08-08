@@ -1664,14 +1664,27 @@ watcher:SetScript("OnEvent", function(_, event, arg1)
         -- not just before the OpenInDashboard.
         --
         -- The test is maxRank, not the skill's name: class tradeskills report a
-        -- rank and max of 0 while any real profession has a max of at least 75,
-        -- and unlike a string compare that holds on every locale.
+        -- tiny max while any real profession has a max of at least 75, and
+        -- unlike a string compare that holds on every locale.
+        --
+        -- ⚠ 2026-08-08, reports #290/#291: the threshold below used to be
+        -- `skillMax == 0`, which is the reasoning above written down wrongly.
+        -- Runeforging does NOT report 0 -- every Death Knight on this realm has
+        -- character_skills (skill 776) value 1, max 1. So the bail-out never
+        -- fired, CloseTradeSkill() ran, and #184 was only ever half fixed: a DK
+        -- still could not runeforge, which blocks "Runeforging: Preparation for
+        -- Battle", the SECOND quest of the starting zone. Nobody could level a
+        -- new Death Knight past it.
+        --
+        -- 75 is the real boundary and it is not a guess: apprentice rank in
+        -- every profession and secondary skill caps at 75, so no window we do
+        -- want to replace can ever come in under it.
         if IsTradeSkillLinked and IsTradeSkillLinked() then
             return   -- someone else's linked profession -- never ours to replace
         end
 
         local _, _, skillMax = GetTradeSkillLine()
-        if not skillMax or skillMax == 0 then
+        if not skillMax or skillMax < 75 then
             return   -- Runeforging / Poisons / Beast Training: leave Blizzard's window alone
         end
 

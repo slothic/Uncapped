@@ -18,7 +18,7 @@
     arg1..argN globals.
 ]]
 
-local CLIENT_VERSION = 50
+local CLIENT_VERSION = 51
 local PREFIX         = "UVER"
 local QUIT_SECONDS   = 10
 
