@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Stages everything the launcher ships into a flat payload tree.
 
@@ -76,6 +76,7 @@ $devOnly = @{
     'UncappedFlightLog'    = 'dev instrumentation, never reviewed for release'
     'UncappedSoundLab'     = 'dev tool for auditioning sound kits, not player-facing'
     'UncappedRouteBuilder' = 'dev tool for authoring rocket paths in-game, not player-facing'
+    'UncappedCookFire'     = 'GM tool: spawns cooking-fire gameobjects via .gobject, useless without GM rights'
 }
 
 function Add-AddonFolder {
