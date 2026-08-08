@@ -211,15 +211,79 @@ local function PlayerClass()
 end
 Core.PlayerClass = PlayerClass
 
+--[[ Sorting BY STAT -- report #308.
+
+     ★ PER-STAT KEYS, NOT A "TOTAL STATS" NUMBER, and that is the whole design
+     decision. Summing an item's stats gives a figure with no meaning: 40 Stamina
+     + 30 Crit Rating is not "70 good", and the piece that wins such a ranking is
+     whichever one spent its budget on the cheapest stats. Worse, the honest
+     version of "how much stat is on this item" ALREADY EXISTS and is already a
+     column -- that is precisely what item level encodes -- so a totals sort would
+     be a noisier duplicate of Level that disagreed with it. Nobody looking at a
+     vault full of mythic-bag gear wants "most stats"; they want "my highest
+     Strength pieces", which is a question only a per-stat key can answer.
+
+     Values come from GetItemStats, which the 3.3.5a client does export (verified
+     in the client binary, along with every ITEM_MOD_* key named below). It needs
+     an item LINK and therefore a warm item cache -- see StatsFor.
+
+     ⚠ ARMOUR AND RESISTANCES ARE DELIBERATELY ABSENT. 3.3.5a's GetItemStats has
+     no ITEM_MOD_ARMOR and no RESISTANCEn_NAME key -- neither string exists in the
+     client at all -- so an "Armor" entry could only ever sort every item as 0.
+     An option that silently does nothing is worse than an option that is missing.
+
+     `tokens` is tried in order and the FIRST hit wins, never a sum: the plain and
+     _SHORT spellings are two names for one stat, and Spell Power / Spell Damage
+     likewise, so adding them would double-count.
+]]
+local STAT_SORTS = {
+    { key = "strength",    label = "Strength",       tokens = { "ITEM_MOD_STRENGTH_SHORT", "ITEM_MOD_STRENGTH" } },
+    { key = "agility",     label = "Agility",        tokens = { "ITEM_MOD_AGILITY_SHORT", "ITEM_MOD_AGILITY" } },
+    { key = "stamina",     label = "Stamina",        tokens = { "ITEM_MOD_STAMINA_SHORT", "ITEM_MOD_STAMINA" } },
+    { key = "intellect",   label = "Intellect",      tokens = { "ITEM_MOD_INTELLECT_SHORT", "ITEM_MOD_INTELLECT" } },
+    { key = "spirit",      label = "Spirit",         tokens = { "ITEM_MOD_SPIRIT_SHORT", "ITEM_MOD_SPIRIT" } },
+    { key = "ap",          label = "Attack Power",   tokens = { "ITEM_MOD_ATTACK_POWER_SHORT", "ITEM_MOD_ATTACK_POWER" } },
+    { key = "sp",          label = "Spell Power",    tokens = { "ITEM_MOD_SPELL_POWER_SHORT", "ITEM_MOD_SPELL_POWER", "ITEM_MOD_SPELL_DAMAGE_DONE", "ITEM_MOD_SPELL_HEALING_DONE" } },
+    { key = "crit",        label = "Crit Rating",    tokens = { "ITEM_MOD_CRIT_RATING_SHORT", "ITEM_MOD_CRIT_RATING" } },
+    { key = "haste",       label = "Haste Rating",   tokens = { "ITEM_MOD_HASTE_RATING_SHORT", "ITEM_MOD_HASTE_RATING" } },
+    { key = "hit",         label = "Hit Rating",     tokens = { "ITEM_MOD_HIT_RATING_SHORT", "ITEM_MOD_HIT_RATING" } },
+    { key = "expertise",   label = "Expertise",      tokens = { "ITEM_MOD_EXPERTISE_RATING_SHORT", "ITEM_MOD_EXPERTISE_RATING" } },
+    { key = "arp",         label = "Armor Pen",      tokens = { "ITEM_MOD_ARMOR_PENETRATION_RATING_SHORT", "ITEM_MOD_ARMOR_PENETRATION_RATING" } },
+    { key = "resilience",  label = "Resilience",     tokens = { "ITEM_MOD_RESILIENCE_RATING_SHORT", "ITEM_MOD_RESILIENCE_RATING" } },
+    { key = "defense",     label = "Defense Rating", tokens = { "ITEM_MOD_DEFENSE_SKILL_RATING_SHORT", "ITEM_MOD_DEFENSE_SKILL_RATING" } },
+    { key = "dodge",       label = "Dodge Rating",   tokens = { "ITEM_MOD_DODGE_RATING_SHORT", "ITEM_MOD_DODGE_RATING" } },
+    { key = "parry",       label = "Parry Rating",   tokens = { "ITEM_MOD_PARRY_RATING_SHORT", "ITEM_MOD_PARRY_RATING" } },
+    { key = "block",       label = "Block Value",    tokens = { "ITEM_MOD_BLOCK_VALUE_SHORT", "ITEM_MOD_BLOCK_VALUE" } },
+    { key = "mp5",         label = "Mana per 5 sec", tokens = { "ITEM_MOD_POWER_REGEN_SHORT", "ITEM_MOD_POWER_REGEN", "ITEM_MOD_MANA_REGENERATION" } },
+}
+Core.STAT_SORTS = STAT_SORTS
+
+-- Sort key strings live on the defs themselves so nothing ever spells one out
+-- by hand. STAT_BY_SORTKEY is the reverse map the sorters and the UI both read.
+local STAT_BY_SORTKEY = {}
+for _, def in ipairs(STAT_SORTS) do
+    def.sortKey = "stat:" .. def.key
+    STAT_BY_SORTKEY[def.sortKey] = def
+end
+Core.STAT_BY_SORTKEY = STAT_BY_SORTKEY
+
 -- The sort keys SORTERS (defined much further down, after the helpers it needs)
 -- actually implements. Duplicated up here for the same reason as PlayerClass:
 -- GetDB validates the saved sort and GetDB comes first. Any key added to SORTERS
 -- must be added here too, or it will be silently rejected on load and fall back
 -- to "recent".
+--
+-- The stat keys avoid that trap entirely by being GENERATED from STAT_SORTS in
+-- both places, here and at SORTERS, so the pair cannot drift no matter how many
+-- stats get added. Only the six fixed keys are still written twice, and those
+-- have not changed since report #267.
 local SORT_KEYS = {
     name = true, level = true, rarity = true, quantity = true,
     slot = true, recent = true,
 }
+for _, def in ipairs(STAT_SORTS) do
+    SORT_KEYS[def.sortKey] = true
+end
 Core.SORT_KEYS = SORT_KEYS
 
 -- MUST list every category CategoryFor() can return (see CLASS_CAT and
@@ -231,7 +295,7 @@ Core.SORT_KEYS = SORT_KEYS
 -- SLOT_LABELS label, but never added here, so every gem and every glyph in the
 -- Vault was invisible in grid view (reported: "glyphs don't show up at all").
 local CATEGORY_ORDER = {
-    "all", "weapon", "armor", "consumable", "trade", "enchanting",
+    "all", "weapon", "armor", "ammo", "consumable", "trade", "enchanting",
     "jewelcrafting", "engineering", "leatherworking", "tailoring",
     "cooking", "herbalism", "mining", "gem", "glyph", "recipe", "quest",
     "misc", "other",
@@ -241,6 +305,7 @@ local CATEGORY_LABELS = {
     all = "All Categories",
     weapon = "Weapons",
     armor = "Armor",
+    ammo = "Ammunition",
     consumable = "Consumables",
     trade = "Trade Goods",
     enchanting = "Enchanting",
@@ -261,15 +326,25 @@ local CATEGORY_LABELS = {
 Core.CATEGORY_LABELS = CATEGORY_LABELS
 Core.CATEGORY_COUNT = #CATEGORY_ORDER - 1
 
+-- ⚠ THESE ARE ITEM *CLASS* IDS AND THE NUMBERING IS A TRAP. Class 6 is
+-- PROJECTILE (arrows and bullets); TRADE GOODS is class 7. Mapping 6 to "trade"
+-- did not merely put ammo in the wrong bucket -- it made ammo inherit the TRADE
+-- subcategory names, which are keyed by subclass. Arrows are subclass 2 and
+-- bullets subclass 3, so the Vault confidently filed every arrow you owned under
+-- "Explosives" and every bullet under "Devices" (report #296).
+-- Class 11 (Quiver) had no entry at all. Quivers are containers rather than
+-- ammunition, so they go to misc rather than joining the new category, where
+-- their own subclasses (2 = Quiver, 3 = Ammo Pouch) would collide all over again.
 local CLASS_CAT = {
     [0] = "consumable",
     [2] = "weapon",
     [3] = "gem",
     [4] = "armor",
     [5] = "trade",
-    [6] = "trade",
+    [6] = "ammo",
     [7] = "trade",
     [9] = "recipe",
+    [11] = "misc",
     [12] = "quest",
     [15] = "misc",
     [16] = "glyph",
@@ -332,6 +407,10 @@ local SUBCATEGORY_DEFS = {
         { key = "enhancement", label = "Item Enhancements", sub = 6 },
         { key = "bandage", label = "Bandages", sub = 7 },
         { key = "other", label = "Other", sub = 8 },
+    },
+    ammo = {
+        { key = "arrow", label = "Arrows", sub = 2 },
+        { key = "bullet", label = "Bullets", sub = 3 },
     },
     trade = {
         { key = "parts", label = "Parts", sub = 1 },
@@ -928,6 +1007,103 @@ local SORTERS = {
     end,
 }
 
+--[[ Stat lookup for a row, memoised per (entry, random property).
+
+     NOT stored on the row and NOT persisted, unlike it.eq and it.rl. Those are
+     one scalar each; this is a whole table per item, and writing a thousand of
+     them into SavedVariables every session would cost far more than recomputing
+     them -- GetItemStats is a local call against a cache the warmer already
+     fills. The values are also a pure function of (entry, suffix), so nothing
+     about them can go stale while the client runs.
+
+     Tri-state, exactly like EquipSlotFor:
+       nil    -- never asked
+       false  -- asked while the client's item cache was cold. NOT "no stats":
+                 the answer is unknown, and it is retried once the warmer has an
+                 entry (see the invalidation in the warmer's OnUpdate).
+       table  -- the client's answer, possibly empty for ore and potions.
+
+     ⚠ MEMOISING THE COLD CASE IS LOAD-BEARING, not just a speed-up. table.sort
+     raises "invalid order function for sorting" if a comparator's answers change
+     underneath it, and an item cache entry can land at any moment. Freezing each
+     row's value for the duration of a sort makes that impossible; the warmer only
+     clears memos from its own OnUpdate, never mid-comparison. ]]
+local statMemo = {}
+
+local function StatsFor(it)
+    local e = it.e
+    if not e or e <= 0 then return false end
+
+    local rp = tonumber(it.rp) or 0
+    local perEntry = statMemo[e]
+    if perEntry then
+        local memo = perEntry[rp]
+        if memo ~= nil then return memo end
+    else
+        perEntry = {}
+        statMemo[e] = perEntry
+    end
+
+    -- GetItemStats wants a LINK, and a link only means anything once the client
+    -- has the entry cached -- GetItemInfo returning nil is that signal, the same
+    -- one EquipSlotFor and MinLevelFor use.
+    local name, link = GetItemInfo(e)
+    if not name then
+        perEntry[rp] = false
+        return false
+    end
+
+    --[[ Suffixed rows get a link built by hand rather than GetItemInfo's, which
+         always describes suffix 0. The suffix's own stats are derived by the
+         client from the suffix id and the item's stat budget, so the trailing
+         uniqueId (a server-side seed) is genuinely not needed and 0 is correct.
+
+         If a client ever declines to read the hand-built link, the fallback is
+         the item's BASE stats, which is a mildly wrong ordering rather than a
+         broken one -- worth knowing, since it is the part of this that is not
+         verified in game. ]]
+    if rp ~= 0 then
+        link = format("item:%d:0:0:0:0:0:%d:0", e, rp)
+    end
+
+    local ok, stats = pcall(GetItemStats, link)
+    if not ok or type(stats) ~= "table" then stats = false end
+    perEntry[rp] = stats
+    return stats
+end
+
+-- 0 for "this item does not have that stat" AND for "we do not know yet". Both
+-- sort to the bottom of the list, which is the same treatment ilvl 0 already
+-- gets, and unknowns correct themselves as the warmer fills the item cache.
+local function StatValueFor(it, sortKey)
+    local def = STAT_BY_SORTKEY[sortKey]
+    local stats = def and StatsFor(it)
+    if not stats then return 0 end
+
+    for i = 1, #def.tokens do
+        local v = stats[def.tokens[i]]
+        if v then return tonumber(v) or 0 end
+    end
+    return 0
+end
+Core.StatValueFor = StatValueFor
+
+-- Generated from the same table SORT_KEYS was, so a stat can never be offered
+-- without a sorter behind it or given a sorter the saved-preference check will
+-- reject. Ties fall through to item level and then rarity, matching what report
+-- #267 established for every other column: whichever key you picked, the others
+-- keep doing useful work rather than dumping you into alphabetical order.
+for _, def in ipairs(STAT_SORTS) do
+    local sortKey = def.sortKey
+    SORTERS[sortKey] = function(a, b)
+        local av, bv = StatValueFor(a, sortKey), StatValueFor(b, sortKey)
+        if av ~= bv then return av > bv end
+        if (a.ilvl or 0) ~= (b.ilvl or 0) then return (a.ilvl or 0) > (b.ilvl or 0) end
+        if (a.q or 0) ~= (b.q or 0) then return (a.q or 0) > (b.q or 0) end
+        return ResolveName(a) < ResolveName(b)
+    end
+end
+
 --[[ Grid buckets.
 
      Headers used to be top-level categories and only that, so drilling into
@@ -1296,6 +1472,12 @@ warmer:SetScript("OnUpdate", function(_, dt)
         if GetItemInfo(e) then
             pending[e] = nil
             tremove(warmQueue, i)
+            -- Drop any "asked while cold" answer StatsFor recorded for this
+            -- entry, so the stat sorts pick it up on the Notify("icons")
+            -- rebuild below instead of treating it as a statless item forever.
+            -- Cleared by ENTRY, which is why the memo is nested by entry: every
+            -- suffix variant of this item was cold for the same reason.
+            statMemo[e] = nil
             iconsDirty = true
         elseif not queried[e] and fired < 10 then
             queried[e] = true

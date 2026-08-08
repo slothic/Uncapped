@@ -30,15 +30,21 @@ local GRID_HEADER_H = 30
 -- RefreshGridRowCount and out of the first row's y in RefreshGrid -- both, or
 -- the bottom row runs under the pager.
 local GRID_SORT_H = 32
--- Clears the List/Grid buttons (bottom edge at -76) AND the "my class only"
--- check button below them (-80 to -104), with a small gap.
-local CATEGORY_START_Y = 108
+-- Clears the List/Grid buttons (bottom edge at -76), the "my class only" check
+-- button below them (-80 to -104), and the "Sort by stat" label + dropdown below
+-- that (-110 to -154), with a small gap.
+--
+-- Raised from 108 for the stat dropdown (report #308). The category list is a
+-- windowed scroller -- RefreshCategories derives its visible row count from
+-- categoryScroll's actual height -- so spending 52px here costs two visible rows
+-- of a list that already had to scroll, not any category's reachability.
+local CATEGORY_START_Y = 160
 local CATEGORY_ROW_H = 24
 
 local frame, searchBox, categoryPanel, categoryScroll, tablePanel, gridPanel, footerBar
 local rows, catRows, gridSlots, gridHeaders = {}, {}, {}, {}
 local viewButtons = {}
-local qualityDD, slotDD, classOnlyCheck, gridSortBtn
+local qualityDD, slotDD, statDD, classOnlyCheck, gridSortBtn
 
 local GOLD = { 1.00, 0.82, 0.22 }
 local BLUE = { 0.30, 0.62, 1.00 }
@@ -143,7 +149,13 @@ local function Dropdown(parent, name, width, choices, get, set)
             info.func = function()
                 set(choice.value)
                 UIDropDownMenu_SetSelectedValue(dd, choice.value)
-                UIDropDownMenu_SetText(dd, choice.text)
+                -- The label is re-derived from get() rather than reused from the
+                -- clicked entry, because `set` can legitimately produce a
+                -- different one: picking the stat you are already sorted by
+                -- flips the direction and so changes the caret, and the slot
+                -- entries carry live counts. Falling back to choice.text keeps
+                -- the old behaviour whenever nothing re-derives.
+                UIDropDownMenu_SetText(dd, dd.CurrentText() or choice.text)
             end
             UIDropDownMenu_AddButton(info)
         end
@@ -251,7 +263,31 @@ local SORT_LABELS = {
     recent = "Recent", name = "Name", level = "Item Level",
     rarity = "Rarity", quantity = "Quantity", slot = "Slot / Type",
 }
+--[[ The cycle stays the six FIXED keys and deliberately does not grow with the
+     stat sorts (report #308). A single button that cycles twenty-four orderings
+     one click at a time is not a control, it is a punishment, and the stats have
+     their own dropdown for that reason.
+
+     Cycling out of a stat sort still works without a special case: a key that is
+     not in this list leaves the search below at its default index of 1, so the
+     next click lands on entry 2, "name". ]]
 local SORT_CYCLE = { "recent", "name", "level", "rarity", "quantity", "slot" }
+
+-- Both lookups fall through to the generated stat keys ("stat:strength", ...),
+-- which have no static entry above and never will -- STAT_SORTS is the one place
+-- a stat is described, so the label and the tip are derived from it.
+local function SortLabel(key)
+    if SORT_LABELS[key] then return SORT_LABELS[key] end
+    local def = Core.STAT_BY_SORTKEY and Core.STAT_BY_SORTKEY[key]
+    return (def and def.label) or key or "Recent"
+end
+
+local function SortTip(key)
+    if SORT_TIPS[key] then return SORT_TIPS[key] end
+    local def = Core.STAT_BY_SORTKEY and Core.STAT_BY_SORTKEY[key]
+    if not def then return nil end
+    return "Most " .. def.label .. " first, then item level. Items without it sort last."
+end
 
 local function SortHeader(parent, label, key)
     local b = Button(parent, label, 10, TABLE_HEAD_H - 6)
@@ -261,7 +297,8 @@ local function SortHeader(parent, label, key)
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
         GameTooltip:SetText("Sort by " .. (self.label or ""))
-        if SORT_TIPS[key] then GameTooltip:AddLine(SORT_TIPS[key], 1, 1, 1) end
+        local tip = SortTip(key)
+        if tip then GameTooltip:AddLine(tip, 1, 1, 1) end
         GameTooltip:AddLine("Click again to reverse.", 0.7, 0.7, 0.7)
         GameTooltip:Show()
     end)
@@ -620,7 +657,7 @@ end
 local function RefreshGridSort()
     if not gridSortBtn then return end
     local key = Core.state.sort or "recent"
-    gridSortBtn.text:SetText("Sort: " .. (SORT_LABELS[key] or key)
+    gridSortBtn.text:SetText("Sort: " .. SortLabel(key)
         .. (Core.state.sortAsc and " |cff808080^|r" or " |cff808080v|r"))
 end
 
@@ -696,6 +733,18 @@ function UI.Refresh()
     -- the selection to "all" underneath us when the chosen slot empties out.
     UIDropDownMenu_SetSelectedValue(slotDD, Core.state.equipSlot)
     UIDropDownMenu_SetText(slotDD, slotDD.CurrentText() or "All Slots")
+    --[[ The stat dropdown is the ONLY thing marking a stat sort as active: no
+         table column owns one, so RefreshSortHeaders below correctly lights
+         nothing up. Carrying the same direction caret the headers and the grid
+         button carry keeps that readable rather than half-marked.
+
+         CurrentText() is nil whenever the active sort is not a stat, which is
+         what turns this back into its idle label the moment a column header is
+         clicked. ]]
+    if statDD then
+        UIDropDownMenu_SetSelectedValue(statDD, Core.state.sort)
+        UIDropDownMenu_SetText(statDD, statDD.CurrentText() or "Sort by Stat")
+    end
     if classOnlyCheck then classOnlyCheck:SetChecked(Core.state.classOnly and true or false) end
     RefreshViewButtons()
     RefreshSortHeaders()
@@ -884,6 +933,57 @@ local function BuildFrame(parent)
     classOnlyCheck:SetScript("OnEnter", ClassOnlyTooltip)
     classOnlyCheck:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
+    --[[ Sort by stat -- report #308.
+
+         A DROPDOWN, NOT COLUMNS. There are eighteen stats; the table has five
+         columns whose widths are fractions of a panel that is already tight, and
+         the grid view has no columns at all. Eighteen more headers would be
+         unreadable, and eighteen more stops on the grid's cycle button would make
+         reaching the last one an eighteen-click job.
+
+         ⚠ IN THE SIDEBAR AND NOT THE QUALITY/SLOT ROW, and that is a measurement
+         rather than a preference. UI.GetMinWidth() promises this window works at
+         660px; the dropdown row starts at PAD + LEFT_W + 12 + 5 = 273, leaving
+         371px, and the two dropdowns already there consume 165 + 18 + 165 = 348
+         of it. A third would hang off the right edge at every window size a
+         player is likely to use, which is how the fixed column offsets this
+         window used to have got themselves rewritten as fractions.
+
+         The sidebar is also where it belongs on its own merits: it already holds
+         View (List/Grid) and the "only gear I can use" lens, so it is the
+         window-controls column rather than a second filter bar, and it has 240px
+         to spend.
+
+         There is deliberately no "off" entry. Clearing it is what the column
+         headers and the grid's cycle button already do -- picking Rarity turns
+         this back to "Sort by Stat" through UI.Refresh -- and an entry meaning
+         "go back to whichever sort you had before" would be a third idiom for
+         something two controls already express. ]]
+    local statLabel = Text(categoryPanel, "GameFontNormalSmall", "TOPLEFT", categoryPanel, "TOPLEFT", 14, -110, "Sort by stat")
+    statLabel:SetTextColor(RGB(GOLD))
+    statDD = Dropdown(categoryPanel, "UncappedVaultStat", 170, function()
+        local out = {}
+        for _, def in ipairs(Core.STAT_SORTS or {}) do
+            out[#out + 1] = { value = def.sortKey, text = def.label }
+        end
+        return out
+    end, function() return Core.state.sort end, Core.SetSort)
+    -- -2 rather than 14: UIDropDownMenuTemplate carries ~16px of left chrome
+    -- before its text starts, so this is what lines the label up with the
+    -- "View" buttons and the class-only check above it.
+    statDD:SetPoint("TOPLEFT", categoryPanel, "TOPLEFT", -2, -122)
+
+    -- The direction caret belongs on the CLOSED control, not on the entries in
+    -- the open menu -- a caret against one row of a list reads as part of that
+    -- row's name. Wrapping CurrentText rather than decorating the choices puts
+    -- it in the one place both the click handler and UI.Refresh already read.
+    local statCurrentText = statDD.CurrentText
+    statDD.CurrentText = function()
+        local text = statCurrentText()
+        if not text then return nil end
+        return text .. (Core.state.sortAsc and " |cff808080^|r" or " |cff808080v|r")
+    end
+
     -- Category/subcategory list -- windowed the same way the item table's
     -- rows are (see RefreshCategories), so it scrolls instead of running
     -- past categoryPanel's bottom edge when there are more entries than fit.
@@ -991,7 +1091,8 @@ local function BuildFrame(parent)
         local key = Core.state.sort or "recent"
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
         GameTooltip:SetText("Sort")
-        if SORT_TIPS[key] then GameTooltip:AddLine(SORT_TIPS[key], 1, 1, 1) end
+        local tip = SortTip(key)
+        if tip then GameTooltip:AddLine(tip, 1, 1, 1) end
         GameTooltip:AddLine("Left-click cycles the order.", 0.7, 0.7, 0.7)
         GameTooltip:AddLine("Right-click reverses it.", 0.7, 0.7, 0.7)
         GameTooltip:Show()
