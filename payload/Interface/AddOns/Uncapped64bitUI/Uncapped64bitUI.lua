@@ -838,6 +838,18 @@ end
 -- unsaturated hit that would have landed in the band is pushed to BAND_BASE - 1
 -- by the encoder precisely so the band means one thing, and that value still
 -- means what it says -- so it stays filterable.
+-- ★★ MASTER SWITCH for this addon's own floating combat text. Retired
+--    2026-08-08 (owner's call) because UncappedCT.dll now corrects the ENGINE
+--    body floaters directly and renders them as K/M/B/T, which is strictly
+--    better: over the body rather than off to the side, and one renderer to keep
+--    in step with the wire format instead of two.
+--
+--    Left as a named flag rather than ripped out. The drawing code below is
+--    still reached by the /dev64 settings preview, and a single false is a much
+--    smaller thing to reason about -- and to reverse -- than a partially deleted
+--    pipeline.
+local FCT_ADDON_DRAWS = false
+
 local CT_BAND_BASE_MIN = 2145386496   -- WireMagnitude::BAND_BASE
 local CT_BAND_BASE_MAX = 2147483647   -- INT32_MAX
 
@@ -1103,6 +1115,7 @@ end
 -- The parse stays either way: the server still sends these, the legacy renderer
 -- still wants them, and a realm running an older worldserver has nothing else.
 ShowRealDamage = function(real)
+    if not FCT_ADDON_DRAWS then return end
     if not Cfg.legacyFct then return end
     if FctBelowThreshold(real) then return end
     FctSpawnText(Abbrev(real) .. "!", true, 1.0, 0.82, 0.0, true)
@@ -1111,6 +1124,7 @@ end
 -- Real (trillion-scale) outgoing heal, fed over the channel when the client's
 -- own combat log would show the 32-bit-capped value. Heal green, "+" prefix.
 ShowRealHeal = function(real)
+    if not FCT_ADDON_DRAWS then return end
     if not Cfg.legacyFct then return end
     if FctBelowThreshold(real) then return end
     FctSpawnText("+" .. Abbrev(real), true, 0.4, 1.0, 0.4, true, true)
@@ -1676,34 +1690,43 @@ end
 -- Which of the client's combat-text surfaces are switched on
 -- ---------------------------------------------------------------------------
 CT_ApplyBlizzardSurfaces = function()
-    -- Outside the mode switch below: the chat tab shows the same wrong number
-    -- whichever renderer is drawing the floating one.
+    -- The chat tab is still ours: it shows the same encoded number the floating
+    -- text does, and nothing outside Lua rewrites chat.
     CT_InstallChatHooks()
 
-    -- The engine floaters stay off in every mode. See the header: they are not
-    -- reachable from Lua, so they can only ever show the pinned value.
-    pcall(SetCVar, "floatingCombatTextCombatDamage", "0")
-    pcall(SetCVar, "floatingCombatTextCombatHealing", "0")
-    pcall(SetCVar, "floatingCombatTextCombatState", "0")   -- dodge/parry/miss floaters
+    --[[ ★★ THIS ADDON NO LONGER DRAWS FLOATING COMBAT TEXT. Retired 2026-08-08.
 
-    -- Silencing the scrolling region is the SAME action in both failure-ish
-    -- cases, and both need it: the legacy renderer draws every kind of feedback
-    -- itself, and a corrected mode that could not claim the region has fallen
-    -- back to those same floaters. Either way, leaving Blizzard's scroll on would
-    -- draw every number a second time.
-    if Cfg.legacyFct or not CT_ClaimScrollRegion() then
-        if COMBAT_TEXT_TYPE_INFO then
-            SHOW_COMBAT_TEXT = "0"
-            if CombatText_UpdateDisplayedMessages then pcall(CombatText_UpdateDisplayedMessages) end
-        end
-        return
+         UncappedCT.dll draws the ENGINE body floaters and corrects them itself:
+         it hooks the one function every floater passes through, decodes the wire
+         band, and renders the real magnitude abbreviated as K / M / B / T. See
+         NativeCT/src/UncappedCT.c and docs/design/NATIVE_COMBAT_TEXT.md.
+
+         So the scrolling renderer below became a SECOND, worse copy of a solved
+         problem -- numbers off to the side instead of over the body, and one more
+         thing to keep in step with the wire format. Owner's call: prune it.
+
+         ⚠ THE ENGINE FLOATERS MUST NOW BE LEFT ALONE.
+           This function used to force floatingCombatTextCombatDamage/Healing/State
+           to "0", on the reasoning that engine floaters "are not reachable from
+           Lua, so they can only ever show the pinned value". That was true before
+           the DLL shipped and is now exactly backwards -- switching them off here
+           would turn OFF the only correct renderer and leave players with no
+           floating numbers at all. The CVars are deliberately untouched.
+
+         What this addon still owns, and why it is NOT being pruned wholesale:
+           * the wire-band decode (CT_DecodeBand) -- shared with the chat rewrite
+           * the combat-log chat tab rewriting
+           * 64-bit health/number display and the paperdoll stat panel
+           * the /hideunder threshold plumbing
+    ]]
+
+    -- Blizzard's own scrolling region stays OFF. The DLL draws over the body; a
+    -- scroll on the side would be the same hit reported twice, in two places, in
+    -- two formats.
+    if COMBAT_TEXT_TYPE_INFO then
+        SHOW_COMBAT_TEXT = "0"
+        if CombatText_UpdateDisplayedMessages then pcall(CombatText_UpdateDisplayedMessages) end
     end
-
-    CT_InstallMessageWrapper()
-
-    SHOW_COMBAT_TEXT = "1"
-    pcall(SetCVar, "enableCombatText", "1")
-    if CombatText_UpdateDisplayedMessages then pcall(CombatText_UpdateDisplayedMessages) end
 end
 
 -- ---------------------------------------------------------------------------
@@ -1729,6 +1752,14 @@ end
 -- Combat-log routing
 -- ---------------------------------------------------------------------------
 local function FctDamage(srcGUID, dstGUID, amount, crit, isSpell)
+    -- ★ RETIRED 2026-08-08: this addon no longer draws floating combat text.
+    --   UncappedCT.dll corrects the ENGINE body floaters (K/M/B/T) -- see
+    --   CT_ApplyBlizzardSurfaces. Returning here rather than deleting the
+    --   pipeline below keeps one honest off-switch instead of a half-removed
+    --   renderer, and the enqueue/draw machinery is still referenced by the
+    --   /dev64 preview.
+    if not FCT_ADDON_DRAWS then return end
+
     if not amount or amount <= 0 then return end
 
     local outgoing = FctMine(srcGUID)
@@ -1768,6 +1799,14 @@ end
 -- Miss/dodge/parry/block/absorb/immune/resist -- avoided attacks. No number, so
 -- nothing to correct and nothing to hold a frame for.
 local function FctMiss(srcGUID, dstGUID, missType)
+    -- ★ RETIRED 2026-08-08: this addon no longer draws floating combat text.
+    --   UncappedCT.dll corrects the ENGINE body floaters (K/M/B/T) -- see
+    --   CT_ApplyBlizzardSurfaces. Returning here rather than deleting the
+    --   pipeline below keeps one honest off-switch instead of a half-removed
+    --   renderer, and the enqueue/draw machinery is still referenced by the
+    --   /dev64 preview.
+    if not FCT_ADDON_DRAWS then return end
+
     local label = MISS_TEXT[missType] or "Miss"
     if FctMine(srcGUID) then
         -- Your attack was avoided.
@@ -1786,6 +1825,14 @@ local function FctMiss(srcGUID, dstGUID, missType)
 end
 
 local function FctHeal(srcGUID, dstGUID, amount, crit)
+    -- ★ RETIRED 2026-08-08: this addon no longer draws floating combat text.
+    --   UncappedCT.dll corrects the ENGINE body floaters (K/M/B/T) -- see
+    --   CT_ApplyBlizzardSurfaces. Returning here rather than deleting the
+    --   pipeline below keeps one honest off-switch instead of a half-removed
+    --   renderer, and the enqueue/draw machinery is still referenced by the
+    --   /dev64 preview.
+    if not FCT_ADDON_DRAWS then return end
+
     if not amount or amount <= 0 then return end
 
     local outgoing = FctMine(srcGUID)
