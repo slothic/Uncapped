@@ -841,6 +841,58 @@ end
 local CT_BAND_BASE_MIN = 2145386496   -- WireMagnitude::BAND_BASE
 local CT_BAND_BASE_MAX = 2147483647   -- INT32_MAX
 
+-- ---------------------------------------------------------------------------
+-- Decoding the wire band
+-- ---------------------------------------------------------------------------
+-- A saturated hit does not arrive as a number; it arrives as a mini-float packed
+-- into the low 21 bits above BAND_BASE (server side: WireMagnitude in
+-- Damage64Log.h). 6-bit exponent, 15-bit mantissa with an implicit leading 1:
+--
+--     wire = BAND_BASE + (exponent * 32768) + mantissa
+--     real = (mantissa + 32768) * 2^exponent
+--
+-- ★ THIS IS WHY THE SERVER'S CORRECTION FEED IS DEAD, AND WHY THAT IS FINE.
+--
+--   The feed used to send one addon message per saturated hit carrying the true
+--   figure. It cannot fire any more: every caller now pins on the ENCODED value,
+--   which lives in [2145386496, 2147483647], and the server's own gate needs a
+--   value clearing 2147483520 -- i.e. exponent 63, which Encode never emits
+--   (it caps at 47). The two sides disagreed in the same direction: CT_MATCH_FLOOR
+--   below is 2147483008, ABOVE BAND_BASE, so this addon would have refused to
+--   look up an encoded hit even if one had been sent.
+--
+--   Re-opening the feed would have been the wrong repair anyway. It puts one
+--   message on the wire per saturated hit, and a 250-mob AoE tick produces 250
+--   of them -- exactly the flood the band encoding was invented to remove.
+--   Decoding here costs nothing, works for every hit including ones no feed
+--   would have been allowed to cover, and cannot be rate-limited away.
+--
+-- ⚠ PRECISION. ~4.5 significant digits, by construction. The melee packet writes
+--   each sub-damage as float32 as well as uint32, and float32 near 2^31 can only
+--   represent multiples of 256, so the low 8 bits of the code may be lost in
+--   transit. The mantissa is laid out LOW precisely so that costs ~0.4% of the
+--   displayed figure instead of corrupting the exponent. These numbers are drawn
+--   abbreviated ("4.7T"), so the error is invisible at the size it applies to.
+--
+-- Exponents above 47 are refused here exactly as they are on the server: the
+-- mantissa carries 16 bits, so 63 - 16 = 47 is the largest shift that cannot
+-- overflow, and a foreign value that merely happens to land in the band must be
+-- passed through untouched rather than mangled into nonsense.
+local CT_MANTISSA_STEP = 32768        -- 1 << WireMagnitude::MANTISSA_BITS
+local CT_MAX_EXPONENT  = 47           -- WireMagnitude::MAX_EXPONENT
+
+local function CT_DecodeBand(wire)
+    if type(wire) ~= "number" then return nil end
+    if wire < CT_BAND_BASE_MIN or wire > CT_BAND_BASE_MAX then return nil end
+
+    local code     = wire - CT_BAND_BASE_MIN
+    local exponent = math.floor(code / CT_MANTISSA_STEP)
+    if exponent > CT_MAX_EXPONENT then return nil end
+
+    local mantissa = (code - exponent * CT_MANTISSA_STEP) + CT_MANTISSA_STEP
+    return mantissa * (2 ^ exponent)
+end
+
 local function FctBelowThreshold(amount)
     local m = Cfg.minFloat or 0
     if m <= 0 or not amount then return false end
@@ -1273,6 +1325,16 @@ end
 -- keying below separates OUR simultaneous hits from each other; cross-player
 -- leakage is prevented a step earlier, where it cannot be got wrong.
 local function CT_Take(kind, src, dst, amount)
+    -- The band decodes to its own truth, so it is answered before the correction
+    -- table is consulted at all -- no GUID match, no TTL, no budget, and it works
+    -- for a 250-target AoE tick where a message-based feed could not.
+    --
+    -- Checked BEFORE the CT_MATCH_FLOOR gate on purpose: that floor is 2147483008
+    -- and BAND_BASE is 2145386496, so most encoded hits sit below it and the old
+    -- ordering rejected them before anyone could look.
+    local decoded = CT_DecodeBand(amount)
+    if decoded then return decoded end
+
     if not amount or amount < CT_MATCH_FLOOR then return nil end
     local now = GetTime()
     for i = 1, #ctPending do
@@ -1562,12 +1624,19 @@ local function CT_RewriteChatLine(msg)
     -- only a ten-digit run can possibly be a pinned combat number -- so ordinary
     -- chat costs one failed find and nothing else.
     if not msg:find("%d%d%d%d%d%d%d%d%d%d") then return msg end
-    if #ctPendingChat == 0 then return msg end
+
+    -- ⚠ NO `#ctPendingChat == 0` EARLY-OUT ANY MORE.
+    --   It used to bail here when the correction queue was empty, which since the
+    --   feed went dead is ALWAYS -- so the combat log tab showed the raw pinned
+    --   ~2.14B for every big hit on the realm and nothing could ever change it.
+    --   Band decoding needs no queue, so the gate that used to be free is now the
+    --   thing standing in the way.
 
     for numStr in msg:gmatch("%d+") do
         local n = tonumber(numStr)
-        if n and n >= CT_MATCH_FLOOR and n <= 2147483647 then
-            local real = CT_TakeChat(n)
+        if n and n >= CT_BAND_BASE_MIN and n <= CT_BAND_BASE_MAX then
+            -- Band first, correction table second -- same reasoning as CT_Take.
+            local real = CT_DecodeBand(n) or (n >= CT_MATCH_FLOOR and CT_TakeChat(n) or nil)
             if real then
                 -- Every occurrence of that digit run, not just the first: the
                 -- same figure is repeated in the "(N overkill)" and "(N
