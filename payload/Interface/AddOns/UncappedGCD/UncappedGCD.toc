@@ -1,9 +1,9 @@
 ## Interface: 30300
 ## Title: Uncapped Stats
-## Notes: Shows your Time Manipulation and Cooldown Reduction values inside the AllStats character panel.
+## Notes: Draws the global cooldown on your action bars, and shows your Time Manipulation and Cooldown Reduction values in the AllStats character panel.
 ## Author: Uncapped
-## Dependencies: AllStats
-## OptionalDeps: UncappedOptions
+## OptionalDeps: AllStats, UncappedOptions
 ## SavedVariables: UncappedGCDDB
 
+UncappedGCD_Data.lua
 UncappedGCD.lua

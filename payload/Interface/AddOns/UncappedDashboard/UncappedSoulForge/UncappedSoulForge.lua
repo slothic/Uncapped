@@ -285,9 +285,68 @@ end
 
 local SND_SEAL = "Sound\\Spells\\SoulstoneResurrection_Base.wav"
 
+--[[ ==========================================================================
+     ★★ CAPABILITY GATE -- "does this server understand mode 2 (KEEP)?"
+
+     THE HAZARD THIS EXISTS FOR IS OUR OWN DEPLOY ORDER, NOT A BUG.
+
+     The realm patches CLIENT FIRST, always: publish the payload, confirm the
+     CDN is serving it, and only THEN take the server down -- because the
+     launcher blocks PLAY on a stale client, so patching the other way round
+     strands everyone. The consequence is a window of a few minutes in which
+     THIS ADDON IS LIVE AGAINST THE OLD SERVER.
+
+     An old server parses ICAO as `ParseU32(args) != 0`. It has no mode 2. So a
+     player who relaunches inside that window, opens this panel and picks
+     "Open them and keep everything" sends a 2, the old server reads it as
+     "on" -- and MELTS THEIR GEAR. That is precisely the failure report #375 is
+     about, delivered by our own deploy sequencing, to the players keenest to
+     use the fix.
+
+     THE PROOF IS FREE AND ALREADY ON THE WIRE. ICSACKS is a verb only the new
+     server sends, and the new server bundles it into every reply to the ICSF
+     request this addon already makes at PLAYER_LOGIN and on every tab
+     activation. So no new probe is needed: receiving one IS the handshake, and
+     never receiving one IS an old server.
+
+     FAILS CLOSED, DELIBERATELY. Until an ICSACKS lands, KEEP is unavailable and
+     mode 2 is not sent under any circumstance -- not by the click handler, not
+     by anything. Off (0) and melt (1) stay live throughout, because both
+     predate this release and mean exactly the same thing on either server. A
+     greyed row for a few minutes is a nuisance; a melted stack of epics is
+     unrecoverable.
+
+     Session-scoped and a plain file-local on purpose: nothing persists it,
+     nothing can copy it into saved variables, and /reload re-probes at
+     PLAYER_LOGIN.
+     ========================================================================== ]]
+local serverKeepOk = false
+
+-- 211972 -> "211,972". BreakUpLargeNumbers does not exist in 3.3.5a, and the
+-- top sack holder on this realm is carrying six figures of them -- an unbroken
+-- run of digits there is genuinely hard to read at a glance.
+local function groupDigits(n)
+  local s = tostring(n or 0)
+  local out = s
+  repeat
+    local k
+    out, k = out:gsub("^(-?%d+)(%d%d%d)", "%1,%2")
+  until k == 0
+  return out
+end
+
 -- ---- state ---------------------------------------------------------------
 local state = {
-  sf = { mult = 0.1, fill = 0, completions = 0, autoconsume = false, autoopen = false },  -- soulforge status
+  -- autoopen is a MODE, not a flag: 0 off / 1 melt (destroys the gear) / 2 keep
+  -- (opens the sacks and banks everything). Report #375 -- the melt used to be
+  -- the only automatic option, which is why people were autoclicking instead.
+  --
+  -- sackHeld / sackPerTick / sackBurstMax / sackBurstCd all arrive from the
+  -- server over ICSACKS. None of them is a client-side constant on purpose: the
+  -- server owns the throttle and the cap, and a hardcoded copy here would go
+  -- stale the first time either is retuned with `.reload config`.
+  sf = { mult = 0.1, fill = 0, completions = 0, autoconsume = false, autoopen = 0,
+         sackHeld = 0, sackPerTick = 25, sackBurstMax = 250, sackBurstCd = 10 },  -- soulforge status
   whitelist = {},        -- current whitelist item names
   wlStaging = {},
   wlSuggest = {},        -- item-name search suggestions (server ICINAME search)
@@ -435,14 +494,140 @@ local function BuildUI(parent)
   end)
   f.acCheck = ac
 
-  local ao = CreateFrame("CheckButton", "UncappedSoulforgeAO", f, "InterfaceOptionsCheckButtonTemplate")
-  ao:SetPoint("TOPLEFT", 4, -128)
-  _G[ao:GetName().."Text"]:SetText("Auto-melt Sacks \226\134\146  souls + transmog + duplicates")
-  ao:SetScript("OnClick", function(self) send("ICAO:" .. (self:GetChecked() and 1 or 0)) end)
-  f.aoCheck = ao
+  -- ---- Sacks of Mythic Treasures (report #375) ----------------------------
+  --
+  -- ⚠ THIS IS A MODE, NOT A SET OF FLAGS, AND THE UI HAS TO SAY SO.
+  --
+  -- Melting a sack and opening it are mutually exclusive fates for the same
+  -- item, and one of them PERMANENTLY DESTROYS the gear inside. Independent
+  -- checkboxes would let a player tick both and be told a lie about what is
+  -- about to happen to a thousand sacks. So all three states are drawn at once,
+  -- exactly one is ever lit, and clicking a row SETS that mode -- clicking the
+  -- lit one is a no-op rather than "off", because a mode always has a value.
+  --
+  -- The destructive option carries its consequence in the label, in red, not in
+  -- a tooltip: the whole of #375 is a player who could not tell the difference,
+  -- and a tooltip is not shown to someone who already thinks they know what the
+  -- box does.
+  --
+  -- The SERVER is the authority on which one is lit. Every click optimistically
+  -- redraws from `state.sf.autoopen`, which is only ever written by the server's
+  -- own ICSF push, so a refused or clamped change corrects itself.
+  local sackHdr = f:CreateFontString(nil,"OVERLAY","GameFontNormal")
+  sackHdr:SetPoint("TOPLEFT", 6, -130)
+  sackHdr:SetText("|cff40c0f0Sacks of Mythic Treasures|r")
+
+  local sackCount = f:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+  sackCount:SetPoint("TOPRIGHT", -8, -130); sackCount:SetJustifyH("RIGHT")
+  f.sackCount = sackCount
+
+  -- One row of the mode picker. `mode` is the value sent to the server.
+  --
+  -- ⚠ LABELS ARE KEPT SHORT DELIBERATELY. The Dashboard's content panel is
+  -- resizable down to 320px and these FontStrings do not wrap, so a long label
+  -- runs off the edge at the minimum width -- and the one that would be clipped
+  -- is the one carrying "destroys". The consequence therefore lives in the
+  -- LABEL, short and in red; the fuller explanation lives in the tooltip, which
+  -- has room. The existing auto-consume row is the length ceiling here.
+  local function modeRow(name, mode, y, label, tipTitle, tipBody, r, g, b)
+    local cb = CreateFrame("CheckButton", name, f, "InterfaceOptionsCheckButtonTemplate")
+    cb:SetPoint("TOPLEFT", 4, y)
+    cb.mode = mode
+    cb.label = _G[cb:GetName().."Text"]
+    cb.labelOn = label
+    cb.label:SetText(label)
+    cb:SetScript("OnClick", function(self)
+      -- ★ THE GATE IS ON THE SEND, NOT ON THE WIDGET. Disable() is how the row
+      --   LOOKS unavailable; this is what makes it BE unavailable. A disabled
+      --   CheckButton still runs OnClick if anything calls Click() on it, and
+      --   the cost of being wrong here is a melted stack of gear, so the refusal
+      --   lives next to the thing that would do the damage.
+      if self.mode == 2 and not serverKeepOk then
+        self:SetChecked(false)
+        return
+      end
+
+      -- Always SET this mode. Unticking the live one would have to mean
+      -- something, and every candidate meaning ("off"? "the other one"?) is a
+      -- guess we would be making on the player's behalf about an irreversible
+      -- setting. The "Leave them alone" row is the off switch, and it is right
+      -- there.
+      send("ICAO:" .. self.mode)
+      self:SetChecked(state.sf.autoopen == self.mode)
+    end)
+    cb:SetScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      if self.mode == 2 and not serverKeepOk then
+        GameTooltip:AddLine(tipTitle)
+        GameTooltip:AddLine("Not available yet \226\128\148 this realm is still finishing its update. "
+          .. "It will switch itself on within a few minutes; nothing to do but wait.", 1, 0.82, 0, true)
+      else
+        GameTooltip:AddLine(tipTitle)
+        GameTooltip:AddLine(tipBody, r or 1, g or 1, b or 1, true)
+      end
+      GameTooltip:Show()
+    end)
+    cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return cb
+  end
+
+  f.sackOff = modeRow("UncappedSoulforgeSackOff", 0, -150,
+    "Leave them alone",
+    "Leave them alone",
+    "Sacks pile up in your bags and nothing touches them. Open them by hand whenever you like.")
+
+  f.sackKeep = modeRow("UncappedSoulforgeSackKeep", 2, -172,
+    "|cff1eff00Open them and keep everything|r",
+    "Open them and keep everything",
+    "Sacks open by themselves, a few every five seconds. The gear, reagents and forge fuel inside go to your bags, and to your Vault once your bags are full. Nothing is destroyed.",
+    0.6, 1, 0.6)
+  -- The greyed-out wording for the capability gate. A separate STRING rather
+  -- than SetTextColor, because the live label carries its own "|cff1eff00"
+  -- escape and an embedded colour code wins over the widget's text colour.
+  f.sackKeep.labelOff = "|cff808080Open them and keep everything|r |cffffd100(updating\226\128\166)|r"
+
+  f.sackMelt = modeRow("UncappedSoulforgeSackMelt", 1, -194,
+    "Melt them for souls \226\128\148 |cffff2020destroys the gear|r",
+    "Melt them for souls",
+    "Sacks are rendered straight down into souls, appearances and forge fuel. You still get the appearance of everything inside, but THE GEAR ITSELF IS DESTROYED and never reaches your bags or your Vault.",
+    1, 0.4, 0.4)
+
+  -- The "do it now" button. Everything it says -- the cap, the cooldown -- comes
+  -- from the server over ICSACKS, so it can never advertise a number the server
+  -- would refuse. It drives its own cooldown countdown off a local deadline
+  -- rather than waiting for pushes, because with the mode OFF there are no
+  -- periodic pushes to drive it.
+  local openBtn = CreateFrame("Button", "UncappedSoulforgeSackOpen", f, "UIPanelButtonTemplate")
+  openBtn:SetSize(150, 22); openBtn:SetPoint("TOPLEFT", 8, -218)
+  openBtn:SetScript("OnClick", function(self)
+    if self.readyAt and GetTime() < self.readyAt then return end
+    send("ICSACKOPEN")
+  end)
+  openBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:AddLine("Open sacks now")
+    GameTooltip:AddLine(string.format("Up to %d at a time, once every %d seconds.",
+      state.sf.sackBurstMax or 250, state.sf.sackBurstCd or 10), 1, 1, 1, true)
+    GameTooltip:AddLine("Nothing is destroyed \226\128\148 everything inside goes to your bags, then your Vault.", 0.6, 1, 0.6, true)
+    GameTooltip:Show()
+  end)
+  openBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  -- Throttled to ~4Hz: this only ever redraws a label.
+  openBtn:SetScript("OnUpdate", function(self, elapsed)
+    self.acc = (self.acc or 0) + elapsed
+    if self.acc < 0.25 then return end
+    self.acc = 0
+    if UI and UI.RefreshSackButton then UI:RefreshSackButton() end
+  end)
+  f.sackOpenBtn = openBtn
+
+  local sackHint = f:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
+  sackHint:SetPoint("TOPLEFT", 164, -222); sackHint:SetPoint("TOPRIGHT", -6, -222)
+  sackHint:SetJustifyH("LEFT")
+  f.sackHint = sackHint
 
   local sbBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  sbBtn:SetSize(170, 24); sbBtn:SetPoint("TOPLEFT", 6, -156); sbBtn:SetText("Soulbind Duplicates")
+  sbBtn:SetSize(170, 24); sbBtn:SetPoint("TOPLEFT", 6, -250); sbBtn:SetText("Soulbind Duplicates")
   sbBtn:SetScript("OnClick", function() StaticPopup_Show("UNCAPPED_SF_SOULBIND_ALL") end)
 
   local wlBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
@@ -451,16 +636,16 @@ local function BuildUI(parent)
 
   -- ---- your soulbound gear ----
   local eqHdr = f:CreateFontString(nil,"OVERLAY","GameFontNormal")
-  eqHdr:SetPoint("TOPLEFT", 6, -190); eqHdr:SetText("|cff40c0f0Your soulbound gear|r")
+  eqHdr:SetPoint("TOPLEFT", 6, -284); eqHdr:SetText("|cff40c0f0Your soulbound gear|r")
   local dLine = f:CreateTexture(nil,"ARTWORK"); dLine:SetTexture("Interface\\Buttons\\WHITE8X8")
   dLine:SetGradientAlpha("HORIZONTAL", 0.25,0.60,0.90,0.6, 0.25,0.60,0.90,0.0)
-  dLine:SetHeight(2); dLine:SetPoint("TOPLEFT", 6, -206); dLine:SetPoint("TOPRIGHT", -6, -206)
+  dLine:SetHeight(2); dLine:SetPoint("TOPLEFT", 6, -300); dLine:SetPoint("TOPRIGHT", -6, -300)
 
   -- Stretches to fill whatever's left of the panel below the divider; a pool
   -- of EQ_ROWS_MAX row frames is pre-built, but only however many actually
   -- fit (recomputed on OnSizeChanged, see below) are ever shown at once.
   local scroll = CreateFrame("ScrollFrame", "UncappedSoulforgeEqScroll", f, "FauxScrollFrameTemplate")
-  scroll:SetPoint("TOPLEFT", 8, -214); scroll:SetPoint("BOTTOMRIGHT", -23, 8)
+  scroll:SetPoint("TOPLEFT", 8, -308); scroll:SetPoint("BOTTOMRIGHT", -23, 8)
   scroll:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, EQ_H, function() if UI then UI:RefreshEquipped() end end)
   end)
@@ -525,7 +710,83 @@ local function attachMethods()
     self.sfBarText:SetText(string.format("%.1f%% to Level %d", sf.fill, sf.completions + 1))
     self.sfExtract:SetText(string.format("Extraction: |cff9CC243+%.2f%%|r of stats per soulbind", sf.mult))
     self.acCheck:SetChecked(sf.autoconsume)
-    self.aoCheck:SetChecked(sf.autoopen)
+    self:RefreshSacks()
+  end
+
+  -- Everything in the sack block. Split out because ICSACKS arrives on its own
+  -- and must be able to redraw the count without touching the forge bar.
+  function UI:RefreshSacks()
+    -- `UI` IS the Soulforge frame (see `UI = f` in the builder), so the widgets
+    -- hang off `self` directly, exactly as RefreshForge reads self.acCheck.
+    local sf = state.sf
+    if not self.sackOff then return end
+
+    self.sackOff:SetChecked(sf.autoopen == 0)
+    self.sackKeep:SetChecked(sf.autoopen == 2)
+    self.sackMelt:SetChecked(sf.autoopen == 1)
+
+    -- Capability gate. See serverKeepOk at the top of the file: until this
+    -- server has proved it understands mode 2, KEEP is drawn as unavailable and
+    -- the click handler refuses to send it. Off and melt are untouched -- both
+    -- predate this release and are safe against either server.
+    if serverKeepOk then
+      self.sackKeep:Enable()
+      self.sackKeep.label:SetText(self.sackKeep.labelOn)
+    else
+      self.sackKeep:Disable()
+      self.sackKeep.label:SetText(self.sackKeep.labelOff)
+    end
+
+    local held = sf.sackHeld or 0
+    if held > 0 then
+      self.sackCount:SetText(string.format("|cffffffff%s|r held", groupDigits(held)))
+    else
+      self.sackCount:SetText("|cff9d9d9dnone in your bags|r")
+    end
+
+    -- Say what the current mode is actually DOING, in the present tense, so a
+    -- background sweep is visibly on rather than something you have to trust.
+    if sf.autoopen == 2 then
+      if held > 0 then
+        self.sackHint:SetText(string.format("|cff1eff00Opening|r about %d every 5 seconds.", sf.sackPerTick or 25))
+      else
+        self.sackHint:SetText("|cff1eff00On.|r New sacks will open as they arrive.")
+      end
+    elseif sf.autoopen == 1 then
+      self.sackHint:SetText("|cffff2020Melting.|r You are not keeping the gear.")
+    else
+      self.sackHint:SetText("")
+    end
+
+    self:RefreshSackButton()
+  end
+
+  -- Label + enabled state of "Open now". Called on a ticker as well as on
+  -- pushes, so the countdown runs even with the mode off (no periodic pushes).
+  function UI:RefreshSackButton()
+    local sf = state.sf
+    if not self.sackOpenBtn then return end
+    local btn = self.sackOpenBtn
+
+    local left = btn.readyAt and math.ceil(btn.readyAt - GetTime()) or 0
+    if left > 0 then
+      btn:SetText(string.format("Open now (%ds)", left))
+      btn:Disable()
+      return
+    end
+
+    btn.readyAt = nil
+    local held, cap = sf.sackHeld or 0, sf.sackBurstMax or 250
+    if held <= 0 then
+      btn:SetText("Open now")
+      btn:Disable()
+      return
+    end
+
+    -- Name the real number, not the cap: "Open 250 now" in front of a player
+    -- holding 40 is a promise the server will not keep.
+    btn:SetText(string.format("Open %d now", math.min(held, cap)))
+    btn:Enable()
   end
 
   -- Build the "your soulbound gear" list from the equipped (E:) tooltip cache.
@@ -1379,8 +1640,44 @@ local function OnLine(body)
       state.sf.fill = tonumber(fp) / 10
       state.sf.completions = tonumber(comp)
       state.sf.autoconsume = ac == "1"
-      state.sf.autoopen = ao == "1"
+      state.sf.autoopen = tonumber(ao) or 0
       if UI then UI:RefreshForge() end
+    end
+  elseif cmd == "ICSACKS" then          -- <held>:<mode>:<perSweep>:<burstMax>:<burstCooldown>:<burstCooldownLeft>
+    -- Its own verb rather than three more fields on ICSF, because the ICSF
+    -- pattern above is ANCHORED: widening it would make an older addon fail the
+    -- match and stop drawing the whole panel. An unknown verb just falls off the
+    -- end of this chain, which is the failure mode we want in both directions.
+    --
+    -- A NEW addon against an OLD server never receives this line, and that
+    -- silence is load-bearing: the off and melt rows still work (they ride ICSF
+    -- and mean the same thing on both servers), the count and the burst button
+    -- stay inert because nothing ever populates them, and KEEP stays locked --
+    -- see serverKeepOk. That last one is the whole point; the rest is fallout.
+    local held, mode, per, cap, cd, left = rest:match("^(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
+    if held then
+      -- ★ THE HANDSHAKE. Only a server that knows mode 2 sends this verb at all,
+      --   so receiving one -- and only receiving one -- unlocks KEEP. Set from
+      --   the parsed branch, not from the verb alone, so a truncated or
+      --   malformed line cannot unlock it either.
+      serverKeepOk = true
+
+      state.sf.sackHeld = tonumber(held)
+      state.sf.autoopen = tonumber(mode) or 0
+      state.sf.sackPerTick = tonumber(per)
+      state.sf.sackBurstMax = tonumber(cap)
+      state.sf.sackBurstCd = tonumber(cd)
+
+      -- The server sends how many seconds are LEFT; the button counts down off a
+      -- local deadline so it keeps ticking between pushes (with the mode off
+      -- there are no periodic pushes at all).
+      local remain = tonumber(left) or 0
+      if UI and UI.RefreshSacks then
+        if UI.sackOpenBtn then
+          UI.sackOpenBtn.readyAt = (remain > 0) and (GetTime() + remain) or nil
+        end
+        UI:RefreshSacks()
+      end
     end
   elseif cmd == "ICACWARN" then         -- <secondsToConfirm>
     -- The server has armed a confirmation and changed nothing yet. Say plainly
@@ -1843,6 +2140,9 @@ invTimer:SetScript("OnUpdate", function(self, elapsed)
 end)
 local function requestInvIn(delay) invDue = delay; invTimer:Show() end
 
+-- Last time we asked the server for a sack count off a bag change. See BAG_UPDATE.
+local sackAskedAt
+
 local listener = CreateFrame("Frame")
 listener:RegisterEvent("CHAT_MSG_ADDON")
 listener:RegisterEvent("PLAYER_LOGIN")
@@ -1860,6 +2160,17 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
   end
   if event == "BAG_UPDATE" then
     requestInvIn(0.3)
+    -- Keep the sack count honest while the panel is open with the mode OFF, when
+    -- nothing else is pushing. Gated on the panel being VISIBLE and throttled to
+    -- 2s, because BAG_UPDATE fires several times for one loot and this is the
+    -- one message here that a player can trigger in a tight loop.
+    if UI and UI:IsVisible() then
+      local now = GetTime()
+      if not sackAskedAt or (now - sackAskedAt) > 2 then
+        sackAskedAt = now
+        send("ICSACKS")
+      end
+    end
   end
   if event == "PLAYER_EQUIPMENT_CHANGED" then send("ICINV") end
 end)
@@ -1887,6 +2198,11 @@ end
 function SF.UI.Activate()
   if not UI then return end
   UI:Refresh()
+  -- ICSF is also the capability probe for the sack panel: a server that knows
+  -- mode 2 answers it with an ICSACKS, and that reply is what unlocks the
+  -- "keep everything" row (see serverKeepOk). So no separate request is needed
+  -- here or at PLAYER_LOGIN -- every place that already asks for the forge bar
+  -- is asking the question, and an old server simply never answers it.
   send("ICSF"); send("ICINV")
 end
 

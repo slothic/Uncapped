@@ -1,12 +1,22 @@
 ## Interface: 30300
 ## Title: Uncapped Loot Feed
-## Notes: A scrolling feed of loot as it drops -- bags and Vault -- with filters and a watchlist that calls out items you are farming for. Lives in the Dashboard.
+## Notes: A scrolling feed of loot as it drops -- bags and Vault -- with filters and a watchlist that calls out items you are farming for, and tells you where they drop. Pop-out window or Dashboard tab.
 ## Author(s): Slothic, MentalMonk
-## Version: 0.3
+## Version: 0.4
 ## OptionalDeps: UncappedUI, UncappedDashboard, UncappedOptions, UncappedAlerts
 ## SavedVariables: UncappedLootFeedDB
 
+# Generated data first -- the lookup layer resolves both tables lazily, but
+# loading them in this order means the very first frame can already answer.
 UncappedLootFeedItemData.lua
+UncappedLootFeedSourceData.lua
 UncappedLootFeedData.lua
+
+# Engine, then the shared widgets, then the two views over them. Rows and
+# Filters must precede both views: each one grabs LF.Rows at load and bails out
+# if it is missing.
 UncappedLootFeed.lua
+UncappedLootFeed_Rows.lua
+UncappedLootFeed_Filters.lua
 UncappedLootFeed_UI.lua
+UncappedLootFeed_Popout.lua

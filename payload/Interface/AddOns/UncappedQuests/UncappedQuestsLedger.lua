@@ -45,6 +45,19 @@ local ROWS_VISIBLE = 13
 local ROW_HEIGHT = 31
 local MAX_SLOTS = 25
 
+-- Sidebar categories. Scrolled the same way the quest list is, and for the same
+-- reason: the row frames are reused and only the window into the data moves.
+--
+-- ⚠ THE PITCH MUST BE ONE FIXED NUMBER. FauxScrollFrame does every piece of its
+-- arithmetic -- offset, thumb size, scroll range -- from a single row height, so
+-- a list whose rows vary in height silently mis-scrolls: it skips entries and
+-- stops short of the end. That is why the category label deliberately has no
+-- width set (below): a width would let a long zone name WRAP to a second line,
+-- and the row would quietly become 2 rows tall to a reader and 1 to the
+-- scrollbar. Long names are shortened in Lua instead, which cannot wrap.
+local ZONE_ROW_H = 21
+local ZONE_ROWS_VISIBLE = 20
+
 local TABS = {
     { key = "all",      label = "All" },
     { key = "log",      label = "In Log" },
@@ -264,6 +277,23 @@ local function ZoneName(zone)
     return "Zone " .. tostring(zone)
 end
 
+-- The sidebar row is 168px wide and its label CANNOT be given a width to clip
+-- against -- see ZONE_ROW_H: a width lets the text wrap, and a wrapped row is
+-- taller than the pitch the scrollbar is stepping by. So the shortening is done
+-- to the STRING, which cannot wrap whatever it ends up saying.
+--
+-- 22 characters is what fits beside the count at this width. 93 of the realm's
+-- 2,307 category names are longer -- "Putricide's Laboratory of Alchemical
+-- Horrors and Fun" is 52 and ran clean out of the panel. The full name is on
+-- the row's tooltip, so nothing is actually lost.
+local ZONE_LABEL_MAX = 22
+
+local function ShortZoneName(zone)
+    local name = ZoneName(zone)
+    if string.len(name) <= ZONE_LABEL_MAX then return name end
+    return string.sub(name, 1, ZONE_LABEL_MAX - 3) .. "..."
+end
+
 local function MatchesTab(q)
     if view.tab == "log" then return q.slotted end
     if view.tab == "ledger" then return not q.slotted end
@@ -480,6 +510,36 @@ local function RenderDetail()
     end
 end
 
+-- Highlight is the only thing that distinguishes the selected category, and the
+-- pinned row and the scrolling rows both need it, so it lives in one place.
+local function PaintZoneSelection(row)
+    local active = (row.zone == view.zone)
+    row.bg:SetAlpha(active and 0.55 or 0)
+    row.label:SetTextColor(active and 1 or 0.85, active and 0.82 or 0.85, active and 0 or 0.85)
+end
+
+--[[ The category sidebar.
+
+     ⚠ THIS USED TO BE UNSCROLLABLE, AND SILENTLY SO (owner report: "we cannot
+     scroll the quest ledger categories"). There was no scroll frame at all: 20
+     fixed rows, the first of them the "All Categories" header, painted straight
+     from `zones[i - 1]`. Any category past the nineteenth existed in the data,
+     was counted in the totals, and could never be seen or clicked. Nothing said
+     so -- the list simply stopped -- which on a realm whose ledger holds
+     hundreds of quests across dozens of zones is most of the sidebar.
+
+     "All Categories" is now PINNED above the scrolling region rather than being
+     row 1 of it. Two reasons, and the second is the important one:
+
+       * it is the way back to an unfiltered view, and scrolling away from your
+         own escape hatch is how a filter starts to feel like a trap;
+       * it removes the `i - 1` skew entirely. A scroll offset on top of a
+         one-based list that is really zero-based for its first entry is exactly
+         the shape that produces an off-by-one nobody notices until a category
+         at a page boundary goes missing.
+
+     So the scrolled list is now plain: row `i` shows `zones[offset + i]`.
+]]
 local function RenderSidebar()
     local all = Visible(false)
 
@@ -493,26 +553,41 @@ local function RenderSidebar()
     end
     table.sort(zones, function(a, b) return ZoneName(a.zone) < ZoneName(b.zone) end)
 
+    ui.zoneAll.count:SetText(#all)
+    PaintZoneSelection(ui.zoneAll)
+
+    FauxScrollFrame_Update(ui.zoneScroll, #zones, ZONE_ROWS_VISIBLE, ZONE_ROW_H)
+
+    --[[ Clamped here rather than trusting every caller to reset the offset.
+
+         The zone SET shrinks whenever the tab or the search box changes -- pick
+         "Complete" while scrolled to the bottom and there may now be three
+         categories where there were forty. Reading the old offset then paints a
+         sidebar of empty rows, which looks exactly like the bug this function
+         just stopped having. FauxScrollFrame_Update mostly self-corrects (it
+         zeroes the bar when everything fits), but "mostly" leaves the case of a
+         list that shrank and still overflows, so the clamp is explicit. ]]
+    local maxOffset = math.max(0, #zones - ZONE_ROWS_VISIBLE)
+    local offset = FauxScrollFrame_GetOffset(ui.zoneScroll) or 0
+    if offset > maxOffset then
+        offset = maxOffset
+        FauxScrollFrame_SetOffset(ui.zoneScroll, offset)
+        if UncappedQuestLedgerZoneScrollScrollBar then
+            UncappedQuestLedgerZoneScrollScrollBar:SetValue(offset * ZONE_ROW_H)
+        end
+    end
+
     for i, row in ipairs(ui.zoneRows) do
-        local z = zones[i - 1]          -- row 1 is the "All Categories" header
-        if i == 1 then
-            row.zone = nil
-            row.label:SetText("All Categories")
-            row.count:SetText(#all)
-            row:Show()
-        elseif z then
+        local z = zones[offset + i]
+        if z then
             row.zone = z.zone
-            row.label:SetText(ZoneName(z.zone))
+            row.label:SetText(ShortZoneName(z.zone))
             row.count:SetText(z.n)
+            PaintZoneSelection(row)
             row:Show()
         else
+            row.zone = nil
             row:Hide()
-        end
-
-        if row:IsShown() then
-            local active = (row.zone == view.zone)
-            row.bg:SetAlpha(active and 0.55 or 0)
-            row.label:SetTextColor(active and 1 or 0.85, active and 0.82 or 0.85, active and 0 or 0.85)
         end
     end
 end
@@ -745,18 +820,26 @@ local function BuildFrame()
     side:SetWidth(200)
     side:SetHeight(460)
 
-    ui.zoneRows = {}
-    for i = 1, 20 do
+    -- 168, down from 188: the scrollbar the categories just gained sits in the
+    -- right-hand 26px of the panel, and a full-width row would run underneath
+    -- it -- putting each category's count behind the scroll thumb.
+    local ZONE_ROW_W = 168
+
+    -- One builder for the pinned "All Categories" row and for the scrolling
+    -- ones. They are the same widget and have to stay identical: the only thing
+    -- that distinguishes them is which list paints them.
+    local function ZoneRow(y)
         local row = CreateFrame("Button", nil, side)
-        row:SetWidth(188)
+        row:SetWidth(ZONE_ROW_W)
         row:SetHeight(20)
-        row:SetPoint("TOPLEFT", side, "TOPLEFT", 6, -6 - (i - 1) * 21)
+        row:SetPoint("TOPLEFT", side, "TOPLEFT", 6, y)
 
         row.bg = row:CreateTexture(nil, "BACKGROUND")
         row.bg:SetAllPoints()
         row.bg:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
         row.bg:SetAlpha(0)
 
+        -- No width on the label, deliberately -- see ShortZoneName.
         row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         row.label:SetPoint("LEFT", row, "LEFT", 6, 0)
         row.count = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -765,9 +848,68 @@ local function BuildFrame()
         row:SetScript("OnClick", function(self)
             view.zone = self.zone
             view.selected = nil
+            -- The QUEST LIST goes back to the top; the sidebar deliberately
+            -- does not. Resetting it here would throw you back to "A" the
+            -- instant you clicked a category you had scrolled down to find.
             ResetScroll()
             Render()
         end)
+
+        -- Carries the untruncated name, which is the whole reason shortening it
+        -- on the row is acceptable.
+        row:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            if self.zone == nil then
+                GameTooltip:AddLine("All Categories", 1, 1, 1)
+                GameTooltip:AddLine("Every quest you are carrying, in one list.", 0.8, 0.8, 0.8)
+            else
+                GameTooltip:AddLine(ZoneName(self.zone), 1, 1, 1)
+            end
+            GameTooltip:Show()
+        end)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+        return row
+    end
+
+    -- Pinned above the scrolling region: it is the way back to an unfiltered
+    -- view, and scrolling away from your own escape hatch is how a filter starts
+    -- to feel like a trap.
+    ui.zoneAll = ZoneRow(-6)
+    ui.zoneAll.label:SetText("All Categories")
+
+    local zoneRule = side:CreateTexture(nil, "ARTWORK")
+    zoneRule:SetTexture(0.35, 0.35, 0.4, 0.8)
+    zoneRule:SetPoint("TOPLEFT", side, "TOPLEFT", 6, -29)
+    zoneRule:SetPoint("TOPRIGHT", side, "TOPRIGHT", -6, -29)
+    zoneRule:SetHeight(1)
+
+    --[[ The scroll frame the sidebar never had (owner report: "we cannot scroll
+         the quest ledger categories").
+
+         Named, because everything that drives a FauxScrollFrame from the outside
+         -- the wheel handler here, the clamp in RenderSidebar -- reaches its
+         slider through the "<name>ScrollBar" global the template creates.
+
+         The 20 row frames live on `side`, NOT inside this frame, which is the
+         same arrangement the quest list uses: FauxScrollFrame_Update HIDES the
+         scroll frame whenever everything fits, and rows parented to it would
+         vanish with it the moment a player had 20 categories or fewer. ]]
+    ui.zoneScroll = CreateFrame("ScrollFrame", "UncappedQuestLedgerZoneScroll", side, "FauxScrollFrameTemplate")
+    ui.zoneScroll:SetPoint("TOPLEFT", side, "TOPLEFT", 6, -34)
+    ui.zoneScroll:SetPoint("BOTTOMRIGHT", side, "BOTTOMRIGHT", -26, 6)
+    ui.zoneScroll:SetScript("OnVerticalScroll", function(self, offset)
+        FauxScrollFrame_OnVerticalScroll(self, offset, ZONE_ROW_H, RenderSidebar)
+    end)
+    ui.zoneScroll:EnableMouseWheel(true)
+    ui.zoneScroll:SetScript("OnMouseWheel", function(self, delta)
+        local bar = UncappedQuestLedgerZoneScrollScrollBar
+        if bar then bar:SetValue(bar:GetValue() - (delta or 0) * ZONE_ROW_H) end
+    end)
+
+    ui.zoneRows = {}
+    for i = 1, ZONE_ROWS_VISIBLE do
+        local row = ZoneRow(-34 - (i - 1) * ZONE_ROW_H)
         row:Hide()
         ui.zoneRows[i] = row
     end
@@ -786,6 +928,18 @@ local function BuildFrame()
     ui.scroll:SetPoint("BOTTOMRIGHT", list, "BOTTOMRIGHT", -28, 10)
     ui.scroll:SetScript("OnVerticalScroll", function(self, offset)
         FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, Render)
+    end)
+    --[[ The quest list could only ever be scrolled by DRAGGING its bar.
+         FauxScrollFrameTemplate inherits UIPanelScrollFrameTemplate, and neither
+         of them enables the mouse wheel -- checked against this client's own
+         UIPanelTemplates.xml, which defines OnLoad, OnScrollRangeChanged and
+         OnVerticalScroll for it and nothing else. Every other scroller in this
+         suite wires the wheel by hand (the detail pane below does it eight lines
+         from here), so the list was the odd one out rather than the rule. ]]
+    ui.scroll:EnableMouseWheel(true)
+    ui.scroll:SetScript("OnMouseWheel", function(self, delta)
+        local bar = UncappedQuestLedgerScrollScrollBar
+        if bar then bar:SetValue(bar:GetValue() - (delta or 0) * ROW_HEIGHT) end
     end)
 
     ui.rows = {}

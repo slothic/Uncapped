@@ -37,6 +37,7 @@ local db = {
     showMulti = true,
     showAlac  = true,
     showSwift = true,
+    showGcd   = true,                -- draw the global cooldown on the action bars
     color     = { 0.3, 1.0, 0.3 },   -- green value colour
 }
 
@@ -189,6 +190,13 @@ if UncappedUI then
         function(v) db.showSwift = v; Relayout() end).uncappedRefresh
 
     L:Gap(6)
+    L:Header("Action bars")
+    L:Note("Draws the global cooldown sweep on your action buttons. The client cannot show this on its own here, because removing its built-in 1.5s lockout is what lets Time Manipulation shorten the GCD at all -- so this draws it back at YOUR length, not a fixed 1.5 seconds.", 40)
+    panelRefreshers[#panelRefreshers + 1] = L:Check("Show global cooldown on action bars",
+        function() return db.showGcd end,
+        function(v) db.showGcd = v end).uncappedRefresh
+
+    L:Gap(6)
     L:Header("Appearance")
     panelRefreshers[#panelRefreshers + 1] = L:Color("Value colour",
         function() return db.color[1], db.color[2], db.color[3] end,
@@ -197,11 +205,134 @@ if UncappedUI then
     UncappedGCDPanel = panel
 end
 
+-- ===========================================================================
+-- THE GLOBAL COOLDOWN SWIPE.
+--
+-- WHY THIS EXISTS AT ALL. Haste is repurposed on this realm, and the global
+-- cooldown is bought back as the "Time Manipulation" stat, applied server-side.
+-- The 3.3.5 client, however, runs its OWN global cooldown from Spell.dbc's
+-- StartRecoveryTime and REFUSES to send a cast while that local timer is
+-- running -- so a player who had bought the GCD down to 0.8s would still have
+-- been told "Spell is not ready yet" for the full 1.5s. The fix was a client
+-- patch zeroing StartRecoveryTime, which works, at the cost of the action-bar
+-- swipe disappearing for everyone. This draws it back, at the player's REAL
+-- length rather than a fixed 1.5s.
+--
+-- WHERE THE NUMBERS COME FROM. The patch zeroes StartRecoveryTime but leaves
+-- StartRecoveryCategory alone, so the client still knows WHICH spells use a GCD
+-- and only lost HOW LONG. The server's own Spell.dbc was never patched, so it
+-- still has the durations; tools/gen_gcd.py reads them out of it and writes
+-- UncappedGCD_Data.lua. That table lists only spells that DO trigger a GCD --
+-- anything absent is treated as off-GCD, so an unknown or custom spell draws
+-- nothing, which is exactly the behaviour players have today. Failing that way
+-- round matters: a missing swipe is invisible, a phantom swipe on an ability
+-- that is actually ready is a UI that lies.
+--
+-- Keyed by NAME, not id, because 3.3.5's UNIT_SPELLCAST_SUCCEEDED hands us a
+-- name. Ranks of one ability share a GCD, so the collapse is lossless.
+-- ===========================================================================
+
+local gcdStart, gcdDuration = 0, 0
+local gcdButtons              -- built lazily; nil until the first cast
+
+-- Stock 3.3.5 bars plus the third-party bars the launcher can install. A name
+-- that does not exist is simply skipped, so listing extras costs nothing.
+local BUTTON_PREFIXES = {
+    "ActionButton", "BonusActionButton",
+    "MultiBarBottomLeftButton", "MultiBarBottomRightButton",
+    "MultiBarRightButton", "MultiBarLeftButton",
+    "BT4Button", "DominosActionButton",
+}
+local BUTTONS_PER_PREFIX = 120   -- stock bars stop at 12; Bartender/Dominos go higher
+
+local function CollectButtons()
+    gcdButtons = {}
+    for _, prefix in ipairs(BUTTON_PREFIXES) do
+        for i = 1, BUTTONS_PER_PREFIX do
+            local btn = _G[prefix .. i]
+            if btn then
+                -- Stock buttons expose <name>Cooldown; LibActionButton-based bars
+                -- (Bartender4, Dominos) hang it off the button as .cooldown.
+                local cd = _G[prefix .. i .. "Cooldown"] or btn.cooldown
+                if cd then
+                    gcdButtons[#gcdButtons + 1] = { btn = btn, cd = cd }
+                end
+            end
+        end
+    end
+end
+
+local function ButtonSlot(btn)
+    if btn.action then return btn.action end
+    if btn.GetAttribute then return btn:GetAttribute("action") end
+    return nil
+end
+
+-- Paint one button, unless a REAL cooldown longer than the GCD is already
+-- running on it -- stomping that with a 1.4s swipe would hide a 5-minute
+-- cooldown and is the classic way these addons go wrong.
+local function ApplyToButton(entry)
+    local slot = ButtonSlot(entry.btn)
+    if not slot or not HasAction(slot) then return end
+
+    local _, duration = GetActionCooldown(slot)
+    if duration and duration > gcdDuration + 0.01 then return end
+
+    -- Passing the ORIGINAL start (not "now") is what lets this be re-applied
+    -- mid-GCD without the swipe jumping back to full.
+    CooldownFrame_SetTimer(entry.cd, gcdStart, gcdDuration, 1)
+end
+
+local function ApplyGCD()
+    if not db.showGcd then return end
+    if gcdDuration <= 0 then return end
+    if GetTime() >= gcdStart + gcdDuration then return end   -- already expired
+
+    if not gcdButtons then CollectButtons() end
+    for _, entry in ipairs(gcdButtons) do ApplyToButton(entry) end
+end
+
+local function StartGCD(spellName)
+    if not db.showGcd then return end
+    if not spellName then return end
+
+    local base = UncappedGCD_BASE and UncappedGCD_BASE[spellName]
+    if not base or base <= 0 then return end   -- off the GCD, or unknown
+
+    -- tmPct is the Time Manipulation fraction the server sent us (0 .. 0.95).
+    -- If it has not arrived yet this is simply the stock 1.5s, which is the
+    -- right answer for a player with no ranks bought.
+    local reduced = base * (1 - (tmPct or 0)) / 1000
+    if reduced <= 0 then return end
+
+    gcdStart, gcdDuration = GetTime(), reduced
+    ApplyGCD()
+end
+
+-- The stock code repaints a button from GetActionCooldown, which knows nothing
+-- about our GCD and would wipe the swipe the moment anything else changed. Put
+-- it back for the remainder of the window.
+if type(ActionButton_UpdateCooldown) == "function" then
+    hooksecurefunc("ActionButton_UpdateCooldown", function(self)
+        if not db.showGcd or gcdDuration <= 0 then return end
+        if GetTime() >= gcdStart + gcdDuration then return end
+        if not self then return end
+        local cd = self.cooldown or (self:GetName() and _G[self:GetName() .. "Cooldown"])
+        if cd then ApplyToButton({ btn = self, cd = cd }) end
+    end)
+end
+
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("ADDON_LOADED")
 ev:RegisterEvent("PLAYER_LOGIN")
 ev:RegisterEvent("PLAYER_ENTERING_WORLD")
 ev:RegisterEvent("CHAT_MSG_ADDON")
+ev:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+ev:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
+-- Bars are rebuilt when the player changes them, so drop the cached list and
+-- let the next cast re-scan rather than holding stale frames.
+ev:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
+ev:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
 ev:SetScript("OnEvent", function(self, e, a1, a2)
     e  = e  or event
     a1 = a1 or arg1
@@ -216,6 +347,7 @@ ev:SetScript("OnEvent", function(self, e, a1, a2)
                 if s.showMulti ~= nil then db.showMulti = s.showMulti end
                 if s.showAlac  ~= nil then db.showAlac  = s.showAlac  end
                 if s.showSwift ~= nil then db.showSwift = s.showSwift end
+                if s.showGcd   ~= nil then db.showGcd   = s.showGcd   end
                 if type(s.color) == "table" and s.color[1] then
                     db.color = { s.color[1], s.color[2], s.color[3] }
                 end
@@ -230,6 +362,13 @@ ev:SetScript("OnEvent", function(self, e, a1, a2)
     elseif e == "PLAYER_ENTERING_WORLD" then
         TryHook()
         RequestStats()
+        gcdButtons = nil            -- bars may have been rebuilt on the loading screen
+    elseif e == "UNIT_SPELLCAST_SUCCEEDED" then
+        if a1 == "player" then StartGCD(a2) end
+    elseif e == "ACTIONBAR_UPDATE_COOLDOWN" then
+        ApplyGCD()                  -- repaint over the stock refresh, if ours is still live
+    elseif e == "ACTIONBAR_PAGE_CHANGED" or e == "UPDATE_BONUS_ACTIONBAR" then
+        gcdButtons = nil
     elseif e == "CHAT_MSG_ADDON" then
         if a1 == PREFIX and a2 then
             local c = tonumber(string.match(a2, "CDR:([%d%.]+)"))

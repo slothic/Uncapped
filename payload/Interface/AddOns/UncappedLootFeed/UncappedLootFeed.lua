@@ -69,6 +69,15 @@ local DEFAULTS = {
     alert       = true,     -- raid-warning banner when a watched item drops
     watch       = {},       -- [itemId] = itemName, kept for display only
 
+    -- ---- pop-out window (#125: "make a popout loot window like the Stat feed")
+    -- The window is a peer of the Dashboard tab, not a replacement: the tab is
+    -- where you search 25,000 items to build a watchlist, the window is what you
+    -- leave open while you play. Both read the same ring.
+    popout        = false,  -- is the window open
+    popoutCompact = false,  -- window folded down to just the stream
+    popoutSource  = true,   -- show the "Drops from X in Y" line under watched rows
+    window        = {},     -- point/x/y/width/height, owned by UncappedUIKit
+
     -- ---- feed filters (#214: "options of filtering what loot you want to see")
     -- Every one of these defaults to "show everything", because a filter a player
     -- did not ask for looks exactly like the bug this feature was reported as.
@@ -172,11 +181,62 @@ LF.ResolveItem = ResolveItem
 -- ---------------------------------------------------------------------------
 -- Feed
 -- ---------------------------------------------------------------------------
+-- TWO VIEWS NOW, so a single LF.UI hook is no longer enough: the Dashboard tab
+-- and the pop-out window both paint the same ring and both have to hear about
+-- every change. Views register themselves; the engine does not know or care how
+-- many there are, which is what let the window be added without touching a line
+-- of the tab's refresh logic.
+local views = {}
+
+function LF.RegisterView(refresh)
+    if type(refresh) == "function" then
+        views[#views + 1] = refresh
+    end
+end
+
 local function Notify()
+    -- LF.UI.Refresh is kept as well as the registry: it is the tab's published
+    -- entry point and other files call it directly.
     if LF.UI and LF.UI.Refresh then LF.UI.Refresh() end
+    for i = 1, #views do
+        views[i]()
+    end
+end
+LF.Notify = Notify
+
+-- ---------------------------------------------------------------------------
+-- Session totals -- the summary block at the top of the pop-out window.
+-- ---------------------------------------------------------------------------
+-- Counted as loot ARRIVES rather than derived from the ring, because the ring is
+-- capped at maxLines and drops its oldest entries: a session total computed from
+-- it would silently stop rising after 100 items, which is exactly the sort of
+-- quietly-wrong number that makes people distrust the whole panel.
+local session = { items = 0, stacks = 0, vault = 0, watched = 0, started = nil }
+
+function LF.SessionStats()
+    local elapsed = 0
+    if session.started then elapsed = math.max(0, (GetTime() or 0) - session.started) end
+    return session.items, session.vault, session.watched, elapsed, session.stacks
+end
+
+function LF.ResetSession()
+    session.items, session.stacks, session.vault, session.watched = 0, 0, 0, 0
+    session.started = GetTime and GetTime() or 0
+    Notify()
+end
+
+local function CountSession(entry)
+    if entry.overflow then return end
+    if not entry.mine then return end     -- someone else's drop is not your haul
+    session.items = session.items + (entry.count or 1)
+    session.stacks = session.stacks + 1
+    if entry.src == SRC_VAULT then session.vault = session.vault + 1 end
+    if entry.watched then session.watched = session.watched + 1 end
 end
 
 local function Push(entry)
+    if not session.started then session.started = GetTime and GetTime() or 0 end
+    CountSession(entry)
     feed[#feed + 1] = entry
     while #feed > (db.maxLines or 100) do table.remove(feed, 1) end
     Notify()
@@ -503,6 +563,15 @@ function LF.OpenTab()
     return true
 end
 
+-- The pop-out window (#125). The engine only forwards: the window itself lives
+-- in UncappedLootFeed_Popout.lua and registers here when it builds, so a client
+-- missing that file (or UncappedUI) degrades to the tab instead of erroring.
+function LF.TogglePopout()
+    if LF.Popout and LF.Popout.Toggle then return LF.Popout.Toggle() end
+    DEFAULT_CHAT_FRAME:AddMessage("|cffff4040[Loot Feed]|r the pop-out window needs UncappedUI -- enable it in AddOns and reload.")
+    return false
+end
+
 function LF.ToggleTab()
     local Core = _G.UncappedDashboard
     if not Core then return LF.OpenTab() end
@@ -568,6 +637,19 @@ SlashCmdList["UNCAPPEDLOOTFEED"] = function(msg)
         return
     end
 
+    -- #125 asked for this by name ("make a popout loot window like the Stat
+    -- feed"), so it gets short aliases rather than living only behind a button.
+    if cmd == "window" or cmd == "popout" or cmd == "pop" then
+        LF.TogglePopout()
+        return
+    end
+
+    if cmd == "reset" or cmd == "session" then
+        LF.ResetSession()
+        DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Loot Feed]|r session totals reset.")
+        return
+    end
+
     -- The escape hatch for a player who has filtered themselves into an empty
     -- feed and cannot find which toggle did it. Same button exists in the tab.
     if cmd == "all" or cmd == "showall" or cmd == "filters" then
@@ -576,7 +658,7 @@ SlashCmdList["UNCAPPEDLOOTFEED"] = function(msg)
         return
     end
 
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Loot Feed]|r /lootfeed | want <item> | unwant <item> | list | clear | all  -- all of these are in the Dashboard's Loot Feed tab too.")
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Loot Feed]|r /lootfeed | window | want <item> | unwant <item> | list | clear | all | reset  -- all of these are in the Dashboard's Loot Feed tab too.")
 end
 
 -- ---------------------------------------------------------------------------
@@ -608,3 +690,65 @@ ev:SetScript("OnEvent", function(self, event, a1, a2)
         OnVaultLoot(a2)
     end
 end)
+
+-- ---------------------------------------------------------------------------
+-- Settings page  (ESC > Interface > AddOns > Uncapped > Loot Feed)
+-- ---------------------------------------------------------------------------
+-- Guarded on UncappedUI because the hub is an OPTIONAL dependency: a player who
+-- has disabled UncappedOptions still gets a working feed, just without a
+-- settings page. Same shape UncappedGCD uses.
+--
+-- Deliberately only the things that are NOT already one click away in the
+-- window itself. The filters live on the feed, where you can see what they do
+-- to it; putting a second copy of them in here would give two controls over one
+-- state and no clue which one you last touched.
+if UncappedUI then
+    local panel, L = UncappedUI.CreatePanel("Loot Feed",
+        "The scrolling loot stream: its pop-out window, and what it does when something you are farming for drops.")
+
+    L:Header("Pop-out window")
+    L:Note("A small window you can move, resize and leave open while you play -- the same stream as the Dashboard's Loot Feed tab. It remembers where you put it and whether it was open.", 40)
+
+    L:Check("Show the pop-out loot window",
+        function() return LF.GetDB().popout end,
+        function(v)
+            if v then
+                if LF.Popout and LF.Popout.Show then LF.Popout.Show() end
+            else
+                if LF.Popout and LF.Popout.Hide then LF.Popout.Hide() end
+            end
+        end)
+
+    L:Check("Show where watched items drop",
+        function() return LF.GetDB().popoutSource ~= false end,
+        function(v)
+            LF.GetDB().popoutSource = v and true or false
+            if LF.Notify then LF.Notify() end
+        end)
+
+    L:Gap(6)
+    L:Header("When something you are watching drops")
+    L:Note("Items on your watchlist are called out in the feed with a gold outline. These two decide how loudly it happens outside the window.", 28)
+
+    L:Check("Play a sound",
+        function() return LF.GetDB().sound end,
+        function(v) LF.GetDB().sound = v and true or false end)
+
+    L:Check("Flash a banner across the screen",
+        function() return LF.GetDB().alert end,
+        function(v) LF.GetDB().alert = v and true or false end)
+
+    L:Gap(6)
+    L:Header("History")
+    -- "%d", because the hub's slider formats "%.2f" by default and a line count
+    -- of "100.00" reads like a bug in the panel.
+    L:Slider("Loot lines to keep", 25, 500, 25,
+        function() return LF.GetDB().maxLines or 100 end,
+        function(v)
+            LF.GetDB().maxLines = v
+            if LF.Notify then LF.Notify() end
+        end, "%d")
+    L:Note("How far back the feed remembers. Older lines fall off the end; this is only the on-screen history, nothing is lost from your bags or Vault.", 28)
+
+    L:Button("Reset session totals", function() LF.ResetSession() end, 180)
+end

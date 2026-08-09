@@ -350,15 +350,31 @@ local CLASS_CAT = {
     [16] = "glyph",
 }
 
+-- Trade-goods SUBCLASS -> its own top-level category, for the ones that clearly
+-- belong to one profession. Anything not listed stays under Trade Goods and gets
+-- a subcategory from SUBCATEGORY_DEFS.trade instead.
+--
+-- ⚠ SUBCLASS 11 IS THE CATCH-ALL "OTHER", NOT ENGINEERING (report #315). It used
+-- to map here to "engineering", which is why clams were filed as engineering
+-- mats -- Small Barnacled Clam, Big-mouth Clam and Thick-shelled Clam are all
+-- class 7 subclass 11, along with 173 other unrelated oddments. It now falls
+-- through to Trade Goods -> Other, which is exactly what subclass 11 means.
+--
+-- Engineering instead takes the three subclasses that ARE engineering: Parts,
+-- Explosives and Devices. Their defs moved out of SUBCATEGORY_DEFS.trade to
+-- SUBCATEGORY_DEFS.engineering to match, or they would have become unreachable
+-- entries under a category nothing routes to any more.
 local SUB_TRADE_CAT = {
+    [1] = "engineering",
+    [2] = "engineering",
+    [3] = "engineering",
+    [4] = "jewelcrafting",
     [5] = "tailoring",
     [6] = "leatherworking",
     [7] = "mining",
     [9] = "herbalism",
     [10] = "trade",
-    [11] = "engineering",
     [12] = "enchanting",
-    [4] = "jewelcrafting",
 }
 
 local SUBCATEGORY_DEFS = {
@@ -412,10 +428,15 @@ local SUBCATEGORY_DEFS = {
         { key = "arrow", label = "Arrows", sub = 2 },
         { key = "bullet", label = "Bullets", sub = 3 },
     },
-    trade = {
+    -- Parts / Explosives / Devices moved here from `trade` with report #315: those
+    -- three subclasses now route to Engineering, so leaving their defs under Trade
+    -- Goods would have left three entries nothing can ever reach.
+    engineering = {
         { key = "parts", label = "Parts", sub = 1 },
         { key = "explosives", label = "Explosives", sub = 2 },
         { key = "devices", label = "Devices", sub = 3 },
+    },
+    trade = {
         { key = "jewelcrafting", label = "Jewelcrafting", sub = 4 },
         { key = "cloth", label = "Cloth", sub = 5 },
         { key = "leather", label = "Leather", sub = 6 },
@@ -1608,22 +1629,58 @@ function Core.DepositAllBags()
     Core.Send("VLTDEPALL")
 end
 
+--[[ lastPickup names the bag slot the cursor's item came from, because the
+     cursor itself cannot tell the server WHICH copy you picked up -- only
+     PickupContainerItem knows that.
+
+     ⚠ IT MUST BE CLEARED BY EVERY OTHER WAY OF FILLING THE CURSOR, or a stale
+     pair deposits the wrong item. Picking up an EQUIPPED BAG goes through
+     PickupBagFromSlot, not PickupContainerItem, so before this the cursor held a
+     bag while lastPickup still pointed at whatever you last dragged out of a
+     container -- and dropping it on the Vault window would have banked that
+     other item instead. Harmless while bags were refused outright; a live hazard
+     now that they are not (#348). Same for equipment, merchant and loot
+     pickups: if we did not put it on the cursor from a container, we do not know
+     what is on the cursor, and we refuse rather than guess. ]]
 local lastPickup
 if hooksecurefunc then
     hooksecurefunc("PickupContainerItem", function(bag, slot)
         lastPickup = { bag = bag, slot = slot }
     end)
+
+    local function forgetPickup() lastPickup = nil end
+    for _, api in ipairs({ "PickupBagFromSlot", "PickupInventoryItem", "PickupMerchantItem",
+                           "PickupItem", "PickupLootItem", "PickupTradeMoney", "ClearCursor" }) do
+        if type(_G[api]) == "function" then hooksecurefunc(api, forgetPickup) end
+    end
 end
 
 function Core.DepositCursor()
     if Core.demo then ClearCursor(); return end
     if not CursorHasItem() then return end
-    local t = GetCursorInfo()
+    local t, _, cursorLink = GetCursorInfo()
+    --[[ Second guard on top of the pickup hooks: if that slot now reports a
+         DIFFERENT item, the pair is stale and we must not act on it.
+
+         ⚠ Only a different NON-NIL link disqualifies it. Whether the source slot
+         still reports its item while the item sits on the cursor is a client
+         detail I could not verify from here, and reading it as "stale" would
+         break the ordinary drag-and-drop deposit for everyone -- far worse than
+         the rare case this catches. Silence is treated as "no evidence". ]]
+    if t == "item" and lastPickup and cursorLink then
+        local slotLink = GetContainerItemLink(lastPickup.bag, lastPickup.slot)
+        if slotLink and slotLink ~= cursorLink then
+            lastPickup = nil
+        end
+    end
     if t == "item" and lastPickup then
-        Core.Send(format("VLTDEP:%d:%d", lastPickup.bag, lastPickup.slot))
-        ClearCursor()
-        ApplyDepositToCache(CaptureBagItem(lastPickup.bag, lastPickup.slot))
+        -- Read the pair into locals FIRST: ClearCursor is hooked above to forget
+        -- lastPickup, so touching it after the call would index a nil.
+        local bag, slot = lastPickup.bag, lastPickup.slot
         lastPickup = nil
+        Core.Send(format("VLTDEP:%d:%d", bag, slot))
+        ClearCursor()
+        ApplyDepositToCache(CaptureBagItem(bag, slot))
         return
     end
     ClearCursor()
@@ -2084,7 +2141,15 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
         local why = match(text, "^VLTDEPFAIL:(%a+)")
         local reason = (why == "quest" and "quest items") or (why == "bag" and "bags")
             or (why == "bound" and "soulbound items") or "that item"
-        if why == "kept" then
+        if why == "bagitems" then
+            -- Bags CAN be deposited now (#348) -- but only empty ones. Destroying
+            -- a loaded bag destroys what is inside it, and the Vault stores a
+            -- count with nowhere to put contents.
+            if DEFAULT_CHAT_FRAME then
+                DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r that bag still has things in it "
+                    .. "-- empty it first, then deposit the bag.")
+            end
+        elseif why == "kept" then
             -- Things the Vault stores as a COUNT would lose what makes them
             -- individual: a part-looted lockbox would come back unopened, a
             -- half-used trinket would come back full.
@@ -2096,6 +2161,13 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
         elseif DEFAULT_CHAT_FRAME then
             DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r can't deposit " .. reason .. ".")
         end
+        --[[ The optimistic local cache already counted this deposit
+             (ApplyDepositToCache runs the moment the drag is sent, so the row
+             appears instantly instead of a round trip later). A REFUSAL leaves
+             that phantom row behind -- the window says the bag is banked while
+             it is still in your hands. Re-ask for the truth; the server sends no
+             snapshot on the failure path. ]]
+        if Core.RequestSnapshot and not Core.demo then Core.RequestSnapshot() end
     end
 end)
 
