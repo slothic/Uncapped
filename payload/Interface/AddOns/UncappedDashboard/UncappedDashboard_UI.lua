@@ -38,6 +38,7 @@ local EMBEDDED_TABS = {
     vault       = "UncappedVault",
     soulscrolls = "UncappedScrolls",
     transmog    = "UncappedTransmog",
+    progress    = "UncappedProgress",
     -- Loot Feed is a separate addon (UncappedLootFeed), not a folder under this
     -- one -- it embeds the same way regardless, since this lookup is by global
     -- name and happens at BuildContent time, long after every addon has loaded.

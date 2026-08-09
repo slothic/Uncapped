@@ -18,6 +18,11 @@ _G.UncappedDashboard = Core
 -- Core.SetTab is skipped.
 Core.TABS = {
     { key = "dashboard", label = "Dashboard" },
+    -- Progress ships inside this addon (UncappedProgress\), not as a separate
+    -- addon, so there is no `addon` field to enable/disable and no slash-command
+    -- hint fallback to give -- it embeds directly, see EMBEDDED_TABS in
+    -- UncappedDashboard_UI.lua.
+    { key = "progress", label = "Progress", addon = "UncappedProgress", hint = "/progress" },
     { key = "forge", label = "Forge", addon = "UncappedForge", hint = "/dashboard" },
     { key = "soulforge", label = "Soul Forge", addon = "UncappedSoulForge", hint = "/dashboard" },
     { key = "anima", label = "Anima", addon = "UncappedAnima", hint = "/dashboard" },

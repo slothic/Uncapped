@@ -16,5 +16,6 @@ UncappedForge\UncappedForge.lua
 UncappedVault\UncappedVault.lua
 UncappedVault\UncappedVault_UI.lua
 UncappedScrolls\UncappedScrolls.lua
+UncappedProgress\UncappedProgress.lua
 UncappedTransmog\UncappedTransmogData.lua
 UncappedTransmog\UncappedTransmog.lua

@@ -393,6 +393,87 @@ local function UpdateTrash(killed, needed)
     RefreshBar()
 end
 
+-- ---------------------------------------------------------------------------
+-- Surviving /reload  (report #433)
+-- ---------------------------------------------------------------------------
+-- ★ THE SERVER CANNOT SEE A /reload. It fires no login and no map-enter hook, so
+--   none of the three things that push run state (OnPlayerEnterAll, run start,
+--   and a death's UMR) happen. The state push is event-driven, never periodic --
+--   there is no heartbeat to wait for -- and the addon has no way to ask for one:
+--   it sends the server nothing at all, and mod-mythic-plus registers no incoming
+--   addon-message handler to answer with if it did.
+--
+-- ★ AND THE MESSAGES THAT DO KEEP ARRIVING CANNOT BRING THE HUD BACK. StartRun is
+--   the only path with a frame:Show(); UMR early-returns on `not run.active`, and
+--   UMT/UMB quietly accumulate into a frame nobody can see. So the HUD stayed
+--   hidden for the rest of the key, and leaving and re-entering the instance was
+--   the only recovery.
+--
+-- The fix is entirely client-side because the information never actually left the
+-- client -- it was only being thrown away. `run` is rebuilt from defaults on load,
+-- and is not in SavedVariables. Park a snapshot in the saved table on the way out
+-- and put it back on the way in.
+--
+-- ★ THE SNAPSHOT MUST NOT SURVIVE A RELOG, only a reload, or a stale HUD would
+--   appear on a run that has since ended. Two independent stamps say which one
+--   happened, and both must agree:
+--     GetTime() is monotonic within one client PROCESS and restarts near zero with
+--       a new one, so a snapshot from a previous session reads as being in the
+--       future and is refused.
+--     time() is wall clock, which catches the rare fresh session that has already
+--       been up longer than the saved GetTime().
+--   A reload clears both in seconds; anything slower is treated as a new session
+--   and the HUD waits for the server, exactly as it does today.
+--
+-- The timer needs no adjustment: run.startTime is a GetTime() stamp and GetTime()
+-- does not restart across a reload, so the countdown resumes where it was.
+local RUN_CACHE_MAX_AGE = 60
+
+local function SnapshotRun()
+    if not run.active then
+        db.runCache = nil
+        return
+    end
+
+    db.runCache = {
+        savedAt     = GetTime(),
+        savedAtReal = time(),
+        run         = run,
+    }
+end
+
+local function RestoreRun()
+    local cache = db.runCache
+    db.runCache = nil
+
+    if type(cache) ~= "table" or type(cache.run) ~= "table" then return end
+    if not IsInInstance() then return end
+
+    local since = GetTime() - (cache.savedAt or 0)
+    if since < 0 or since > RUN_CACHE_MAX_AGE then return end
+    if (time() - (cache.savedAtReal or 0)) > RUN_CACHE_MAX_AGE then return end
+
+    local saved = cache.run
+    if not saved.active then return end
+
+    run.active      = true
+    run.timed       = saved.timed or false
+    run.startTime   = saved.startTime or GetTime()
+    run.limit       = saved.limit or 0
+    run.level       = saved.level or 0
+    run.token       = saved.token
+    run.trashKilled = saved.trashKilled or 0
+    run.trashNeeded = saved.trashNeeded or 0
+    run.bosses      = saved.bosses or {}
+    run.bossIndex   = saved.bossIndex or {}
+
+    frame.title:SetText("Mythic+ Keystone +" .. run.level)
+    ApplyTimerVisibility()
+    RefreshBar()
+    RefreshBossLog()
+    frame:Show()
+end
+
 -- Hide the protocol lines from chat.
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
     if msg and (msg:find("^UMS:") or msg:find("^UMT:") or msg:find("^UMR:") or msg:find("^UMB:")) then
@@ -409,6 +490,12 @@ listener:RegisterEvent("CHAT_MSG_CHANNEL")
 listener:RegisterEvent("CHAT_MSG_ADDON")
 listener:RegisterEvent("ADDON_LOADED")
 listener:RegisterEvent("PLAYER_ENTERING_WORLD")
+-- Both fire on /reload, and either one is early enough to park the run before the
+-- saved variables are written -- see SnapshotRun (report #433). Both are taken
+-- rather than one because the pair is not documented to fire in a fixed order, and
+-- a snapshot written twice costs nothing.
+listener:RegisterEvent("PLAYER_LEAVING_WORLD")
+listener:RegisterEvent("PLAYER_LOGOUT")
 listener:SetScript("OnEvent", function(self, event, a1, a2)
     if event == "ADDON_LOADED" then
         if a1 == "UncappedMythic" then
@@ -424,6 +511,10 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
                 -- (for i = 1, #v), which would flatten a string-keyed table to
                 -- empty anyway. Without this the affix settings reset every login.
                 if type(s.affix) == "table" then db.affix = s.affix end
+                -- Same reason, for the in-flight run parked by SnapshotRun: it is
+                -- not a DEFAULTS key, so the merge above would drop it and the
+                -- reload it exists to survive would still blank the HUD (#433).
+                if type(s.runCache) == "table" then db.runCache = s.runCache end
             end
             -- Report #207: one-time migration off the old fixed 6.
             --
@@ -456,7 +547,18 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         if run.active and not IsInInstance() then
             run.active = false
             frame:Hide()
+        elseif not run.active then
+            -- A /reload arrives here with `run` freshly rebuilt from defaults and
+            -- nothing on the wire that could ever refill it. RestoreRun self-guards
+            -- on being in an instance and on the snapshot being from this session,
+            -- and clears the snapshot either way (report #433).
+            RestoreRun()
         end
+        return
+    end
+
+    if event == "PLAYER_LEAVING_WORLD" or event == "PLAYER_LOGOUT" then
+        SnapshotRun()
         return
     end
 

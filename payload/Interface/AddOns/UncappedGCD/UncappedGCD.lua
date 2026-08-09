@@ -345,9 +345,48 @@ local function ApplyGCD()
     for _, entry in ipairs(gcdButtons) do ApplyToButton(entry) end
 end
 
+-- ===========================================================================
+-- ★ REPORTS #428 AND #423: UNIT_SPELLCAST_SUCCEEDED IS NOT "THE PLAYER PRESSED
+-- A BUTTON". IT IS "THE SERVER CAST SOMETHING AND NAMED YOU AS THE CASTER".
+--
+-- Every proc, every triggered sub-spell and every Multicast copy arrives on that
+-- event with the player as arg1, and a proc almost always carries the SAME NAME
+-- as the ability it belongs to -- a paladin's white swing procs "Seal of
+-- Righteousness" (25742), which is the same name as the seal, and the seal is in
+-- UncappedGCD_BASE at 1500. So the sweep was repainted on every melee swing
+-- (#428, paladin in ICC), and again on every proc that Charge's and Intercept's
+-- stun set off (#423).
+--
+-- Multicast made it worse rather than causing it: each copy fires SUCCEEDED again
+-- 250..1600ms later, so one Fireball painted ~3.1s of "GCD" over a real 1.5s one.
+--
+-- ⚠ THE SERVER NEVER PUT A GCD ON THE PLAYER FOR ANY OF THESE. Procs and copies
+-- are cast with TRIGGERED_FULL_MASK, which contains TRIGGERED_IGNORE_GCD, so
+-- Spell::prepare never calls TriggerGlobalCooldown for them. This was always a
+-- UI that lied, never a real cooldown -- but the bars read as permanently on
+-- cooldown, which is its own kind of broken.
+--
+-- UNIT_SPELLCAST_SENT is the event that means the CLIENT asked to cast, i.e. the
+-- player actually pressed something; nothing the server originates fires it.
+-- Require one, and consume it, so exactly one sweep is painted per press no
+-- matter how many casts that press turns into.
+-- ===========================================================================
+
+local sentName, sentAt = nil, 0
+local SENT_WINDOW = 10   -- seconds; long enough for the slowest cast bar
+
 local function StartGCD(spellName)
     if not db.showGcd then return end
     if not spellName then return end
+
+    -- Not a cast this client asked for -- a proc, a triggered sub-spell or a
+    -- Multicast copy. The server put no global cooldown on us for any of those,
+    -- so neither do we.
+    if sentName ~= spellName or (GetTime() - sentAt) > SENT_WINDOW then
+        return
+    end
+    -- Consumed: the copies that follow must not re-arm the sweep.
+    sentName = nil
 
     local base = UncappedGCD_BASE and UncappedGCD_BASE[spellName]
     if not base or base <= 0 then return end   -- off the GCD, or unknown
@@ -381,6 +420,7 @@ ev:RegisterEvent("PLAYER_LOGIN")
 ev:RegisterEvent("PLAYER_ENTERING_WORLD")
 ev:RegisterEvent("CHAT_MSG_ADDON")
 ev:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+ev:RegisterEvent("UNIT_SPELLCAST_SENT")
 ev:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
 -- Bars are rebuilt when the player changes them, so drop the cached list and
 -- let the next cast re-scan rather than holding stale frames.
@@ -422,6 +462,9 @@ ev:SetScript("OnEvent", function(self, e, a1, a2)
         offGcdSlot = {}
     elseif e == "UNIT_SPELLCAST_SUCCEEDED" then
         if a1 == "player" then StartGCD(a2) end
+    elseif e == "UNIT_SPELLCAST_SENT" then
+        -- Only the local player's own cast requests raise this.
+        if a1 == "player" then sentName, sentAt = a2, GetTime() end
     elseif e == "ACTIONBAR_UPDATE_COOLDOWN" then
         ApplyGCD()                  -- repaint over the stock refresh, if ours is still live
     elseif e == "ACTIONBAR_SLOT_CHANGED" then
