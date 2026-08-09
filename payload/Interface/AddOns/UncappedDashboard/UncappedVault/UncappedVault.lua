@@ -2185,7 +2185,61 @@ init:SetScript("OnEvent", function()
         if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r preview ready -- type |cffffd100/dashboard|r to open it.") end
     else
         if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r ready -- type |cffffd100/dashboard|r to open it.") end
-        if not Core.LoadCache() then Core.RequestSnapshot() end
+        --[[ ★★ [Custom] Report #407 -- "Vault is slowly refreshing. After a couple of
+             relogs it starts to show exact number of items left in the vault."
+
+             THE STALE NUMBER WAS THIS ADDON'S OWN SAVEDVARIABLES COPY, not the
+             server's count and not the client engine's cached item string. Checked
+             all three before changing anything:
+
+               - The server cache (VaultCache, src/server/game/Loot/VaultCache.cpp)
+                 is NOT the #256 "loads once at startup" shape. Every writer keeps
+                 it honest: LootVault::Ingest -> NoteExternalChange, Withdraw and
+                 StoredMaterials::Consume all notify it, a change that lands while
+                 the login SELECT is still in flight sets reloadWhenLoaded and
+                 forces a re-read, and the load is keyed on !vault.loaded so it
+                 self-heals.
+               - The snapshot the server sends (SendVault) reads custom_vault_item
+                 straight from the DB, so it cannot lag the writers either.
+               - The server does PUSH row updates: the comms playerscript drains
+                 VaultCache::TakeDirty every player tick with PUSH_INTERVAL_MS = 0.
+
+             What was actually wrong is the line this replaces:
+
+                 if not Core.LoadCache() then Core.RequestSnapshot() end
+
+             LoadCache returns true whenever SavedVariables holds a cache of the
+             current CACHE_VERSION -- so a client that has ever seen the Vault asks
+             the server for NOTHING at login and paints last session's numbers. And
+             SavedVariables is only written to disk on a clean exit, so a crash or a
+             disconnect silently throws away every push applied that session; the
+             file can be arbitrarily older than the vault.
+
+             That also explains the oddly specific "after a couple of relogs".
+             Nothing corrects the numbers on a timescale the player notices except
+             two accidents: the 900s recache ticker, and the unknown-row branch in
+             the VLTUPD handler, which only fires a fresh snapshot when a pushed row
+             is one the stale cache has never seen. Relog, and the 3s post-login bag
+             sweep banks the backlog and pushes those rows -- so the numbers snap
+             exact on whichever relog happens to bank something new. Exactly the
+             reported symptom.
+
+             Fix: still load the cache, so the window paints instantly with no blank
+             frame, but ALWAYS ask for a fresh snapshot on top of it. Deliberately
+             without cleanCache: FinalizeSnapshot already does a full ClearItems and
+             refill on VLTEND, so the cached rows stay on screen right up until the
+             authoritative ones replace them, instead of the window emptying while
+             the snapshot is in flight.
+
+             ⚠ NOT also hooked to opening the window, though that is the other
+             obvious place. SendVault runs a SYNCHRONOUS SELECT over
+             custom_vault_item on the character DB, and a player toggling the
+             Dashboard tab could fire those back to back. One snapshot per login is
+             bounded and is the same query an uncached client already ran; per-open
+             is not. The refresh button (Core.ManualRefresh) remains the on-demand
+             path. ]]
+        Core.LoadCache()
+        Core.RequestSnapshot()
         StartRecacheTicker()
     end
 end)

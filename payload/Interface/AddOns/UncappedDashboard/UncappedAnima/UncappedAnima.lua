@@ -876,3 +876,62 @@ ev:SetScript("OnEvent", function(self, e, a1, a2)
         end
     end
 end)
+
+
+-- ---------------------------------------------------------------------------
+-- The Anima rename, applied to the STOCK Blizzard UI.
+--
+-- The currency this realm calls Anima is, to a 3.3.5 client, still arena points.
+-- So the character sheet's currency line, the PvP frame, the merchant
+-- alt-currency tooltips and every "you don't have enough arena points" error
+-- still said "Arena Points" after the server-side rename -- which is worse than
+-- not renaming it at all, because the player is now holding two names for one
+-- thing and no way to know they mean the same currency.
+--
+-- ⚠ THIS IS A DISCOVERY SWEEP, NOT A LIST. Hardcoding the global names is how a
+-- rename ships having missed three strings nobody thought of. The client already
+-- knows which of its own globals mention arena points, so it is asked rather than
+-- guessed: every _G entry that is a string and mentions the phrase gets rewritten.
+-- Format specifiers survive untouched because only the words are replaced.
+--
+-- Deliberately NOT renamed: the word "arena" on its own. Arena Team, arena
+-- rating, the arena queue -- those are real arenas, not this currency.
+--
+-- Runs at PLAYER_LOGIN rather than ADDON_LOADED so that every other addon's
+-- strings are already in place and get renamed too. The stock frames that show
+-- this currency all build their text at display time from these globals, so
+-- rewriting the globals is enough; there is nothing to repaint.
+local ANIMA_RENAME_PAIRS = {
+    { "Arena Points", "Anima" },
+    { "Arena Point",  "Anima" },
+    { "arena points", "anima" },
+    { "arena point",  "anima" },
+    { "ARENA POINTS", "ANIMA" },
+    { "ARENA POINT",  "ANIMA" },
+}
+
+local function ApplyAnimaRename()
+    -- Assigning to keys that already exist is safe during pairs(); only ADDING
+    -- keys mid-iteration is undefined, and nothing here adds one.
+    for key, value in pairs(_G) do
+        if type(key) == "string" and type(value) == "string" then
+            local rewritten = value
+            for _, pair in ipairs(ANIMA_RENAME_PAIRS) do
+                -- plain=true on the find: a stray '%' or '-' in a Blizzard string
+                -- must not be read as a pattern.
+                if string.find(rewritten, pair[1], 1, true) then
+                    rewritten = string.gsub(rewritten, pair[1], pair[2])
+                end
+            end
+            if rewritten ~= value then
+                _G[key] = rewritten
+            end
+        end
+    end
+end
+
+local animaRenameFrame = CreateFrame("Frame")
+animaRenameFrame:RegisterEvent("PLAYER_LOGIN")
+animaRenameFrame:SetScript("OnEvent", function()
+    ApplyAnimaRename()
+end)

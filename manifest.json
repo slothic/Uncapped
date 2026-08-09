@@ -1799,8 +1799,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedAnima/UncappedAnima.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedAnima/UncappedAnima.lua",
-                      "sha256":  "57eed598c511d5c6968a653cccbc6d7570091a8b402657daa2821752a66864dd",
-                      "size":  36488
+                      "sha256":  "e41cb32dec641ca3d872ca33f738ef79dec027de7a08c9db94ef45cd8b829753",
+                      "size":  39137
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedForge/UncappedForge.lua",
@@ -1835,8 +1835,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault.lua",
-                      "sha256":  "2a74ae16b4277dff1a50e701ad1a0749aee886037bc849330ab5722aeb90c206",
-                      "size":  93476
+                      "sha256":  "649473c9affdad0c2c12e8a7c3940b99bf3ceafaddecc1d60518dc4f69034077",
+                      "size":  96886
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault_UI.lua",
