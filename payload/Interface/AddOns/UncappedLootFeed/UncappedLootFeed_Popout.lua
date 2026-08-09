@@ -247,6 +247,33 @@ local function Build()
         movable    = true,
         strata     = "MEDIUM",
         db         = db.window,
+
+        --[[ ⚠ ESCAPE MUST NOT CLOSE THIS. Report #384, four minutes after the
+             window went live: "Escape closes the popout loot window".
+
+             UISpecialFrames is Blizzard's "Escape closes this" list, and it is
+             meant for windows you open, use and dismiss -- a loot roll, a
+             vendor, a talent pane. This is not one of those. It is a panel you
+             place once, size once and leave up while you play, and Escape gets
+             pressed constantly for reasons that have nothing to do with it:
+             opening the game menu, clearing a target, stopping a cast. Every
+             one of those was taking the window away.
+
+             ★ THE REALM HAS ALREADY DECIDED THIS EXACT QUESTION. UncappedChat
+             came off UISpecialFrames for the identical complaint ("Uchat keeps
+             closing when pressing Esc key meaning we have too constantly open it
+             back up"), and its reasoning transfers whole -- Blizzard's own chat
+             frames are not on the list either. Leaving this window on it while
+             the chat window is off it would be the same frame class behaving two
+             different ways in one suite.
+
+             The kit's OTHER two windows keep the default on purpose: the
+             Dashboard is a big panel you deliberately open and dismiss, which is
+             exactly what the list is for, and the Demo is a dev fixture.
+
+             Still three ways to close it: the titlebar X, the Pop out button on
+             the Loot Feed tab, and /lootfeed window. ]]
+        escapeClose = false,
     })
 
     -- Closing by the X or by Escape must be remembered, or the window comes

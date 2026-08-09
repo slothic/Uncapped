@@ -137,7 +137,7 @@ local function Render()
         Row("  ...on your pet", string.format("+%d  %s(%.1fx, hunters only)|r",
             state.petDelver, COLOR_DIM, state.petMult))
     end
-    Row("Quest bonus",      string.format("x%.1f arena points  %s(%d quests)|r",
+    Row("Quest bonus",      string.format("x%.1f Anima  %s(%d quests)|r",
         state.questMult, COLOR_DIM, state.questCount))
 
     y = y - 6
@@ -365,5 +365,5 @@ if UncappedUI then
     L:Button("Open Scroll Bonuses", OpenInDashboard, 180)
     L:Note("Shows what each scroll you have used is actually giving you, including which "
         .. "instances your Scroll of Fortune bonuses landed on, plus your account-wide "
-        .. "quest bonus to arena points. Also available with /scrolls.", 48)
+        .. "quest bonus to Anima. Also available with /scrolls.", 48)
 end

@@ -1138,7 +1138,7 @@ local function BuildFrame(parent)
     end)
     depositBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    -- Gold/Arena Points moved to the Dashboard's own nav panel (see
+    -- Gold/Anima moved to the Dashboard's own nav panel (see
     -- DashboardButtons.lua) so they stay visible on every tab, not just
     -- while Vault is active.
 

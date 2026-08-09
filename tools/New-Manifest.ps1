@@ -70,6 +70,9 @@ param(
     # Files served from somewhere other than this repo (the WDM MPQ patches, which live in
     # Trimitor's releases). Downloaded once to a cache purely so we can hash them.
     [string]$ExternalFiles = 'C:\Wotlk\Launcher\tools\external-files.json',
+    # Skip the client-attestation release interlock. Only for a payload that does not
+    # involve UncappedCT.dll at all -- see the check itself, near the top of the body.
+    [switch]$SkipAttestCheck,
     # Zips fetched from someone else's host and unpacked into the install, for addons we are
     # not entitled to redistribute. Hashed here so the launcher can pin them.
     [string]$Archives      = 'C:\Wotlk\Launcher\tools\archives.json',
@@ -81,6 +84,42 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if (-not (Test-Path $PayloadDir)) { throw "Payload not found at $PayloadDir. Run Build-Payload.ps1 first." }
+
+# --- Attestation release interlock -------------------------------------------------------
+# The client-attestation variant set is regenerated every release, and the worldserver
+# refuses to enforce against a client carrying a different one. So the DLL the manifest
+# pins MUST be built from the same generator run as the worldserver tree. If it is not,
+# attestation silently does nothing at best -- and if the mismatch goes the other way,
+# every player on the realm fails at once.
+#
+# This is gated here, in New-Manifest, because the manifest is the only thing the launcher
+# reads: nothing reaches a player until this script writes it. A check anywhere earlier can
+# be skipped by running this directly.
+#
+# ⚠ It exists because the failure has already happened. UncappedCT-2026.08.09a.dll was
+# built and published to the host on 2026-08-09 while external-files.json still pinned
+# 08.07b, so a DLL nobody ever received sat live for a day and nothing noticed.
+#
+# -SkipAttestCheck is the deliberate override for a payload that genuinely does not touch
+# the DLL. It is not a way past a red check on one that does.
+if (-not $SkipAttestCheck) {
+    $attestCheck = 'C:\Wotlk\Server\azerothcore-wotlk\tools\attestation\check_release.py'
+    if (Test-Path $attestCheck) {
+        Write-Host "`nAttestation release interlock:" -ForegroundColor Cyan
+        & python $attestCheck
+        if ($LASTEXITCODE -ne 0) {
+            throw @"
+Attestation release interlock FAILED (see above). No manifest was written.
+
+The client DLL and the worldserver would disagree about the variant set, which means
+attestation either does nothing or locks the realm out. Fix the mismatch it named, or
+pass -SkipAttestCheck if this payload genuinely does not involve UncappedCT.dll.
+"@
+        }
+    } else {
+        Write-Warning "Attestation interlock script not found at $attestCheck - skipping (is the server repo present?)"
+    }
+}
 
 $BaseUrl = $BaseUrl.TrimEnd('/')
 $payloadRoot = (Resolve-Path $PayloadDir).Path

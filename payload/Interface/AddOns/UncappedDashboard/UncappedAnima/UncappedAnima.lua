@@ -362,7 +362,7 @@ local function BuildCard(parent, def)
                     GameTooltip:AddLine(string.format("Buy %d rank%s", granted, granted == 1 and "" or "s"), 1, 1, 1)
                     local affordable = arenaPoints >= cost
                     GameTooltip:AddLine(
-                        string.format("Cost: %s arena points", Comma(cost)),
+                        string.format("Cost: %s Anima", Comma(cost)),
                         affordable and 0.4 or 1, affordable and 1 or 0.3, affordable and 0.4 or 0.3)
                     if not affordable then
                         GameTooltip:AddLine(string.format("You have %s.", Comma(arenaPoints)), 1, 0.3, 0.3)
@@ -490,7 +490,7 @@ end
 local function RefreshAll()
     if not frame then return end
     if pointsText then
-        pointsText:SetText(string.format("Arena points: |cffffd100%s|r", Comma(arenaPoints)))
+        pointsText:SetText(string.format("Anima: |cffffd100%s|r", Comma(arenaPoints)))
     end
     -- Deliberately NOT gated on haveDefinitions too: a server build that
     -- doesn't implement ANIMALIST yet will never send ANIMALISTEND, and the
@@ -522,7 +522,10 @@ local function BuildFrame(parent)
     subtitle:SetPoint("RIGHT", frame, "RIGHT", -(CARD_INSET + 4), 0)
     subtitle:SetJustifyH("LEFT")
     subtitle:SetTextColor(0.75, 0.75, 0.75)
-    subtitle:SetText("Two upgrade trees, bought with Arena Points. A stat only pays off if you are actually limited by it -- pick your poison.")
+    -- The "(formerly Arena Points)" tail is the ONE transition string in the whole
+    -- rename -- players called this currency Arena Points for weeks. Delete this
+    -- parenthetical once the new name has settled; nothing else depends on it.
+    subtitle:SetText("Two upgrade trees, bought with Anima (formerly Arena Points). A stat only pays off if you are actually limited by it -- pick your poison.")
 
     -- Tree tabs
     tabButtons = {}
@@ -738,7 +741,7 @@ local ERRORS = {
     disabled         = "These stats are currently disabled on this realm.",
     bad_stat         = "That stat does not exist.",
     max_rank         = "You are already at maximum rank in that stat.",
-    not_enough_arena = "You do not have enough arena points for that.",
+    not_enough_arena = "You do not have enough Anima for that.",
     parse            = "The server could not read that request.",
 }
 
@@ -787,7 +790,7 @@ local function HandleMessage(body)
     local statIdx, count, cost = string.match(body, "^ANIMABOUGHT:(%d+):(%d+):(%d+)$")
     if statIdx then
         local def = STATS_BY_INDEX[tonumber(statIdx)]
-        Print(string.format("Bought %s %s for |cffffd100%s|r arena points.",
+        Print(string.format("Bought %s %s for |cffffd100%s|r Anima.",
             Comma(count), def and def.name or "rank", Comma(cost)))
         return
     end
@@ -805,7 +808,7 @@ end
 -- ===========================================================================
 if UncappedUI then
     local panel, L = UncappedUI.CreatePanel("Anima",
-        "Two arena-point upgrade trees: Tempo (what haste used to do) and Defence (your avoidance ceilings inside keystones).")
+        "Two Anima-bought upgrade trees: Tempo (what haste used to do) and Defence (your avoidance ceilings inside keystones).")
 
     L:Header("Opening the window")
     L:Note("Type /dashboard, or click the button below. The window always refreshes from the server when it opens, so the ranks and prices you see are live.", 40)

@@ -101,9 +101,38 @@ end
 
      Drained in a loop, not one per frame: a burst of frames should be delivered
      in the frame it arrived, and the queue in the DLL is only 16 deep. ]]
+--[[ Attestation relay.
+
+     The server asks the DLL to prove it is really loaded: it sends a random
+     nonce and names one of 300 mixing functions, the DLL answers, and the
+     answer comes back out of the native queue as topic "ATR". This addon's
+     entire job is to carry that string to the server on the ordinary addon
+     pipe, which is the only direction Lua is needed in at all.
+
+     ★ THIS ADDON NEVER SEES THE CHALLENGE. The DLL consumes topic "ATT" itself
+     and never queues it, so the nonce does not reach Lua. That is deliberate
+     and is what makes the check worth having: an addon-only client -- the whole
+     bypass this exists to close, a stock 3.3.5a client with Interface/AddOns
+     copied into it -- does not receive the challenge at all, because opcode
+     0x513 is dispatched through a table only the DLL registers into. It cannot
+     relay what it never got, and it could not answer it if it had.
+
+     So there is nothing secret here and nothing to protect: this is a pipe.
+     Editing it can stop attestation working; it cannot help anyone forge one. ]]
+local function RelayAttestation(payload)
+    if not SendAddonMessage or type(payload) ~= "string" then return end
+    SendAddonMessage(ADDON_TRANSPORT_PREFIX, "UATT:" .. payload,
+                     "WHISPER", UnitName("player"))
+end
+
 local pump = CreateFrame("Frame")
 pump:RegisterEvent("PLAYER_ENTERING_WORLD")
 pump:SetScript("OnEvent", function()
+    -- Registered BEFORE the announcement, not after: the announcement is what
+    -- triggers the server's challenge, and a frame that arrives before its
+    -- handler exists is dropped and never resent.
+    UncappedNative.Register("ATR", RelayAttestation)
+
     -- The session is not ready to accept an addon message at load; entering the
     -- world is the first moment it is.
     Announce()

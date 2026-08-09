@@ -515,7 +515,7 @@ local function BuildUI(parent)
   -- own ICSF push, so a refused or clamped change corrects itself.
   local sackHdr = f:CreateFontString(nil,"OVERLAY","GameFontNormal")
   sackHdr:SetPoint("TOPLEFT", 6, -130)
-  sackHdr:SetText("|cff40c0f0Sacks of Mythic Treasures|r")
+  sackHdr:SetText("|cff40c0f0Treasure sacks|r")
 
   local sackCount = f:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
   sackCount:SetPoint("TOPRIGHT", -8, -130); sackCount:SetJustifyH("RIGHT")
@@ -574,12 +574,12 @@ local function BuildUI(parent)
   f.sackOff = modeRow("UncappedSoulforgeSackOff", 0, -150,
     "Leave them alone",
     "Leave them alone",
-    "Sacks pile up in your bags and nothing touches them. Open them by hand whenever you like.")
+    "Every kind of treasure sack piles up in your bags and nothing touches them. Open them by hand whenever you like.")
 
   f.sackKeep = modeRow("UncappedSoulforgeSackKeep", 2, -172,
     "|cff1eff00Open them and keep everything|r",
     "Open them and keep everything",
-    "Sacks open by themselves, a few every five seconds. The gear, reagents and forge fuel inside go to your bags, and to your Vault once your bags are full. Nothing is destroyed.",
+    "EVERY treasure sack you carry -- Mythic, World, Legendary, Honor, Arena and Quest -- opens by itself, a few every five seconds. The gear, reagents and forge fuel inside go to your bags, and to your Vault once your bags are full. Nothing is destroyed.",
     0.6, 1, 0.6)
   -- The greyed-out wording for the capability gate. A separate STRING rather
   -- than SetTextColor, because the live label carries its own "|cff1eff00"
@@ -589,7 +589,7 @@ local function BuildUI(parent)
   f.sackMelt = modeRow("UncappedSoulforgeSackMelt", 1, -194,
     "Melt them for souls \226\128\148 |cffff2020destroys the gear|r",
     "Melt them for souls",
-    "Sacks are rendered straight down into souls, appearances and forge fuel. You still get the appearance of everything inside, but THE GEAR ITSELF IS DESTROYED and never reaches your bags or your Vault.",
+    "EVERY treasure sack you carry is rendered straight down into souls, appearances and forge fuel -- Mythic, World, Legendary, Honor, Arena and Quest alike. You still get the appearance of what was inside, but THE GEAR ITSELF IS DESTROYED and never reaches your bags or your Vault. That includes the guaranteed legendary in a Sack of Legendary Treasure.",
     1, 0.4, 0.4)
 
   -- The "do it now" button. Everything it says -- the cap, the cooldown -- comes

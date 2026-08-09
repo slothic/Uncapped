@@ -46,7 +46,7 @@ end
 -- which is this same number (mod-time-stats/src/time_stats.cpp).
 local function RefreshFooter()
     if arenaPointsText then
-        arenaPointsText:SetText(string.format("Arena Points: |cffffd100%s|r", Comma(GetArenaCurrency and GetArenaCurrency() or 0)))
+        arenaPointsText:SetText(string.format("Anima: |cffffd100%s|r", Comma(GetArenaCurrency and GetArenaCurrency() or 0)))
     end
     if goldText then
         goldText:SetText(FormatMoney(GetMoney and GetMoney() or 0))
@@ -67,7 +67,7 @@ local WINDOW_MARGIN = 16
 local TOP_INSET = 44
 local BOTTOM_INSET = 16
 local PANEL_BOTTOM_PAD = 16 -- breathing room below the last button, inside the panel
--- Reserved below the button stack for the Gold/Arena Points footer (see
+-- Reserved below the button stack for the Gold/Anima footer (see
 -- Buttons.Build) -- two lines at GameFontHighlightSmall's own line height
 -- plus a little breathing room between them and the last button.
 local FOOTER_HEIGHT = 40
@@ -225,7 +225,7 @@ function Buttons.Build()
     end
     Buttons.RefreshOrder()
 
-    -- Gold/Arena Points -- pinned to the nav panel itself (not any one tab's
+    -- Gold/Anima -- pinned to the nav panel itself (not any one tab's
     -- content), so they stay visible no matter which tab is active, per
     -- request. Both read live values now; see RefreshFooter above.
     arenaPointsText = navPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")

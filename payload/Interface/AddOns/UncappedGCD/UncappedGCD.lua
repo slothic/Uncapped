@@ -230,10 +230,60 @@ end
 --
 -- Keyed by NAME, not id, because 3.3.5's UNIT_SPELLCAST_SUCCEEDED hands us a
 -- name. Ranks of one ability share a GCD, so the collapse is lossless.
+--
+-- ★ REPORT #392 -- THE SWEEP IS GLOBAL, THE ABILITIES ARE NOT.
+--
+-- A global cooldown is drawn on every button at once, which is what ApplyGCD
+-- does, and that was wrong for the abilities that are off it. Heroic Strike,
+-- Cleave, Maul and Raptor Strike replace your next melee swing: they cost no
+-- global cooldown and stay pressable *during* one, and so do the interrupts,
+-- the stances, Vanish, Sprint and the racials. Painting them made a warrior
+-- believe his rotation had a lockout it never had -- and the report is worth
+-- reading precisely: nothing on the server had changed, only the picture.
+--
+-- The server is not involved either way. Every rank of Heroic Strike and
+-- Cleave in the server's own Spell.dbc carries StartRecoveryCategory = 0 and
+-- StartRecoveryTime = 0, so Spell::TriggerGlobalCooldown returns without
+-- starting anything; the client's copy has StartRecoveryTime zeroed outright.
+-- There was no global cooldown anywhere in the stack -- only this addon's swipe.
+--
+-- UncappedGCD_OFFGCD names those abilities. The lookup is by BUTTON, not by
+-- cast, so it also covers the far commoner half of the report: casting Mortal
+-- Strike used to paint a swipe over the Heroic Strike sitting next to it.
 -- ===========================================================================
 
 local gcdStart, gcdDuration = 0, 0
 local gcdButtons              -- built lazily; nil until the first cast
+local offGcdSlot = {}         -- action slot -> true/false, dropped when bars change
+
+-- Reading what an action slot HOLDS is awkward on 3.3.5 -- GetActionInfo hands
+-- back a spellbook index rather than a spell id, and says nothing useful about
+-- a macro. A hidden tooltip answers all three cases with the name the player
+-- actually sees, which is the key UncappedGCD_OFFGCD is written in.
+local scanTip = CreateFrame("GameTooltip", "UncappedGCDScanTip", UIParent, "GameTooltipTemplate")
+scanTip:SetOwner(UIParent, "ANCHOR_NONE")
+
+-- Cached per slot: a tooltip scan per button per cast would be far too much
+-- work for something that only changes when the player rearranges a bar.
+local function SlotIsOffGcd(slot)
+    local cached = offGcdSlot[slot]
+    if cached ~= nil then return cached end
+
+    local off = false
+    -- Guarded on the API as well as the table: if either is missing this answers
+    -- "not off-GCD", which is the behaviour that shipped, rather than erroring.
+    if UncappedGCD_OFFGCD and type(scanTip.SetAction) == "function" then
+        scanTip:SetOwner(UIParent, "ANCHOR_NONE")
+        scanTip:ClearLines()
+        scanTip:SetAction(slot)
+        local line = _G["UncappedGCDScanTipTextLeft1"]
+        local name = line and line:GetText()
+        if name and UncappedGCD_OFFGCD[name] then off = true end
+    end
+
+    offGcdSlot[slot] = off
+    return off
+end
 
 -- Stock 3.3.5 bars plus the third-party bars the launcher can install. A name
 -- that does not exist is simply skipped, so listing extras costs nothing.
@@ -274,6 +324,9 @@ end
 local function ApplyToButton(entry)
     local slot = ButtonSlot(entry.btn)
     if not slot or not HasAction(slot) then return end
+
+    -- Off the global cooldown entirely -- still pressable, so leave it clear.
+    if SlotIsOffGcd(slot) then return end
 
     local _, duration = GetActionCooldown(slot)
     if duration and duration > gcdDuration + 0.01 then return end
@@ -333,6 +386,9 @@ ev:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
 -- let the next cast re-scan rather than holding stale frames.
 ev:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
 ev:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
+-- Dragging an ability onto a bar changes what a slot holds without changing the
+-- frames, so the off-GCD answer for that slot has to be re-asked.
+ev:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
 ev:SetScript("OnEvent", function(self, e, a1, a2)
     e  = e  or event
     a1 = a1 or arg1
@@ -363,12 +419,17 @@ ev:SetScript("OnEvent", function(self, e, a1, a2)
         TryHook()
         RequestStats()
         gcdButtons = nil            -- bars may have been rebuilt on the loading screen
+        offGcdSlot = {}
     elseif e == "UNIT_SPELLCAST_SUCCEEDED" then
         if a1 == "player" then StartGCD(a2) end
     elseif e == "ACTIONBAR_UPDATE_COOLDOWN" then
         ApplyGCD()                  -- repaint over the stock refresh, if ours is still live
+    elseif e == "ACTIONBAR_SLOT_CHANGED" then
+        -- slot 0 (or none) means "everything changed"
+        if a1 and a1 ~= 0 then offGcdSlot[a1] = nil else offGcdSlot = {} end
     elseif e == "ACTIONBAR_PAGE_CHANGED" or e == "UPDATE_BONUS_ACTIONBAR" then
         gcdButtons = nil
+        offGcdSlot = {}
     elseif e == "CHAT_MSG_ADDON" then
         if a1 == PREFIX and a2 then
             local c = tonumber(string.match(a2, "CDR:([%d%.]+)"))

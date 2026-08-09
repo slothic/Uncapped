@@ -124,6 +124,79 @@ only thing the launcher reads.
 
 ---
 
+## ★ Publishing `UncappedCT.dll` — the one that is NOT an MPQ
+
+**This is the step with no tooling behind it, and the one that has already gone
+wrong.** Read it before shipping a release that rebuilt the DLL.
+
+`publish.sh` **cannot publish the DLL.** It regex-rejects any name that is not
+`patch-enUS-<X>-<version>.MPQ`, so every guard it provides — the sha256 check,
+the immutability refusal, the magic-byte check, the nginx range-request proof —
+is unavailable here. The DLL is copied into the serving directory **by hand**,
+and none of those protections apply.
+
+That is how `UncappedCT-2026.08.09a.dll` came to sit published and served from
+01:03 on 2026-08-09 while `external-files.json` and `manifest.json` both still
+pinned `2026.08.07b`. Every player kept running a two-day-old DLL and nothing
+complained, because **every check in the pipeline verifies that the pinned file
+is honest, and none of them verifies that the pin is current.**
+
+⚠ **With client attestation enforcing, this stops being a missed fix.** The
+server and the DLL must carry the same generated variant set. A stale pin means
+every player on the realm fails attestation at once.
+
+### The procedure
+
+```powershell
+# 1. Copy it up. NOTE the destination is public/ directly -- there is no
+#    incoming/ + publish.sh path for a DLL. Use a NEW dated filename; never
+#    overwrite a published one, for the same resume-safety reason MPQs have.
+scp C:\Wotlk\NativeCT\build\UncappedCT.dll `
+    root@152.53.115.249:/srv/uncapped-patches/public/UncappedCT-2026.08.09b.dll
+
+# 2. Prove the bytes survived the trip. publish.sh would have done this for you.
+ssh root@152.53.115.249 "sha256sum /srv/uncapped-patches/public/UncappedCT-2026.08.09b.dll"
+#    Compare against the local file yourself:
+(Get-FileHash C:\Wotlk\NativeCT\build\UncappedCT.dll -Algorithm SHA256).Hash.ToLower()
+
+# 3. Prove it is actually served, not merely on disk.
+curl -sI http://152.53.115.249/patches/UncappedCT-2026.08.09b.dll
+```
+
+Then update **both** `url` and `sha256` for the `UncappedCT.dll` entry in
+`tools/external-files.json`, and only then run `New-Manifest.ps1`.
+
+### Before you publish anything, run the preflight
+
+```bash
+bash tools/preflight-release.sh
+```
+
+Read-only, touches nothing. It answers the question no other check asks — *is
+the thing we are about to ship the thing we actually built?* — by comparing the
+built DLL, the pin, the bytes the URL really serves, and the newest file
+published on the host, plus the four copies of the client version number. It
+exits non-zero and says `DO NOT SHIP` on any mismatch.
+
+An **orphan** — a DLL on the host that nothing points at — is reported as a
+failure rather than a curiosity, because it is almost always an unfinished
+release. Either pin it or delete it.
+
+`New-Manifest.ps1` additionally runs `tools/attestation/check_release.py` and
+**throws before writing the manifest** if the DLL, the generated `.inc`, the pin
+and the served bytes do not all agree. That is the hard gate; the preflight just
+gives you the answer earlier, before you have built a payload.
+
+### Order matters, and the wrong order kicks the realm
+
+Payload published and CDN-verified **first**, server restarted **second**. An
+updated client meeting an un-restarted server is handled gracefully — it earns
+the version gate's "update your client" message rather than an attestation kick.
+The reverse — a restarted server meeting clients still on the old DLL — is the
+one that locks people out.
+
+---
+
 ## How the launcher notices, and what happens mid-download
 
 The launcher compares the manifest's `sha256` against the file already on disk
