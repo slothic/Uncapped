@@ -57,6 +57,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--before', nargs='+', required=True, metavar='LETTER=PATH')
     ap.add_argument('--after', nargs='+', required=True, metavar='LETTER=PATH')
+    ap.add_argument('--expect-changed', nargs='*', default=None, metavar='NAME',
+                    help='DBCs you MEANT to change. Without this, ANY content edit '
+                         'exits 1. With it, the changed set must match EXACTLY: an '
+                         'undeclared change fails, and a declared file that did NOT '
+                         'change also fails, so a silently-dropped edit cannot pass.')
     ap.add_argument('--quiet', action='store_true',
                     help='only print the verdict and anything wrong')
     a = ap.parse_args()
@@ -95,10 +100,39 @@ def main():
 
     # `added` is not a failure: consolidating deliberately gives one archive files
     # it did not have. Losing a file, or changing one without meaning to, is.
-    if missing or changed:
-        print('\n  RESULT: FAIL -- see above. Do not publish this.')
+    # * --expect-changed added 2026-08-10. This used to return 1 for ANY changed
+    # file, so a deliberate one-DBC patch could never exit 0 -- while
+    # PUBLISHING-PATCHES.md says "do not publish on a non-zero exit". The gate was
+    # therefore unsatisfiable for the exact case it exists to guard, and the only
+    # way past it was human judgement. Declaring intent is checked BOTH ways, so
+    # this is stricter than before, not looser.
+    if missing:
+        print('\n  RESULT: FAIL -- entries lost. Do not publish this.')
         return 1
-    print('\n  RESULT: PASS -- nothing lost, nothing altered')
+
+    if a.expect_changed is None:
+        if changed:
+            print('\n  RESULT: FAIL -- see above. Do not publish this.')
+            print('  (If these changes are intended, re-run naming each one in '
+                  '--expect-changed.)')
+            return 1
+        print('\n  RESULT: PASS -- nothing lost, nothing altered')
+        return 0
+
+    norm = lambda n: n.replace('/', chr(92)).lower()
+    want = set(norm(n) for n in a.expect_changed)
+    got = set(norm(n) for n in changed)
+    undeclared = sorted(got - want)
+    absent = sorted(want - got)
+    if undeclared:
+        print('\n  RESULT: FAIL -- changed but NOT declared: %s' % ' '.join(undeclared))
+        return 1
+    if absent:
+        print('\n  RESULT: FAIL -- declared but did NOT change: %s' % ' '.join(absent))
+        print('  (The edit did not land -- this is the failure mode that silently '
+              'ships a no-op.)')
+        return 1
+    print('\n  RESULT: PASS -- nothing lost; changed set is exactly what was declared')
     return 0
 
 

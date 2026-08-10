@@ -125,10 +125,20 @@ end
 
 --- Sends one bug report over the World channel. Returns true if it went out,
 --- false (with a chat explanation) if it couldn't.
-function BR.Send(title, message)
+-- `asSuggestion` picks the transport's kind byte. It is an explicit ARGUMENT
+-- rather than the old BR.sendAsSuggestion field because that field was read
+-- here and set precisely nowhere -- the suggestion path existed on the server
+-- and in this transport, and no client route could ever reach it (report #485).
+-- A sticky flag would also mean one /suggestion silently turning every later
+-- /bug into a suggestion.
+function BR.Send(title, message, asSuggestion)
+    local label = asSuggestion and "[Suggestion]" or "[Bug Report]"
+
     message = (message or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if message == "" then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff8040[Bug Report]|r Type what happened, where, and how to repeat it.")
+        DEFAULT_CHAT_FRAME:AddMessage(asSuggestion
+            and "|cffff8040[Suggestion]|r Describe the idea and what it would improve."
+            or  "|cffff8040[Bug Report]|r Type what happened, where, and how to repeat it.")
         return false
     end
 
@@ -145,7 +155,7 @@ function BR.Send(title, message)
     -- off mid-sentence with no warning is worse than one visibly shortened.
     if #full > MAX_LONG_REPORT then
         full = full:sub(1, MAX_LONG_REPORT)
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff8040[Bug Report]|r That was over "
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff8040" .. label .. "|r That was over "
             .. MAX_LONG_REPORT .. " characters, so the end was trimmed.")
     end
 
@@ -153,7 +163,7 @@ function BR.Send(title, message)
     if n < 1 then n = 1 end
     if n > MAX_CHUNKS then n = MAX_CHUNKS end
 
-    local kind = BR.sendAsSuggestion and "s" or "b"
+    local kind = (asSuggestion or BR.sendAsSuggestion) and "s" or "b"
     for i = 1, n do
         SendAddonMessage(TRANSPORT_PREFIX,
             "UBUGC:" .. i .. "/" .. n .. ":" .. kind .. ":"
@@ -180,7 +190,30 @@ SlashCmdList["UNCAPPEDBUGREPORTER"] = function(msg)
     end
     -- No title field on this quick path -- Send() derives one from the
     -- message itself.
-    BR.Send(nil, msg)
+    BR.Send(nil, msg, false)
+end
+
+-- Report #485: "Allow /suggestion to be created from ingame."
+--
+-- The server has understood the difference between a bug and a suggestion since
+-- the chunked transport went in -- the kind byte is in the wire format and
+-- bug_report_chunked.cpp routes on it. There was simply no way for a player to
+-- SAY "this is a suggestion": /bug was the only command, and the flag it checked
+-- was never set by anything. So every idea arrived filed as a bug.
+--
+-- Deliberately no UI here. The quick path is the whole point; someone with a
+-- thought mid-dungeon types one line. The full window stays on /bug.
+SLASH_UNCAPPEDSUGGESTION1 = "/suggestion"
+SLASH_UNCAPPEDSUGGESTION2 = "/suggest"
+SlashCmdList["UNCAPPEDSUGGESTION"] = function(msg)
+    msg = (msg or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if msg == "" then
+        DEFAULT_CHAT_FRAME:AddMessage(
+            "|cffff8040[Suggestion]|r Usage: /suggestion <your idea>. "
+            .. "Say what it would change and why it would be better.")
+        return
+    end
+    BR.Send(nil, msg, true)
 end
 
 local frame = CreateFrame("Frame")

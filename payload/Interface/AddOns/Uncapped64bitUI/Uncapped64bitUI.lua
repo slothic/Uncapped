@@ -663,6 +663,85 @@ local function OnTargetChanged()
     RefreshUnitBars("target")
 end
 
+-- ===========================================================================
+-- BANNED / MAP-RESTRICTED EFFECT MARKERS ON ITEM TOOLTIPS  (report #456)
+-- ===========================================================================
+--
+-- A 3.3.5a item tooltip is assembled by the CLIENT out of its own cached copy
+-- of item_template. The server never composes that text and physically cannot
+-- append a line to it -- which is why a player holding an item whose effect the
+-- realm has switched off reads a perfectly normal proc line, tries to extract
+-- it, and gets a bare refusal with nothing to read. That was #456.
+--
+-- So the server sends the SET OF ITEMS and we draw the line. Two sets, because
+-- the realm has two different rulings and they must not read the same:
+--
+--   banItems[entry]        the effect cannot be extracted or soulbound off it
+--   restrictItems[entry]   = mapId; the effect only functions on that map
+--
+-- ★ Item entries, not spell ids. All this hook has is a link. There is no way
+-- to get from a rendered "Equip: Increases spell damage by 325" line back to
+-- the spell that produced it, so the item id is the only key the two sides can
+-- share. The server derives the sets by walking item_template once at startup.
+--
+-- Declared HERE, above the listener, so both the message handler below and the
+-- tooltip hook much further down capture the same upvalues.
+local banItems       = {}    -- [itemId] = true
+local restrictItems  = {}    -- [itemId] = mapId
+local restrictMaps   = {}    -- [mapId]  = map name, sent by the server
+local banFeedLoaded  = false
+local banFeedAskedAt = 0
+
+local BAN_PIPE_PREFIX = "REAGENTBANK"   -- client -> server half of the UNC pipe
+
+local function RequestBanFeed()
+    if type(SendAddonMessage) ~= "function" then return end
+    -- Throttled: a realm running an older worldserver simply never answers, and
+    -- a tooltip-driven retry must not turn that into a message every hover.
+    local now = GetTime()
+    if banFeedAskedAt > 0 and (now - banFeedAskedAt) < 60 then return end
+    banFeedAskedAt = now
+    pcall(SendAddonMessage, BAN_PIPE_PREFIX, "ICBAN", "WHISPER", UnitName("player"))
+end
+
+-- Fill a set from one chunked "a,b,c" payload. The server splits the list
+-- across as many messages as it needs to stay under the 255-byte addon-message
+-- cap, and every chunk is independent -- order does not matter and a lost one
+-- costs exactly the items it carried, never the whole feed.
+local function AbsorbBanChunk(payload, mapId)
+    for id in payload:gmatch("(%d+)") do
+        local n = tonumber(id)
+        if n then
+            if mapId then restrictItems[n] = mapId else banItems[n] = true end
+        end
+    end
+end
+
+local function OnBanLine(msg)
+    local body = msg:match("^ICBAN:(.*)$")
+    if body then AbsorbBanChunk(body); return true end
+
+    if msg:find("^ICBANEND:") then
+        banFeedLoaded = true
+        return true
+    end
+
+    local mapId, mapName = msg:match("^ICBANM:(%d+):(.+)$")
+    if mapId then
+        restrictMaps[tonumber(mapId)] = mapName
+        return true
+    end
+
+    local rMap, rBody = msg:match("^ICBANR:(%d+):(.*)$")
+    if rMap then
+        AbsorbBanChunk(rBody, tonumber(rMap))
+        return true
+    end
+
+    if msg:find("^ICBANREND:") then return true end
+    return false
+end
+
 local listener = CreateFrame("Frame")
 listener:RegisterEvent("ADDON_LOADED")
 listener:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -693,7 +772,13 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         -- Creature GUIDs do not survive a world change, and a fresh keystone can
         -- rescale the same mobs, so start the cache clean rather than carry
         -- entries that can only ever be wrong or dead.
-        if event == "PLAYER_ENTERING_WORLD" then WipeHpCache() end
+        if event == "PLAYER_ENTERING_WORLD" then
+            WipeHpCache()
+            -- The ban sets are static realm data; ask once a session and keep
+            -- them. The throttle in RequestBanFeed absorbs the repeat entries
+            -- (every zone-in fires this event).
+            if not banFeedLoaded then RequestBanFeed() end
+        end
         return
     end
 
@@ -725,6 +810,8 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
     if msg:find("^UHP:") or msg:find("^UALL") or msg:find("^UDMG:")
         or msg:find("^UHEAL:") or msg:find("^UCT:") then
         OnLine(msg)
+    elseif msg:find("^ICBAN") then
+        OnBanLine(msg)
     end
 end)
 
@@ -2278,12 +2365,63 @@ local function AppendSpellDamage(tt)
     tt:Show()   -- re-fit; the tooltip has grown by a line
 end
 
+-- ---------------------------------------------------------------------------
+-- The banned / map-restricted effect line (report #456; sets fed above).
+-- ---------------------------------------------------------------------------
+--
+-- Says what is actually TRUE of the item, which is narrower than "disabled":
+-- the blacklist stops an effect being MOVED (extraction, soulbind, the addable
+-- catalogue), and the map restriction stops it FUNCTIONING off one map. A single
+-- "disabled on this realm" line would be a lie about an effect the player can
+-- watch working, and a tooltip that lies is worse than the silence #456 was
+-- opened about.
+--
+-- Fail-silent by design: no feed, no line. An unmarked tooltip is exactly what
+-- players have today, so a realm that never answers loses nothing.
+local BAN_MARKER = "Uncapped:"   -- how the re-render guard recognises our own lines
+
+local function AppendBanNote(tt)
+    if not tt or not tt.GetItem then return end
+    if not banFeedLoaded then RequestBanFeed() end
+
+    local ok, _, link = pcall(tt.GetItem, tt)
+    if not ok or not link then return end
+
+    local id = tonumber(link:match("item:(%d+)"))
+    if not id then return end
+
+    local banned  = banItems[id]
+    local mapId   = restrictItems[id]
+    if not banned and not mapId then return end
+
+    -- A tooltip that is re-rendered without being cleared would otherwise stack
+    -- the line every pass (same guard AppendSpellDamage uses).
+    local name = tt:GetName()
+    if name then
+        for i = 1, tt:NumLines() do
+            local fs = _G[name .. "TextLeft" .. i]
+            local t  = fs and fs:GetText()
+            if t and t:find(BAN_MARKER, 1, true) then return end
+        end
+    end
+
+    if mapId then
+        local where = restrictMaps[mapId] or "one raid"
+        tt:AddLine(BAN_MARKER .. " this effect only works in " .. where .. ".", 1, 0.5, 0.2, true)
+    end
+    if banned then
+        tt:AddLine(BAN_MARKER .. " this effect cannot be extracted or soulbound.", 1, 0.3, 0.3, true)
+    end
+    tt:Show()   -- re-fit; the tooltip has grown
+end
+
 for _, tname in ipairs({ "GameTooltip", "ItemRefTooltip", "ShoppingTooltip1", "ShoppingTooltip2" }) do
     local tt = _G[tname]
     if tt and tt.HookScript then
         tt:HookScript("OnTooltipSetSpell", RewriteTooltipLines)
         tt:HookScript("OnTooltipSetSpell", AppendSpellDamage)
         tt:HookScript("OnTooltipSetItem",  RewriteTooltipLines)   -- item stat + proc-effect lines
+        tt:HookScript("OnTooltipSetItem",  AppendBanNote)         -- banned / map-restricted effects
         tt:HookScript("OnTooltipSetUnit",  RewriteTooltipLines)   -- creature hover: level, health
     end
 end

@@ -86,7 +86,7 @@ end
 --
 -- ⚠ It cannot be UIParent:GetWidth() any more. That is measured in UIParent
 -- units, while `offset` is a SetPoint offset on a font string inside the bar
--- and scrollWidth is GetStringWidth() -- both in the BAR's units. Once the bar
+-- and cycleWidth is GetStringWidth() -- both in the BAR's units. Once the bar
 -- carries the player's zoom the two scales differ, and mixing them made the
 -- text wrap early (zoomed in) or crawl in from off-screen (zoomed out). This is
 -- the GetScale/GetEffectiveScale drift bug in miniature.
@@ -109,7 +109,14 @@ local zones = {}
 local offset = ScreenWidth()
 local rebuildAcc = 1
 local started = false      -- has the first data arrived (start the scroll once)?
-local scrollWidth = 1500   -- reset distance; refreshed to the real text width each rebuild
+-- Width of ONE repetition of the hotzone list, in bar units. The font string
+-- holds several copies back to back (see BuildText) so the marquee can wrap by
+-- exactly one cycle and stay seamless; this is that cycle's width, NOT the
+-- width of the whole rendered string.
+local cycleWidth = 1500
+-- Ceiling on repetitions, so a pathologically short list (one zone, tiny name)
+-- at a very low UI scale cannot ask for hundreds of copies.
+local MAX_CYCLE_COPIES = 12
 
 -- Convert a {r,g,b} (0-1) colour to a "rrggbb" hex string for the |cffRRGGBB
 -- escape. Read live from `db` so a colour change on the settings page shows up on
@@ -143,17 +150,41 @@ local function BuildText()
         local left = fmtRemaining(z.expiry - now)
         table.insert(parts, string.format("|c%s%s|r |cffaaaaaa(%s, %s left)|r        ", color, z.name, z.kind, left))
     end
-    bar.text:SetText(table.concat(parts))
+    -- Report #502: "Allow the hotzone text to loop instead of waiting for it to
+    -- cross the entire screen and completely disappear before resetting."
+    --
+    -- The scroll ran the string from the right edge to fully past the left edge,
+    -- then jumped back to the right edge -- so between the tail leaving and the
+    -- head arriving the bar showed NOTHING for a full screen-width of travel.
+    -- The lower the UI scale, the wider the screen is in bar units and the longer
+    -- that dead stretch lasts, which is exactly what the reporter described.
+    --
+    -- A FontString can only draw one copy of itself, so a seamless marquee needs
+    -- the content repeated inside the string. Build one cycle, then repeat it
+    -- until it comfortably outruns the screen; the OnUpdate wrap then advances by
+    -- exactly one cycle width and the seam never shows.
+    local cycle = table.concat(parts)
+    bar.text:SetText(cycle)
+
+    local w = bar.text:GetStringWidth()
+    if not w or w <= 10 then
+        -- Measured before layout. Keep the last good width and try again next
+        -- rebuild rather than caching a bogus 0 and wrapping instantly.
+        if db.enabled then bar:Show() else bar:Hide() end
+        return
+    end
+
+    cycleWidth = w
+    local copies = math.ceil((ScreenWidth() + w) / w) + 1
+    if copies > MAX_CYCLE_COPIES then copies = MAX_CYCLE_COPIES end
+    if copies > 1 then
+        bar.text:SetText(string.rep(cycle, copies))
+    end
+
     -- Only reveal the bar if the player hasn't disabled it on the settings page.
     if db.enabled then bar:Show() else bar:Hide() end
-
-    -- Cache the real rendered width for the scroll-reset. Ignore a bogus 0 (can
-    -- happen if measured before layout) and keep the last good value.
-    local w = bar.text:GetStringWidth()
-    if w and w > 10 then
-        scrollWidth = w
-    end
 end
+
 
 bar:SetScript("OnUpdate", function(self, delta)
     if not db.enabled then return end
@@ -166,11 +197,15 @@ bar:SetScript("OnUpdate", function(self, delta)
         BuildText()
     end
 
-    -- Scroll left across the WHOLE screen; when the string has fully passed the
-    -- left edge, wrap back to the right edge.
+    -- Seamless marquee: the string holds several back-to-back copies of the
+    -- list, so rewinding by exactly ONE cycle width puts an identical copy where
+    -- the last one was. Nothing visibly jumps and the bar is never empty.
+    --
+    -- `while`, not `if`: a UI-scale change can shrink cycleWidth between frames,
+    -- and a single subtraction could leave offset still past the wrap point.
     offset = offset - db.speed * delta
-    if offset < -scrollWidth then
-        offset = ScreenWidth()
+    while offset < -cycleWidth do
+        offset = offset + cycleWidth
     end
     self.text:SetPoint("LEFT", textLayer, "LEFT", offset, 0)
 end)

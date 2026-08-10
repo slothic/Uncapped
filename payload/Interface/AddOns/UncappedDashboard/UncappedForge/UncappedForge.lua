@@ -588,6 +588,16 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
             busy      = "a craft is already running",
             missing   = "you're missing materials it can't make or buy",
             outofmats = "not enough of that material left",
+            -- Report #467: this line exists so "bags are full" stops being the
+            -- server's catch-all guess. A conversion can only cast from a plain
+            -- Vault stack, so material sitting in your BANK -- or still loading
+            -- right after you log in -- is counted but cannot be spent.
+            unreachablemats = "that material isn't in your Vault where the Forge can reach it "
+                .. "-- bank stock doesn't count. Deposit it, or try again in a moment",
+            -- Report #479: a render source is only off-limits while the quest
+            -- that wants it is in your log. The server names the quest in a
+            -- separate chat line -- the wire format has no field for it.
+            questlocked = "a quest in your log is still waiting on that material",
             harvestshort = "the milling/prospecting didn't turn up enough -- it's a roll, so try again",
             cannot    = "that can't be processed",
             money     = "you can't afford that",
