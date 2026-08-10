@@ -357,7 +357,12 @@ Nothing was written.
             size          = $icItem.Length
             contentSha256 = $plainHash
             contentSize   = $plainItem.Length
-            locales       = $icLocales
+            # ⚠ [string[]] IS LOad-BEARING. ConvertTo-Json serialises a ONE-element
+            # array as a bare scalar -- "locales": "enUS" instead of ["enUS"] --
+            # and the launcher's ItemCacheSpec.Locales is a List<string>, so every
+            # client that parsed it threw and showed "Could not reach the update
+            # server". @() alone does NOT survive the round trip; the cast does.
+            locales       = [string[]]$icLocales
         }
 
         Write-Host ("  + epoch {0}  {1} MB gz -> {2} MB  [{3}]" -f `

@@ -2991,7 +2991,9 @@
                       "size":  1800191,
                       "contentSha256":  "62c5501f535de8f107cee6b2290189eff85cd030ff4fbd75ad70546cfaa4cd53",
                       "contentSize":  21782066,
-                      "locales":  "enUS"
+                      "locales":  [
+                                      "enUS"
+                                  ]
                   },
     "forceEnableAddOns":  [
                               "StatFeed",
