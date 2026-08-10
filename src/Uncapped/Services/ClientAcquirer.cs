@@ -172,6 +172,48 @@ public sealed class ClientAcquirer
         if (!MagnetLink.TryParse(source.Magnet ?? "", out var magnet) || magnet is null)
             throw new InvalidDataException("The magnet link in the manifest is not valid.");
 
+        /*
+         * ★★ STALE FAST-RESUME IS WHY A REINSTALL NEVER USES THE TORRENT.
+         *
+         * MonoTorrent persists fast-resume state in CacheDirectory and reloads it
+         * automatically. We delete the .zip as soon as it is extracted, so the
+         * NEXT acquire starts a torrent that resume data says is already 100%
+         * complete while its payload no longer exists. manager.Complete is true
+         * before the loop runs, DownloadViaTorrentAsync falls straight through to
+         * the "no .zip was found" throw, and the whole thing fails in about five
+         * seconds -- then quietly diverts to the 15 GB HTTP mirror.
+         *
+         * That is exactly what a player's log showed on 2026-08-11:
+         *   00:57:05 client acquire: trying BitTorrent
+         *   00:57:10 torrent failed (FileNotFoundException: The torrent finished
+         *            but no .zip was found ...) -- falling back to HTTP
+         * Five seconds. It never contacted a single peer.
+         *
+         * So anyone reinstalling -- which is exactly what someone does when
+         * something went wrong -- has silently been pushed onto the slowest path
+         * available since the delete-after-extract behaviour was added.
+         *
+         * If the archive is not on disk, any claim that this torrent is finished
+         * is false. Drop the cache and start honestly. Worst case we re-fetch
+         * metadata, which is seconds; best case we stop pushing 15 GB of HTTP at
+         * people who have a working swarm.
+         */
+        var expectedArchive = Path.Combine(AppPaths.DownloadDir, source.ArchiveName);
+        if (!File.Exists(expectedArchive) && Directory.Exists(AppPaths.TorrentCacheDir))
+        {
+            try
+            {
+                Directory.Delete(AppPaths.TorrentCacheDir, recursive: true);
+                Log.Write("client acquire: cleared stale torrent resume state (archive absent)");
+            }
+            catch (Exception ex)
+            {
+                // Not fatal -- worst case we are back to the old behaviour, and the
+                // HTTP fallback still gets the player a client.
+                Log.Write($"client acquire: could not clear torrent cache ({ex.Message})");
+            }
+        }
+
         var settings = new EngineSettingsBuilder
         {
             CacheDirectory = AppPaths.TorrentCacheDir,
@@ -197,6 +239,8 @@ public sealed class ClientAcquirer
         {
             var stalledFor = TimeSpan.Zero;
             var metadataFor = TimeSpan.Zero;
+            var noProgressFor = TimeSpan.Zero;
+            var lastProgress = manager.Progress;
             var tick = TimeSpan.FromSeconds(1);
 
             while (manager.State != TorrentState.Seeding && manager.Complete == false)
@@ -238,6 +282,47 @@ public sealed class ClientAcquirer
                         "No peers found after 3 minutes. Your network may be blocking BitTorrent. " +
                         "You can instead point the launcher at an existing 3.3.5a client with " +
                         "\"Change game folder\".");
+
+                /*
+                 * ★★ THE GUARD ABOVE NEEDS *BOTH* COUNTERS AT ZERO IN THE SAME SECOND,
+                 *    AND THAT IS WHY A PLAYER SAT ON THIS SCREEN FOREVER (2026-08-11).
+                 *
+                 * `peers` counts Available + Seeds + Leechs, and Available is peers the
+                 * TRACKER has told us about -- not peers we ever connected to. On a
+                 * network that blocks BitTorrent the tracker reply still arrives over
+                 * HTTP, so the count flickers above zero every time it refreshes, resets
+                 * stalledFor to zero, and the three-minute timer never completes. The
+                 * screen reads "0 peer(s) · 0,0 MB/s" the whole time because those blips
+                 * land between the once-a-second samples.
+                 *
+                 * The HTTP mirror fallback was there the entire time and worked; it is
+                 * only reached when this method THROWS, and it never threw. So the one
+                 * player-visible symptom was an indefinite 0% bar next to a working
+                 * alternative nobody could get to.
+                 *
+                 * This second guard asks the only question that actually matters -- has
+                 * the download moved at all? -- and cannot be reset by tracker chatter.
+                 * Ten minutes is deliberately generous: a genuinely slow swarm still
+                 * advances Progress well inside it, and being wrong here only costs an
+                 * unnecessary switch to a mirror that also works.
+                 */
+                if (manager.Progress > lastProgress)
+                {
+                    lastProgress = manager.Progress;
+                    noProgressFor = TimeSpan.Zero;
+                }
+                else if (manager.State != TorrentState.Metadata)
+                {
+                    // Metadata has its own timer below; counting it here too would fire
+                    // this one first and report the wrong cause.
+                    noProgressFor += tick;
+                }
+
+                if (noProgressFor > TimeSpan.FromMinutes(10))
+                    throw new TimeoutException(
+                        $"The download has not advanced in 10 minutes ({peers} peer(s) seen, " +
+                        $"{manager.Progress:0.##}% complete). Your network is most likely " +
+                        "throttling BitTorrent. Switching to the direct download.");
 
                 /*
                  * Metadata stall. The check above only fires when peers AND rate are both

@@ -309,7 +309,30 @@ public partial class MainWindow : Window
         {
             if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return null;
 
-            target = Path.Combine(dialog.SelectedPath, "WoW335");
+            /*
+             * ★ DO NOT APPEND WoW335 TO A FOLDER THAT IS ALREADY WoW335.
+             *
+             * The picker reopens at the last location used, which after a failed
+             * attempt is the WoW335 folder this code created. Accepting that gives
+             * F:\...\WoW335\WoW335, and the next retry gives WoW335\WoW335\WoW335 --
+             * one level deeper every time, each install stranded somewhere the
+             * launcher will not look again.
+             *
+             * Seen in a player's log on 2026-08-11, alternating between
+             * F:\Bryan wow\WoW335 and F:\Bryan wow\WoW335\WoW335 across four
+             * attempts in twenty minutes.
+             *
+             * Someone who navigates INTO the folder they want to install to means
+             * "here", and the confirmation dialog shows them the final path either
+             * way, so this cannot silently install somewhere unexpected.
+             */
+            var chosen = dialog.SelectedPath.TrimEnd(Path.DirectorySeparatorChar,
+                                                     Path.AltDirectorySeparatorChar);
+
+            target = string.Equals(Path.GetFileName(chosen), "WoW335",
+                        StringComparison.OrdinalIgnoreCase)
+                ? chosen
+                : Path.Combine(chosen, "WoW335");
 
             var confirm = MessageBox.Show(
                 "The game will be installed to:" + Environment.NewLine + Environment.NewLine +
