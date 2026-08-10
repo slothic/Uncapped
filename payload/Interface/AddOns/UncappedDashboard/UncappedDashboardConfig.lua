@@ -23,6 +23,17 @@ Core.TABS = {
     -- hint fallback to give -- it embeds directly, see EMBEDDED_TABS in
     -- UncappedDashboard_UI.lua.
     { key = "progress", label = "Progress", addon = "UncappedProgress", hint = "/progress" },
+    -- Prestige ships inside this addon too (UncappedPrestige\), same shape as
+    -- Progress: it embeds directly, see EMBEDDED_TABS in UncappedDashboard_UI.lua.
+    --
+    -- ⚠ THE NAV COLUMN IS NEARLY FULL. DashboardButtons.lua derives the window's
+    -- required height from #Core.TABS: 44 + 14 + (#TABS - 1) * 36 + 30 + 16 + 40
+    -- + 16. At 15 tabs that is 664 units, against the ~708 a default-UI-scale
+    -- screen offers (UIParent is ~768 units tall whatever the monitor is, less
+    -- SCREEN_MARGIN). ONE slot is left after this one -- 16 tabs is 700, and 17
+    -- overflows and starts clipping buttons off the bottom of the window.
+    -- Before adding a seventeenth, the column needs to scroll or paginate.
+    { key = "prestige", label = "Prestige", addon = "UncappedPrestige", hint = "/prestige" },
     { key = "forge", label = "Forge", addon = "UncappedForge", hint = "/dashboard" },
     { key = "soulforge", label = "Soul Forge", addon = "UncappedSoulForge", hint = "/dashboard" },
     { key = "anima", label = "Anima", addon = "UncappedAnima", hint = "/dashboard" },

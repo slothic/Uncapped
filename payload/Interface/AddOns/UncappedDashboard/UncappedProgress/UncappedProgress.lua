@@ -437,7 +437,12 @@ local function RefreshListRows()
         if d then
             row.frame:ClearAllPoints()
             row.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, listTop - (i - 1) * ROW_H)
-            row.entry = d
+            -- ⚠ ON row.frame, NOT ON row. OnEnter is handed the FRAME as `self`,
+            --   and its handler reads self.entry -- stashing it on the wrapper
+            --   table left self.entry nil, so the per-dungeon tooltip (clears,
+            --   speed, loot, Anima, stat roll) never appeared at all. Found by a
+            --   smoke run of the Prestige tab, which had copied the same shape.
+            row.frame.entry = d
 
             -- The dungeon you are standing in right now is the one whose numbers
             -- are actually live, so it is coloured rather than merely listed.
@@ -451,7 +456,7 @@ local function RefreshListRows()
             row.stat:SetText(string.format("%s+%d|r", COLOR_LABEL, d.stat))
             row.frame:Show()
         else
-            row.entry = nil
+            row.frame.entry = nil
             row.frame:Hide()
         end
     end

@@ -17,5 +17,6 @@ UncappedVault\UncappedVault.lua
 UncappedVault\UncappedVault_UI.lua
 UncappedScrolls\UncappedScrolls.lua
 UncappedProgress\UncappedProgress.lua
+UncappedPrestige\UncappedPrestige.lua
 UncappedTransmog\UncappedTransmogData.lua
 UncappedTransmog\UncappedTransmog.lua
