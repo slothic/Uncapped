@@ -116,13 +116,51 @@ local MAX_HEIGHT_ABS = 1400
 -- frame on screen, but leaves no comfortable place to grab it and drag back.
 local SCREEN_MARGIN = 60
 
+-- ⚠ USER ZOOM AND THE NAV COLUMN ARE THE SAME PROBLEM.
+--
+-- Every number in this file is in WINDOW units. The player's Uncapped window
+-- scale (UncappedUI\UncappedScale.lua) multiplies those on the way to the
+-- screen, so at 1.5 zoom the window eats 1.5x the screen it used to -- while
+-- REQUIRED_HEIGHT, the height the button column needs, does not shrink. The
+-- column would simply start running off the bottom of the screen: exactly the
+-- clipping the 17-tab warning in UncappedDashboardConfig.lua is about, only
+-- reached by turning a slider instead of by adding buttons.
+--
+-- Two halves keep that from happening, and they have to agree:
+--
+--   1. getFitSize below hands the scale system MIN_WIDTH x REQUIRED_HEIGHT as
+--      "this much must stay on screen", which caps THIS window's zoom at
+--      (screenHeight - margin) / REQUIRED_HEIGHT. The rest of the suite still
+--      honours the player's full setting; only the Dashboard stops early.
+--      With 15 tabs that ceiling is around 1.05 on a default-UI-scale screen
+--      (~708 usable units against 664 required) and it rises for anyone who
+--      has turned Blizzard's own UI Scale down, because UIParent then measures
+--      more units tall. It is computed from UIParent every time, never a
+--      literal, so it cannot go stale.
+--
+--   2. The resize ceiling below divides the screen budget by that same scale,
+--      so the grip cannot drag the window past the screen either.
+--
+-- Because the cap guarantees REQUIRED_HEIGHT * scale <= screen, the max height
+-- returned here is always >= REQUIRED_HEIGHT, i.e. the resize floor never ends
+-- up above the resize ceiling. That is the invariant that makes the column
+-- un-clippable; do not remove the math.max guards that state it.
+local function CurrentScale()
+    local kit = _G.UncappedUIKit
+    if kit and kit.ResolveScale then
+        return kit.ResolveScale(1, MIN_WIDTH, REQUIRED_HEIGHT)
+    end
+    return 1
+end
+Buttons.GetScale = CurrentScale
+
 function Buttons.GetMaxWidth()
-    local screen = math.floor((UIParent:GetWidth() or 1024) - SCREEN_MARGIN)
+    local screen = math.floor(((UIParent:GetWidth() or 1024) - SCREEN_MARGIN) / CurrentScale())
     return math.max(MIN_WIDTH, math.min(MAX_WIDTH_ABS, screen))
 end
 
 function Buttons.GetMaxHeight()
-    local screen = math.floor((UIParent:GetHeight() or 768) - SCREEN_MARGIN)
+    local screen = math.floor(((UIParent:GetHeight() or 768) - SCREEN_MARGIN) / CurrentScale())
     return math.max(REQUIRED_HEIGHT, math.min(MAX_HEIGHT_ABS, screen))
 end
 
@@ -197,7 +235,13 @@ function Buttons.Build()
     -- two-window version hit) -- computing the equivalent TOPLEFT
     -- position instead keeps the top-left corner fixed for correct
     -- bottom-right-grip resizing while still opening centered.
-    local screenW, screenH = UIParent:GetWidth(), UIParent:GetHeight()
+    --
+    -- ⚠ The offsets are in WINDOW units, so they have to be computed against
+    -- the screen measured in window units too -- screen / scale, not screen.
+    -- Miss the divide and the window opens further and further down-and-right
+    -- of centre the more the player zooms in.
+    local scale = CurrentScale()
+    local screenW, screenH = (UIParent:GetWidth() or 1024) / scale, (UIParent:GetHeight() or 768) / scale
     db.point, db.relativePoint = "TOPLEFT", "TOPLEFT"
     db.x = (screenW - db.width) / 2
     db.y = -(screenH - db.height) / 2
@@ -211,12 +255,32 @@ function Buttons.Build()
         resizable = true,
         persistPosition = false,
         db = db,
+
+        -- The nav column must fit; see the CurrentScale block above.
+        scaleFit = function() return MIN_WIDTH, REQUIRED_HEIGHT end,
+        -- This window is the ONE that re-centres instead of holding its corner.
+        -- It already opens centred every session and deliberately never
+        -- persists a position (persistPosition = false), so "where it was
+        -- dragged to" is not something the player is relying on -- and centring
+        -- is the one placement that cannot put a freshly-enlarged window
+        -- somewhere awkward.
+        scaleKeepPosition = false,
+        onScaleChanged = function()
+            if Buttons.ApplyScaleLayout then Buttons.ApplyScaleLayout() end
+        end,
         -- Below the bags, not above them. The kit defaults to HIGH, which is the
         -- same strata Blizzard's ContainerFrames use, so the tie broke on frame
         -- level and the dashboard covered the bags you were trying to drag out
         -- of -- the one thing the Vault tab exists to receive.
         strata = "MEDIUM",
     })
+
+    -- The scale system already applied this window's zoom from inside
+    -- CreateWindow -- but it did so before the assignment above completed, so
+    -- Buttons.ApplyScaleLayout saw a nil `window` and bailed. Run it once now
+    -- that the local exists, to settle the resize bounds and to record the
+    -- scale it is starting from.
+    Buttons.ApplyScaleLayout()
 
     navPanel = CreateNavPanel(window)
 
@@ -330,6 +394,48 @@ function Buttons.SetMinContentHeight(windowHeight)
     if not window then return end
     currentMinHeight = math.min(math.max(REQUIRED_HEIGHT, windowHeight or 0), Buttons.GetMaxHeight())
     ApplyMinResize()
+end
+
+-- Re-centres the window using its CURRENT scale. Same arithmetic as Build's
+-- opening position -- screen measured in window units, so screen / scale.
+local function RecenterForScale()
+    if not window then return end
+    local scale = window:GetScale() or 1
+    if scale <= 0 then scale = 1 end
+    local screenW = (UIParent:GetWidth() or 1024) / scale
+    local screenH = (UIParent:GetHeight() or 768) / scale
+    window:ClearAllPoints()
+    window:SetPoint("TOPLEFT", UIParent, "TOPLEFT",
+        (screenW - window:GetWidth()) / 2,
+        -(screenH - window:GetHeight()) / 2)
+end
+
+-- Called by the scale system after it has (re)applied this window's zoom, and
+-- also on a resolution / Blizzard-UI-scale change, where the zoom is unchanged
+-- but the screen budget behind these numbers is not.
+--
+-- Order matters: raise the ceiling FIRST, then pull the window inside it, then
+-- re-apply the floor -- ApplyMinResize can itself grow the window, and doing
+-- that against a stale ceiling is how a window ends up bigger than the screen.
+local lastAppliedScale
+function Buttons.ApplyScaleLayout()
+    if not window then return end
+
+    local maxW, maxH = Buttons.GetMaxWidth(), Buttons.GetMaxHeight()
+    window:SetMaxResize(maxW, maxH)
+    if window:GetWidth() > maxW then window:SetWidth(maxW) end
+    if window:GetHeight() > maxH then window:SetHeight(maxH) end
+    ApplyMinResize()
+
+    -- Re-centre ONLY when the zoom actually moved. This handler also runs on
+    -- events that fire spuriously (UI_SCALE_CHANGED goes off during Blizzard's
+    -- own UIParent setup), and yanking an open window to the middle of the
+    -- screen for no visible reason is exactly the kind of thing that got the
+    -- old post-resize re-centre removed -- see the note above Buttons.Build.
+    local scale = window:GetScale() or 1
+    if lastAppliedScale and math.abs(scale - lastAppliedScale) < 0.0005 then return end
+    lastAppliedScale = scale
+    RecenterForScale()
 end
 
 function Buttons.SetTitle(text)

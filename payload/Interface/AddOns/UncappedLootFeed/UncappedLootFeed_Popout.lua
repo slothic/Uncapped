@@ -275,6 +275,12 @@ local function Build()
              the Loot Feed tab, and /lootfeed window. ]]
         escapeClose = false,
     })
+    -- The player's Uncapped window zoom needs nothing here: CreateWindow
+    -- registers every kit window with it, and this window owns the scale for
+    -- everything anchored into it below (summary, filters, rows). Do NOT
+    -- register any of those -- SetScale compounds down the frame chain.
+    -- The corrected anchor is written back through win.SavePosition, so the
+    -- position this window remembers survives a zoom change.
 
     -- Closing by the X or by Escape must be remembered, or the window comes
     -- back on the next login and reads as a bug rather than a feature.

@@ -514,6 +514,24 @@ local function BuildPanel()
     EnsurePanelButtons()
     RelayoutPanel()
 
+    -- Player window zoom (ESC > Interface > AddOns > Uncapped, or /uiscale).
+    --
+    -- Registered AFTER AnchorFrame so the bar already has its anchor: the zoom
+    -- system rewrites those offsets to hold the bar on the same spot on screen,
+    -- and there is nothing to rewrite before the first SetPoint.
+    --
+    -- The bar may be anchored to the MINIMAP rather than to UIParent, which is
+    -- fine and needs no special case: offsets are in the anchored frame's own
+    -- units either way, and the minimap's screen position does not depend on
+    -- this frame's scale.
+    --
+    -- OrderSlotUnderCursor's hit-testing needs nothing either -- it already
+    -- divides GetCursorPosition() (raw pixels) by the button's EFFECTIVE scale
+    -- rather than assuming 1, so it follows the zoom for free.
+    if UncappedScale_Register then
+        UncappedScale_Register(frame, { savePosition = SavePosition })
+    end
+
     if not db.shown then frame:Hide() end
 end
 

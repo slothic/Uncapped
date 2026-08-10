@@ -3,7 +3,7 @@
 ## Notes: Small toolbox for common Uncapped commands.
 ## Author(s): Slothic, MentalMonk
 ## Version: 1.5
-## OptionalDeps: UncappedOptions
+## OptionalDeps: UncappedOptions, UncappedUI
 ## SavedVariablesPerCharacter: UncappedPanelDB
 
 UncappedPanel.lua

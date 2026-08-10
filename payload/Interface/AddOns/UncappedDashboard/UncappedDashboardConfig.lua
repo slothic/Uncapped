@@ -33,6 +33,16 @@ Core.TABS = {
     -- SCREEN_MARGIN). ONE slot is left after this one -- 16 tabs is 700, and 17
     -- overflows and starts clipping buttons off the bottom of the window.
     -- Before adding a seventeenth, the column needs to scroll or paginate.
+    --
+    -- ⚠ THE PLAYER'S WINDOW ZOOM SPENDS THE SAME BUDGET. REQUIRED_HEIGHT is in
+    -- window units and the zoom multiplies it, so 664 units at 1.05x is already
+    -- the whole screen. Adding a tab therefore does not just use a slot -- it
+    -- lowers the zoom this window can reach for everyone (the cap is
+    -- (usable screen height) / REQUIRED_HEIGHT). The Dashboard clamps its own
+    -- zoom to that cap rather than letting the column clip; see the CurrentScale
+    -- block in DashboardButtons.lua. The 16th tab drops the ceiling to ~1.01,
+    -- i.e. it effectively ends zooming for this window. Read "one slot left" as
+    -- "one slot left, and taking it costs the zoom feature here".
     { key = "prestige", label = "Prestige", addon = "UncappedPrestige", hint = "/prestige" },
     { key = "forge", label = "Forge", addon = "UncappedForge", hint = "/dashboard" },
     { key = "soulforge", label = "Soul Forge", addon = "UncappedSoulForge", hint = "/dashboard" },

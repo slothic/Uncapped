@@ -154,6 +154,23 @@ local function buildUI()
   f:SetWidth(d.width); f:SetHeight(d.height)
   f:SetScale(d.scale or 1)
   f:ClearAllPoints(); f:SetPoint(unpack(d.point))
+  -- Player window zoom, applied ON TOP of this window's own /uchat scale --
+  -- the two multiply rather than overwrite each other, so someone who shrank
+  -- the chat to 0.8 keeps it 20% smaller than the rest of the suite. See
+  -- UC.SetScale: nothing here may call f:SetScale directly afterwards.
+  --
+  -- savePosition is needed because this window remembers where it was dragged:
+  -- a zoom change rewrites its offsets to hold it on the same spot, and those
+  -- corrected numbers are what has to reach SavedVariables.
+  if UncappedScale_Register then
+    UncappedScale_Register(f, {
+      getBase = function() return db().scale or 1 end,
+      savePosition = function(self)
+        local p, _, rp, x, y = self:GetPoint()
+        if p then db().point = { p, "UIParent", rp, x, y } end
+      end,
+    })
+  end
   f:SetMovable(true); f:SetResizable(true); f:EnableMouse(true)
   f:SetClampedToScreen(true)
   f:SetMinResize(MIN_W, MIN_H)
@@ -349,15 +366,24 @@ function UC.ToggleCompact()
   ui.ApplyCompact()
 end
 
---- Whole-window scale. The frame is anchored to UIParent, so scaling it does
---- not move it -- the anchor point scales with it.
+--- Whole-window scale, this window's own -- multiplied by the suite-wide
+--- Uncapped window scale (ESC > Interface > AddOns > Uncapped, or /uiscale).
+---
+--- ⚠ Goes through UncappedScale_Refresh rather than SetScale: setting the
+--- scale directly would drop the global multiplier on the floor until the next
+--- login, and would skip the re-anchoring that keeps the window where the
+--- player put it.
 function UC.SetScale(v)
   v = tonumber(v)
   if not v then return db().scale end
   if v < 0.5 then v = 0.5 elseif v > 1.5 then v = 1.5 end
   db().scale = v
   buildUI()
-  ui.frame:SetScale(v)
+  if UncappedScale_Refresh then
+    UncappedScale_Refresh(ui.frame)
+  else
+    ui.frame:SetScale(v)      -- UncappedUI absent: this window's own scale only
+  end
   return v
 end
 
@@ -460,7 +486,15 @@ SlashCmdList["UNCAPPEDCHAT"] = function(arg)
       defaults.point, defaults.width, defaults.height, defaults.scale, false
     if ui.frame then
       ui.frame:ClearAllPoints(); ui.frame:SetPoint(unpack(d.point))
-      ui.frame:SetWidth(d.width); ui.frame:SetScale(d.scale)
+      ui.frame:SetWidth(d.width)
+      -- Reset restores this window's OWN scale to its default; the player's
+      -- suite-wide zoom is a separate setting and /uchat reset must not
+      -- silently cancel it, so re-resolve instead of calling SetScale.
+      if UncappedScale_Refresh then
+        UncappedScale_Refresh(ui.frame)
+      else
+        ui.frame:SetScale(d.scale)
+      end
       ui.ApplyCompact()
     end
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[Uncapped Chat]|r window reset.")

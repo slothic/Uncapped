@@ -4,6 +4,6 @@
 ## Author: Uncapped
 ## Version: 1.0.0
 ## SavedVariablesPerCharacter: UncappedChatDB
-## OptionalDeps: UncappedOptions
+## OptionalDeps: UncappedOptions, UncappedUI
 
 UncappedChat.lua

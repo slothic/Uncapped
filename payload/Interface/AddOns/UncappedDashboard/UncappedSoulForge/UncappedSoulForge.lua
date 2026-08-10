@@ -850,6 +850,10 @@ local function BuildWhitelist()
   f:SetMovable(true); f:EnableMouse(true); f:RegisterForDrag("LeftButton")
   f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
   f:SetClampedToScreen(true); f:Hide()
+  -- Player window zoom. This pop-out parents to UIParent, not to the Dashboard
+  -- window that opens it, so it inherits nothing and has to register itself.
+  -- (Anything parented INTO the Dashboard must NOT -- SetScale compounds.)
+  if UncappedScale_Register then UncappedScale_Register(f) end
 
   local title = f:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
   title:SetPoint("TOP",0,-16); title:SetText("Whitelist")
@@ -1020,6 +1024,8 @@ local function BuildExtractor()
   f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
   f:SetClampedToScreen(true); f:Hide()
   tinsert(UISpecialFrames, "UncappedExtractorFrame")   -- Esc closes it
+  -- UIParent-parented pop-out: owns its own zoom (see BuildWhitelist above).
+  if UncappedScale_Register then UncappedScale_Register(f) end
 
   local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   title:SetPoint("TOP", 0, -18); title:SetText("|cffb384ffScroll of Extraction|r")
@@ -1238,6 +1244,8 @@ local function BuildSocketUI()
   f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
   f:SetClampedToScreen(true); f:Hide()
   tinsert(UISpecialFrames, "UncappedSocketFrame")   -- Esc closes it
+  -- UIParent-parented pop-out: owns its own zoom (see BuildWhitelist above).
+  if UncappedScale_Register then UncappedScale_Register(f) end
 
   local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   title:SetPoint("TOPLEFT", 22, -18); title:SetText("|cff59bfe6Sockets|r")
@@ -1967,6 +1975,14 @@ local function scrollSbTip(delta)
   if sb then sb:SetValue(sb:GetValue() - delta * TIP_ROW_H * 3) end
 end
 
+-- ⚠ DELIBERATELY NOT REGISTERED WITH THE PLAYER'S WINDOW ZOOM.
+--
+-- This is not a window, it is a second panel glued to GameTooltip's right edge
+-- (see showSbTip's SetPoint below). GameTooltip is a Blizzard frame at
+-- UIParent's scale and the Uncapped zoom does not touch it, so scaling this
+-- would leave an oversized slab hanging off a normal-sized tooltip, with the
+-- 6px seam between them scaled too. It must match what it is attached to.
+-- Same reason the full-screen wheel-catcher below stays unscaled.
 local function buildSbTip()
   if sbTip then return sbTip end
   local f = CreateFrame("Frame", "UncappedSoulboundTip", UIParent)

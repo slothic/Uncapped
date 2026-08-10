@@ -99,6 +99,45 @@ local function ApplyPosition()
     end
 end
 
+-- ---------------------------------------------------------------------------
+-- Scale
+-- ---------------------------------------------------------------------------
+-- This HUD had a personal scale slider (db.scale) before the suite-wide zoom
+-- existed, and both have to keep working. They are not two settings fighting
+-- over one SetScale call -- they MULTIPLY: db.scale is registered as this
+-- frame's "base" and the player's global zoom is applied on top of it, so
+-- someone who deliberately shrank the HUD to 0.7 keeps it 30% smaller than
+-- everything else no matter where the global slider goes.
+--
+-- Consequence: NOTHING in this file may call frame:SetScale() any more. A
+-- direct call would silently drop the global multiplier until the next login.
+-- Move the base value and then ask for a refresh instead.
+local function ApplyScale()
+    if UncappedScale_Refresh then
+        UncappedScale_Refresh(frame)
+    else
+        frame:SetScale(db.scale or 1)   -- UncappedUI absent: personal scale only
+    end
+end
+
+if UncappedScale_Register then
+    UncappedScale_Register(frame, {
+        getBase = function() return db.scale or 1 end,
+        -- The HUD remembers where it was dragged. Re-scaling rewrites its
+        -- anchor offsets to hold it on the same spot on screen, so those
+        -- corrected numbers -- not the pre-zoom ones -- are what must persist.
+        savePosition = function(self)
+            -- Only once the player has actually dragged the HUD. While db.pos
+            -- is nil the default anchor is what ApplyPosition applies, and
+            -- writing a "saved" position here would silently promote that
+            -- default into a placement the player never made.
+            if not db.pos then return end
+            local point, _, _, x, y = self:GetPoint()
+            if point then db.pos = { point = point, x = x, y = y } end
+        end,
+    })
+end
+
 frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 frame.title:SetPoint("TOP", frame, "TOP", 0, -12)
 frame.title:SetTextColor(1.0, 0.82, 0.0)
@@ -529,7 +568,10 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
             end
 
             UncappedMythicDB = db
-            frame:SetScale(db.scale)
+            -- Not frame:SetScale -- see ApplyScale's note. The saved personal
+            -- scale has only just been merged in, so the combined value has to
+            -- be re-resolved now.
+            ApplyScale()
             ApplyPosition()
             ApplyBossLines(db.bossLines)
             -- Affix settings load from the SAME db table, so it has to happen after
@@ -655,9 +697,9 @@ if UncappedUI then
     track(L:Slider("Boss log rows (0 = auto, fit the dungeon)", 0, 20, 1,
         function() return db.bossLines end,
         function(v) ApplyBossLines(v) end, "%d"))
-    track(L:Slider("HUD scale", 0.5, 2.0, 0.05,
+    track(L:Slider("HUD scale (on top of the Uncapped window scale)", 0.5, 2.0, 0.05,
         function() return db.scale end,
-        function(v) db.scale = v; frame:SetScale(v) end, "%.2f"))
+        function(v) db.scale = v; ApplyScale() end, "%.2f"))
     L:Button("Reset HUD position", function() db.pos = nil; ApplyPosition() end, 180)
 
     L:Gap(6)
@@ -1032,6 +1074,13 @@ end
 -- ---------------------------------------------------------------------------
 -- The announcement card
 -- ---------------------------------------------------------------------------
+-- ⚠ NOT REGISTERED WITH THE PLAYER'S WINDOW ZOOM, and it must stay that way.
+-- SetScale is this card's ANIMATION channel: PlaceCard below drives it every
+-- frame to grow the card in, and re-divides the anchor offset by the same
+-- number to stop it drifting. A second owner writing to the same SetScale
+-- would be overwritten 30 times a second anyway, and would break PlaceCard's
+-- offset compensation while it lasted. The card is a three-second flourish at
+-- screen centre, not a window a player places or reads at leisure.
 local card = CreateFrame("Frame", "UncappedMythicAffixCard", UIParent)
 card:SetSize(340, 92)
 card:SetFrameStrata("DIALOG")

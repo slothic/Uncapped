@@ -576,7 +576,10 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
 
         local FAILURES = {
             reagents  = "ran out of materials",
-            bagsfull  = "your bags are full -- switch the output to your Vault",
+            -- Two causes now, and the second is the common one on a bulk render:
+            -- a conversion has to hold its source as a REAL item to cast from,
+            -- so a full bag stops it even when the output is the Vault.
+            bagsfull  = "your bags are full -- clear a slot, or send the output to your Vault",
             uniquecap = "you already have as many of that as you can own",
             novellum  = "out of vellums, or no free bag slot to hold one",
             nospace   = "no free bag space -- a scroll still needs one slot to be made in",
@@ -621,9 +624,16 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
         Send("FRGSYNC")
 
     elseif body:find("^FRGPROCROW:") then
-        for item, count, kinds, name in body:gmatch("(%d+),(%d+),(%d+),([^;]*);") do
+        -- `perOp` arrives from the server rather than being assumed here. It used
+        -- to be a client-side constant (5, or 1 for disenchant), which stopped
+        -- being expressible the moment rendering landed: a render's rate is set
+        -- per SOURCE by that source's own spell, 100 junk meat per Rendered
+        -- Tallow at the bottom band and 15 at the top, and nothing in the client
+        -- can see a custom spell's reagent count.
+        for item, count, kinds, perOp, name in body:gmatch("(%d+),(%d+),(%d+),(%d+),([^;]*);") do
             staging.proc[#staging.proc + 1] = { item = tonumber(item), count = tonumber(count),
-                kinds = tonumber(kinds), name = (name ~= "" and name) or nil }
+                kinds = tonumber(kinds), perOp = tonumber(perOp),
+                name = (name ~= "" and name) or nil }
         end
 
     elseif body:find("^FRGPROCEND:") then
@@ -904,16 +914,23 @@ function RefreshDetail()
 
     if frame.mode == "process" then
         detail.title:SetText("Bulk processing")
-        AddLine("Everything in your Vault that can be milled, prospected or", 0.8, 0.8, 0.8)
-        AddLine("disenchanted. Pick a row on the left, then a button below.", 0.8, 0.8, 0.8)
+        AddLine("Everything in your Vault that can be milled, prospected,", 0.8, 0.8, 0.8)
+        AddLine("disenchanted or rendered down. Pick a row, then a button.", 0.8, 0.8, 0.8)
         AddLine(" ")
         local selected = detail.processEntry
         if selected then
             local name = ProcessName(selected)
+            local perOp = selected.perOp or 5
             AddLine(name .. "  |cff808080x" .. Commafy(selected.count) .. "|r", 1, 0.82, 0)
             if bit.band(selected.kinds, 1) ~= 0 then AddLine("Millable (5 per operation)", 0.6, 1, 0.6) end
             if bit.band(selected.kinds, 2) ~= 0 then AddLine("Prospectable (5 per operation)", 0.6, 1, 0.6) end
             if bit.band(selected.kinds, 4) ~= 0 then AddLine("Disenchantable", 0.6, 1, 0.6) end
+            if bit.band(selected.kinds, 8) ~= 0 then
+                -- The rate is per source and worth stating plainly: it is the
+                -- difference between 15 and 100 of the same-looking pile.
+                AddLine(string.format("Renders down (%d per operation, %s total)",
+                    perOp, Commafy(math.floor(selected.count / perOp))), 0.6, 1, 0.6)
+            end
         else
             AddLine("Nothing selected.", 0.6, 0.6, 0.6)
         end
@@ -924,12 +941,14 @@ function RefreshDetail()
         detail.mill:Show()
         detail.prospect:Show()
         detail.disenchant:Show()
+        detail.render:Show()
         return
     end
 
     detail.mill:Hide()
     detail.prospect:Hide()
     detail.disenchant:Hide()
+    detail.render:Hide()
     detail.craft:Show()
     detail.craftAll:Show()
 
@@ -1453,9 +1472,21 @@ local function BuildFrame(parent)
     local function StartProcess(kind)
         local entry = detail.processEntry
         if not entry then return end
-        local perOp = (kind == 2) and 1 or 5
+        -- The row carries its own rate; the old (kind == 2) and 1 or 5 could not
+        -- express a render, whose rate is per source. Falling back to 1 rather
+        -- than 5 for a row from an older server overstates the operation count,
+        -- which the server clamps anyway -- the reverse would understate it and
+        -- silently leave materials behind.
+        local perOp = entry.perOp
+        if not perOp or perOp < 1 then perOp = 1 end
         local ops = math.floor(entry.count / perOp)
         if ops < 1 then return end
+        -- The server clamps a single request to 10,000 operations (MAX_BATCH),
+        -- so clamp here too or the progress bar promises a total the run will
+        -- never reach: a 2.6-million meat pile is five presses, and the bar has
+        -- to say 10,000 each time rather than 43,565 once. Press again for the
+        -- rest -- the row's count refreshes when the run finishes.
+        if ops > 10000 then ops = 10000 end
         Send(string.format("FRGPROC:%d:%d:%d", kind, entry.item, ops))
         job = { done = 0, total = ops, crafted = 0 }
         RefreshProgress()
@@ -1484,6 +1515,14 @@ local function BuildFrame(parent)
     detail.disenchant:SetText("Disenchant All")
     detail.disenchant:SetScript("OnClick", function() StartProcess(2) end)
     detail.disenchant:Hide()
+
+    detail.render = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    detail.render:SetWidth(100)
+    detail.render:SetHeight(22)
+    detail.render:SetPoint("LEFT", detail.disenchant, "RIGHT", 4, 0)
+    detail.render:SetText("Render All")
+    detail.render:SetScript("OnClick", function() StartProcess(3) end)
+    detail.render:Hide()
 
     -- Output destination
     local vaultCheck = CreateFrame("CheckButton", "UncappedForgeVaultOut", frame, "UICheckButtonTemplate")
@@ -1752,6 +1791,33 @@ local function RestoreSourceWindow()
     else
         sourceFrame:SetPoint(SOURCE_DEFAULT_POS[1], UIParent,
             SOURCE_DEFAULT_POS[2], SOURCE_DEFAULT_POS[3], SOURCE_DEFAULT_POS[4])
+    end
+
+    -- Player window zoom. This window parents to UIParent rather than to the
+    -- Dashboard (it opens beside the Forge tab, not inside it), so it inherits
+    -- no scale and owns its own.
+    --
+    -- ⚠ Registered HERE, not at file scope where the frame is created: the
+    -- frame has no anchor until this function runs, and the zoom system's
+    -- re-anchoring works by rewriting anchor offsets. Registering it unanchored
+    -- would apply the scale with nothing to correct, and the position restored
+    -- above would then be off by the zoom factor. Re-registering is just a
+    -- refresh, so running on every open is free.
+    --
+    -- savePosition matters because this is one of the few Uncapped windows that
+    -- REMEMBERS where it was dragged (db.sourcePos). A zoom change rewrites its
+    -- offsets to hold it on the same spot; without writing those corrected
+    -- numbers back, the next open would restore the pre-zoom ones and the
+    -- window would appear to jump.
+    if UncappedScale_Register then
+        UncappedScale_Register(sourceFrame, {
+            savePosition = function(self)
+                if not (db and db.savePos) then return end
+                local point, _, relPoint, x, y = self:GetPoint()
+                if not point then return end
+                db.sourcePos = { point, relPoint, x, y }
+            end,
+        })
     end
 end
 

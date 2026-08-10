@@ -697,6 +697,21 @@ local function BuildFrame()
     -- window -- the same two-step the Vault's search box has.
     tinsert(UISpecialFrames, "UncappedQuestLedgerFrame")
 
+    -- Player window zoom (ESC > Interface > AddOns > Uncapped, or /uiscale).
+    -- No savePosition: this window does not persist where it was dragged (it
+    -- opens at CENTER every session), so there is nothing for a zoom change to
+    -- write back. It still gets re-anchored and clamped so it does not walk off
+    -- screen while it is open.
+    --
+    -- ⚠ 1000x600 is the biggest window in the suite and 600 tall is already
+    -- most of a default-UI-scale screen (~708 usable units), so the fit cap is
+    -- what keeps a high zoom from pushing the detail pane off the bottom.
+    if UncappedScale_Register then
+        UncappedScale_Register(f, {
+            getFitSize = function(self) return self:GetWidth(), self:GetHeight() end,
+        })
+    end
+
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOP", f, "TOP", 0, -16)
     title:SetText("|cffffd100Quest Ledger|r")

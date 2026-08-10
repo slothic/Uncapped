@@ -2609,6 +2609,22 @@ end)
 -- there's no Apply step. RefreshOptionsPanel() re-syncs every widget from Cfg
 -- (used after InitSavedVars loads the saved values, and after /dev64font).
 -- ---------------------------------------------------------------------------
+--
+-- ⚠ NOT WIRED TO THE UNCAPPED WINDOW ZOOM, and there is nothing here to wire.
+-- This addon owns exactly two UIParent frames and neither is a window:
+--
+--   * this one, which is an ESC > Interface > AddOns PAGE. Blizzard reparents
+--     it into InterfaceOptionsFramePanelContainer and sizes it to that
+--     container, so scaling it would leave a mis-sized page inside a
+--     stock-sized frame -- Blizzard's own UI Scale slider is what moves it.
+--   * fctHost, the floating-combat-text layer, which is not a frame the player
+--     places or reads at leisure but a screen-space layer whose numbers are
+--     positioned from nameplate/target centres in UIParent units. Its size is
+--     already player-controlled by the font-size sliders on this very page.
+--
+-- The CenterInUIParent helper up by fctHost is the reason that stays true: it
+-- normalises through GetEffectiveScale, so it keeps working over any scaled
+-- frame it is asked about.
 local optPanel = CreateFrame("Frame", "Uncapped64bitUIOptions", UIParent)
 -- Nest under the shared "Uncapped" hub (registered by UncappedOptions). If that
 -- addon is missing, a .parent naming a non-existent category just falls back to

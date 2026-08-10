@@ -62,6 +62,30 @@ frame:SetScript("OnDragStop", function(self)
 end)
 frame:Hide()
 
+-- Player window zoom (ESC > Interface > AddOns > Uncapped, or /uiscale).
+-- savePosition mirrors OnDragStop above: a zoom change rewrites this window's
+-- anchor offsets so it stays on the same spot on screen, and the corrected
+-- numbers -- not the pre-zoom ones -- are what ApplyPosition must restore next
+-- time.
+--
+-- The full-screen gold flash (UncappedRewardScreenGlow, further down) is NOT
+-- registered: it is SetAllPoints(UIParent) with textures sized from
+-- UIParent:GetWidth(), so scaling it would size the flash in the wrong units
+-- and leave an unlit border round the screen. A screen effect has no zoom.
+if UncappedScale_Register then
+    UncappedScale_Register(frame, {
+        savePosition = function(self)
+            -- Only once the player has actually dragged it: while db.pos is nil
+            -- ApplyPosition owns the default anchor, and writing here would
+            -- promote that default into a placement they never made (and would
+            -- make "Reset position" on the settings page a one-shot).
+            if not db.pos then return end
+            local point, _, relPoint, x, y = self:GetPoint()
+            if point then db.pos = { point = point, relPoint = relPoint, x = x, y = y } end
+        end,
+    })
+end
+
 -- Golden glow behind the window contents, alpha-pulsed for the "shiny".
 frame.glow = frame:CreateTexture(nil, "BACKGROUND")
 frame.glow:SetTexture("Interface\\Cooldown\\star4")

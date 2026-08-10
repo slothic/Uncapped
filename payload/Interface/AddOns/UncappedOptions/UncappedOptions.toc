@@ -3,6 +3,7 @@
 ## Notes: Shared settings hub for the Uncapped addon suite. Registers the "Uncapped" category in ESC > Interface > AddOns and provides the widget library the other addons build their pages with.
 ## Author: Uncapped
 ## Version: 1.0
+## OptionalDeps: UncappedUI
 ## SavedVariables: UncappedOptionsDB
 
 UncappedOptions.lua

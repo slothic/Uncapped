@@ -61,11 +61,47 @@ bar.text = textLayer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 bar.text:SetJustifyH("LEFT")
 bar.text:SetPoint("LEFT", textLayer, "LEFT", 0, 0)
 
--- Screen width straight from UIParent -- always resolved, even while `bar` is
--- hidden (bar:GetWidth() could read stale/zero at first data, which made the
--- text reset early and only crawl part-way across).
+-- Player window zoom (ESC > Interface > AddOns > Uncapped, or /uiscale).
+--
+-- ⚠ THIS IS A SCREEN-EDGE STRIP, NOT A WINDOW, so it opts out of both of the
+-- zoom system's position fix-ups:
+--
+--   keepPosition = false  its anchors are TOPLEFT/TOPRIGHT of UIParent at
+--                         offset 0, so it spans the screen at any scale and
+--                         there is no offset worth rewriting.
+--   clamp        = false  the clamp keeps at least 60 units of a frame on
+--                         screen; a bar deliberately flush with the top edge
+--                         and only ~20 units tall reads as "off screen" to
+--                         that rule and would be shoved 40 units DOWN into the
+--                         middle of the player's buffs.
+--
+-- What the zoom does do here is scale the bar's height and its text, which is
+-- the whole point of the setting -- and that is exactly why ScreenWidth below
+-- had to change.
+if UncappedScale_Register then
+    UncappedScale_Register(bar, { keepPosition = false, clamp = false })
+end
+
+-- The scroll distance, in BAR units.
+--
+-- ⚠ It cannot be UIParent:GetWidth() any more. That is measured in UIParent
+-- units, while `offset` is a SetPoint offset on a font string inside the bar
+-- and scrollWidth is GetStringWidth() -- both in the BAR's units. Once the bar
+-- carries the player's zoom the two scales differ, and mixing them made the
+-- text wrap early (zoomed in) or crawl in from off-screen (zoomed out). This is
+-- the GetScale/GetEffectiveScale drift bug in miniature.
+--
+-- Still derived from UIParent rather than bar:GetWidth(), for the original
+-- reason: GetWidth() can read stale/zero before the first layout, which reset
+-- the scroll early and left the text crawling only part-way across.
 local function ScreenWidth()
-    return UIParent:GetWidth()
+    local barEff = bar:GetEffectiveScale()
+    local uiEff = UIParent:GetEffectiveScale()
+    local w = UIParent:GetWidth() or 1024
+    if barEff and barEff > 0 and uiEff and uiEff > 0 then
+        return w * uiEff / barEff
+    end
+    return w
 end
 
 -- Data: list of { name, kind, expiry } (expiry = GetTime() + secondsRemaining).

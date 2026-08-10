@@ -7,6 +7,9 @@
 
 UncappedNative.lua
 UncappedUI.lua
+# Right after the namespace bootstrap: every other file may register a frame
+# with it, and CreateWindow does so for free.
+UncappedScale.lua
 Themes\ThemeManager.lua
 Themes\DefaultTheme.lua
 Themes\UncappedTheme.lua

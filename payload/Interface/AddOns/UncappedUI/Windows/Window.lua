@@ -51,6 +51,18 @@ end
 --                           final SavePosition -- e.g. to re-anchor the
 --                           window instead of leaving it wherever the grip
 --                           drag left it
+--
+--   -- user zoom (UncappedScale.lua); every kit window gets this for free
+--   scaleBase               fn() -> number, this window's OWN scale, which the
+--                           player's global zoom multiplies (default 1)
+--   scaleFit                fn() -> w, h, logical size that must stay on
+--                           screen; caps the zoom rather than letting the
+--                           window grow past the screen edge
+--   scaleKeepPosition       default true -- offsets are rewritten so the
+--                           window's corner stays on the same screen pixel.
+--                           Pass false only if onScaleChanged re-places the
+--                           window itself (the Dashboard re-centres).
+--   onScaleChanged          fn(win, appliedScale), after every (re)apply
 function UncappedUIKit.CreateWindow(opts)
     opts = opts or {}
     local db = opts.db
@@ -123,6 +135,25 @@ function UncappedUIKit.CreateWindow(opts)
     if opts.onMouseUp then win:SetScript("OnMouseUp", opts.onMouseUp) end
 
     UncappedUIKit.Register(win, ApplyWindowSkin)
+
+    -- ★ THE WINDOW OWNS THE PLAYER'S ZOOM FOR EVERYTHING INSIDE IT.
+    --
+    -- SetScale compounds down the frame chain, so this single call is the ONLY
+    -- one allowed for this window's whole tree: banner, title, close button,
+    -- resize grip, and every panel a caller anchors into it (for the Dashboard
+    -- that means all 15 tabs, including ones added later). Registering a child
+    -- as well would multiply the zoom twice.
+    --
+    -- SavePosition is picked up automatically by RegisterScaledFrame, so the
+    -- offsets it rewrites to keep the window put are the ones that persist.
+    if UncappedUIKit.RegisterScaledFrame then
+        UncappedUIKit.RegisterScaledFrame(win, {
+            getBase        = opts.scaleBase,
+            getFitSize     = opts.scaleFit,
+            keepPosition   = opts.scaleKeepPosition,
+            onScaleChanged = opts.onScaleChanged,
+        })
+    end
 
     win:Hide()
     return win

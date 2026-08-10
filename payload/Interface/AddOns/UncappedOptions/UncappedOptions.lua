@@ -8,8 +8,19 @@
 --   3. Host the "Loot & Disenchant" page, which drives the server-side
 --      .autodisenchant / .auto / .aoeloot commands.
 --
--- This addon loads FIRST (the others list it in ## OptionalDeps), so the parent
--- category and the widget library exist before any child page is built.
+-- This addon loads before every addon that builds a page (they list it in
+-- ## OptionalDeps), so the parent category and the widget library exist before
+-- any child page is built.
+--
+-- It loads AFTER exactly one addon: UncappedUI, which it now lists in its own
+-- ## OptionalDeps. That is not a cycle -- UncappedUI references nothing here --
+-- and it is what lets the window-scale slider below read the real saved value
+-- while it is being built instead of showing 1.00 until the next login.
+--
+-- ⚠ Two different globals are both called "UncappedUI" and they are NOT the
+-- same thing. `UncappedUI` (this file) is the settings-page widget library.
+-- `UncappedUIKit` (the UncappedUI addon) is the in-game window toolkit and the
+-- owner of the window-scale setting.
 
 local PARENT = "Uncapped"
 
@@ -220,10 +231,54 @@ end
 -- The parent "Uncapped" landing page.
 -- ===========================================================================
 local hub = UI.CreatePanel(PARENT, "Settings for the Uncapped realm's custom addons. Pick a page under this heading on the left.")
+
+-- Window zoom lives on the LANDING page, not on a page of its own: it is the
+-- one setting that applies to every Uncapped addon at once, so burying it
+-- under any single addon's heading would be a lie about its reach.
+--
+-- The setting itself is owned by UncappedUI (UncappedScale.lua) and saved in
+-- UncappedUIDB, NOT here: that addon is the one that actually applies it, so
+-- it must be able to restore the zoom on login whether or not this options
+-- addon is enabled. This page is only a control surface -- every accessor
+-- below re-reads _G.UncappedUIKit at call time and no-ops when it is absent.
+local function ScaleKit()
+    local kit = _G.UncappedUIKit
+    if kit and kit.GetUIScale and kit.SetUIScale then return kit end
+    return nil
+end
+
+local function GetWindowScale()
+    local kit = ScaleKit()
+    if kit then return kit.GetUIScale() end
+    return 1.0
+end
+
+local function SetWindowScale(v)
+    local kit = ScaleKit()
+    if kit then kit.SetUIScale(v) end
+end
+
+local scaleRefreshers = {}
+
 do
     local L = UI.Layout(hub, -76)
     L:Header("Uncapped")
     L:Note("Everything that makes this realm 'uncapped' -- combat text, alerts, the Mythic+ HUD and rewards, hotzones, the reagent-bank helper, and loot automation -- is configured on the pages listed under this heading. Click one on the left to open it.", 72)
+
+    L:Gap(8)
+    L:Header("Window Scale")
+    L:Note("Zooms every Uncapped window -- the Dashboard and all of its tabs, the Vault, Forge, Soul Forge, Transmog, Loot Feed, chat, the Mythic+ HUD and the rest. Blizzard's own frames are not affected; for those use the UI Scale slider on the Video options. Takes effect immediately and is remembered between sessions.", 56)
+
+    local slider = L:Slider("Uncapped window scale", 0.5, 1.5, 0.05,
+        GetWindowScale, SetWindowScale, "%.2f")
+    scaleRefreshers[#scaleRefreshers + 1] = slider.uncappedRefresh
+
+    L:Button("Reset to 100%", function()
+        SetWindowScale(1.0)
+        for _, r in ipairs(scaleRefreshers) do r() end
+    end, 150)
+
+    L:Note("|cff808080Windows keep their place when you change this -- anything that would land off the screen is pulled back on. The Dashboard's button column is the one window that stops zooming early: past a certain size its 15 buttons would not fit the screen height, so it grows only as far as it can still show all of them.|r", 44)
 end
 
 -- ===========================================================================
@@ -311,7 +366,17 @@ end
 -- ===========================================================================
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
+-- The window-scale slider is built at file scope from a value owned by another
+-- addon's SavedVariables (UncappedUIDB, see above). ## OptionalDeps: UncappedUI
+-- makes that load first so the value is normally already right, but the slider
+-- is re-synced at login anyway -- one event is a lot cheaper than a slider that
+-- silently reads 1.00 while the player's windows are at 1.30.
+loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function(self, event, name)
+    if event == "PLAYER_LOGIN" then
+        for _, r in ipairs(scaleRefreshers) do r() end
+        return
+    end
     if name ~= "UncappedOptions" then return end
     if type(UncappedOptionsDB) == "table" then
         local s = UncappedOptionsDB

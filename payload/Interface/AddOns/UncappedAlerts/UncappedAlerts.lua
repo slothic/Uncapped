@@ -162,6 +162,20 @@ local function RestorePos(frame, key, default)
     else
         frame:SetPoint(default.point, UIParent, default.point, default.x, default.y)
     end
+
+    -- Player window zoom, hooked in here rather than at each call site: both of
+    -- this addon's frames (the restart window and the minimised bar) go through
+    -- RestorePos, and this is the first moment either has an anchor for the zoom
+    -- system to rewrite. Registering the same frame twice just refreshes it.
+    --
+    -- savePosition reuses SavePos so a zoom change persists the same shape a
+    -- drag does; without it the pre-zoom offsets would be restored on the next
+    -- login and the window would appear to have moved on its own.
+    if UncappedScale_Register then
+        UncappedScale_Register(frame, {
+            savePosition = function(self) SavePos(self, key) end,
+        })
+    end
 end
 
 local WINDOW_DEFAULT = { point = "CENTER", x = 0, y = 180 }
