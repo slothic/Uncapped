@@ -1,0 +1,23 @@
+{
+  "_comment": "THE SERVER-GENERATED CLIENT ITEM CACHE. The client caches every SMSG_ITEM_QUERY_SINGLE_RESPONSE it ever receives in Cache\\WDB\\<locale>\\itemcache.wdb and never expires an entry, so anyone who saw an item before we changed it keeps the stale copy forever -- report #224 (blank icons on items whose displayid and texture are both correct on our side) is exactly that. Server/azerothcore-wotlk/tools/wdb/gen_itemcache.py rebuilds the file from the live item_template, byte-for-byte the way the worldserver would have serialised it, and the launcher installs it. Not in payload/ and not in git: 1.7 MB of generated binary that changes every time an item does.",
+
+  "_off_switch": "★ ROLLBACK IS ONE EDIT: set enabled to false here, regenerate the manifest, push. New-Manifest.ps1 then writes no itemCache block, and WdbCache falls straight through to wiping Cache\\WDB and installing nothing -- which is exactly what the launcher did before this feature existed. Every client returns to the known-good state on its next launch, with no launcher release. Rolling forward again is setting it back to true; clients that took the rollback lost their sentinel along with the cache and reinstall, and clients that never launched during the window are already holding this epoch and correctly do nothing.",
+
+  "_epoch": "The trigger, and it is NOT a hash. THE CLIENT REWRITES itemcache.wdb CONTINUOUSLY DURING PLAY -- it appends every new query response -- so its hash stops matching whatever we installed within seconds of the player logging in and never matches again. Hash-based change detection would re-download this file on every single launch, forever. The launcher records the epoch it installed in a sentinel file (uncapped-itemcache.epoch) beside the cache and compares that instead. Bump the epoch whenever you publish new bytes; it is opaque, so any different string works, but keep it equal to the version in the filename so a client's sentinel names the file it is holding.",
+
+  "_publishing": "publish.sh CANNOT publish this -- it regex-rejects any name that is not patch-enUS-<X>-<version>.MPQ -- so, like UncappedCT.dll, it is scp'd into /srv/uncapped-patches/public/ by hand and none of publish.sh's guards apply. Published filenames are IMMUTABLE: never overwrite one, always cut a new dated name. See PUBLISHING-PATCHES.md.",
+
+  "_locales": "The generator writes an enUS locale into the WDB header and builds names from the base item_template columns, because item_template_locale has no enUS rows. None of that is right for a deDE client, and no client has been observed loading a cache whose header locale disagrees with its own. Anything not listed here gets the old wipe-only behaviour rather than a guess.",
+
+  "enabled": true,
+
+  "epoch": "2026.08.10a",
+  "url": "http://152.53.115.249/patches/itemcache-2026.08.10a.wdb.gz",
+  "sha256": "eaef48b665d6f9fc3caf15b60894bf50ccd85137ec650f68c5c488889fcca8b9",
+  "size": 1800191,
+  "contentSha256": "62c5501f535de8f107cee6b2290189eff85cd030ff4fbd75ad70546cfaa4cd53",
+  "contentSize": 21782066,
+  "locales": ["enUS"],
+
+  "_built": "2026-08-10 from live item_template: 47156 records, 20.77 MiB raw, 1.72 MiB gzipped. Includes Rendered Tallow (900600), Tallow-Cured Jerkin (900601) and the 468 banded alchemy items (910001-913117), none of which any client has ever seen. Verified against three real client caches (3961/2400/1011 records; every remaining difference re-queried against prod and the generated value matched the CURRENT server value in all cases). PUBLISHED 2026-08-10: scp'd to /srv/uncapped-patches/public/ (chmod 444), and a scoped location block added to /opt/uncapped-files/nginx.conf (backup .bak-20260810) because that server allowlists names and had no rule for .wdb.gz -- the hand-copy path alone was NOT enough. Verified: 200, sha matches, range 206, and a non-matching name still 404s."
+}

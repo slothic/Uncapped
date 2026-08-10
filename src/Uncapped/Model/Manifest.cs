@@ -108,6 +108,73 @@ public sealed class Manifest
     /// standing rule: never delete an addon we did not write ourselves.
     /// </summary>
     [JsonPropertyName("ownedPaths")] public List<string> OwnedPaths { get; set; } = new();
+
+    /// <summary>
+    /// The server-generated <c>itemcache.wdb</c> to drop into Cache\WDB, and the epoch token
+    /// that decides when to drop it. See <see cref="Services.WdbCache"/> for the mechanism.
+    ///
+    /// Deliberately NOT a <see cref="ManifestFile"/>. Entries in <see cref="Files"/> are
+    /// change-detected by hash and are required by the integrity check, and this file is
+    /// neither: the client rewrites it during play, so its hash stops matching within seconds
+    /// of logging in and never matches again. As a manifest file it would re-download ~1.7 MB
+    /// on every launch forever AND report itself corrupt, which blocks PLAY.
+    ///
+    /// Null is the off switch, and the whole feature's rollback: no block means the launcher
+    /// wipes Cache\WDB and installs nothing, which is what it did before this existed.
+    /// </summary>
+    [JsonPropertyName("itemCache")] public ItemCacheSpec? ItemCache { get; set; }
+}
+
+/// <summary>
+/// One published item cache. Two hashes on purpose: <see cref="Sha256"/> pins the gzip as the
+/// host serves it (the same guarantee the MPQs get), <see cref="ContentSha256"/> pins what
+/// comes out of it, which is the file the client actually parses.
+/// </summary>
+public sealed class ItemCacheSpec
+{
+    /// <summary>
+    /// Opaque version token. Any change means "install this"; equality means "leave it alone".
+    /// It is never compared to the file's contents, because the client rewrites those.
+    /// </summary>
+    [JsonPropertyName("epoch")] public string Epoch { get; set; } = "";
+
+    /// <summary>Gzipped itemcache.wdb on the patch host. Published filenames are immutable.</summary>
+    [JsonPropertyName("url")] public string Url { get; set; } = "";
+
+    /// <summary>SHA-256 of the gzip as downloaded.</summary>
+    [JsonPropertyName("sha256")] public string Sha256 { get; set; } = "";
+
+    /// <summary>Size of the gzip, for the log line and a sanity check.</summary>
+    [JsonPropertyName("size")] public long Size { get; set; }
+
+    /// <summary>SHA-256 of the decompressed itemcache.wdb.</summary>
+    [JsonPropertyName("contentSha256")] public string ContentSha256 { get; set; } = "";
+
+    /// <summary>Size of the decompressed itemcache.wdb. 0 skips the size check.</summary>
+    [JsonPropertyName("contentSize")] public long ContentSize { get; set; }
+
+    /// <summary>
+    /// Client languages this file is correct for.
+    ///
+    /// The generator writes an enUS locale into the WDB header and builds names and
+    /// descriptions from the base item_template columns (item_template_locale has no enUS
+    /// rows). None of that is right for a deDE client, and no client has ever been observed
+    /// loading a cache whose header locale disagrees with its own — so anything not listed
+    /// here gets the old wipe-only behaviour rather than a guess.
+    ///
+    /// The default is deliberately restrictive: a manifest that forgets the field installs to
+    /// enUS clients only.
+    /// </summary>
+    [JsonPropertyName("locales")] public List<string> Locales { get; set; } = new() { "enUS" };
+
+    /// <summary>Enough of an entry to act on. A block missing any of these is treated as absent.</summary>
+    public bool IsUsable =>
+        !string.IsNullOrWhiteSpace(Epoch) &&
+        !string.IsNullOrWhiteSpace(Url) &&
+        !string.IsNullOrWhiteSpace(Sha256);
+
+    public bool AppliesToLocale(string code) =>
+        Locales.Any(l => l.Equals(code, StringComparison.OrdinalIgnoreCase));
 }
 
 public sealed class RealmInfo

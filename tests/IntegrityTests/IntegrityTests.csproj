@@ -52,6 +52,10 @@
     <Compile Include="..\..\src\Uncapped\Services\RepairService.cs" />
     <Compile Include="..\..\src\Uncapped\Services\SyncService.cs" />
     <Compile Include="..\..\src\Uncapped\Services\ClientLocale.cs" />
+    <!-- The item cache: installed from the manifest, keyed on an epoch token. Every failure
+         path is asserted to fall back to the old wipe, which is the safety net the owner
+         chose in place of a server-side client-load gate. -->
+    <Compile Include="..\..\src\Uncapped\Services\WdbCache.cs" />
     <Compile Include="..\..\src\Uncapped\Services\ConfigWtf.cs" />
     <Compile Include="..\..\src\Uncapped\Services\Hashing.cs" />
     <Compile Include="..\..\src\Uncapped\Logging.cs" />

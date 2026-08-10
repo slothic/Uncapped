@@ -1847,8 +1847,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault.lua",
-                      "sha256":  "649473c9affdad0c2c12e8a7c3940b99bf3ceafaddecc1d60518dc4f69034077",
-                      "size":  96886
+                      "sha256":  "fecf6db030db231e040f7d46f2748d92d3072407bc365a4a49f83b4c8553a99c",
+                      "size":  100869
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault_UI.lua",
@@ -2984,6 +2984,15 @@
                          "label":  "ArkInventory"
                      }
                  ],
+    "itemCache":  {
+                      "epoch":  "2026.08.10a",
+                      "url":  "http://152.53.115.249/patches/itemcache-2026.08.10a.wdb.gz",
+                      "sha256":  "eaef48b665d6f9fc3caf15b60894bf50ccd85137ec650f68c5c488889fcca8b9",
+                      "size":  1800191,
+                      "contentSha256":  "62c5501f535de8f107cee6b2290189eff85cd030ff4fbd75ad70546cfaa4cd53",
+                      "contentSize":  21782066,
+                      "locales":  "enUS"
+                  },
     "forceEnableAddOns":  [
                               "StatFeed",
                               "ReagentBankCraft",

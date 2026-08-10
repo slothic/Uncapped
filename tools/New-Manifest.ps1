@@ -76,6 +76,10 @@ param(
     # Zips fetched from someone else's host and unpacked into the install, for addons we are
     # not entitled to redistribute. Hashed here so the launcher can pin them.
     [string]$Archives      = 'C:\Wotlk\Launcher\tools\archives.json',
+    # The server-generated client item cache. Externally hosted like the MPQs, but it is NOT a
+    # manifest file entry -- see the block that reads it for why that distinction is the whole
+    # design. Set "enabled": false in there to roll the feature back.
+    [string]$ItemCache     = 'C:\Wotlk\Launcher\tools\itemcache.json',
     [string]$ExternalCache = 'C:\Wotlk\Launcher\.external-cache',
     [string]$Magnet          = 'magnet:?xt=urn:btih:2ba2833baf733ce0a16040d43ed09491f2bf2ab2&dn=ChromieCraft_3.3.5a.zip&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.uw0.xyz%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.zerobytes.xyz%3A1337%2Fannounce',
     [string]$DirectDownloadUrl = $null
@@ -237,6 +241,129 @@ Nothing was written.
             }
             Write-Host ("  + {0,-32} {1,6} MB" -f $e.path, [math]::Round($item.Length / 1MB, 1)) -ForegroundColor Green
         }
+    }
+}
+
+# --- The server-generated item cache -----------------------------------------------------
+# Externally hosted like the MPQs, but deliberately NOT one of $files.
+#
+# THE CLIENT REWRITES Cache\WDB\<locale>\itemcache.wdb CONTINUOUSLY DURING PLAY. As a manifest
+# file entry it would be hash-compared on every launch, never match, re-download 1.7 MB every
+# time forever -- and, worse, be reported Corrupt by the integrity check, which BLOCKS PLAY.
+# It gets its own manifest block with an epoch token instead, which the launcher compares
+# against a sentinel file it writes beside the cache and the client never touches.
+#
+# Absent block == feature off == the launcher wipes Cache\WDB and installs nothing, which is
+# what it did before this existed. That is the rollback, and it is one edit in itemcache.json.
+$itemCacheEntry = $null
+if (Test-Path $ItemCache) {
+    $ic = Get-Content $ItemCache -Raw | ConvertFrom-Json
+
+    if (-not $ic.enabled) {
+        Write-Host "`nItem cache: DISABLED in $(Split-Path -Leaf $ItemCache) - no itemCache block written." -ForegroundColor Yellow
+        Write-Host "  Clients will wipe Cache\WDB and install nothing, as before." -ForegroundColor DarkGray
+    }
+    else {
+        Write-Host "`nServer-generated item cache:" -ForegroundColor Cyan
+
+        foreach ($required in 'epoch', 'url', 'sha256', 'contentSha256') {
+            if (-not $ic.$required) { throw "itemcache.json is enabled but has no '$required'." }
+        }
+
+        # Same URL-keyed cache as the external files: these filenames are immutable, so a hit
+        # is always correct, and keying on the URL means a new epoch is always re-fetched.
+        New-Item -ItemType Directory -Force $ExternalCache | Out-Null
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try {
+            $urlKey = ([BitConverter]::ToString(
+                $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($ic.url))
+            ) -replace '-', '').Substring(0, 12).ToLower()
+        } finally { $sha.Dispose() }
+        $cached = Join-Path $ExternalCache ("itemcache." + $urlKey + ".gz")
+
+        if (-not (Test-Path $cached)) {
+            Write-Host "  downloading $($ic.url)..." -ForegroundColor DarkGray
+            $wc2 = New-Object Net.WebClient
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            $wc2.DownloadFile($ic.url, $cached)
+        }
+
+        $icItem = Get-Item $cached
+        if ($icItem.Length -eq 0) { throw "Item cache downloaded as 0 bytes." }
+
+        # An nginx 404 body is still a file. Prove it is a gzip before trusting anything else.
+        $icSig = [IO.File]::ReadAllBytes($cached)[0..1]
+        if ($icSig[0] -ne 0x1F -or $icSig[1] -ne 0x8B) {
+            throw "Item cache does not start with the gzip magic bytes (got $($icSig -join ',')). The host probably served an error page."
+        }
+
+        $icHash = (Get-FileHash $cached -Algorithm SHA256).Hash.ToLower()
+        if ($icHash -ne $ic.sha256.ToLower()) {
+            throw @"
+Item cache does not match the sha256 pinned in itemcache.json.
+  pinned   $($ic.sha256.ToLower())
+  actual   $icHash
+  url      $($ic.url)
+Either the host is serving different bytes than you published, or the pin is stale.
+Nothing was written.
+"@
+        }
+
+        # And check what comes OUT of the gzip, because that is the file the client parses and
+        # the transport hash says nothing about it. This is also the only place the WDB layout
+        # is asserted before players get the bytes: 24-byte header starting "BDIW", client
+        # build 12340, terminated by eight zero bytes.
+        $plain = Join-Path $ExternalCache ("itemcache." + $urlKey + ".wdb")
+        if (-not (Test-Path $plain)) {
+            $in  = [IO.File]::OpenRead($cached)
+            $gz  = New-Object IO.Compression.GzipStream($in, [IO.Compression.CompressionMode]::Decompress)
+            $out = [IO.File]::Create($plain)
+            try { $gz.CopyTo($out) } finally { $out.Dispose(); $gz.Dispose(); $in.Dispose() }
+        }
+
+        $plainItem = Get-Item $plain
+        $plainHash = (Get-FileHash $plain -Algorithm SHA256).Hash.ToLower()
+        if ($plainHash -ne $ic.contentSha256.ToLower()) {
+            throw "Decompressed item cache hashes $plainHash, itemcache.json pins $($ic.contentSha256.ToLower())."
+        }
+        if ($ic.contentSize -and $plainItem.Length -ne $ic.contentSize) {
+            throw "Decompressed item cache is $($plainItem.Length) bytes, itemcache.json says $($ic.contentSize)."
+        }
+
+        $head = New-Object byte[] 8
+        $tail = New-Object byte[] 8
+        $fs = [IO.File]::OpenRead($plain)
+        try {
+            [void]$fs.Read($head, 0, 8)
+            [void]$fs.Seek(-8, [IO.SeekOrigin]::End)
+            [void]$fs.Read($tail, 0, 8)
+        } finally { $fs.Dispose() }
+
+        if ([Text.Encoding]::ASCII.GetString($head, 0, 4) -ne 'BDIW') {
+            throw "Item cache is not a WDB file (magic '$([Text.Encoding]::ASCII.GetString($head,0,4))', expected 'BDIW')."
+        }
+        $icBuild = [BitConverter]::ToUInt32($head, 4)
+        if ($icBuild -ne 12340) { throw "Item cache is for client build $icBuild, expected 12340." }
+        if ($tail | Where-Object { $_ -ne 0 }) {
+            throw "Item cache does not end in the eight-zero-byte terminator."
+        }
+
+        $icLocales = if ($ic.locales) { @($ic.locales) } else { @('enUS') }
+
+        $itemCacheEntry = [ordered]@{
+            epoch         = $ic.epoch
+            url           = $ic.url
+            sha256        = $icHash
+            size          = $icItem.Length
+            contentSha256 = $plainHash
+            contentSize   = $plainItem.Length
+            locales       = $icLocales
+        }
+
+        Write-Host ("  + epoch {0}  {1} MB gz -> {2} MB  [{3}]" -f `
+            $ic.epoch, [math]::Round($icItem.Length / 1MB, 2),
+            [math]::Round($plainItem.Length / 1MB, 2), ($icLocales -join ',')) -ForegroundColor Green
+        Write-Host "    gzip + sha256 + content sha256 + WDB header/terminator verified" -ForegroundColor DarkGray
     }
 }
 
@@ -456,6 +583,11 @@ $manifest = [ordered]@{
     # not in payload\: we do not redistribute these. See tools\archives.json.
     archives = @($archiveEntries)
 
+    # The server-generated itemcache.wdb, or absent when itemcache.json says enabled:false.
+    # Absent is the off switch AND the rollback -- the launcher then wipes Cache\WDB and
+    # installs nothing, exactly as it did before this existed. See tools\itemcache.json.
+    itemCache = $itemCacheEntry
+
     # Force-ticked in AddOns.txt on every launch. StatFeed is the reason the launcher exists;
     # without it players see no stat-gain messages at all.
     forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests', 'UncappedBugReporter')
@@ -543,6 +675,15 @@ if (-not $check.files -or $check.files.Count -ne $files.Count) {
 $writtenArchives = @($check.archives).Count
 if ($writtenArchives -ne $archiveEntries.Count) {
     throw "Wrote $OutFile but it contains $writtenArchives archive entries, expected $($archiveEntries.Count)."
+}
+# The item cache is one object rather than a list, and a silently dropped epoch would leave
+# every client believing it is already up to date with whatever it last installed -- a
+# no-op release that looks like a successful one.
+if ($itemCacheEntry -and $check.itemCache.epoch -ne $itemCacheEntry.epoch) {
+    throw "Wrote $OutFile but its itemCache epoch is '$($check.itemCache.epoch)', expected '$($itemCacheEntry.epoch)'."
+}
+if (-not $itemCacheEntry -and $check.itemCache) {
+    throw "Wrote $OutFile but it carries an itemCache block that should not be there."
 }
 
 # $files holds ordered hashtables, whose keys are not properties Measure-Object can see.

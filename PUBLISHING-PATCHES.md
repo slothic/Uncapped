@@ -166,6 +166,113 @@ curl -sI http://152.53.115.249/patches/UncappedCT-2026.08.09b.dll
 Then update **both** `url` and `sha256` for the `UncappedCT.dll` entry in
 `tools/external-files.json`, and only then run `New-Manifest.ps1`.
 
+---
+
+## ★ Publishing `itemcache.wdb` — the one that is NOT pinned by hash
+
+The client caches every item query response it ever receives in
+`Cache\WDB\<locale>\itemcache.wdb` and **never expires an entry**. Change an item
+and everyone who already saw it keeps the stale copy forever — report #224
+(blank icons on items whose displayid and texture are both correct on our side)
+is exactly that. We generate the file server-side and install it.
+
+Everything about this entry is driven by `tools/itemcache.json`.
+
+### Cut a new one
+
+```powershell
+# 1. Pull the inputs off the realm (read-only queries) and build the file.
+#    ⚠ Item.dbc/Spell.dbc/SpellCategory.dbc are copied out of the container by
+#    hand -- `fetch` prints the command. item_dbc.tsv comes down with the fetch
+#    and is NOT optional: the ItemEntry store is Item.dbc PLUS the item_dbc
+#    world table, and generating without it emits wrong bytes for custom items.
+cd C:\Wotlk\Server\azerothcore-wotlk\tools\wdb
+python gen_itemcache.py fetch --out data
+python gen_itemcache.py gen   --data data --out C:\Wotlk\Launcher\work\itemcache.wdb
+
+# 2. Prove it against every real client cache you can find, and prove the
+#    proof works. verify exits non-zero on any difference; what matters is
+#    that every differing field re-queries on prod to the value we generated.
+python gen_itemcache.py verify --data data --real "<a real client>\Cache\WDB\enUS\itemcache.wdb"
+python gen_itemcache.py verify --data data --real "<same>" --perturb Delay   # must fail
+
+# 3. gzip it deterministically (mtime 0, no stored filename) and hash both halves.
+```
+
+Then, exactly like `UncappedCT.dll`: **`publish.sh` cannot publish this.** It
+regex-rejects any name that is not `patch-enUS-<X>-<version>.MPQ`, so the file is
+copied into the serving directory by hand and none of its guards apply.
+
+```powershell
+scp C:\Wotlk\Launcher\work\itemcache-2026.08.10a.wdb.gz `
+    root@152.53.115.249:/srv/uncapped-patches/public/itemcache-2026.08.10a.wdb.gz
+ssh root@152.53.115.249 "sha256sum /srv/uncapped-patches/public/itemcache-2026.08.10a.wdb.gz"
+curl -sI http://152.53.115.249/patches/itemcache-2026.08.10a.wdb.gz
+```
+
+Published filenames are **immutable** — always a new dated name, never an
+overwrite. Then update `epoch`, `url`, `sha256`, `size`, `contentSha256` and
+`contentSize` in `tools/itemcache.json`, set `enabled` to `true`, and regenerate
+the manifest. `New-Manifest.ps1` re-downloads the URL, checks the gzip magic,
+both hashes, both sizes, the `BDIW` header, the client build and the eight-zero
+terminator, and **throws before writing the manifest** on any mismatch.
+
+### ⚠ Why this is not a `files[]` entry, and must never become one
+
+**The client rewrites `itemcache.wdb` continuously during play.** Its hash stops
+matching whatever we installed within seconds of the player logging in and never
+matches again. As a manifest file entry it would re-download 1.7 MB on *every*
+launch forever — and, much worse, be reported `Corrupt` by the integrity check,
+which **blocks PLAY**. It gets its own `itemCache` manifest block, triggered by an
+opaque **epoch token**, which the launcher records in a sentinel file
+(`uncapped-itemcache.epoch`) beside the cache. The client never touches it.
+
+Bump the epoch whenever you publish new bytes. Equal epoch means "leave it
+alone"; anything different means "install this".
+
+### ★ Rolling back — one edit, no launcher release
+
+```jsonc
+// tools/itemcache.json
+"enabled": false
+```
+
+Regenerate the manifest and push. `New-Manifest.ps1` then writes **no**
+`itemCache` block, and the launcher falls straight through to wiping `Cache\WDB`
+and installing nothing — which is precisely what it did before this feature
+existed. Every client returns to the known-good state on its next launch.
+
+That is the safety net for this whole feature, because **nothing on the server
+checks that the file a client loaded is one we generated**. It is fail-open by
+design, so the ability to revert without a release is the compensating control.
+Rolling forward again is setting it back to `true`.
+
+Everything else is fail-safe already: an unreachable host, either hash
+disagreeing, a decompressed file that is not a WDB, or a client in a language we
+did not generate for all end in the same full wipe rather than in a guess.
+
+### `Cache` stays in `baseline.json`'s `skipRoots` — deliberately
+
+It is tempting to think the launcher must "own" `Cache` to manage a file there.
+It must not, and moving it would be the one change here that can lock the realm
+out.
+
+* Installing is driven by the **manifest**, not the baseline. The baseline only
+  decides what the integrity check walks, and `WdbCache` writes into `Cache\WDB`
+  today without any baseline involvement — the old unconditional wipe already did.
+* `IntegrityVerifier` walks `baseline.checkedRoots`, which is `["Data"]`.
+  `skipRoots` is generation-time metadata for `New-Baseline.ps1` and is not read
+  at runtime at all. Moving `Cache` out of `skipRoots` therefore does nothing
+  *unless* it also lands in `checkedRoots` — and then every `.wdb` the client
+  writes for itself (creature, quest, gameobject, npc, pagetext, wowcache)
+  becomes a `Foreign` finding, on every client, forever.
+* And the file the launcher installs is a file the **client legitimately
+  mutates**. Anything that hash-checks it reports `Corrupt` the moment someone
+  plays. Corrupt on a manifest file is `Blocking`. That is the lockout.
+
+The test harness asserts this: `integrity: item cache raises no problem` runs a
+full verification against a client whose item cache has been rewritten.
+
 ### Before you publish anything, run the preflight
 
 ```bash

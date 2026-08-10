@@ -127,6 +127,18 @@ public static class Program
         await SecondRunUsesTheHashCache();
         await CorruptionInvalidatesTheHashCache();
         await QuarantineMovesRatherThanDeletes();
+
+        await NoItemCacheBlockWipesEverything();
+        await ItemCacheInstallsAndSweepsTheOtherCaches();
+        await RewrittenCacheIsNotReinstalled();
+        await ChangedEpochReinstalls();
+        await DeletedCacheReinstallsDespiteSentinel();
+        await UnsupportedLocaleFallsBackToWiping();
+        await BadTransportHashFallsBackToWiping();
+        await BadContentHashFallsBackToWiping();
+        await NotAWdbFallsBackToWiping();
+        await DownloadFailureFallsBackToWiping();
+        await IntegrityCheckIgnoresTheItemCache();
     }
 
     // ---------- dialog rendering ----------
@@ -398,6 +410,274 @@ public static class Program
         Check("quarantine: PLAY allowed afterwards", after.CanPlay);
     }
 
+    // ---------- the item cache ----------
+    //
+    // These matter more than usual. The design is fail-open at the client: no server-side gate
+    // checks that the file a client loaded is one we generated, so a subtle mistake here is
+    // wrong tooltips for every player at once rather than nothing happening. Offline coverage
+    // is the compensating control, so every failure path is asserted to end in the OLD
+    // behaviour (wipe everything, install nothing) rather than in something clever.
+
+    private static async Task NoItemCacheBlockWipesEverything()
+    {
+        using var c = new Fixture();
+        c.SeedWdb();
+
+        var outcome = await c.SyncWdbAsync(itemCache: null);
+
+        Check("no itemCache block: nothing installed", !outcome.Installed);
+        Check("no itemCache block: every cache file removed",
+              c.WdbFiles().Count == 0, string.Join(",", c.WdbFiles()));
+        Check("no itemCache block: reports the wipe", outcome.Deleted == 3, $"deleted={outcome.Deleted}");
+    }
+
+    private static async Task ItemCacheInstallsAndSweepsTheOtherCaches()
+    {
+        using var c = new Fixture();
+        c.SeedWdb();
+        var cache = ItemCacheFile.Build("2026.01.01a");
+
+        var outcome = await c.SyncWdbAsync(cache.Spec, cache.Handler);
+
+        Check("install: installed", outcome.Installed, outcome.Detail);
+        Check("install: itemcache.wdb written with our bytes",
+              c.ItemCacheBytes()?.SequenceEqual(cache.Plain) == true);
+        Check("install: sentinel carries the epoch", c.Sentinel() == "2026.01.01a");
+        Check("install: the OTHER caches are still wiped",
+              !File.Exists(Path.Combine(c.WdbDir, "creaturecache.wdb")) &&
+              !File.Exists(Path.Combine(c.WdbDir, "questcache.wdb")));
+        Check("install: downloaded exactly once", cache.Handler.Requests == 1);
+    }
+
+    private static async Task RewrittenCacheIsNotReinstalled()
+    {
+        using var c = new Fixture();
+        var cache = ItemCacheFile.Build("2026.01.01a");
+        await c.SyncWdbAsync(cache.Spec, cache.Handler);
+
+        // What the client does within seconds of logging in: appends its own records. A
+        // hash-based trigger would re-download 1.7 MB here, on every launch, forever.
+        File.AppendAllText(Path.Combine(c.WdbDir, WdbCache.ItemCacheName), "client wrote this");
+        var mutated = File.ReadAllBytes(Path.Combine(c.WdbDir, WdbCache.ItemCacheName));
+
+        c.SeedWdb(itemCache: false);
+        var outcome = await c.SyncWdbAsync(cache.Spec, cache.Handler);
+
+        Check("rewritten cache: no second download", cache.Handler.Requests == 1,
+              $"requests={cache.Handler.Requests}");
+        Check("rewritten cache: not installed again", !outcome.Installed, outcome.Detail);
+        Check("rewritten cache: the client's own bytes are left alone",
+              c.ItemCacheBytes()?.SequenceEqual(mutated) == true);
+        Check("rewritten cache: sentinel survives the sweep", c.Sentinel() == "2026.01.01a");
+        Check("rewritten cache: the other caches are still wiped",
+              !File.Exists(Path.Combine(c.WdbDir, "creaturecache.wdb")));
+    }
+
+    private static async Task ChangedEpochReinstalls()
+    {
+        using var c = new Fixture();
+        var first = ItemCacheFile.Build("2026.01.01a");
+        await c.SyncWdbAsync(first.Spec, first.Handler);
+        File.AppendAllText(Path.Combine(c.WdbDir, WdbCache.ItemCacheName), "client wrote this");
+
+        var second = ItemCacheFile.Build("2026.02.02b");
+        var outcome = await c.SyncWdbAsync(second.Spec, second.Handler);
+
+        Check("new epoch: installed", outcome.Installed, outcome.Detail);
+        Check("new epoch: the client's edits are gone",
+              c.ItemCacheBytes()?.SequenceEqual(second.Plain) == true);
+        Check("new epoch: sentinel updated", c.Sentinel() == "2026.02.02b");
+    }
+
+    private static async Task DeletedCacheReinstallsDespiteSentinel()
+    {
+        using var c = new Fixture();
+        var cache = ItemCacheFile.Build("2026.01.01a");
+        await c.SyncWdbAsync(cache.Spec, cache.Handler);
+
+        // "Delete your Cache folder" is a real thing players are told to do. The sentinel is
+        // on disk beside the file precisely so that this reinstalls; a token kept only in
+        // state.json would insist it was already there.
+        File.Delete(Path.Combine(c.WdbDir, WdbCache.ItemCacheName));
+
+        var outcome = await c.SyncWdbAsync(cache.Spec, cache.Handler);
+
+        Check("deleted cache: reinstalled", outcome.Installed, outcome.Detail);
+        Check("deleted cache: bytes back", c.ItemCacheBytes()?.SequenceEqual(cache.Plain) == true);
+    }
+
+    private static async Task UnsupportedLocaleFallsBackToWiping()
+    {
+        using var c = new Fixture(locale: "deDE");
+        c.SeedWdb();
+        var cache = ItemCacheFile.Build("2026.01.01a");   // locales: enUS only
+
+        var outcome = await c.SyncWdbAsync(cache.Spec, cache.Handler);
+
+        Check("deDE client: nothing installed", !outcome.Installed, outcome.Detail);
+        Check("deDE client: nothing downloaded", cache.Handler.Requests == 0);
+        Check("deDE client: wiped as before", c.WdbFiles().Count == 0);
+    }
+
+    private static async Task BadTransportHashFallsBackToWiping()
+    {
+        using var c = new Fixture();
+        c.SeedWdb();
+        var cache = ItemCacheFile.Build("2026.01.01a");
+        cache.Spec.Sha256 = new string('0', 64);
+
+        var outcome = await c.SyncWdbAsync(cache.Spec, cache.Handler);
+
+        Check("bad gz hash: nothing installed", !outcome.Installed, outcome.Detail);
+        Check("bad gz hash: wiped as before", c.WdbFiles().Count == 0);
+        Check("bad gz hash: said so", outcome.Detail.Contains("checksum"), outcome.Detail);
+    }
+
+    private static async Task BadContentHashFallsBackToWiping()
+    {
+        using var c = new Fixture();
+        c.SeedWdb();
+        var cache = ItemCacheFile.Build("2026.01.01a");
+        cache.Spec.ContentSha256 = new string('0', 64);
+
+        var outcome = await c.SyncWdbAsync(cache.Spec, cache.Handler);
+
+        Check("bad content hash: nothing installed", !outcome.Installed, outcome.Detail);
+        Check("bad content hash: wiped as before", c.WdbFiles().Count == 0);
+    }
+
+    private static async Task NotAWdbFallsBackToWiping()
+    {
+        using var c = new Fixture();
+        c.SeedWdb();
+
+        // Hashes that agree perfectly with a file that is not an item cache — the one failure
+        // the pins are structurally unable to notice.
+        var cache = ItemCacheFile.Build("2026.01.01a", corruptMagic: true);
+
+        var outcome = await c.SyncWdbAsync(cache.Spec, cache.Handler);
+
+        Check("not a WDB: nothing installed", !outcome.Installed, outcome.Detail);
+        Check("not a WDB: wiped as before", c.WdbFiles().Count == 0);
+        Check("not a WDB: said so", outcome.Detail.Contains("magic"), outcome.Detail);
+    }
+
+    private static async Task DownloadFailureFallsBackToWiping()
+    {
+        using var c = new Fixture();
+        c.SeedWdb();
+        var cache = ItemCacheFile.Build("2026.01.01a");
+        cache.Handler.Fail = true;
+
+        var outcome = await c.SyncWdbAsync(cache.Spec, cache.Handler);
+
+        Check("host down: did not throw", true);
+        Check("host down: nothing installed", !outcome.Installed, outcome.Detail);
+        Check("host down: wiped as before", c.WdbFiles().Count == 0);
+    }
+
+    /// <summary>
+    /// The one that would lock the realm out if it were wrong.
+    ///
+    /// The integrity check blocks PLAY on an unverified client. It walks baseline.CheckedRoots
+    /// ("Data") and treats every manifest.files entry as required — so an item cache that is
+    /// under Cache\ and is NOT a manifest file is invisible to it, both before and after the
+    /// client has rewritten it. Asserting that rather than assuming it, because the failure
+    /// mode is everybody at once.
+    /// </summary>
+    private static async Task IntegrityCheckIgnoresTheItemCache()
+    {
+        using var c = new Fixture();
+        var cache = ItemCacheFile.Build("2026.01.01a");
+        await c.SyncWdbAsync(cache.Spec, cache.Handler);
+        File.AppendAllText(Path.Combine(c.WdbDir, WdbCache.ItemCacheName), "client wrote this");
+
+        c.Manifest.ItemCache = cache.Spec;
+        var report = await c.VerifyAsync();
+
+        Check("integrity: item cache raises no problem", report.Problems.Count == 0, Describe(report));
+        Check("integrity: PLAY still allowed", report.CanPlay);
+        Check("integrity: Cache\\ is not a checked root",
+              !c.Baseline.CheckedRoots.Contains("Cache"));
+    }
+
+    /// <summary>A published item cache, built in memory so the hashes are right by construction.</summary>
+    private sealed class ItemCacheFile
+    {
+        public required byte[] Plain { get; init; }
+        public required ItemCacheSpec Spec { get; init; }
+        public required StubHost Handler { get; init; }
+
+        public static ItemCacheFile Build(string epoch, bool corruptMagic = false)
+        {
+            // Header (24) + one {entry,size,payload} record + the eight-zero terminator.
+            var plain = new List<byte>();
+            plain.AddRange(corruptMagic ? "NOPE"u8.ToArray() : "BDIW"u8.ToArray());
+            plain.AddRange(BitConverter.GetBytes(12340u));
+            plain.AddRange("SUne"u8.ToArray());
+            plain.AddRange(BitConverter.GetBytes(516u));
+            plain.AddRange(BitConverter.GetBytes(5u));
+            plain.AddRange(BitConverter.GetBytes(17u));
+            plain.AddRange(BitConverter.GetBytes(900600u));       // entry
+            plain.AddRange(BitConverter.GetBytes(4u));            // payload size
+            plain.AddRange(BitConverter.GetBytes(1u));            // payload
+            plain.AddRange(new byte[8]);                          // terminator
+
+            var raw = plain.ToArray();
+
+            using var packed = new MemoryStream();
+            using (var gzip = new System.IO.Compression.GZipStream(
+                       packed, System.IO.Compression.CompressionLevel.Optimal, leaveOpen: true))
+                gzip.Write(raw);
+
+            var gz = packed.ToArray();
+
+            return new ItemCacheFile
+            {
+                Plain = raw,
+                Handler = new StubHost(gz),
+                Spec = new ItemCacheSpec
+                {
+                    Epoch = epoch,
+                    Url = $"http://patches.invalid/itemcache-{epoch}.wdb.gz",
+                    Sha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(gz)).ToLowerInvariant(),
+                    Size = gz.Length,
+                    ContentSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(raw)).ToLowerInvariant(),
+                    ContentSize = raw.Length,
+                    // Locales deliberately left at its default of enUS only, which is what a
+                    // manifest that forgets the field must fall back to.
+                },
+            };
+        }
+    }
+
+    /// <summary>
+    /// Serves the bytes from memory and counts requests. A real socket would need a listener
+    /// port and a URL ACL; the count is the assertion that matters anyway — "did this launch
+    /// re-download 1.7 MB" is the question the epoch design exists to answer.
+    /// </summary>
+    private sealed class StubHost : HttpMessageHandler
+    {
+        private readonly byte[] _body;
+        public int Requests { get; private set; }
+        public bool Fail { get; set; }
+
+        public StubHost(byte[] body) => _body = body;
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests++;
+
+            if (Fail) throw new HttpRequestException("the patch host is unreachable");
+
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(_body),
+            });
+        }
+    }
+
     // ---------- fixture ----------
 
     /// <summary>
@@ -511,6 +791,53 @@ public static class Program
             var full = Path.Combine(Client, relative.Replace('/', Path.DirectorySeparatorChar));
             Directory.CreateDirectory(Path.GetDirectoryName(full)!);
             File.WriteAllText(full, contents);
+        }
+
+        // ---- Cache\WDB helpers ----
+
+        /// <summary>Where this client's WDB cache lives, named for its own locale.</summary>
+        public string WdbDir => Path.Combine(Client, "Cache", "WDB", _locale);
+
+        /// <summary>
+        /// The state a played-in client is in: an item cache plus the other caches the
+        /// launcher has always wiped and still does.
+        /// </summary>
+        public void SeedWdb(bool itemCache = true)
+        {
+            Directory.CreateDirectory(WdbDir);
+            File.WriteAllText(Path.Combine(WdbDir, "creaturecache.wdb"), "someone else's creatures");
+            File.WriteAllText(Path.Combine(WdbDir, "questcache.wdb"), "someone else's quests");
+            if (itemCache)
+                File.WriteAllText(Path.Combine(WdbDir, WdbCache.ItemCacheName), "someone else's items");
+        }
+
+        public List<string> WdbFiles()
+        {
+            var dir = Path.Combine(Client, "Cache", "WDB");
+            return Directory.Exists(dir)
+                ? Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories)
+                           .Select(Path.GetFileName).ToList()!
+                : new List<string>();
+        }
+
+        public byte[]? ItemCacheBytes()
+        {
+            var path = Path.Combine(WdbDir, WdbCache.ItemCacheName);
+            return File.Exists(path) ? File.ReadAllBytes(path) : null;
+        }
+
+        public string? Sentinel()
+        {
+            var path = Path.Combine(WdbDir, WdbCache.SentinelName);
+            return File.Exists(path) ? File.ReadAllText(path) : null;
+        }
+
+        public async Task<WdbOutcome> SyncWdbAsync(ItemCacheSpec? itemCache, HttpMessageHandler? host = null)
+        {
+            Manifest.ItemCache = itemCache;
+            var locale = ClientLocale.Detect(Client);
+            var http = host is null ? new HttpClient() : new HttpClient(host, disposeHandler: false);
+            return await new WdbCache(http).SyncAsync(Client, Manifest, locale, CancellationToken.None);
         }
 
         public async Task<IntegrityReport> VerifyAsync()

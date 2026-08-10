@@ -561,8 +561,13 @@ public partial class MainWindow : Window
             // payload, so a "did our sync touch anything" gate never fires for the case that
             // actually causes stale entries. Refetching is spread over play as entries are
             // encountered, not a burst at login, so clearing every time is worth it.
-            var wdbCleared = WdbCleaner.Clear(installPath);
-            if (wdbCleared > 0) Log.Write($"wdb: cleared {wdbCleared} cached file(s)");
+            //
+            // Every cache but itemcache.wdb is still cleared on every launch for exactly that
+            // reason. itemcache.wdb we now generate server-side and install, keyed on an epoch
+            // token rather than a hash — see WdbCache. Never throws; every failure ends in the
+            // old wipe.
+            var wdb = await new WdbCache(_http).SyncAsync(installPath, manifest, locale, _cts.Token);
+            Log.Write($"wdb: {wdb.Detail}; removed {wdb.Deleted} cached file(s)");
 
             // Re-read what landed on disk — this is the version the player is now actually
             // running. Off disk rather than over the network: the sync just verified every one

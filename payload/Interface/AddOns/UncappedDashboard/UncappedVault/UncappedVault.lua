@@ -1358,6 +1358,16 @@ local scanParent = CreateFrame("Frame")
 scanParent:Hide()
 local scanTip = CreateFrame("GameTooltip", "UncappedVaultScanTip", scanParent, "GameTooltipTemplate")
 scanTip:SetOwner(scanParent, "ANCHOR_NONE")
+--[[ `queried` maps entry -> the GetTime() at which we asked the server for it,
+     NOT a plain "asked already" boolean.
+
+     ★ IT USED TO BE A BOOLEAN THAT WAS NEVER CLEARED, and that is what made a
+     lost answer permanent. One CMSG_ITEM_QUERY_SINGLE went out per entry per
+     session; if the reply never came back the row stayed `item 54581` for the
+     rest of the session and no amount of reopening the window would re-ask.
+
+     A timestamp lets the warmer notice an answer that never arrived and ask
+     again (QUERY_TIMEOUT below), so a dropped reply heals itself. ]]
 local queried, pending, warmQueue = {}, {}, {}
 local iconsDirty = false
 local staging = {}
@@ -1480,6 +1490,54 @@ function Core.LoadCache()
     return true
 end
 
+--[[ ★★ THE WARMER IS CLOSED-LOOP. It never has more than MAX_INFLIGHT questions
+     outstanding at once, and it only asks a new one when an old one has been
+     answered (or has timed out).
+
+     It used to be OPEN-loop: 10 queries every 0.2s, unconditionally, until the
+     queue was empty. That is 50 CMSG_ITEM_QUERY_SINGLE per second sustained,
+     and it is what broke the Vault for the accounts that use it most.
+
+     The arithmetic, from report "withdrew an item and it is stuck on
+     'Retrieving item information'":
+
+       * The launcher wipes Cache\WDB on EVERY launch (WdbCleaner -- the cache is
+         keyed by entry id and is not namespaced per realm, so another server's
+         item 900400 would silently become ours). So the client starts every
+         session knowing NOTHING about any item, and a 3,901-row vault is 3,901
+         cold entries.
+       * Server-side, WorldSession::Update answers at most 150 packets per
+         session per world tick. At a healthy ~50ms tick that is ~3,000/s and the
+         old warmer's 50/s was invisible. At the 8s tick the realm is running
+         right now it collapses to ~19/s -- and that 150 is shared with movement,
+         spells and chat.
+       * So the warmer was posting 50 questions a second into a pipe answering
+         19, and the backlog only grew. The item you just WITHDREW is queued
+         behind those thousands of pending questions, so its tooltip sits on
+         "Retrieving item information..." for minutes. Same single cause as the
+         `item 54581` placeholder names in the window itself -- there is only one
+         failure here, not two.
+
+     Bounding the outstanding set fixes both regimes at once. On a healthy server
+     answers land within a frame or two, so MAX_INFLIGHT clears every pass and
+     throughput is ~100/s -- FASTER than the old 50/s. On a struggling one it
+     self-paces down to whatever the server can actually answer, which leaves the
+     client's OWN queries (the bag item you just withdrew) near the front of the
+     queue instead of behind 3,900 of ours.
+
+     ⚠ Do not "optimise" this back into an unconditional fire loop. The whole
+     point is that the rate is set by the ANSWERS, not by our timer. ]]
+local MAX_INFLIGHT = 20
+
+--[[ Re-ask after this long with no answer.
+
+     Deliberately generous. It is a recovery path for an answer that was genuinely
+     dropped (a query posted while the player was mid-map-transfer is discarded
+     server-side once WorldSession::Update's hold buffer is full), not a
+     retransmit timer -- a slow server must be allowed to be slow, or a retry
+     storm makes the queue it is stuck behind longer. ]]
+local QUERY_TIMEOUT = 20
+
 local warmer = CreateFrame("Frame")
 local warmAcc = 0
 warmer:SetScript("OnUpdate", function(_, dt)
@@ -1487,11 +1545,28 @@ warmer:SetScript("OnUpdate", function(_, dt)
     warmAcc = warmAcc + (dt or arg1 or 0)
     if warmAcc < 0.2 then return end
     warmAcc = 0
-    local fired = 0
+
+    local now = GetTime and GetTime() or 0
+
+    --[[ Count what is still outstanding, and expire anything past the timeout so
+         it becomes askable again. Counted fresh each pass rather than tracked as
+         a running total: an entry leaves the outstanding set by being ANSWERED,
+         which happens in the loop below, and a counter maintained across passes
+         would drift the first time a row was removed by any other path. ]]
+    local inflight = 0
+    for e, askedAt in pairs(queried) do
+        if now - askedAt > QUERY_TIMEOUT then
+            queried[e] = nil
+        else
+            inflight = inflight + 1
+        end
+    end
+
     for i = #warmQueue, 1, -1 do
         local e = warmQueue[i]
         if GetItemInfo(e) then
             pending[e] = nil
+            queried[e] = nil
             tremove(warmQueue, i)
             -- Drop any "asked while cold" answer StatsFor recorded for this
             -- entry, so the stat sorts pick it up on the Notify("icons")
@@ -1500,10 +1575,10 @@ warmer:SetScript("OnUpdate", function(_, dt)
             -- suffix variant of this item was cold for the same reason.
             statMemo[e] = nil
             iconsDirty = true
-        elseif not queried[e] and fired < 10 then
-            queried[e] = true
+        elseif not queried[e] and inflight < MAX_INFLIGHT then
+            queried[e] = now
+            inflight = inflight + 1
             scanTip:SetHyperlink("item:" .. e)
-            fired = fired + 1
         end
     end
     if iconsDirty then
