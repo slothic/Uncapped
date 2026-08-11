@@ -54,7 +54,14 @@ Core.TABS = {
     { key = "questlog", label = "Quest Log", addon = "UncappedQuests", hint = "/uquests", disabled = true },
     { key = "tutorial", label = "Tutorial", addon = "UncappedTutorial", disabled = true },
     { key = "utilities", label = "Utilities", addon = "UncappedOptions", hint = "/uncapped", disabled = true },
-    { key = "beastiary", label = "Beastiary", disabled = true },
+    -- ★ THIS SLOT WAS "Beastiary" -- a disabled placeholder with no addon behind
+    -- it, never built. Taken rather than adding a SIXTEENTH tab, because the
+    -- comment above is not decoration: at 16 the nav column's required height
+    -- reaches ~700 units and the window's zoom ceiling collapses to ~1.01, i.e.
+    -- adding one costs the zoom feature for everyone. Swapping a dead button for
+    -- a live one costs nothing. If the Beastiary is ever built it needs the
+    -- scrolling nav column first.
+    { key = "keystone", label = "M+ Rewards", addon = "UncappedKeystone", hint = "/keystone" },
     { key = "soulscrolls", label = "Soul Scrolls", addon = "UncappedScrolls", hint = "/dashboard" },
 }
 

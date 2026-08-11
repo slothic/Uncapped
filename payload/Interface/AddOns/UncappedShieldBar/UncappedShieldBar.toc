@@ -1,0 +1,9 @@
+## Interface: 30300
+## Title: Uncapped Shield Bar
+## Notes: A live readout of every absorb shield you are carrying, under the player frame. Fed by the server, because the 3.3.5 client cannot see how much a shield has left.
+## Author: Uncapped
+## Version: 1.0
+## OptionalDeps: UncappedOptions, UncappedUI
+## SavedVariables: UncappedShieldBarDB
+
+UncappedShieldBar.lua

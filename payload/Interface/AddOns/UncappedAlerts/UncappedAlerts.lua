@@ -173,6 +173,7 @@ local function RestorePos(frame, key, default)
     -- login and the window would appear to have moved on its own.
     if UncappedScale_Register then
         UncappedScale_Register(frame, {
+            group = "alerts",
             savePosition = function(self) SavePos(self, key) end,
         })
     end

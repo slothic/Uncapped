@@ -2782,6 +2782,29 @@ optSub:SetText("Your numbers scroll in the standard combat-text column. The slid
     .. "font below tune the classic floating numbers instead -- switch them on at the "
     .. "bottom. Changes apply instantly; Preview shows a sample burst.")
 
+-- ★ EVERYTHING BELOW BUILDS INTO A SCROLLING BODY, NOT INTO THE PANEL.
+--
+-- This page is two columns of sliders plus a font picker, two buttons and a
+-- checkbox. On a 768-tall client that last checkbox sits underneath the Interface
+-- frame's own Okay/Cancel row and cannot be clicked -- reported with a screenshot,
+-- arrow pointing straight at it.
+--
+-- Rather than shrink the page, the body scrolls. UncappedUI.MakeScrollable is the
+-- same helper the fourteen shared settings pages use, so they all behave alike.
+--
+-- ⚠ `or optPanel` IS LOAD-ORDER INSURANCE, NOT DECORATION. UncappedOptions is an
+--   OptionalDep, so it is normally loaded first and the helper exists -- but a
+--   player who disables it must still get a working page, just an unscrolled one.
+--   Every widget below anchors to optBody, which is either the scroll child or the
+--   panel itself, and the offsets work in both.
+local optBody = (UncappedUI and UncappedUI.MakeScrollable
+    and UncappedUI.MakeScrollable(optPanel, -72)) or optPanel
+
+-- Absolute-positioned page, so the scroll child cannot learn its own height from
+-- a layout cursor the way the shared pages do. Lowest widget is the legacy
+-- checkbox at -352 plus its own height; 400 clears it with a little air.
+if optBody ~= optPanel then optBody:SetHeight(400) end
+
 -- One slider bound to a Cfg key. Writes Cfg + SavedVariables live and snaps to step.
 local SLIDERS = {
     { key = "normalSize",   label = "Normal text size",   min = 10,   max = 48,  step = 1,    fmt = "%d px" },
@@ -2799,10 +2822,10 @@ local SLIDERS = {
 local sliderWidgets = {}
 local function MakeSlider(meta, point, xOff, yOff)
     local name = "Uncapped64Slider_" .. meta.key
-    local s = CreateFrame("Slider", name, optPanel, "OptionsSliderTemplate")
+    local s = CreateFrame("Slider", name, optBody, "OptionsSliderTemplate")
     -- Anchor to the panel EDGE (not a hardcoded x) so the layout fits whatever
     -- width the Interface options panel actually gives us on this client.
-    s:SetPoint(point, optPanel, point, xOff, yOff)
+    s:SetPoint(point, optBody, point, xOff, yOff)
     s:SetWidth(185)
     s:SetMinMaxValues(meta.min, meta.max)
     s:SetValueStep(meta.step)
@@ -2828,9 +2851,9 @@ end
 local SLIDER_HALF = math.ceil(#SLIDERS / 2)
 for i, meta in ipairs(SLIDERS) do
     if i <= SLIDER_HALF then
-        MakeSlider(meta, "TOPLEFT",  16,  -72 - (i - 1) * 50)
+        MakeSlider(meta, "TOPLEFT",  16,  -8 - (i - 1) * 50)
     else
-        MakeSlider(meta, "TOPRIGHT", -16, -72 - (i - 1 - SLIDER_HALF) * 50)
+        MakeSlider(meta, "TOPRIGHT", -16, -8 - (i - 1 - SLIDER_HALF) * 50)
     end
 end
 
@@ -2858,13 +2881,13 @@ local FONT_LABEL = {
     pixel     = "Press Start 2P (pixel)",
 }
 
-local fontHeader = optPanel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-fontHeader:SetPoint("TOPLEFT", optPanel, "TOPLEFT", 20, -320)
+local fontHeader = optBody:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+fontHeader:SetPoint("TOPLEFT", optBody, "TOPLEFT", 20, -256)
 fontHeader:SetText("Combat font")
 
-local fontDrop = CreateFrame("Frame", "Uncapped64FontDropdown", optPanel, "UIDropDownMenuTemplate")
-fontDrop:SetPoint("TOPLEFT", optPanel, "TOPLEFT", 4, -340)
-local fontProbe = optPanel:CreateFontString(nil, "OVERLAY")   -- offscreen; tests loadability
+local fontDrop = CreateFrame("Frame", "Uncapped64FontDropdown", optBody, "UIDropDownMenuTemplate")
+fontDrop:SetPoint("TOPLEFT", optBody, "TOPLEFT", 4, -276)
+local fontProbe = optBody:CreateFontString(nil, "OVERLAY")   -- offscreen; tests loadability
 local function OnFontPicked(key)
     Cfg.font = key
     FCT_FONT = FCT_FONTS[key] or FCT_FONT
@@ -2891,17 +2914,17 @@ end)
 UIDropDownMenu_SetWidth(fontDrop, 180)
 
 -- Preview + Reset buttons.
-local previewBtn = CreateFrame("Button", nil, optPanel, "UIPanelButtonTemplate")
+local previewBtn = CreateFrame("Button", nil, optBody, "UIPanelButtonTemplate")
 previewBtn:SetWidth(110)
 previewBtn:SetHeight(24)
-previewBtn:SetPoint("TOPLEFT", optPanel, "TOPLEFT", 20, -382)
+previewBtn:SetPoint("TOPLEFT", optBody, "TOPLEFT", 20, -318)
 previewBtn:SetText("Preview")
 previewBtn:SetScript("OnClick", function() FctPreview() end)
 
-local resetBtn = CreateFrame("Button", nil, optPanel, "UIPanelButtonTemplate")
+local resetBtn = CreateFrame("Button", nil, optBody, "UIPanelButtonTemplate")
 resetBtn:SetWidth(150)
 resetBtn:SetHeight(24)
-resetBtn:SetPoint("TOPLEFT", optPanel, "TOPLEFT", 140, -382)
+resetBtn:SetPoint("TOPLEFT", optBody, "TOPLEFT", 140, -318)
 resetBtn:SetText("Reset to defaults")
 
 -- ---------------------------------------------------------------------------
@@ -2921,8 +2944,8 @@ resetBtn:SetText("Reset to defaults")
 -- crit pop, the sway and the font picker are a look somebody deliberately tuned.
 -- Making it a switch costs one checkbox and settles the argument in the player's
 -- favour instead of ours.
-local legacyCheck = CreateFrame("CheckButton", "Uncapped64LegacyFctCheck", optPanel, "InterfaceOptionsCheckButtonTemplate")
-legacyCheck:SetPoint("TOPLEFT", optPanel, "TOPLEFT", 20, -416)
+local legacyCheck = CreateFrame("CheckButton", "Uncapped64LegacyFctCheck", optBody, "InterfaceOptionsCheckButtonTemplate")
+legacyCheck:SetPoint("TOPLEFT", optBody, "TOPLEFT", 20, -352)
 _G["Uncapped64LegacyFctCheckText"]:SetText("Use classic floating numbers instead of the scrolling column")
 legacyCheck.tooltipText = "Draws damage and healing as floating numbers over the units involved, "
     .. "the way this addon did before. Outgoing numbers follow the target, so they can "

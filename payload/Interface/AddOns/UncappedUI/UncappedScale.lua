@@ -105,6 +105,49 @@ local function ScaleDB()
     return UncappedUIDB
 end
 
+-- ===========================================================================
+-- PER-ADDON ZOOM
+-- ===========================================================================
+-- The global slider was the only control for a long time, which meant a player
+-- who wanted a bigger Dashboard also got a bigger chat window, a bigger HUD and
+-- bigger alerts. Each window now carries a GROUP, and each group has its own
+-- multiplier on top of the global one:
+--
+--     effective = frame's own base  x  global  x  group
+--
+-- ★ THE GROUP LIST IS DECLARED HERE, NOT DISCOVERED FROM REGISTRATIONS.
+--   A slider that only appears once its addon happens to have built a window is
+--   a settings page that changes shape depending on where you were standing when
+--   you opened it. Declaring them up front means the page is always the same, and
+--   a group whose addon is disabled simply has nothing to apply to.
+--
+--   Adding a window to a group is one `group = "..."` in its registration. A
+--   window with no group follows the global slider alone, which is what every
+--   window did before this existed.
+local GROUPS = {
+    { key = "dashboard", label = "Dashboard",   note = "The Dashboard and every tab in it -- Vault, Forge, Soul Forge, Transmog, Anima, Progress, Prestige, Scrolls, Loot Feed -- plus its pop-out windows." },
+    { key = "mythic",    label = "Mythic+ HUD", note = "The keystone timer, boss list and enemy-forces bar." },
+    { key = "chat",      label = "Chat",        note = "The Uncapped chat window." },
+    { key = "alerts",    label = "Alerts",      note = "The pop-up alert toasts." },
+    { key = "rewards",   label = "Rewards",     note = "The end-of-run reward window." },
+    { key = "hotzones",  label = "Hotzones",    note = "The hotzone bar." },
+    { key = "quests",    label = "Quest Log",   note = "The quest ledger window." },
+    { key = "panel",     label = "Info Panel",  note = "The Uncapped info panel." },
+}
+
+local function GroupDB()
+    local db = ScaleDB()
+    db.groupScale = db.groupScale or {}
+    return db.groupScale
+end
+
+local function GroupFactor(group)
+    if not group then return 1 end
+    local v = tonumber(GroupDB()[group])
+    if not v or v <= 0 then return 1 end
+    return v
+end
+
 -- ---------------------------------------------------------------------------
 -- Geometry helpers
 -- ---------------------------------------------------------------------------
@@ -210,11 +253,13 @@ end
 -- Never returns less than `base`: at global scale 1.0 every frame must be
 -- exactly what it was before this feature shipped, even a frame whose fit size
 -- already did not fit.
-function UncappedUIKit.ResolveScale(base, fitW, fitH)
+function UncappedUIKit.ResolveScale(base, fitW, fitH, group)
     base = tonumber(base) or 1
     if base <= 0 then base = 1 end
 
-    local want = base * current
+    -- base x global x group. The fit cap below still applies afterwards, so a
+    -- group slider can never push a window off the screen.
+    local want = base * current * GroupFactor(group)
 
     if fitW or fitH then
         local cap = want
@@ -246,7 +291,7 @@ local function ApplyTo(entry)
     local fitW, fitH
     if entry.getFitSize then fitW, fitH = entry.getFitSize(f) end
 
-    local want = UncappedUIKit.ResolveScale(BaseOf(entry), fitW, fitH)
+    local want = UncappedUIKit.ResolveScale(BaseOf(entry), fitW, fitH, entry.group)
     if want < 0.2 then want = 0.2 end       -- paranoia: never scale to nothing
 
     local old = f:GetScale() or 1
@@ -299,6 +344,26 @@ end
 
 function UncappedUIKit.GetUIScaleBounds()
     return MIN_SCALE, MAX_SCALE, STEP, DEFAULT_SCALE
+end
+
+-- The declared groups, in display order. The options page builds one slider per
+-- entry; returning the table itself is fine because nothing mutates it.
+function UncappedUIKit.GetScaleGroups()
+    return GROUPS
+end
+
+function UncappedUIKit.GetGroupScale(group)
+    return GroupFactor(group)
+end
+
+-- Re-applies immediately, like the global setter, so a dragged slider moves the
+-- window under the player's cursor rather than on the next login.
+function UncappedUIKit.SetGroupScale(group, v)
+    if not group then return 1 end
+    v = Clamp(v)
+    GroupDB()[group] = v
+    UncappedUIKit.ApplyUIScale()
+    return v
 end
 
 -- Re-applies the current scale to every registered frame.
@@ -383,6 +448,14 @@ end
 
 function _G.UncappedScale_Refresh(frame)
     return UncappedUIKit.RefreshScaledFrame(frame)
+end
+
+function _G.UncappedScale_GroupGet(group)
+    return UncappedUIKit.GetGroupScale(group)
+end
+
+function _G.UncappedScale_GroupSet(group, v)
+    return UncappedUIKit.SetGroupScale(group, v)
 end
 
 function _G.UncappedScale_Get()

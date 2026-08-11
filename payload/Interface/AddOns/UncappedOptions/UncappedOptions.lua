@@ -43,11 +43,32 @@ end
 local Layout = {}
 Layout.__index = Layout
 
+-- ★ Redirects into the panel's SCROLL CONTENT when it has one.
+--
+-- Every widget below anchors to `self.panel`, so pointing that at the scroll
+-- child is what makes fourteen settings pages scroll without touching a single
+-- widget or call site. Pages built before this existed keep working: a plain
+-- frame has no .uncappedContent and behaves exactly as it did.
 function UI.Layout(panel, startY)
-    return setmetatable({ panel = panel, y = startY or -16 }, Layout)
+    local host = (panel and panel.uncappedContent) or panel
+    return setmetatable({ panel = host, y = startY or -16 }, Layout)
 end
 
-function Layout:advance(h) self.y = self.y - h end
+-- Advancing the cursor also GROWS the scroll child, which is what gives the
+-- scrollbar something to scroll. A scroll child with a fixed height silently
+-- clips everything past it -- that was the bug: pages ran off the bottom of the
+-- Interface window with no way to reach the rest.
+function Layout:advance(h)
+    self.y = self.y - h
+    local host = self.panel
+    if host and host.uncappedIsScrollContent then
+        -- +24 so the last widget is not flush against the bottom edge.
+        local needed = -self.y + 24
+        if needed > (host:GetHeight() or 0) then
+            host:SetHeight(needed)
+        end
+    end
+end
 function Layout:Gap(h) self:advance(h or 10) end
 
 function Layout:Header(text)
@@ -198,11 +219,64 @@ end
 
 -- Create a page registered under the "Uncapped" parent. Returns the panel and a
 -- layout cursor already positioned below the title/subtitle.
+-- Wrap a settings panel's body in a scroll frame and hand back the scroll child.
+--
+-- Exposed rather than kept private because one page (Uncapped64bitUI's combat
+-- text) builds its own two-column layout by hand and needs the same treatment
+-- without adopting the whole Layout cursor.
+--
+-- `topInset` is a NEGATIVE y offset -- where the scrollable body starts, below
+-- whatever fixed header the caller drew.
+function UI.MakeScrollable(panel, topInset)
+    local scroll = CreateFrame("ScrollFrame", nextName("UncappedPanelScroll"), panel,
+        "UIPanelScrollFrameTemplate")
+    -- -30 on the right leaves the scrollbar its lane; the template parents the bar
+    -- to the scroll frame and draws it just outside the right edge.
+    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, topInset or -46)
+    scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -30, 12)
+
+    local content = CreateFrame("Frame", nil, scroll)
+    content:SetWidth(1)
+    content:SetHeight(1)
+    content.uncappedIsScrollContent = true
+    scroll:SetScrollChild(content)
+
+    -- ⚠ THE CHILD'S WIDTH CANNOT BE SET AT BUILD TIME. An Interface options page
+    -- has no size until the Interface frame shows it and sizes it to the panel
+    -- container, so a width measured now is 0 and every "SetPoint RIGHT" inside
+    -- resolves against nothing. Sync it whenever the scroll frame actually has a
+    -- size, and again on show for pages built before the frame was ever displayed.
+    local function sync()
+        local w = scroll:GetWidth()
+        if w and w > 0 then content:SetWidth(w) end
+    end
+    scroll:SetScript("OnSizeChanged", sync)
+    panel:HookScript("OnShow", sync)
+    sync()
+
+    -- The template wires the bar but not always the wheel on 3.3.5; do it
+    -- explicitly so the page scrolls the way every player expects it to.
+    scroll:EnableMouseWheel(true)
+    scroll:SetScript("OnMouseWheel", function(self, delta)
+        local bar = _G[self:GetName() .. "ScrollBar"]
+        if not bar then return end
+        local step = 28
+        bar:SetValue(bar:GetValue() - delta * step)
+    end)
+
+    panel.uncappedContent = content
+    panel.uncappedScroll = scroll
+    return content
+end
+
 function UI.CreatePanel(displayName, subtitle)
     local panel = CreateFrame("Frame", nextName("UncappedPanel"), UIParent)
     panel.name = displayName
     if displayName ~= PARENT then panel.parent = PARENT end
 
+    -- Title and subtitle stay on the PANEL, not in the scroll body: a heading
+    -- that scrolls away leaves the player looking at controls with no idea which
+    -- page they are on.
     local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 16, -16)
     title:SetText(displayName)
@@ -216,8 +290,12 @@ function UI.CreatePanel(displayName, subtitle)
         sub:SetText(subtitle)
         startY = -62
     end
+
+    UI.MakeScrollable(panel, startY)
     InterfaceOptions_AddCategory(panel)
-    return panel, UI.Layout(panel, startY)
+    -- Layout redirects into the scroll child, and the cursor restarts at the top
+    -- of it -- the header's offset is already spent by the scroll frame's anchor.
+    return panel, UI.Layout(panel, -8)
 end
 
 -- Open the Interface options straight to a page (double call works around the
@@ -279,6 +357,54 @@ do
     end, 150)
 
     L:Note("|cff808080Windows keep their place when you change this -- anything that would land off the screen is pulled back on. The Dashboard's button column is the one window that stops zooming early: past a certain size its 15 buttons would not fit the screen height, so it grows only as far as it can still show all of them.|r", 44)
+
+    -- =======================================================================
+    -- Per-window zoom
+    -- =======================================================================
+    -- The slider above is a master control; these are per-window trims on top of
+    -- it. A player who wants a big Dashboard and a small HUD could not say so
+    -- before -- one number moved everything at once.
+    --
+    -- ★ THE SLIDER LIST COMES FROM UncappedUIKit.GetScaleGroups(), NOT FROM A
+    --   COPY HERE. That table is declared next to the code that applies the
+    --   zoom, so a group added there gets a slider automatically and the two can
+    --   never disagree about what exists.
+    local kit0 = ScaleKit()
+    if kit0 and kit0.GetScaleGroups and kit0.GetGroupScale and kit0.SetGroupScale then
+        L:Gap(10)
+        L:Header("Per-Window Zoom")
+        L:Note("Fine-tune individual windows on top of the master scale above. 1.00 means "
+            .. "'just follow the master'. The two multiply, so a master of 1.20 with a "
+            .. "Dashboard of 0.80 gives the Dashboard 0.96.", 40)
+
+        local groups = kit0.GetScaleGroups()
+        for i = 1, #groups do
+            local g = groups[i]
+            local key = g.key
+            local sl = L:Slider(g.label, 0.5, 1.5, 0.05,
+                function()
+                    local kit = ScaleKit()
+                    return (kit and kit.GetGroupScale and kit.GetGroupScale(key)) or 1.0
+                end,
+                function(v)
+                    local kit = ScaleKit()
+                    if kit and kit.SetGroupScale then kit.SetGroupScale(key, v) end
+                end,
+                "%.2f")
+            scaleRefreshers[#scaleRefreshers + 1] = sl.uncappedRefresh
+            if g.note then
+                L:Note("|cff808080" .. g.note .. "|r", 26)
+            end
+        end
+
+        L:Button("Reset every window to 1.00", function()
+            local kit = ScaleKit()
+            if kit and kit.SetGroupScale then
+                for j = 1, #groups do kit.SetGroupScale(groups[j].key, 1.0) end
+            end
+            for _, r in ipairs(scaleRefreshers) do r() end
+        end, 220)
+    end
 end
 
 -- ===========================================================================

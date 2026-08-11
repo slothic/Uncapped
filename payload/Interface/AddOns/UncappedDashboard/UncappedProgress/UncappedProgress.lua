@@ -407,6 +407,12 @@ local function BuildListRow(index)
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("While you are inside this dungeon:", 0.8, 0.8, 0.8)
         GameTooltip:AddLine(string.format("  Movement speed  +%d%%  (out of combat)", d.speed), 0.6, 1, 0.6)
+        -- [#533] Say the quiet part. WoW takes the LARGEST movement-speed effect and
+        -- ignores the others -- it never adds them -- so a player carrying an unfusion
+        -- speed bonus and this one gets whichever is bigger, not the sum. Reported as
+        -- "speed unfusion does not stack with movement speed from dungeons cleared",
+        -- which was true and had nothing anywhere telling them so.
+        GameTooltip:AddLine("  (movement speed does not stack -- your largest bonus applies)", 0.5, 0.5, 0.5)
         GameTooltip:AddLine(string.format("  Loot chance     x%.2f", d.loot), 0.6, 1, 0.6)
         GameTooltip:AddLine(string.format("  Anima on clear  x%.2f", d.anima), 0.6, 1, 0.6)
         GameTooltip:AddLine(string.format("  Stat roll       +%d to both ends", d.stat), 0.6, 1, 0.6)
@@ -626,6 +632,9 @@ function Render()
     --   the same number, and using it would claim "+2% speed" the moment loot
     --   was retuned to 2.
     Note("Every clear of a dungeon banks forever, and pays out only inside THAT dungeon:", 470)
+    -- [#533] Same note as the per-dungeon tooltip: speed effects do not add up, the
+    -- biggest one wins. Stated here too because this is the line people read first.
+    Note("Movement speed does not stack with other speed effects -- your largest applies.", 470)
     Note(string.format(
         "+1%% out-of-combat speed per clear (up to +%d%%), x%.2f loot and x%.2f Anima per clear%s",
         state.speedCap,

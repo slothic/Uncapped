@@ -948,6 +948,10 @@ function RefreshDetail()
         detail.craft:Hide()
         detail.craftAll:Hide()
         detail.buy:Hide()
+        -- The bulk buttons occupy this row now; the amount box shares its anchor
+        -- and would be drawn underneath them.
+        if frame.amount then frame.amount:Hide() end
+        if frame.amountLabel then frame.amountLabel:Hide() end
         detail.mill:Show()
         detail.prospect:Show()
         detail.disenchant:Show()
@@ -959,6 +963,8 @@ function RefreshDetail()
     detail.prospect:Hide()
     detail.disenchant:Hide()
     detail.render:Hide()
+    if frame.amount then frame.amount:Show() end
+    if frame.amountLabel then frame.amountLabel:Show() end
     detail.craft:Show()
     detail.craftAll:Show()
 
@@ -1429,6 +1435,12 @@ local function BuildFrame(parent)
     local amountLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     amountLabel:SetPoint("RIGHT", amount, "LEFT", -4, 0)
     amountLabel:SetText("Amount")
+    -- Stored on the frame so RefreshDetail can hide it together with the box.
+    -- ⚠ The bulk buttons anchor to the SAME point as `amount` (BOTTOMLEFT 400,60)
+    --   because the two are alternative modes of one row -- never both at once.
+    --   The label was the one piece nobody remembered to switch off, so "Mill All"
+    --   drew straight over "Amount [10000]".
+    frame.amountLabel = amountLabel
 
     local function StartCraft(count)
         if not selectedSpell then return end
@@ -1821,6 +1833,8 @@ local function RestoreSourceWindow()
     -- window would appear to jump.
     if UncappedScale_Register then
         UncappedScale_Register(sourceFrame, {
+            -- A Dashboard pop-out: follows the Dashboard slider so the two zoom together.
+            group = "dashboard",
             savePosition = function(self)
                 if not (db and db.savePos) then return end
                 local point, _, relPoint, x, y = self:GetPoint()

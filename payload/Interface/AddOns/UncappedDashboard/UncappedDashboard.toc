@@ -4,7 +4,7 @@
 ## Author: Uncapped
 ## Version: 1.0.0
 ## OptionalDeps: UncappedUI
-## SavedVariables: UncappedDashboardDB, UncappedSoulForgeDB, UncappedAnimaDB, UncappedForgeDB, UncappedVaultDB, UncappedTransmogDB
+## SavedVariables: UncappedDashboardDB, UncappedSoulForgeDB, UncappedAnimaDB, UncappedForgeDB, UncappedVaultDB, UncappedTransmogDB, UncappedKeystoneDB
 
 UncappedDashboardConfig.lua
 UncappedDashboard.lua
@@ -18,5 +18,6 @@ UncappedVault\UncappedVault_UI.lua
 UncappedScrolls\UncappedScrolls.lua
 UncappedProgress\UncappedProgress.lua
 UncappedPrestige\UncappedPrestige.lua
+UncappedKeystone\UncappedKeystone.lua
 UncappedTransmog\UncappedTransmogData.lua
 UncappedTransmog\UncappedTransmog.lua

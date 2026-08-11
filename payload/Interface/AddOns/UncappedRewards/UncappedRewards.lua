@@ -74,6 +74,7 @@ frame:Hide()
 -- and leave an unlit border round the screen. A screen effect has no zoom.
 if UncappedScale_Register then
     UncappedScale_Register(frame, {
+        group = "rewards",
         savePosition = function(self)
             -- Only once the player has actually dragged it: while db.pos is nil
             -- ApplyPosition owns the default anchor, and writing here would

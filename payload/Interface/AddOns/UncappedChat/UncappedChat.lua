@@ -164,6 +164,7 @@ local function buildUI()
   -- corrected numbers are what has to reach SavedVariables.
   if UncappedScale_Register then
     UncappedScale_Register(f, {
+      group = "chat",
       getBase = function() return db().scale or 1 end,
       savePosition = function(self)
         local p, _, rp, x, y = self:GetPoint()

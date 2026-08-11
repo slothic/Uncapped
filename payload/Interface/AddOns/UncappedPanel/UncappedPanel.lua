@@ -529,7 +529,7 @@ local function BuildPanel()
     -- divides GetCursorPosition() (raw pixels) by the button's EFFECTIVE scale
     -- rather than assuming 1, so it follows the zoom for free.
     if UncappedScale_Register then
-        UncappedScale_Register(frame, { savePosition = SavePosition })
+        UncappedScale_Register(frame, { group = "panel", savePosition = SavePosition })
     end
 
     if not db.shown then frame:Hide() end

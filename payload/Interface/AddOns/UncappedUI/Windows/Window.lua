@@ -148,6 +148,10 @@ function UncappedUIKit.CreateWindow(opts)
     -- offsets it rewrites to keep the window put are the ones that persist.
     if UncappedUIKit.RegisterScaledFrame then
         UncappedUIKit.RegisterScaledFrame(win, {
+            -- Which per-addon zoom slider owns this window. Defaults to nil,
+            -- which means "global slider only" -- the behaviour every window had
+            -- before per-addon zoom existed.
+            group          = opts.scaleGroup,
             getBase        = opts.scaleBase,
             getFitSize     = opts.scaleFit,
             keepPosition   = opts.scaleKeepPosition,

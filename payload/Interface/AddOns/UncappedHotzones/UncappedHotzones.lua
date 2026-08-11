@@ -37,8 +37,9 @@ local panelRefreshers = {}   -- settings widgets to resync after the DB loads
 -- 3.3.5 has no child-clipping, so the viewport does the clipping).
 --
 -- The dark background sits at LOW strata (tucked BEHIND the minimap, as before),
--- but the scrolling text lives in a child frame one strata HIGHER, so it draws
--- cleanly OVER the player's buff icons rather than being hidden behind them.
+-- but the scrolling text lives in a child frame raised above the buff icons, so
+-- it draws cleanly over them rather than being hidden behind them. See the note
+-- on textLayer for why that is a frame LEVEL and not a higher strata.
 -- ---------------------------------------------------------------------------
 local bar = CreateFrame("Frame", "UncappedHotzoneBar", UIParent)
 bar:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
@@ -53,9 +54,21 @@ bar.bg:SetTexture(0, 0, 0)
 bar.bg:SetAlpha(db.bgAlpha)
 
 -- Text layer, raised above the buffs so the text is never clipped by them.
+--
+-- ★ MEDIUM + A HIGH FRAME LEVEL, NOT STRATA "HIGH".
+--
+-- Strata is absolute, not relative: a child that names a higher strata detaches
+-- from its parent's ordering entirely and draws over EVERYTHING in that band --
+-- including the Dashboard, which lives at HIGH. That is why hotzone text was
+-- appearing on top of the Vault window.
+--
+-- Buff icons are on MEDIUM, and within one strata the frame LEVEL decides. So
+-- MEDIUM with a level well above the default clears the buffs (which was the
+-- whole point) while still sitting under any real window.
 local textLayer = CreateFrame("Frame", nil, bar)
 textLayer:SetAllPoints(bar)
-textLayer:SetFrameStrata("HIGH")
+textLayer:SetFrameStrata("MEDIUM")
+textLayer:SetFrameLevel(200)
 
 bar.text = textLayer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 bar.text:SetJustifyH("LEFT")
@@ -79,7 +92,7 @@ bar.text:SetPoint("LEFT", textLayer, "LEFT", 0, 0)
 -- the whole point of the setting -- and that is exactly why ScreenWidth below
 -- had to change.
 if UncappedScale_Register then
-    UncappedScale_Register(bar, { keepPosition = false, clamp = false })
+    UncappedScale_Register(bar, { group = "hotzones", keepPosition = false, clamp = false })
 end
 
 -- The scroll distance, in BAR units.

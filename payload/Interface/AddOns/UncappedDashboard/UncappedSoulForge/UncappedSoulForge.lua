@@ -853,7 +853,7 @@ local function BuildWhitelist()
   -- Player window zoom. This pop-out parents to UIParent, not to the Dashboard
   -- window that opens it, so it inherits nothing and has to register itself.
   -- (Anything parented INTO the Dashboard must NOT -- SetScale compounds.)
-  if UncappedScale_Register then UncappedScale_Register(f) end
+  if UncappedScale_Register then UncappedScale_Register(f, { group = "dashboard" }) end
 
   local title = f:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
   title:SetPoint("TOP",0,-16); title:SetText("Whitelist")
@@ -1025,7 +1025,7 @@ local function BuildExtractor()
   f:SetClampedToScreen(true); f:Hide()
   tinsert(UISpecialFrames, "UncappedExtractorFrame")   -- Esc closes it
   -- UIParent-parented pop-out: owns its own zoom (see BuildWhitelist above).
-  if UncappedScale_Register then UncappedScale_Register(f) end
+  if UncappedScale_Register then UncappedScale_Register(f, { group = "dashboard" }) end
 
   local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   title:SetPoint("TOP", 0, -18); title:SetText("|cffb384ffScroll of Extraction|r")
@@ -1245,7 +1245,7 @@ local function BuildSocketUI()
   f:SetClampedToScreen(true); f:Hide()
   tinsert(UISpecialFrames, "UncappedSocketFrame")   -- Esc closes it
   -- UIParent-parented pop-out: owns its own zoom (see BuildWhitelist above).
-  if UncappedScale_Register then UncappedScale_Register(f) end
+  if UncappedScale_Register then UncappedScale_Register(f, { group = "dashboard" }) end
 
   local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   title:SetPoint("TOPLEFT", 22, -18); title:SetText("|cff59bfe6Sockets|r")

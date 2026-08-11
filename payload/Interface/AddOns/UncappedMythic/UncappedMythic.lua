@@ -122,6 +122,7 @@ end
 
 if UncappedScale_Register then
     UncappedScale_Register(frame, {
+        group = "mythic",
         getBase = function() return db.scale or 1 end,
         -- The HUD remembers where it was dragged. Re-scaling rewrites its
         -- anchor offsets to hold it on the same spot on screen, so those

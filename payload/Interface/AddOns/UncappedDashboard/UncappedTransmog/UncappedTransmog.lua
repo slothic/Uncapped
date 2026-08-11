@@ -1178,7 +1178,7 @@ function UncappedTransmogOutfits()
         -- Player window zoom. Parented to UIParent (it sits BESIDE the Transmog
         -- tab, offset 340 from centre), so it inherits nothing from the
         -- Dashboard window and owns its own scale.
-        if UncappedScale_Register then UncappedScale_Register(outfitFrame) end
+        if UncappedScale_Register then UncappedScale_Register(outfitFrame, { group = "dashboard" }) end
 
         local title = outfitFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         title:SetPoint("TOP", 0, -16)

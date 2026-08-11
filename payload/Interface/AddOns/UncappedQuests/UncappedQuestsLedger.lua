@@ -708,6 +708,7 @@ local function BuildFrame()
     -- what keeps a high zoom from pushing the detail pane off the bottom.
     if UncappedScale_Register then
         UncappedScale_Register(f, {
+            group = "quests",
             getFitSize = function(self) return self:GetWidth(), self:GetHeight() end,
         })
     end

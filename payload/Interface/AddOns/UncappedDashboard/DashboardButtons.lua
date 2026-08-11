@@ -247,6 +247,9 @@ function Buttons.Build()
     db.y = -(screenH - db.height) / 2
 
     window = UncappedUIKit.CreateWindow({
+        -- One group for the whole Dashboard: every tab builds inside this window,
+        -- so this single slider zooms all fifteen of them.
+        scaleGroup = "dashboard",
         name = "UncappedDashboardFrame",
         title = "Dashboard",
         width = DEFAULT_WIDTH, height = REQUIRED_HEIGHT,
