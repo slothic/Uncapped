@@ -35,8 +35,8 @@
 
 local ADDON_PIPE_PREFIX = "UNC"
 
+-- BAR_W is the fallback width only -- normally the bar takes the power bar's.
 local BAR_W, BAR_H = 119, 10
-local FADE_AFTER   = 0.35   -- seconds of no update before we distrust the value
 
 -- Server sends once a second; anything older than this means the feed stopped
 -- (zoning, a disconnect, the script disabled) and a stale bar is worse than none.
@@ -57,11 +57,25 @@ end
 
 -- ---------------------------------------------------------------- the bar ----
 local frame = CreateFrame("Frame", "UncappedShieldBarFrame", PlayerFrame)
-frame:SetWidth(BAR_W)
 frame:SetHeight(BAR_H)
--- Under the player frame's health/mana, tucked to the same left edge so it reads
--- as part of the unit frame rather than a floating addon window.
-frame:SetPoint("TOPLEFT", PlayerFrame, "TOPLEFT", 106, -57)
+
+--[[ ★ ANCHOR TO THE MANA BAR, NOT TO PlayerFrame.
+
+     The first version used a hand-measured offset from PlayerFrame's top-left,
+     which put the bar straight through the mana text. Hardcoded offsets into
+     someone else's frame are guesses that rot: the power bar moves between
+     rage/energy/runic, and a druid shifting form rebuilds it. Hanging off
+     PlayerFrameManaBar's bottom edge means the bar sits under whatever the power
+     bar currently is, at whatever width it currently has, without measuring
+     anything. The fallback keeps the addon working if Blizzard's frame is
+     missing (another addon replaced the unit frames). ]]
+if PlayerFrameManaBar then
+    frame:SetPoint("TOPLEFT",  PlayerFrameManaBar, "BOTTOMLEFT",  0, -2)
+    frame:SetPoint("TOPRIGHT", PlayerFrameManaBar, "BOTTOMRIGHT", 0, -2)
+else
+    frame:SetWidth(BAR_W)
+    frame:SetPoint("TOPLEFT", PlayerFrame, "TOPLEFT", 106, -70)
+end
 frame:Hide()
 
 local bg = frame:CreateTexture(nil, "BACKGROUND")
@@ -88,6 +102,18 @@ text:SetPoint("CENTER", bar, "CENTER", 0, 0)
 text:SetTextColor(1, 1, 1)
 
 local function Redraw()
+    --[[ ★ THE HIDE TOGGLE HAS TO BE CHECKED HERE, NOT ONLY IN THE SLASH COMMAND.
+
+         Redraw runs on every feed tick -- once a second, forever. So a /shieldbar
+         that only called frame:Hide() was undone by the very next packet, and the
+         bar came straight back. From the player's side that reads as an inverted
+         toggle: it announces "hidden" and stays visible. Any show/hide state that
+         lives outside the function which does the showing will always lose to it.]]
+    if db and db.hidden then
+        frame:Hide()
+        return
+    end
+
     if lastValue <= 0 then
         frame:Hide()
         return
@@ -147,7 +173,11 @@ end)
 -- Stale guard. If the server stops feeding -- script disabled, a disconnect, a
 -- zone the map script does not tick -- the bar must not sit there showing a
 -- shield that may have broken minutes ago.
-frame:SetScript("OnUpdate", function(_, elapsed)
+--
+-- ★ The guard lives on `comms`, not on `frame`. A hidden frame gets no OnUpdate,
+--   so hanging the staleness check on the bar itself means it stops checking in
+--   exactly the state where a stale value could be waiting to reappear.
+comms:SetScript("OnUpdate", function(_, elapsed)
     if lastValue <= 0 then return end
     if GetTime() - lastStamp > STALE_AFTER then
         lastValue, peakValue = 0, 0
@@ -162,18 +192,21 @@ boot:SetScript("OnEvent", function(_, _, name)
     if name ~= "UncappedShieldBar" then return end
     UncappedShieldBarDB = UncappedShieldBarDB or {}
     db = UncappedShieldBarDB
-    if db.hidden then frame:Hide() end
+    Redraw()
 end)
 
 SLASH_UNCAPPEDSHIELDBAR1 = "/shieldbar"
 SlashCmdList["UNCAPPEDSHIELDBAR"] = function()
     db = db or {}
     db.hidden = not db.hidden
+
+    -- One path in and one path out: set the flag, let Redraw decide what the
+    -- frame does. The command never touches Show/Hide itself.
+    Redraw()
+
     if db.hidden then
-        frame:Hide()
         DEFAULT_CHAT_FRAME:AddMessage("|cffD9C759[Shield Bar]|r hidden. /shieldbar to show it again.")
     else
         DEFAULT_CHAT_FRAME:AddMessage("|cffD9C759[Shield Bar]|r shown.")
-        Redraw()
     end
 end

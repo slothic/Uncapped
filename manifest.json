@@ -2153,13 +2153,13 @@
                   {
                       "path":  "Interface/AddOns/UncappedShieldBar/UncappedShieldBar.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedShieldBar/UncappedShieldBar.lua",
-                      "sha256":  "251502d0ad3e614a78ed5828ee30b388624bd36fb9e3c1b274c37fa4473149a3",
-                      "size":  7068
+                      "sha256":  "f34217caad7e43f516f10d783279792521ac74a454c198dfaf44f82045d3057f",
+                      "size":  8672
                   },
                   {
                       "path":  "Interface/AddOns/UncappedShieldBar/UncappedShieldBar.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedShieldBar/UncappedShieldBar.toc",
-                      "sha256":  "6f9d2a7634f81c2e9e58d442dc89ca722e1fa40cc6c7406fd75518ec259fda5c",
+                      "sha256":  "32615afdfef7c9969f688b0476126965c8f39c33cb83ac8f51594f5326726f36",
                       "size":  366
                   },
                   {
