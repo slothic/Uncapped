@@ -1631,8 +1631,8 @@
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
-                      "sha256":  "bd18944fe7816faa1bd438264d91f269e829985e2b2b6a9dc6db52f70966946a",
-                      "size":  147926
+                      "sha256":  "0fb33a303e744c802ea77395f00b7b8fdbcd9226a9cb51e413f34fe01a0aae59",
+                      "size":  149145
                   },
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.toc",
@@ -1949,13 +1949,13 @@
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/UncappedMythic.lua",
-                      "sha256":  "329aa5b484f24ae92f2f2de2bbecc03d3dd473f70dfe1f66e519ea907531bb03",
-                      "size":  70646
+                      "sha256":  "c9c90350c44da8b5f9ff668cc6a23a5ed1d1ab8c19f5a4b3c14dd00cca380813",
+                      "size":  73314
                   },
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/UncappedMythic.toc",
-                      "sha256":  "a0a8a2d7ba817333044567b50e51043e44a3cd65aecf57bf7c9e5e71c9242e1d",
+                      "sha256":  "e2d0d7d0915ccd445cd20fcf39e91d5a794a8b6a6ba979345ba71aec3ccc86d9",
                       "size":  281
                   },
                   {
@@ -2986,8 +2986,8 @@
                   },
                   {
                       "path":  "UncappedCT.dll",
-                      "url":  "http://152.53.115.249/patches/UncappedCT-2026.08.09b.dll",
-                      "sha256":  "f358e600db5bc7ce309b62c5ec59ba4792221b952ee487ef3c1c590ce9d916e4",
+                      "url":  "http://152.53.115.249/patches/UncappedCT-2026.08.11b.dll",
+                      "sha256":  "8487b1b0fa65860bcb55e31542201b192e0d1e6e1b7229eac96346f65000257a",
                       "size":  439296
                   }
               ],
@@ -3003,12 +3003,12 @@
                      }
                  ],
     "itemCache":  {
-                      "epoch":  "2026.08.10a",
-                      "url":  "http://152.53.115.249/patches/itemcache-2026.08.10a.wdb.gz",
-                      "sha256":  "eaef48b665d6f9fc3caf15b60894bf50ccd85137ec650f68c5c488889fcca8b9",
-                      "size":  1800191,
-                      "contentSha256":  "62c5501f535de8f107cee6b2290189eff85cd030ff4fbd75ad70546cfaa4cd53",
-                      "contentSize":  21782066,
+                      "epoch":  "2026.08.11a",
+                      "url":  "http://152.53.115.249/patches/itemcache-2026.08.11a.wdb.gz",
+                      "sha256":  "e0e6c44176ffbc6d068f076524cf28cecc22bc242a8b239099ec9b69278a644c",
+                      "size":  1827533,
+                      "contentSha256":  "292b2a5f713babeec724b2df9229aad30f95ff7c067934767a02809265b66fa2",
+                      "contentSize":  22009942,
                       "locales":  [
                                       "enUS"
                                   ]

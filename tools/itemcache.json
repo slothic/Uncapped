@@ -11,13 +11,13 @@
 
   "enabled": true,
 
-  "epoch": "2026.08.10a",
-  "url": "http://152.53.115.249/patches/itemcache-2026.08.10a.wdb.gz",
-  "sha256": "eaef48b665d6f9fc3caf15b60894bf50ccd85137ec650f68c5c488889fcca8b9",
-  "size": 1800191,
-  "contentSha256": "62c5501f535de8f107cee6b2290189eff85cd030ff4fbd75ad70546cfaa4cd53",
-  "contentSize": 21782066,
+  "epoch": "2026.08.11a",
+  "url": "http://152.53.115.249/patches/itemcache-2026.08.11a.wdb.gz",
+  "sha256": "e0e6c44176ffbc6d068f076524cf28cecc22bc242a8b239099ec9b69278a644c",
+  "size": 1827533,
+  "contentSha256": "292b2a5f713babeec724b2df9229aad30f95ff7c067934767a02809265b66fa2",
+  "contentSize": 22009942,
   "locales": ["enUS"],
 
-  "_built": "2026-08-10 from live item_template: 47156 records, 20.77 MiB raw, 1.72 MiB gzipped. Includes Rendered Tallow (900600), Tallow-Cured Jerkin (900601) and the 468 banded alchemy items (910001-913117), none of which any client has ever seen. Verified against three real client caches (3961/2400/1011 records; every remaining difference re-queried against prod and the generated value matched the CURRENT server value in all cases). PUBLISHED 2026-08-10: scp'd to /srv/uncapped-patches/public/ (chmod 444), and a scoped location block added to /opt/uncapped-files/nginx.conf (backup .bak-20260810) because that server allowlists names and had no rule for .wdb.gz -- the hand-copy path alone was NOT enough. Verified: 200, sha matches, range 206, and a non-matching name still 404s."
+  "_built": "2026-08-11 from live item_template: 47649 records, 20.99 MiB raw, 1.74 MiB gzipped. REGENERATED for report #224 -- the Mythic Plus Keystone icon. The 2026-08-07 fix set item_template.displayid = 4287, which is the right value in the WRONG TABLE: acore_world.item_dbc overlays Item.dbc and wins (ObjectMgr::LoadItemTemplates corrects DisplayInfoID from it, and gen_itemcache.py re-implements that correction), so both the server and the shipped cache kept reading 58859. Proved by parsing itemcache-2026.08.10a: Keystone = 58859, four days after the fix. item_dbc row corrected to 4287 (15 stock Item.dbc rows use it, so the texture is proven present; 58859 is used by exactly one). Verified after publish: served sha256 and decompressed content sha256 both match, and the Keystone reads 4287 in the published bytes."
 }

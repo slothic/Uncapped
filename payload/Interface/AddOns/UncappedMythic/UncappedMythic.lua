@@ -143,6 +143,22 @@ frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 frame.title:SetPoint("TOP", frame, "TOP", 0, -12)
 frame.title:SetTextColor(1.0, 0.82, 0.0)
 
+--[[ Wipes used, on the title row, right-aligned.
+
+     ★ ANCHORED TO THE FRAME, NOT INTO THE COLUMN. Everything below the title
+     flows: timer hangs off title, bar hangs off timer, and every boss row hangs
+     off the bar at `-4 - (i-1)*14`. Inserting a line anywhere in that chain
+     pushes the whole boss log down by a row, and the log is the part people are
+     actually reading. Sitting it beside the title costs no reflow at all.
+
+     Hidden until the server says otherwise: the allowance is a RAID rule, and the
+     server only sends UMW on a raid map, so a 5-man simply never shows it rather
+     than showing "0/5" for a rule that is not running. ]]
+frame.wipes = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+frame.wipes:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -12)
+frame.wipes:SetJustifyH("RIGHT")
+frame.wipes:Hide()
+
 -- Big countdown timer.
 frame.timer = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
 frame.timer:SetPoint("TOP", frame.title, "BOTTOM", 0, -4)
@@ -373,6 +389,12 @@ local function StartRun(remaining, level, trashNeeded, token)
         run.trashKilled = 0
         run.bosses = {}
         run.bossIndex = {}
+        -- New run, so the allowance is untouched again. Hidden rather than set to
+        -- 0/n: the server re-sends UMW right after this on a raid, and on a 5-man
+        -- it never will, so hiding is the correct state for both.
+        run.wipesUsed = 0
+        run.wipeAllowance = nil
+        frame.wipes:Hide()
     end
 
     frame.title:SetText("Mythic+ Keystone +" .. level)
@@ -431,6 +453,38 @@ local function UpdateTrash(killed, needed)
     run.trashKilled = killed
     run.trashNeeded = needed
     RefreshBar()
+end
+
+--[[ Wipes used out of the allowance (report #366).
+
+     Colour carries the urgency so the number does not have to be read carefully
+     mid-fight: normal while there is room, red on the last one. A raid that has
+     one wipe left should be able to tell at a glance, because the moment it
+     matters is the moment nobody is reading text.
+
+     An allowance of 0 means "wipes never fail the run" server-side, so there is
+     nothing to count and the line stays hidden rather than showing "3/0". ]]
+local function UpdateWipes(used, allowance)
+    run.wipesUsed = used
+    run.wipeAllowance = allowance
+
+    if not allowance or allowance == 0 then
+        frame.wipes:Hide()
+        return
+    end
+
+    local left = allowance - used
+    if left < 0 then left = 0 end
+
+    frame.wipes:SetText(string.format("Wipes  %d / %d", used, allowance))
+    if left <= 1 then
+        frame.wipes:SetTextColor(1.0, 0.3, 0.3)      -- last life
+    elseif left <= 2 then
+        frame.wipes:SetTextColor(1.0, 0.82, 0.0)
+    else
+        frame.wipes:SetTextColor(0.8, 0.8, 0.8)
+    end
+    frame.wipes:Show()
 end
 
 -- ---------------------------------------------------------------------------
@@ -516,7 +570,7 @@ end
 
 -- Hide the protocol lines from chat.
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and (msg:find("^UMS:") or msg:find("^UMT:") or msg:find("^UMR:") or msg:find("^UMB:")) then
+    if msg and (msg:find("^UMS:") or msg:find("^UMT:") or msg:find("^UMR:") or msg:find("^UMB:") or msg:find("^UMW:")) then
         return true
     end
     return false
@@ -653,6 +707,14 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
     local killed, needKills = msg:match("^UMT:(%d+):(%d+)$")
     if killed then
         UpdateTrash(tonumber(killed), tonumber(needKills))
+        return
+    end
+
+    -- UMW:<wipesUsed>:<allowance>  -- raids only; the server does not send it
+    -- for a 5-man, which is why this can just show whatever it is given.
+    local used, allow = msg:match("^UMW:(%d+):(%d+)$")
+    if used then
+        UpdateWipes(tonumber(used), tonumber(allow))
         return
     end
 

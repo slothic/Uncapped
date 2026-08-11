@@ -2,7 +2,7 @@
 ## Title: Uncapped Mythic+
 ## Notes: Keystone run HUD: countdown timer, enemy-forces bar, boss splits, and the affix strip.
 ## Author: Uncapped
-## Version: 1.3
+## Version: 1.4
 ## OptionalDeps: UncappedOptions, UncappedUI
 ## SavedVariables: UncappedMythicDB
 

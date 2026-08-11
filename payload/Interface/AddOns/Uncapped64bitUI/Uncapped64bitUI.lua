@@ -1829,10 +1829,33 @@ end
 -- build, so string.format("%d", 5e12) wraps -- and on this realm a threshold in
 -- the trillions is the ordinary case, not an edge one.
 CT_PushHideUnder = function()
-    if type(SendAddonMessage) ~= "function" then return end
     local n = Cfg.minFloat or 0
-    pcall(SendAddonMessage, "REAGENTBANK", string.format("UHIDE:%.0f", n),
-        "WHISPER", UnitName("player"))
+
+    if type(SendAddonMessage) == "function" then
+        pcall(SendAddonMessage, "REAGENTBANK", string.format("UHIDE:%.0f", n),
+            "WHISPER", UnitName("player"))
+    end
+
+    -- ★ [#558 / #447] The DLL needs it too, and this is the only half that can
+    -- filter MELEE.
+    --
+    -- The server drops spell, periodic and heal packets under the threshold
+    -- before they are sent, but melee is exempt on purpose: its packet also
+    -- drives the weapon-swing animation, so withholding it would stop characters
+    -- swinging. That exemption was covered by this addon filtering melee itself
+    -- -- right up until it stopped drawing floating combat text (2026-08-08) and
+    -- UncappedCT.dll took over the engine's body floaters. The filter went with
+    -- the renderer, so melee and pet auto-attacks have had none since.
+    --
+    -- Passed as a STRING for the same reason the UHIDE line above is formatted
+    -- with %.0f: this client's Lua is a 32-bit build, and a threshold in the
+    -- trillions is the ordinary case here rather than an edge one.
+    --
+    -- pcall'd and existence-checked because the DLL is optional -- a player
+    -- running the stock exe has no such global, and must lose nothing but this.
+    if type(UncappedCT_SetHideUnder) == "function" then
+        pcall(UncappedCT_SetHideUnder, string.format("%.0f", n))
+    end
 end
 
 -- ---------------------------------------------------------------------------
