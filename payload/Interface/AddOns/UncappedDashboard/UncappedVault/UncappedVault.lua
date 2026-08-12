@@ -2035,6 +2035,109 @@ if UncappedNative and UncappedNative.IsAvailable() then
     end)
 end
 
+--[[ ★ [#675 / #666] COALESCE THE LIVE-UPDATE STORM.
+
+     The server sends a VLTUPD "whenever the vault moves for any reason", and on
+     this realm the vault moves constantly: every auto-banked drop, every craft
+     output, every sack the player auto-consumes. Each of those used to run,
+     inline, on the frame the message arrived:
+
+       Core.SaveCache()            -- deep-copies EVERY row into SavedVariables
+       PushVaultCountsToClient()   -- walks every row, builds one big string
+       Notify("update")            -- Core.Rebuild: walks every row, categorises,
+                                      counts, filters and SORTS the result
+
+     Three full passes over a vault that is routinely thousands of rows, per
+     item. That is precisely the reported shape of #666 -- "it currently makes a
+     frame drop every time it auto consumes" -- and during a big pull, where loot
+     banks continuously, it is a frame drop that never stops.
+
+     Nothing here needs to be immediate. The amounts on the wire are ABSOLUTE, so
+     applying the last one is the same as applying all of them; the table itself
+     is still updated the instant the message lands (above), and only the three
+     EXPENSIVE consequences are deferred. What the player can see updates on the
+     interval below, which is a quarter second while the window is actually open.
+
+     SaveCache is deferred hardest, because nothing reads it until the next
+     login: it is persistence, not display. It is forced out on logout so the
+     delay can never cost a session's worth of updates. ]]
+local FLUSH_INTERVAL_OPEN   = 0.25   -- vault window visible: keep it feeling live
+local FLUSH_INTERVAL_CLOSED = 1.5    -- nothing on screen reads this; be cheap
+local SAVE_INTERVAL         = 15     -- SavedVariables is only read at login
+
+local dirty, dirtyReason = false, "update"
+local lastSave = 0
+local flusher = CreateFrame("Frame")
+local flushAcc = 0
+
+-- Is the vault window actually on screen? Resolved defensively: the UI half is a
+-- separate file and may not have registered yet, and a nil here must mean
+-- "assume hidden and be cheap", never an error on the update path.
+local function VaultWindowShown()
+    local ui = Core.UI
+    if not ui then return false end
+    if type(ui.IsShown) == "function" then
+        local ok, shown = pcall(ui.IsShown)
+        if ok then return shown and true or false end
+    end
+    local f = ui.frame
+    if f and type(f.IsShown) == "function" then return f:IsShown() and true or false end
+    return false
+end
+
+local function FlushVaultUpdate(force)
+    if not dirty then return end
+    dirty = false
+
+    local now = GetTime and GetTime() or 0
+    if force or (now - lastSave) >= SAVE_INTERVAL then
+        lastSave = now
+        Core.SaveCache()
+    else
+        -- Not saved yet, but the rows have moved -- make sure whoever saves next
+        -- (the warmer's drain, a snapshot, logout) knows there is something to write.
+        Core.cacheDirty = true
+    end
+
+    PushVaultCountsToClient()
+    Notify(dirtyReason)
+    dirtyReason = "update"
+end
+
+flusher:SetScript("OnUpdate", function(self, dt)
+    if not dirty then return end
+    flushAcc = flushAcc + (dt or arg1 or 0)
+    local interval = VaultWindowShown() and FLUSH_INTERVAL_OPEN or FLUSH_INTERVAL_CLOSED
+    if flushAcc < interval then return end
+    flushAcc = 0
+    FlushVaultUpdate(false)
+end)
+
+-- Logout is the one moment the deferred SaveCache must not be deferred: it is
+-- the only reader of that table, and it reads it next login.
+flusher:RegisterEvent("PLAYER_LOGOUT")
+flusher:RegisterEvent("PLAYER_LEAVING_WORLD")
+flusher:SetScript("OnEvent", function() FlushVaultUpdate(true) end)
+
+--[[ Mark the vault changed. Cheap by construction -- two assignments -- so it is
+     safe to call once per incoming message however fast they arrive.
+
+     The tradeskill window is the one exception that still goes out immediately:
+     its craftable counts are computed once during a wholesale list rebuild and
+     then sit stale until something forces another (see the long note in
+     PushVaultCountsToClient), so a deferred push there reads as "the first smelt
+     didn't tick". It is only reachable while a profession window is open, which
+     is never during the pull this whole mechanism exists for. ]]
+local function MarkVaultDirty(reason)
+    dirty = true
+    if reason then dirtyReason = reason end
+    flushAcc = 0
+
+    if TradeSkillFrame and TradeSkillFrame:IsShown() then
+        FlushVaultUpdate(false)
+    end
+end
+
 local comms = CreateFrame("Frame")
 comms:RegisterEvent("CHAT_MSG_ADDON")
 comms:SetScript("OnEvent", function(_, _, a1, a2)
@@ -2096,9 +2199,7 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
         end
 
         if touched then
-            Core.SaveCache()
-            PushVaultCountsToClient()
-            Notify("update")
+            MarkVaultDirty("update")
         end
     elseif find(text, "^VLTROW:") then
         ParseRows(text)
@@ -2141,9 +2242,7 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
         end
 
         if touched then
-            Core.SaveCache()
-            PushVaultCountsToClient()
-            Notify("update")
+            MarkVaultDirty("update")
         end
     elseif find(text, "^VLTWDONE:") then
         local e, rp, given, remaining = match(text, "^VLTWDONE:(%d+):(%-?%d+):(%d+):(%d+)$")

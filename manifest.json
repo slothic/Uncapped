@@ -1637,8 +1637,14 @@
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.toc",
-                      "sha256":  "095684ebff43c6806ec94005684c4a71bf1cf307bb6cb12767d16e87d1949142",
-                      "size":  349
+                      "sha256":  "263a3a1f401bae62350b9c237ad9534a814acabf20a9ecb4092fd89a001de56a",
+                      "size":  366
+                  },
+                  {
+                      "path":  "Interface/AddOns/Uncapped64bitUI/UncappedPerf.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/UncappedPerf.lua",
+                      "sha256":  "741e7fd620d6492567fd89a36b3d7b7d5839948b198f706bf254593c9b9ecbeb",
+                      "size":  13583
                   },
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/fonts/Anton-Regular.ttf",
@@ -1859,8 +1865,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault.lua",
-                      "sha256":  "fecf6db030db231e040f7d46f2748d92d3072407bc365a4a49f83b4c8553a99c",
-                      "size":  100869
+                      "sha256":  "68e2f895e3fdfaa3a628b97234bd7d4734d576c9a0a1d5f0e2f67bee120634fc",
+                      "size":  105272
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault_UI.lua",
@@ -2297,7 +2303,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "8779d3f6ae587904346b9341c39c06703b049532881ee4d40623bc438064b807",
+                      "sha256":  "55d18103f30e272fc3de01cbd0164241c60a64ebac6da414b4f7a7404c169ea3",
                       "size":  3593
                   },
                   {
