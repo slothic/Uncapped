@@ -469,6 +469,12 @@ end
 -- professions/recipes arrive asynchronously after the window is already open.
 local RefreshList, RefreshDetail, RefreshProgress, BuildProfessionTabs, ResetScroll
 
+-- Forward-declared for the same reason as the line above: the FRGDONE handler
+-- calls it and sits ~200 lines ABOVE where SelectRecipe (which it needs) is
+-- defined. Declaring it here and assigning it later is what keeps it from being
+-- a nil global at call time.
+local AdvanceToNextCraftable
+
 local comms = CreateFrame("Frame")
 comms:RegisterEvent("CHAT_MSG_ADDON")
 comms:SetScript("OnEvent", function(_, _, prefix, body)
@@ -707,6 +713,23 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
         Send("FRGPROCLIST")
         Send("FRGSYNC")
 
+        -- [Custom] Owner request: a Craft All that ends because the materials ran
+        -- out leaves you on a recipe you can no longer make. Move to the next one
+        -- you can, so a profession grind does not need a click between every
+        -- batch. Only these failures mean "out of stock" -- a full bag or a
+        -- missing vellum is a different problem and the player should stay put
+        -- and see it rather than have the selection moved out from under them.
+        local OUT_OF_MATERIALS = {
+            reagents        = true,
+            outofmats       = true,
+            missing         = true,
+            unreachablemats = true,
+        }
+
+        if failure and OUT_OF_MATERIALS[failure] and frame and frame.mode == "craft" then
+            AdvanceToNextCraftable()
+        end
+
     elseif body:find("^FRGPROCROW:") then
         -- `perOp` arrives from the server rather than being assumed here. It used
         -- to be a client-side constant (5, or 1 for disenchant), which stopped
@@ -864,6 +887,57 @@ local function SelectRecipe(spellId)
     end
     RefreshList()
     RefreshDetail()
+end
+
+--[[
+    Move the selection to the next recipe you can still make.
+
+    Owner request 2026-08-12: after "Craft All" empties a material you are left
+    staring at a recipe that can no longer be made, and picking the next one by
+    hand is the annoying part of grinding a profession.
+
+    Assigned (not declared) here: this is the forward-declared local from the top
+    of the file, and it CANNOT be defined earlier because it calls SelectRecipe,
+    which is defined directly above. The FRGDONE handler that calls it lives ~200
+    lines further up.
+
+    Searches from the CURRENT position and wraps, so it walks the list in the
+    order you see it and eventually returns to the top rather than jumping around.
+
+    ⚠ It deliberately does NOT re-request material counts first. Those arrive
+    asynchronously (FRGMAT), so the numbers it reads are the ones from before the
+    craft -- fresh enough to rank other recipes, and the panel self-corrects a
+    moment later when the new counts land. Waiting for them would mean the
+    selection visibly lurches a second after the craft ends, which is worse.
+]]
+function AdvanceToNextCraftable()
+    if not selectedSpell or #filtered == 0 then
+        return
+    end
+
+    local start = 0
+    for i, recipe in ipairs(filtered) do
+        if recipe.spell == selectedSpell then
+            start = i
+            break
+        end
+    end
+
+    for step = 1, #filtered do
+        local recipe = filtered[((start - 1 + step) % #filtered) + 1]
+        if recipe.spell ~= selectedSpell then
+            local possible = MaxCraftable(recipe.spell)
+            -- `nil` means "never asked", which is not the same as "cannot make"
+            -- -- skip it rather than landing the player on an unknown.
+            if possible and possible > 0 then
+                SelectRecipe(recipe.spell)
+                DEFAULT_CHAT_FRAME:AddMessage(string.format(
+                    "|cffff8040[Forge]|r moved on to |cffffffff%s|r (enough for %s).",
+                    RecipeName(recipe) or ("spell " .. recipe.spell), Commafy(possible)))
+                return
+            end
+        end
+    end
 end
 
 function RefreshList()
