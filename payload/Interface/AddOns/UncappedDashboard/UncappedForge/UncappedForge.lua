@@ -27,7 +27,6 @@ local TRANSPORT_PREFIX  = "REAGENTBANK"   -- shared client->server transport
 -- ---------------------------------------------------------------------------
 local DEFAULTS = {
     replaceTradeSkill = true,   -- open the Forge instead of Blizzard's window
-    outputToVault     = true,   -- finished items go to the vault
     autoIntermediates = true,   -- craft missing sub-components automatically
     craftableOnly     = false,  -- list filter
     sortMode          = "name",  -- "name" or "difficulty"
@@ -617,14 +616,14 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
             local why = FAILURES[failure] or ("failed (" .. failure .. ")")
             DEFAULT_CHAT_FRAME:AddMessage(string.format(
                 "|cffff8040[Forge]|r produced |cffffffff%s|r item(s)%s, then stopped -- %s.",
-                Commafy(crafted), db.outputToVault and " into your Vault" or "", why))
+                Commafy(crafted), " into your Vault", why))
         elseif failure and failure ~= "" then
             local why = FAILURES[failure] or ("failed (" .. failure .. ")")
             DEFAULT_CHAT_FRAME:AddMessage("|cffff8040[Forge]|r " .. why)
         elseif crafted > 0 then
             DEFAULT_CHAT_FRAME:AddMessage(string.format(
                 "|cffff8040[Forge]|r produced |cffffffff%s|r item(s)%s.",
-                Commafy(crafted), db.outputToVault and " into your Vault" or ""))
+                Commafy(crafted), " into your Vault"))
         end
 
         -- Counts moved; re-ask rather than guessing at them locally. A craft is
@@ -1445,7 +1444,7 @@ local function BuildFrame(parent)
     local function StartCraft(count)
         if not selectedSpell then return end
         Send(string.format("FRGCRAFT:%d:%d:%d:%d", selectedSpell, count,
-            db.autoIntermediates and 1 or 0, db.outputToVault and 0 or 1))
+            db.autoIntermediates and 1 or 0, 0))
         job = { done = 0, total = count, crafted = 0 }
         RefreshProgress()
     end
@@ -1546,23 +1545,14 @@ local function BuildFrame(parent)
     detail.render:SetScript("OnClick", function() StartProcess(3) end)
     detail.render:Hide()
 
-    -- Output destination
-    local vaultCheck = CreateFrame("CheckButton", "UncappedForgeVaultOut", frame, "UICheckButtonTemplate")
-    vaultCheck:SetWidth(22)
-    vaultCheck:SetHeight(22)
-    vaultCheck:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 22, 34)
-    vaultCheck:SetChecked(db.outputToVault)
-    vaultCheck:SetScript("OnClick", function(self)
-        db.outputToVault = self:GetChecked() and true or false
-    end)
-    local vaultLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    vaultLabel:SetPoint("LEFT", vaultCheck, "RIGHT", 2, 0)
-    vaultLabel:SetText("Finished items to Vault")
-
+    -- Output destination: there is no longer a choice. Owner ruling 2026-08-12 --
+    -- the Forge always banks to the Vault and players withdraw what they need.
+    -- The checkbox that used to sit here is gone; subCheck takes its anchor so
+    -- the row does not shift.
     local subCheck = CreateFrame("CheckButton", "UncappedForgeSubs", frame, "UICheckButtonTemplate")
     subCheck:SetWidth(22)
     subCheck:SetHeight(22)
-    subCheck:SetPoint("LEFT", vaultLabel, "RIGHT", 12, 0)
+    subCheck:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 22, 34)
     subCheck:SetChecked(db.autoIntermediates)
     subCheck:SetScript("OnClick", function(self)
         db.autoIntermediates = self:GetChecked() and true or false
@@ -1982,9 +1972,8 @@ if UncappedUI then
         function() return db.replaceTradeSkill end,
         function(value) db.replaceTradeSkill = value end)
 
-    L:Check("Send finished items to the Vault",
-        function() return db.outputToVault end,
-        function(value) db.outputToVault = value end)
+    -- "Send finished items to the Vault" removed 2026-08-12: it is no longer a
+    -- choice, the Forge always banks to the Vault.
 
     L:Check("Automatically make missing components",
         function() return db.autoIntermediates end,
