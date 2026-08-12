@@ -88,6 +88,46 @@ def sha256_url(url):
     return h.hexdigest(), got
 
 
+def prove_resume(entry):
+    """Reassemble a file from three ranged requests and check it still hashes right.
+
+    The launcher's ResilientDownload resumes an interrupted transfer with
+    'Range: bytes=<have>-' and appends to what is already on disk. That is only
+    safe if the host's ranges line up exactly with a whole download -- an
+    off-by-one or a host that quietly serves from zero would produce a file of
+    the right LENGTH made of the wrong bytes.
+
+    A 206 status proves the host answered a range. It does not prove the bytes
+    are the right ones. This does, by stitching a real file together the same way
+    the launcher would and hashing the result.
+    """
+    url, size, want = entry['url'], entry['size'], entry['sha256']
+    cuts = [0, size // 3, (2 * size) // 3, size]
+    body = b''
+
+    for i in range(3):
+        start, end = cuts[i], cuts[i + 1] - 1
+        if end < start:
+            continue
+        req = urllib.request.Request(url, headers={'Range': 'bytes=%d-%d' % (start, end)})
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            if r.status != 206:
+                return False, 'chunk %d: expected 206, got %d' % (i + 1, r.status)
+            chunk = r.read()
+        if len(chunk) != end - start + 1:
+            return False, 'chunk %d: asked for %d bytes, got %d' % (i + 1, end - start + 1, len(chunk))
+        body += chunk
+
+    if len(body) != size:
+        return False, 'reassembled %d bytes, expected %d' % (len(body), size)
+
+    got = hashlib.sha256(body).hexdigest()
+    if got.lower() != want.lower():
+        return False, 'reassembled sha256 %s, expected %s' % (got, want)
+
+    return True, 'reassembled from 3 ranges, sha256 matches'
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -171,6 +211,19 @@ def main():
     print()
     print('checked %d required file(s); fully hashed %d (%s bytes)'
           % (len(required), hashed, format(hashed_bytes, ',')))
+
+    # Resume correctness, proven once on the smallest file with a hash and a url.
+    candidates = [f for f in required if f.get('url') and f.get('sha256') and f['size'] > 3]
+    if candidates:
+        smallest = min(candidates, key=lambda f: f['size'])
+        try:
+            ok, detail = prove_resume(smallest)
+        except Exception as e:
+            ok, detail = False, str(e)
+        print('resume proof on %s (%s bytes): %s'
+              % (smallest.get('served') or smallest['path'], format(smallest['size'], ','), detail))
+        if not ok:
+            problems.append('resume proof failed on %s: %s' % (smallest['path'], detail))
 
     if problems:
         print()

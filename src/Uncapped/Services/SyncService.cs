@@ -324,42 +324,29 @@ public sealed class SyncService
         catch { return false; }
     }
 
-    private async Task DownloadAsync(ManifestFile file, string destination, CancellationToken ct)
-    {
-        var dir = Path.GetDirectoryName(destination);
-        if (dir is not null) Directory.CreateDirectory(dir);
-
-        // Download to a unique temp file beside the destination and move into place only
-        // after the hash checks out. A half-written MPQ in Data\ is a broken client; a
-        // leftover .tmp is not. The GUID keeps concurrent workers from colliding.
-        var temp = $"{destination}.{Guid.NewGuid():N}.uncapped-tmp";
-
-        try
-        {
-            using var response = await _http.GetAsync(file.Url, HttpCompletionOption.ResponseHeadersRead, ct);
-            response.EnsureSuccessStatusCode();
-
-            await using (var source = await response.Content.ReadAsStreamAsync(ct))
-            await using (var target = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None,
-                                                     1024 * 64, useAsync: true))
-                await source.CopyToAsync(target, ct);
-
-            if (!string.IsNullOrEmpty(file.Sha256))
-            {
-                var actual = await Hashing.Sha256FileAsync(temp, ct);
-                if (!Hashing.Matches(actual, file.Sha256))
-                    throw new InvalidDataException(
-                        $"checksum mismatch (expected {file.Sha256[..Math.Min(12, file.Sha256.Length)]}…, " +
-                        $"got {actual[..12]}…)");
-            }
-
-            File.Move(temp, destination, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(temp)) { try { File.Delete(temp); } catch { /* best effort */ } }
-        }
-    }
+    /// <summary>
+    /// Downloads to a temp beside the destination and moves it into place only after the hash
+    /// checks out. A half-written MPQ in Data\ is a broken client; a leftover .tmp is not.
+    ///
+    /// Shares <see cref="ResilientDownload"/> with repair and client acquisition, so the payload
+    /// resumes with a byte range and retries rather than losing a whole file to one dropout.
+    /// Most of the payload is small addon files where this never matters, but
+    /// Data\enUS\patch-enUS-Q.MPQ is 313 MB — minutes of connection on a slow link, and it sits
+    /// on the path a player is sent down when their client is ALREADY broken.
+    ///
+    /// ★ A checksum mismatch still surfaces as InvalidDataException, and is deliberately not
+    /// retried when the file arrived whole. The caller distinguishes that from a network fault
+    /// to populate SyncOutcome.Mismatched, which is what drives the CDN publish gate — during a
+    /// publish window every payload file mismatches at once, and backing off five times each
+    /// would bury the diagnosis under a very long wait.
+    ///
+    /// The temp name is deterministic, which is what allows resumption. Workers run
+    /// concurrently over DIFFERENT destinations, so there is nothing for them to collide over;
+    /// the old GUID name only guaranteed no partial could ever be reused.
+    /// </summary>
+    private async Task DownloadAsync(ManifestFile file, string destination, CancellationToken ct) =>
+        await new ResilientDownload(_http)
+            .FetchAsync(file.Url, destination, file.Size, file.Sha256, file.Path, progress: null, ct);
 
     /// <summary>
     /// Removes files we previously installed that have dropped out of the manifest — but only

@@ -65,6 +65,39 @@ public sealed class RepairService
         foreach (var p in unfixable)
             errors.Add($"{p.Path}: no download is published for this file.");
 
+        /*
+         * ★ SPACE IS CHECKED ONCE, UP FRONT, RATHER THAN DISCOVERED SIX TIMES.
+         *
+         * A full repair of the archive.org build restores about 10.5 GB. Without this, a drive
+         * with no room produced one cryptic IO error per file and a summary saying the repair
+         * partly failed, with nothing pointing at the actual cause — and it would have spent
+         * hours of a slow connection first. One clear sentence before anything is downloaded is
+         * worth much more than six after.
+         *
+         * The requirement is deliberately not the sum of everything being restored. Files are
+         * fetched one at a time and each replaces a file that is usually already there, so the
+         * lasting cost is only what is genuinely MISSING; the transient cost is the largest
+         * single file, which coexists as a .uncapped-tmp beside the old copy until it is moved
+         * into place.
+         */
+        var needed =
+            fixable.Where(p => p.Fault == IntegrityFault.Missing).Sum(p => Math.Max(0, p.Size)) +
+            (fixable.Count == 0 ? 0 : fixable.Max(p => Math.Max(0, p.Size)));
+
+        var free = FreeSpaceFor(installPath);
+
+        if (free >= 0 && needed > free)
+        {
+            // Not an exception: the caller already shows the error list, and throwing here
+            // would lose the quarantine step that runs alongside this.
+            errors.Add(
+                $"Not enough free space to repair. About {Gb(needed)} is needed on " +
+                $"{Path.GetPathRoot(Path.GetFullPath(installPath))?.TrimEnd('\\')} but only {Gb(free)} is free.");
+
+            Log.Write($"repair: refusing to start — needs {needed:N0} bytes, {free:N0} free");
+            return new RepairOutcome(0, 0, errors);
+        }
+
         // Sequential. These are multi-gigabyte archives and six at once would compete for the
         // same disk and the same link for no gain — unlike the payload, which is hundreds of
         // small files where round-trips dominate.
@@ -76,9 +109,31 @@ public sealed class RepairService
             var name = Path.GetFileName(problem.Path);
             progress.Report(new SyncProgress($"Downloading {name}", done, fixable.Count));
 
+            /*
+             * Per-file byte progress, not just a file counter.
+             *
+             * These are multi-gigabyte files fetched one at a time, so the counter moves once
+             * every several minutes -- on the satellite link this was reported from, common.MPQ
+             * alone is about eighteen minutes during which nothing on screen changed at all. A
+             * repair that looks frozen gets killed halfway through, which is how a player ends
+             * up with less of a client than they started with.
+             */
+            var current = done;
+            var fileProgress = new Progress<DownloadProgress>(p =>
+            {
+                var detail = p.Stage switch
+                {
+                    DownloadStage.Verifying => "checking the file is intact",
+                    DownloadStage.Retrying => $"connection dropped, resuming ({p.Attempt} of {p.Attempts})",
+                    _ => p.Total > 0 ? $"{Gb(p.Bytes)} of {Gb(p.Total)}" : Gb(p.Bytes),
+                };
+
+                progress.Report(new SyncProgress($"Downloading {name} — {detail}", current, fixable.Count));
+            });
+
             try
             {
-                await DownloadAsync(installPath, problem, ct);
+                await DownloadAsync(installPath, problem, fileProgress, ct);
                 restored++;
 
                 // The file just changed on disk, so whatever hash was remembered for it is
@@ -156,47 +211,54 @@ public sealed class RepairService
     /// Downloads to a temp file beside the destination and moves it into place only once the
     /// hash is right — the same discipline SyncService uses, and for the same reason: a
     /// half-written 4 GB MPQ is a broken client, a leftover .tmp is not.
+    ///
+    /// ★★ THIS USED TO BE ONE SHOT, AND THAT WAS THE WRONG PLACE TO SAVE CODE.
+    ///
+    /// It was a single GetAsync streamed to a temp: any drop mid-file threw, the temp was
+    /// deleted, the file was recorded as an error and the loop moved on. Repair is precisely
+    /// what a player is told to press when their client is already broken, and the file it most
+    /// often restores is common.MPQ at 2.88 GB — around eighteen minutes of uninterrupted
+    /// connection at 2.7 MB/s. One dropout on a satellite link threw all of it away, and the
+    /// only advice available was to start again.
+    ///
+    /// It now shares <see cref="ResilientDownload"/> with client acquisition, so it resumes with
+    /// a byte range and retries, and every guarantee this method already made is enforced in
+    /// there instead of here: temp-then-move, length checked, and the reassembled file hashed
+    /// END TO END before it is accepted — a resumed file is not trusted merely because each of
+    /// its pieces arrived cleanly. Failing every attempt still throws, so the caller keeps
+    /// reporting an error rather than counting a file it never restored.
+    ///
+    /// The temp name became deterministic in the process. That is what makes resumption
+    /// possible at all: the old Guid-per-call name meant a retried repair could never find the
+    /// partial its predecessor left. Repair is sequential, so there is nothing to collide with.
     /// </summary>
-    private async Task DownloadAsync(string installPath, IntegrityProblem problem, CancellationToken ct)
+    private async Task DownloadAsync(
+        string installPath, IntegrityProblem problem,
+        IProgress<DownloadProgress> progress, CancellationToken ct)
     {
         var destination = Path.Combine(installPath, problem.Path);
-        var dir = Path.GetDirectoryName(destination);
-        if (dir is not null) Directory.CreateDirectory(dir);
 
-        var temp = $"{destination}.{Guid.NewGuid():N}.uncapped-tmp";
+        await new ResilientDownload(_http).FetchAsync(
+            problem.Url!, destination, problem.Size, problem.Sha256, problem.Path, progress, ct);
+    }
 
+    /// <summary>
+    /// Free bytes on the drive holding the install, or -1 when it cannot be determined — in
+    /// which case the check is skipped rather than guessed at. Refusing a repair because we
+    /// could not read a drive would be worse than attempting one that runs out of room.
+    /// </summary>
+    private static long FreeSpaceFor(string installPath)
+    {
         try
         {
-            using var response = await _http.GetAsync(problem.Url, HttpCompletionOption.ResponseHeadersRead, ct);
-            response.EnsureSuccessStatusCode();
-
-            await using (var source = await response.Content.ReadAsStreamAsync(ct))
-            await using (var target = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None,
-                                                     1024 * 256, useAsync: true))
-                await source.CopyToAsync(target, ct);
-
-            var length = new FileInfo(temp).Length;
-            if (problem.Size > 0 && length != problem.Size)
-                throw new InvalidDataException($"expected {problem.Size:N0} bytes, got {length:N0}");
-
-            // Hash, not just length. Repair exists because a file was wrong, so accepting a
-            // replacement on size alone would let the same class of fault straight back in —
-            // and this is the one download path where the file being restored is the one the
-            // client is about to load.
-            if (!string.IsNullOrEmpty(problem.Sha256))
-            {
-                var actual = await Hashing.Sha256FileAsync(temp, ct);
-                if (!Hashing.Matches(actual, problem.Sha256))
-                    throw new InvalidDataException(
-                        $"checksum mismatch (expected {problem.Sha256[..Math.Min(12, problem.Sha256.Length)]}…, " +
-                        $"got {actual[..12]}…)");
-            }
-
-            File.Move(temp, destination, overwrite: true);
+            var root = Path.GetPathRoot(Path.GetFullPath(installPath));
+            return string.IsNullOrEmpty(root) ? -1 : new DriveInfo(root).AvailableFreeSpace;
         }
-        finally
-        {
-            if (File.Exists(temp)) { try { File.Delete(temp); } catch { /* best effort */ } }
-        }
+        catch { return -1; }
     }
+
+    private static string Gb(long bytes) =>
+        bytes >= 1024L * 1024 * 1024
+            ? $"{bytes / 1024.0 / 1024 / 1024:0.0} GB"
+            : $"{bytes / 1024.0 / 1024:0.0} MB";
 }

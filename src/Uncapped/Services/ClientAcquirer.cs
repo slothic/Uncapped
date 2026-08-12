@@ -397,143 +397,46 @@ public sealed class ClientAcquirer
     }
 
     /// <summary>
-    /// Downloads one base file, resuming a partial transfer rather than starting again.
-    ///
-    /// ★★ THIS IS THE PART THAT MUST NOT REINTRODUCE THE BUG IT IS FIXING. A truncated MPQ left
-    /// on disk is indistinguishable, to the player, from the wrong-build MPQ this whole change
-    /// exists to eliminate: both read as "your files are corrupt, PLAY is disabled". So the
-    /// download lands on a .uncapped-tmp file and is moved into place ONLY after its sha256
-    /// matches. An interrupted install leaves debris the next attempt resumes from, never a
-    /// short file the client would try to load.
-    ///
-    /// .uncapped-tmp is already in the baseline's toleratedPatterns, so the leftovers cannot be
-    /// reported as foreign files either.
+    /// Downloads one base file through <see cref="ResilientDownload"/>, translating its
+    /// per-file progress into the overall fraction across every file still to fetch.
     /// </summary>
     private async Task DownloadBaseFileAsync(
         ClientBaseFile file, string full, string name,
         IProgress<AcquireProgress> progress, long totalBytes, long bytesBefore,
         CancellationToken ct)
     {
-        var temp = full + ".uncapped-tmp";
+        var reporter = new Progress<DownloadProgress>(p =>
+        {
+            var detail = p.Stage switch
+            {
+                DownloadStage.Verifying => "checking the file is intact",
+                DownloadStage.Retrying => $"connection problem, resuming ({p.Attempt} of {p.Attempts})",
+                _ => $"{Gb(p.Bytes)} of {Gb(file.Size)}",
+            };
 
-        void Report(long have, string detail) =>
+            // Every stage reports bytes actually on disk for this file, and a resume keeps
+            // them, so the bar advances monotonically and never rewinds past the files already
+            // finished.
+            var done = bytesBefore + p.Bytes;
+
             progress.Report(new AcquireProgress(
                 $"Downloading the game client — {name}",
-                totalBytes > 0 ? (double)(bytesBefore + have) / totalBytes : 0,
+                totalBytes > 0 ? (double)done / totalBytes : 0,
                 detail));
+        });
 
-        Exception? last = null;
-
-        for (var attempt = 1; attempt <= BaseFileAttempts; attempt++)
+        try
         {
-            ct.ThrowIfCancellationRequested();
-
-            long have = 0;
-            try { if (File.Exists(temp)) have = new FileInfo(temp).Length; }
-            catch { have = 0; }
-
-            // More on disk than the file is meant to be means the temp belongs to something
-            // else, or to a version of this file we are no longer fetching. Start over.
-            if (have > file.Size)
-            {
-                try { File.Delete(temp); } catch { /* the truncate below still handles it */ }
-                have = 0;
-            }
-
-            try
-            {
-                if (have < file.Size)
-                {
-                    await TransferAsync(file, temp, have, Report, ct);
-                }
-
-                var length = new FileInfo(temp).Length;
-                if (length != file.Size)
-                    throw new IOException($"expected {file.Size:N0} bytes, got {length:N0}");
-
-                Report(file.Size, "verifying");
-
-                var actual = await Hashing.Sha256FileAsync(temp, ct);
-                if (!Hashing.Matches(actual, file.Sha256))
-                {
-                    // The bytes are wrong, so nothing about them is worth resuming from.
-                    try { File.Delete(temp); } catch { /* best effort */ }
-                    throw new InvalidDataException(
-                        $"checksum mismatch (expected {file.Sha256[..Math.Min(12, file.Sha256.Length)]}…, " +
-                        $"got {actual[..12]}…)");
-                }
-
-                File.Move(temp, full, overwrite: true);
-                return;
-            }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
-            {
-                last = ex;
-                Log.Write($"client acquire: {file.RelativePath} attempt {attempt}/{BaseFileAttempts} " +
-                          $"failed — {ex.GetType().Name}: {ex.Message}");
-
-                if (attempt < BaseFileAttempts)
-                {
-                    progress.Report(new AcquireProgress(
-                        $"Downloading the game client — {name}",
-                        totalBytes > 0 ? (double)bytesBefore / totalBytes : 0,
-                        $"connection problem, retrying ({attempt} of {BaseFileAttempts})"));
-
-                    await Task.Delay(TimeSpan.FromSeconds(3 * attempt), ct);
-                }
-            }
+            await new ResilientDownload(_http)
+                .FetchAsync(file.Url, full, file.Size, file.Sha256, file.RelativePath, reporter, ct,
+                            BaseFileAttempts);
         }
-
-        throw new IOException(
-            $"{name} could not be downloaded after {BaseFileAttempts} attempts. {last?.Message}",
-            last);
-    }
-
-    /// <summary>
-    /// Streams the remainder of a file onto the temp, asking for a byte range when there is
-    /// already something there. A host that ignores the range and replies 200 is handled by
-    /// starting the file again rather than appending a second copy of it onto the first.
-    /// </summary>
-    private async Task TransferAsync(
-        ClientBaseFile file, string temp, long have, Action<long, string> report, CancellationToken ct)
-    {
-        using var request = new HttpRequestMessage(HttpMethod.Get, file.Url);
-        if (have > 0) request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(have, null);
-
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
-
-        var resuming = have > 0 && response.StatusCode == System.Net.HttpStatusCode.PartialContent;
-        if (have > 0 && !resuming)
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
         {
-            Log.Write($"client acquire: {file.RelativePath} — host ignored the range request, restarting");
-            have = 0;
-        }
-
-        var mode = resuming ? FileMode.Append : FileMode.Create;
-
-        await using var input = await response.Content.ReadAsStreamAsync(ct);
-        await using var output = new FileStream(
-            temp, mode, FileAccess.Write, FileShare.None, 1024 * 256, useAsync: true);
-
-        var buffer = new byte[1024 * 256];
-        var copied = have;
-        var lastReport = 0L;
-        int read;
-
-        while ((read = await input.ReadAsync(buffer, ct)) > 0)
-        {
-            await output.WriteAsync(buffer.AsMemory(0, read), ct);
-            copied += read;
-
-            // Every few MB rather than every buffer: this loop runs ~65,000 times per GB and
-            // the UI cannot use more than a handful of updates a second.
-            if (copied - lastReport >= 4L * 1024 * 1024)
-            {
-                lastReport = copied;
-                report(copied, $"{Gb(copied)} of {Gb(file.Size)}");
-            }
+            // Named, because the caller's message is about the client as a whole and "it failed"
+            // without saying which of 26 files is not actionable.
+            throw new IOException($"{name} {ex.Message}", ex);
         }
     }
 

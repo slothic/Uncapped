@@ -52,6 +52,9 @@
     <Compile Include="..\..\src\Uncapped\Services\RepairService.cs" />
     <Compile Include="..\..\src\Uncapped\Services\SyncService.cs" />
     <Compile Include="..\..\src\Uncapped\Services\ClientLocale.cs" />
+    <!-- The shared resume-and-retry download. RepairService and SyncService both call it, so
+         it is part of their dependency closure even though the harness never downloads. -->
+    <Compile Include="..\..\src\Uncapped\Services\ResilientDownload.cs" />
     <!-- The item cache: installed from the manifest, keyed on an epoch token. Every failure
          path is asserted to fall back to the old wipe, which is the safety net the owner
          chose in place of a server-side client-load gate. -->
