@@ -2551,91 +2551,10 @@ end)
 -- range, cooldown and mana cost live on their own lines and are still correct.
 -- ---------------------------------------------------------------------------
 
--- What to credit a spell's scaling to, resolved in this order:
---   1. SPELL_SCALING_OVERRIDE, keyed by exact spell name
---   2. "Physical damage" in the text                  -> attack power
---   3. the caster's class, for classes that have only one relevant stat
---   4. the damage school named in the text
---
--- Step 3 matters: a Warrior, Rogue, Hunter or Death Knight has no meaningful
--- spell power, so crediting one of their abilities to it is simply wrong even
--- when the ability deals magic damage. Casters are the mirror image.
-local AP, SP = "attack power", "spell power"
-
-local CLASS_DEFAULT_STAT = {
-    WARRIOR     = AP,
-    ROGUE       = AP,
-    HUNTER      = AP,
-    DEATHKNIGHT = AP,
-    MAGE        = SP,
-    WARLOCK     = SP,
-    PRIEST      = SP,
-}
--- PALADIN, DRUID and SHAMAN are deliberately absent: each has both melee and
--- caster specs, so the school named in the tooltip is the better signal.
-
-local SCHOOL_STAT = {
-    ["Physical"] = AP,
-    ["Holy"]     = SP,
-    ["Fire"]     = SP,
-    ["Frost"]    = SP,
-    ["Arcane"]   = SP,
-    ["Nature"]   = SP,
-    ["Shadow"]   = SP,
-}
-
--- Abilities whose scaling the rules above get wrong. Mostly hybrid melee
--- abilities that deal magic damage but scale from attack power. Extend freely --
--- one line each, and it wins over everything else.
-local SPELL_SCALING_OVERRIDE = {
-    -- Paladin: melee-weapon abilities dealing Holy damage
-    ["Seal of Righteousness"]   = AP,
-    ["Seal of Vengeance"]       = AP,
-    ["Seal of Corruption"]      = AP,
-    ["Seal of Command"]         = AP,
-    ["Crusader Strike"]         = AP,
-    ["Divine Storm"]            = AP,
-    ["Hammer of the Righteous"] = AP,
-    ["Shield of Righteousness"] = AP,
-    ["Avenger's Shield"]        = SP,
-    ["Hammer of Wrath"]         = SP,
-    -- Shaman: Nature damage off weapon/attack power
-    ["Stormstrike"]             = AP,
-    ["Lava Lash"]               = AP,
-    -- Druid: Feral abilities
-    ["Swipe (Bear)"]            = AP,
-    ["Maul"]                    = AP,
-    -- Death Knight: Shadow/Frost damage scaling from attack power
-    ["Death Coil"]              = AP,
-    ["Icy Touch"]               = AP,
-    ["Howling Blast"]           = AP,
-    ["Death and Decay"]         = AP,
-    ["Scourge Strike"]          = AP,
-    -- Hunter: Nature/Arcane stings off ranged attack power
-    ["Serpent Sting"]           = AP,
-    ["Arcane Shot"]             = AP,
-    ["Explosive Shot"]          = AP,
-}
-
--- Remove figures that came from the client's own arithmetic. Ranges go first,
--- then any remaining number of four or more digits -- that threshold keeps the
--- genuinely useful small ones ("for 3 sec", "within 8 yards") intact.
--- Remove ONLY figures the client worked out from your stats.
---
--- The previous version deleted any number of four or more digits and annotated
--- any line containing the word "damage". That was far too broad: "Improved
--- Cleave -- Increases the bonus damage done by your Cleave ability by 40%" has
--- no computed figure at all, yet it was being rewritten to claim it scaled with
--- spell power. Every talent, racial, passive, buff and item mentioning damage or
--- healing hit the same problem.
---
--- So match the specific shapes WoW uses for a computed figure: a number, or a
--- range, sitting directly against a damage/healing/restore phrase. Percentages,
--- durations, ranks, cooldowns, radii and talent scaling are all left untouched --
--- the client did not derive those from your stats, so they were never wrong.
---
--- Returns the new text and whether anything was actually removed. The caller
--- annotates only when something was, which is what keeps talents out of this.
+-- (The stat-guessing tables that used to live here were removed 2026-08-12 along
+--  with the annotation they fed -- see RewriteSpellTooltip. We show the real
+--  computed damage now, so guessing which stat produced it is both unnecessary
+--  and, as reported for Ferocious Bite, wrong.)
 local function StripComputedFigures(text)
     local changed = false
     local function drop(replacement)
@@ -2673,59 +2592,34 @@ local function StripComputedFigures(text)
 end
 
 local function RewriteSpellTooltip(tooltip)
-    -- 3.3.5 has no GetSpellName() on tooltips; the name is simply the first
-    -- left-hand line, which is also what the override table is keyed on.
-    local nameFS = _G[tooltip:GetName() .. "TextLeft1"]
-    local spellName = nameFS and nameFS:GetText() or nil
-    local governing = spellName and SPELL_SCALING_OVERRIDE[spellName] or nil
-    local annotated = false
+    --[[
+        ⚠⚠ THE ", based on your <stat>." ANNOTATION WAS REMOVED 2026-08-12.
 
-    local _, playerClass = UnitClass("player")
+        It existed for a world that no longer exists. When the $s placeholders were
+        stripped from the descriptions, a tooltip read "dealing Holy damage" with no
+        number at all, so the line was annotated with whichever stat the ability
+        scaled from -- better than nothing when nothing was the alternative.
 
+        We now send the REAL computed damage (USPELLDMG / USPELLDMGR), so the number
+        is on the tooltip and the annotation is pure downside: it was a GUESS, and it
+        guessed from the player's CLASS and the damage SCHOOL named in the text. That
+        is wrong for any ability whose scaling disagrees with its class default --
+        reported for a druid's Ferocious Bite, an energy finisher scaling off attack
+        power, which the class default confidently labelled "based on your spell
+        power". A player reading that builds the wrong character.
+
+        ★ Do not reintroduce a stat label unless the SERVER supplies which stat it
+          actually used. Inferring it client-side cannot be made correct: the same
+          school, the same class and the same wording legitimately scale from
+          different stats, which is exactly why this was wrong. The number is the
+          honest thing to show, and we already show it.
+    ]]
     for i = 2, tooltip:NumLines() do
         local fs = _G[tooltip:GetName() .. "TextLeft" .. i]
         if fs then
             local text = fs:GetText()
             if text then
-                local stripped, removed = StripComputedFigures(text)
-
-                -- Annotate only where a computed figure was actually removed.
-                -- A line that merely mentions damage -- every talent, racial and
-                -- passive in the game -- is left exactly as Blizzard wrote it.
-                if removed and not annotated then
-                    -- Physical always means attack power. Otherwise fall back to
-                    -- the caster's class where that is unambiguous, and only then
-                    -- to the school named in the line.
-                    local stat = governing
-                    if not stat and text:find("Physical") then
-                        stat = AP
-                    end
-                    if not stat then
-                        stat = CLASS_DEFAULT_STAT[playerClass]
-                    end
-                    if not stat then
-                        for school, mapped in pairs(SCHOOL_STAT) do
-                            if text:find(school) then
-                                stat = mapped
-                                break
-                            end
-                        end
-                    end
-                    stat = stat or SP
-
-                    -- Insert before the trailing full stop of the first sentence
-                    -- so it reads naturally rather than being bolted on the end.
-                    local head, tail = stripped:match("^(.-%S)%.%s*(.*)$")
-                    if head then
-                        stripped = head .. ", based on your " .. stat .. "."
-                        if tail and tail ~= "" then
-                            stripped = stripped .. " " .. tail
-                        end
-                    else
-                        stripped = stripped .. " (based on your " .. stat .. ")"
-                    end
-                    annotated = true
-                end
+                local stripped = StripComputedFigures(text)
 
                 if stripped ~= text then
                     fs:SetText(stripped)

@@ -301,8 +301,87 @@ local function BuildFrame(parent)
     frame:SetPoint("TOPLEFT", 0, 0)
     frame:SetPoint("BOTTOMRIGHT", 0, 0)
 
+    --[[ ----------------------------------------------------------------------
+         SUB-TABS -- and why Mythic+ gets exactly ONE dashboard tab.
+
+         Owner ruling 2026-08-12: the whole keystone system moves into the
+         Dashboard. It cannot move as four tabs. UncappedDashboardConfig.lua
+         documents the nav column's budget: 15 tabs today, ONE slot left, 17
+         clips off the bottom of the window -- and the 16th alone drops the
+         window's zoom ceiling to ~1.01 for everyone, because REQUIRED_HEIGHT is
+         in window units and the player's zoom multiplies it.
+
+         So everything M+ lives behind this strip instead: Your Keystone, Reward
+         Preview, and later Affixes / History / Leaderboard. Costs zero nav slots
+         and leaves the zoom ceiling where it is.
+
+         ★ ADD SECTIONS HERE, NOT TO Core.TABS.
+      ------------------------------------------------------------------------ ]]
+    local SUBTAB_H = 26
+
+    local sections, subButtons = {}, {}
+    local activeSection
+
+    -- Forward-declared so the buttons can call it before the sections table is
+    -- populated at the bottom of this function.
+    local ShowSection
+
+    local strip = CreateFrame("Frame", nil, frame)
+    strip:SetPoint("TOPLEFT", 0, 0)
+    strip:SetPoint("TOPRIGHT", 0, 0)
+    strip:SetHeight(SUBTAB_H)
+
+    local SUBTABS = {
+        { key = "keystone", label = "Your Keystone" },
+        { key = "rewards",  label = "Reward Preview" },
+    }
+
+    local sx = 8
+    for _, spec in ipairs(SUBTABS) do
+        local b = CreateFrame("Button", nil, strip, "UIPanelButtonTemplate")
+        b:SetHeight(20)
+        b:SetWidth(max(90, strlen(spec.label) * 8))
+        b:SetPoint("TOPLEFT", sx, -3)
+        b:SetText(spec.label)
+        b:SetScript("OnClick", function() ShowSection(spec.key) end)
+        subButtons[spec.key] = b
+        sx = sx + b:GetWidth() + 4
+    end
+
+    -- Shows one section and hides the rest. A section is just a list of regions,
+    -- so a FontString parented straight to `frame` is as hideable as a Frame is --
+    -- which matters because the reward preview's heading and formula line are
+    -- exactly that.
+    ShowSection = function(key)
+        if not sections[key] then return end
+        activeSection = key
+
+        for k, parts in pairs(sections) do
+            local on = (k == key)
+            for _, region in ipairs(parts) do
+                if region then
+                    if on then region:Show() else region:Hide() end
+                end
+            end
+            if subButtons[k] then
+                if on then subButtons[k]:Disable() else subButtons[k]:Enable() end
+            end
+        end
+
+        -- Let a section refresh itself as it comes into view, so switching to it
+        -- never shows a stale number.
+        if key == "keystone" and _G.UncappedKeystoneRun and _G.UncappedKeystoneRun.UI then
+            _G.UncappedKeystoneRun.UI.Activate()
+        elseif key == "rewards" then
+            Keystone.Render()
+            Request()
+        end
+    end
+    Keystone.ShowSection = function(key) if ShowSection then ShowSection(key) end end
+    Keystone.CurrentSection = function() return activeSection or "keystone" end
+
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", 8, -6)
+    title:SetPoint("TOPLEFT", 8, -6 - SUBTAB_H)
     title:SetText("Mythic+ Reward Preview")
 
     local formula = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -375,6 +454,42 @@ local function BuildFrame(parent)
     right:SetPoint("TOPLEFT", listBg, "TOPRIGHT", 18, 0)
     right:SetPoint("BOTTOMRIGHT", -8, 8)
 
+    --[[ ----------------------------------------------------------------------
+         Register the two sections, then open on the keystone.
+
+         `keystone` is the default deliberately: managing and STARTING a key is
+         what people came for once the item is gone, and the reward preview is
+         the thing you consult occasionally. It is also the section that answers
+         reports #655 and #657.
+
+         The run panel lives in its own file so this one keeps doing one job.
+         Guarded because the two ship as separate files in the same payload and a
+         partial install must degrade to "the preview still works", not to a Lua
+         error on the Dashboard's most-used tab.
+      ------------------------------------------------------------------------ ]]
+    sections["rewards"] = { title, formula, listBg, right }
+
+    if _G.UncappedKeystoneRun and _G.UncappedKeystoneRun.UI then
+        local runFrame = _G.UncappedKeystoneRun.UI.EmbedInto(frame)
+        if runFrame then
+            -- EmbedInto anchors to fill its parent; re-anchor under the strip so
+            -- the sub-tabs stay clickable.
+            runFrame:ClearAllPoints()
+            runFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -SUBTAB_H)
+            runFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+            sections["keystone"] = { runFrame }
+        end
+    end
+
+    if not sections["keystone"] then
+        -- No run panel in this install: drop its sub-tab rather than leaving a
+        -- button that does nothing when pressed.
+        if subButtons["keystone"] then subButtons["keystone"]:Hide() end
+        ShowSection("rewards")
+    else
+        ShowSection("keystone")
+    end
+
     local keyLabel = right:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     keyLabel:SetPoint("TOPLEFT", 0, 0)
     keyLabel:SetText("Keystone level")
@@ -438,6 +553,16 @@ end
 
 function Keystone.UI.Activate()
     if not frame then return end
+
+    -- Refresh whichever SECTION is open rather than always the reward preview.
+    -- ShowSection already knows how to bring a section up to date, so re-showing
+    -- the current one is both the refresh and the guarantee that the strip's
+    -- enabled/disabled states match what is on screen.
+    if Keystone.ShowSection and Keystone.CurrentSection then
+        Keystone.ShowSection(Keystone.CurrentSection())
+        return
+    end
+
     Keystone.Render()   -- paint from cache first
     Request()           -- then refresh
 end

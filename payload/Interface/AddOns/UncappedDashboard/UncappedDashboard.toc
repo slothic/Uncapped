@@ -18,6 +18,10 @@ UncappedVault\UncappedVault_UI.lua
 UncappedScrolls\UncappedScrolls.lua
 UncappedProgress\UncappedProgress.lua
 UncappedPrestige\UncappedPrestige.lua
+## Run panel loads FIRST: UncappedKeystone's BuildFrame caches its frame on the
+## first embed, so if it ran before UncappedKeystoneRun existed the "Your
+## Keystone" sub-tab would be missing for the rest of the session.
+UncappedKeystone\UncappedKeystoneRun.lua
 UncappedKeystone\UncappedKeystone.lua
 UncappedTransmog\UncappedTransmogData.lua
 UncappedTransmog\UncappedTransmog.lua
