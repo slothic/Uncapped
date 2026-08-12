@@ -88,6 +88,7 @@ local CT_ApplyBlizzardSurfaces
 local InitSavedVars
 local RefreshOptionsPanel
 local ApplyStatusTextDefaults
+local ApplyCameraZoomDefaults
 
 -- ---------------------------------------------------------------------------
 -- Bar text: wrap Blizzard's formatter instead of overlaying it.
@@ -762,6 +763,7 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         -- Late enough that the client's own CVar load has finished and will not
         -- overwrite us (see the note on ApplyStatusTextDefaults).
         if ApplyStatusTextDefaults then ApplyStatusTextDefaults() end
+        if ApplyCameraZoomDefaults then ApplyCameraZoomDefaults() end
     end
 
     if event == "PLAYER_ENTERING_WORLD" or event == "PARTY_MEMBERS_CHANGED" then
@@ -1054,6 +1056,51 @@ ApplyStatusTextDefaults = function()
         pcall(SetCVar, cv, "1")
     end
     pcall(SetCVar, "statusTextPercentage", "0")
+end
+
+-- One-time camera-zoom migration (report #616, "allow camera to zoom out even more").
+--
+-- Same shape and same reasoning as ApplyStatusTextDefaults directly above: driven by
+-- PLAYER_ENTERING_WORLD rather than ADDON_LOADED, because the client finishes loading
+-- its own saved CVars after ADDON_LOADED and would overwrite us; and gated on a
+-- versioned SavedVariables flag, so a player who deliberately zooms back in keeps
+-- their choice instead of having it re-forced on every login.
+--
+-- ★ WHY AN ADDON AND NOT A CLIENT PATCH: the ceiling is a CVar, not a compiled
+--   constant, and the client's own options panel already exposes half of it.
+--   Interface\FrameXML\InterfaceOptionsPanels.lua line 1440 -- extracted from
+--   patch-enUS-3.MPQ with Launcher\tools\mpq\mpqlib.py, not remembered -- reads:
+--       cameraDistanceMaxFactor = { text = "MAX_FOLLOW_DIST", minValue = 1, maxValue = 2, ... }
+--   so 2.0 is the client's OWN maximum for the factor. Almost nobody has moved that
+--   slider off its default of 1, which is why "let me zoom out further" reads as a
+--   missing feature when half of it shipped with the game.
+--
+--   The other half is cameraDistanceMax, which the client registers with a default of
+--   15.0 (the literal sits beside the CVar name in the client binary) and which has NO
+--   slider at all -- there is no way for a player to raise it from the interface.
+--   Effective maximum zoom is cameraDistanceMax x cameraDistanceMaxFactor.
+--
+-- ⚠ 50 IS A REQUEST, NOT A VERIFIED CEILING. The client keeps a registered range per
+--   CVar ("Value out of range (%f - %f)" lives in the same string block in the binary)
+--   and that upper bound was never proved. So the value is asked for and then READ
+--   BACK: whatever the client actually granted is what gets recorded, and a refusal
+--   degrades to "we kept the factor bump", never to a broken camera. Do NOT replace
+--   this with a bare SetCVar and a remembered number -- that is precisely the mistake
+--   the 777-versus-1277 farclip note exists to prevent.
+ApplyCameraZoomDefaults = function()
+    local db = Uncapped64bitUIDB
+    if not db or db.cameraZoomMigrated1 then return end
+    db.cameraZoomMigrated1 = true
+
+    -- Factor first: 2.0 is proven from the client's own options panel, so if only one
+    -- of the two takes, this is the one worth having.
+    pcall(SetCVar, "cameraDistanceMaxFactor", "2")
+    pcall(SetCVar, "cameraDistanceMax", "50")
+
+    -- Record what the client actually accepted, so a later session can find out whether
+    -- the 50 was honoured without having to guess at it again.
+    local ok, granted = pcall(GetCVar, "cameraDistanceMax")
+    db.cameraDistanceMaxGranted = ok and tonumber(granted) or nil
 end
 
 -- (The old DisableBlizzardFCT lived here. It turned off Blizzard's floating AND

@@ -14,6 +14,11 @@
                    "directDownloadUrl":  "",
                    "directDownloadUrls":  [
                                               {
+                                                  "url":  "https://archive.org/download/WoW_3.3.5-12340/3.3.5-12340_Common.zip",
+                                                  "name":  "3.3.5-12340_Common.zip",
+                                                  "bytes":  15084499971
+                                              },
+                                              {
                                                   "url":  "https://archive.org/download/WoW_3.3.5-12340/3.3.5-12340_enUS.zip",
                                                   "name":  "3.3.5-12340_enUS.zip",
                                                   "bytes":  2628185615
@@ -1626,8 +1631,8 @@
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
-                      "sha256":  "e9a99995378009e2be789d85624bc4bb5e7d44dbe9c45fc9d04a57f28db6a792",
-                      "size":  144767
+                      "sha256":  "f0dd110828accb9b08a0f9a302d85252260aeb807ba22062a8b8443582c63a1f",
+                      "size":  147653
                   },
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.toc",
@@ -1800,8 +1805,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedAnima/UncappedAnima.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedAnima/UncappedAnima.lua",
-                      "sha256":  "a396de287032da34acf104e82c1e1a83974d02a6a92a4934be15a46b1efef0b5",
-                      "size":  40584
+                      "sha256":  "e41cb32dec641ca3d872ca33f738ef79dec027de7a08c9db94ef45cd8b829753",
+                      "size":  39137
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedForge/UncappedForge.lua",
@@ -2298,7 +2303,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "55d18103f30e272fc3de01cbd0164241c60a64ebac6da414b4f7a7404c169ea3",
+                      "sha256":  "111efd803511ff4444ce07d543cefbbd756de46acc611d9fe95b0e58c77eca38",
                       "size":  3593
                   },
                   {
@@ -2981,9 +2986,9 @@
                   },
                   {
                       "path":  "Data/enUS/patch-enUS-U.MPQ",
-                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.08.10b.MPQ",
-                      "sha256":  "d6b5cd1750fcc249ca57e585c9ed43e6c384491225b975ab4130a7c4433b04fb",
-                      "size":  25252778
+                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.08.13a.MPQ",
+                      "sha256":  "e5e4712b24d33641de1a8813a7e3299f5a3116845d4ab06d757631c5ffb7af1f",
+                      "size":  29815588
                   },
                   {
                       "path":  "UncappedClient.dat",
@@ -2993,8 +2998,8 @@
                   },
                   {
                       "path":  "UncappedCT.dll",
-                      "url":  "http://152.53.115.249/patches/UncappedCT-2026.08.12a.dll",
-                      "sha256":  "7b5d9ed0a60ead447c0d0892547ffbd2c44ec8c4f5b7d2be24d9defbf494fd12",
+                      "url":  "http://152.53.115.249/patches/UncappedCT-2026.08.13a.dll",
+                      "sha256":  "0033d3d669e9d1272b2e9622e5428925413d42b92d453cc81068e929bd7d9918",
                       "size":  441344
                   }
               ],
