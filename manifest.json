@@ -14,12 +14,7 @@
                    "directDownloadUrl":  "",
                    "directDownloadUrls":  [
                                               {
-                                                  "url":  "https://archive.org/download/WoW_3.3.5-12340/3.3.5-12340_Common.zip",
-                                                  "name":  "3.3.5-12340_Common.zip",
-                                                  "bytes":  15084499971
-                                              },
-                                              {
-                                                  "url":  "https://archive.org/download/WoW_3.3.5-12340/3.3.5-12340_enUS.zip",
+                                                  "url":  "http://152.53.115.249/patches/3.3.5-12340_enUS.zip",
                                                   "name":  "3.3.5-12340_enUS.zip",
                                                   "bytes":  2628185615
                                               }

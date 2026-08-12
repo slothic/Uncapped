@@ -546,23 +546,31 @@ $manifest = [ordered]@{
         directDownloadUrl = $DirectDownloadUrl
         # HTTP fallback, used only when BitTorrent fails outright.
         #
-        # The Internet Archive rather than a private-server mirror: measured from home,
-        # ChromieCraft's own host managed ~94 KB/s, demanded a Referer, and then started
-        # refusing connections -- 19 GB at that rate is over two days. The Archive sustained
-        # ~1 MB/s, serves 200/application/zip with Accept-Ranges, and does not police
-        # hotlinking. Still far slower than the swarm; it is a last resort, not a preference.
+        # ★ 2026-08-13: THIS LIST IS NOW ONE ENTRY, SERVED BY US. Two separate
+        # failures drove that, and both are worth knowing before anyone adds a
+        # third-party URL back.
         #
-        # Split by language, so BOTH parts are required. Common alone is a client with no
-        # locale data: it installs, it launches, and it is broken in a way that looks like
-        # our bug. Sizes are the real Content-Length values.
+        # 1. Common.zip was REMOVED, not repointed. The Archive's copy of 3.3.5a
+        #    is a DIFFERENT BUILD from the one baseline.json was generated
+        #    against -- six files differ (common, common-2, expansion, lichking,
+        #    patch-2, Scan.dll) -- so the launcher downloaded a client and then
+        #    its own integrity check declared it corrupt and disabled PLAY. The
+        #    acquirer now pulls every required base file from our own host after
+        #    unpacking, which makes acquisition and verification agree by
+        #    construction. Common.zip is redundant against that.
+        #
+        # 2. enUS.zip is MIRRORED ON OUR HOST. It is the only source of the
+        #    cinematics, which the baseline does not cover, so it could not
+        #    simply be dropped. But a player's log showed four consecutive
+        #    install failures and every one was a TLS stream dying mid-transfer
+        #    against archive.org -- never against this host. Mirroring removes
+        #    the last third party from the install path.
+        #
+        # The mirrored bytes were verified against the baseline entry by entry
+        # before being served. Size is the real Content-Length.
         directDownloadUrls = @(
             [ordered]@{
-                url   = 'https://archive.org/download/WoW_3.3.5-12340/3.3.5-12340_Common.zip'
-                name  = '3.3.5-12340_Common.zip'
-                bytes = 15084499971
-            },
-            [ordered]@{
-                url   = 'https://archive.org/download/WoW_3.3.5-12340/3.3.5-12340_enUS.zip'
+                url   = 'http://152.53.115.249/patches/3.3.5-12340_enUS.zip'
                 name  = '3.3.5-12340_enUS.zip'
                 bytes = 2628185615
             }
