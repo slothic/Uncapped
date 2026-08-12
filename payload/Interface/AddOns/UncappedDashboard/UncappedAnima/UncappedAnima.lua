@@ -157,8 +157,16 @@ IndexStats()
 local TREES = {
     { key = "tempo",   label = "Tempo",
       note = "Haste is converted to crit damage on this realm, so these are what actually make you faster. The first four trim the time a cast, swing, cooldown or GCD takes; Multicast skips the time entirely by repeating the cast for free. Buy the one your rotation is limited by." },
-    { key = "defence", label = "Defence",
-      note = "Inside a keystone your dodge, parry and block are held to a ceiling. These raise your own ceilings -- but the key's depth divides them back down, so investment buys you DEPTH, not immunity." },
+    -- ★ RETIRED 2026-08-12. The realm now caps total damage reduction and total
+    --   avoidance at 50% (block excluded), and all four defence stats sold
+    --   numbers that cap makes impossible -- Evasion and Deflection advertised
+    --   85% ceilings each, and Resolve stacked its own 95% reduction on top of
+    --   everything else. Every arena point spent on them was refunded.
+    --   `retired` empties the tab of cards; the note explains why. The tree stays
+    --   in the list rather than being deleted so the tab, the layout and the
+    --   server's own definition feed all keep working for the redesign.
+    { key = "defence", label = "Defence", retired = true,
+      note = "|cffffd100Coming soon.|r This tree has been retired while it is redesigned.\n\nEvasion, Deflection, Bulwark and Resolve were removed on 2026-08-12, and every arena point spent on them has been refunded automatically -- you did not need to do anything.\n\nWhy: total damage reduction and total avoidance are now capped at 50% (block is exempt and can still reach 100%). These four sold ceilings that cap makes unreachable, and Resolve alone stacked to 97.5% reduction on top of everything else." },
     { key = "utility", label = "Utility",
       note = "Quality-of-life stats that work everywhere, mounted or on foot, keystone or open world." },
 }
@@ -429,9 +437,19 @@ end
 local function Relayout()
     if not frame then return end
 
+    -- ★ A retired tree renders NO cards, only its note. Filtered here rather
+    --   than at build time because the server sends its own stat definitions
+    --   (ANIMADEF) and would otherwise put the retired cards straight back.
+    local retiredTree = false
+    for _, t in ipairs(TREES) do
+        if t.key == db.tree and t.retired then retiredTree = true end
+    end
+
     local treeCards = {}
-    for _, card in ipairs(cards or {}) do
-        if card.def.tree == db.tree then treeCards[#treeCards + 1] = card end
+    if not retiredTree then
+        for _, card in ipairs(cards or {}) do
+            if card.def.tree == db.tree then treeCards[#treeCards + 1] = card end
+        end
     end
 
     if animaScroll then
