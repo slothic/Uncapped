@@ -76,7 +76,71 @@ local filteredProc = {}     -- current visible subset of `processable`
 -- Bar" whichever order the words are typed in.
 -- ---------------------------------------------------------------------------
 local SEARCH_DEBOUNCE = 0.12
-local SEARCH_HINT = { craft = "Search recipes...", process = "Search materials..." }
+local SEARCH_HINT = { craft = "Search recipes..." }
+
+-- The `kinds` bitmask on a FRGPROCROW: which bulk operations this stack actually
+-- supports. The detail pane already described them correctly; the BUTTONS did not
+-- consult it, so a render-only stack still offered Mill/Prospect/Disenchant --
+-- three controls that could not do anything with what you had selected.
+local KIND_MILL       = 1
+local KIND_PROSPECT   = 2
+local KIND_DISENCHANT = 4
+local KIND_RENDER     = 8
+
+--[[
+    The bulk-processing VIEWS.
+
+    Owner 2026-08-12: rendering and disenchanting each get their own tab. They used
+    to share one "Bulk processing" list that showed every processable stack and all
+    four action buttons regardless of what the selected row supported.
+
+    Table-driven rather than three near-identical branches: a view is just a label,
+    a kinds mask and a search hint, so the list filter, the dropdown, the search
+    hint and the button row all read from ONE place. Adding a fourth is a row here
+    and nothing else -- which is the only reason splitting these is cheap.
+
+    `mask` does double duty: it filters the LIST to rows that support the view, and
+    it gates which BUTTONS may appear (intersected with the row's own kinds, so a
+    stack that mills but cannot prospect only offers Mill).
+]]
+local PROC_VIEWS = {
+    mill = {
+        label = "Milling",
+        mask  = KIND_MILL,
+        hint  = "Search herbs...",
+        blurb = { "Every herb in your Vault that can be milled.",
+                  "Pick a row, then Mill All." },
+    },
+    prospect = {
+        label = "Prospecting",
+        mask  = KIND_PROSPECT,
+        hint  = "Search ore...",
+        blurb = { "Every ore in your Vault that can be prospected.",
+                  "Pick a row, then Prospect All." },
+    },
+    disenchant = {
+        label = "Disenchanting",
+        mask  = KIND_DISENCHANT,
+        hint  = "Search gear to disenchant...",
+        blurb = { "Everything in your Vault that can be disenchanted.",
+                  "Pick a row, then Disenchant All." },
+    },
+    render = {
+        label = "Rendering",
+        mask  = KIND_RENDER,
+        hint  = "Search things to render...",
+        blurb = { "Everything in your Vault that renders down into something else.",
+                  "Pick a row, then Render All." },
+    },
+}
+
+-- Dropdown order. A plain table so the order is deliberate rather than whatever
+-- pairs() happens to yield -- that ordering is not stable across sessions.
+local PROC_VIEW_ORDER = { "mill", "prospect", "disenchant", "render" }
+
+local function ProcView(mode)
+    return mode and PROC_VIEWS[mode] or nil
+end
 
 local searchRaw = ""        -- exactly what was typed, for the "no matches" line
 local searchQuery = ""      -- trimmed + lowercased
@@ -382,9 +446,20 @@ local function ApplyFilter()
     -- The same box filters the bulk-processing view, which is the other list
     -- this window can show. `processable` arrives already ordered by stack size
     -- (see FRGPROCEND), so this only ever drops rows -- never reorders them.
+    -- [Custom] The Rendering tab is this same list restricted to rows that can
+    -- ACTUALLY render. No new server call and no protocol change: `kinds` already
+    -- rides on every FRGPROCROW, it was simply never used to filter.
+    local view = frame and ProcView(frame.mode)
+
     filteredProc = {}
     for _, entry in ipairs(processable) do
-        if MatchesSearch(ProcessNameLower(entry), entry.item) then
+        -- No view (still on a crafting tab) keeps every row: the list is not on
+        -- screen, and filtering it to nothing would only make a later switch
+        -- flash empty before the next ApplyFilter.
+        local kindOk = (not view)
+            or (bit.band(entry.kinds or 0, view.mask) ~= 0)
+
+        if kindOk and MatchesSearch(ProcessNameLower(entry), entry.item) then
             filteredProc[#filteredProc + 1] = entry
         end
     end
@@ -650,7 +725,7 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
         staging.proc = {}
         table.sort(processable, function(a, b) return a.count > b.count end)
         ApplyFilter()   -- rebuilds filteredProc against the current query
-        if frame and frame.mode == "process" then RefreshList() end
+        if frame and ProcView(frame.mode) then RefreshList() end
 
     elseif body:find("^FRGQUOTED:") then
         local cost, buy, tokenOnly, unbuyable = body:match("^FRGQUOTED:(%d+):(%d+):(%d+):(%d+)$")
@@ -794,7 +869,7 @@ end
 function RefreshList()
     if not frame or not listButtons then return end
 
-    local isProcess = frame.mode == "process"
+    local isProcess = ProcView(frame.mode) ~= nil
     local source = isProcess and filteredProc or filtered
     local offset = FauxScrollFrame_GetOffset(listScroll) or 0
 
@@ -856,7 +931,28 @@ function RefreshList()
                 button.spell = entry.spell
             end
 
-            if (button.spell and button.spell == selectedSpell) then
+            --[[
+                Selection highlight, for BOTH kinds of row.
+
+                It used to test `button.spell` only. A processing row deliberately
+                sets `spell = nil` and carries `entry` instead, so the bulk lists
+                never highlighted anything: you clicked a meat, the detail pane
+                changed, and the list gave you no clue which line you were on.
+                Owner, with a screenshot of exactly that: "I can't see that i have
+                highlight crawler meat, can you? :P"
+
+                Compared by IDENTITY, not by item id -- `detail.processEntry` IS
+                one of the entries in this list, so the pointer test is exact and
+                needs no key.
+            ]]
+            local selectedRow
+            if button.spell then
+                selectedRow = (button.spell == selectedSpell)
+            else
+                selectedRow = (button.entry ~= nil and button.entry == detail.processEntry)
+            end
+
+            if selectedRow then
                 button.highlight:Show()
             else
                 button.highlight:Hide()
@@ -921,20 +1017,25 @@ function RefreshDetail()
         end
     end
 
-    if frame.mode == "process" then
-        detail.title:SetText("Bulk processing")
-        AddLine("Everything in your Vault that can be milled, prospected,", 0.8, 0.8, 0.8)
-        AddLine("disenchanted or rendered down. Pick a row, then a button.", 0.8, 0.8, 0.8)
+    local procView = ProcView(frame.mode)
+    if procView then
+        detail.title:SetText(procView.label)
+        for _, line in ipairs(procView.blurb) do
+            AddLine(line, 0.8, 0.8, 0.8)
+        end
         AddLine(" ")
         local selected = detail.processEntry
+        -- `or 0`: a row arriving without kinds used to reach bit.band(nil, ...),
+        -- which is a hard Lua error and takes the whole detail pane down with it.
+        local selKinds = selected and selected.kinds or 0
         if selected then
             local name = ProcessName(selected)
             local perOp = selected.perOp or 5
             AddLine(name .. "  |cff808080x" .. Commafy(selected.count) .. "|r", 1, 0.82, 0)
-            if bit.band(selected.kinds, 1) ~= 0 then AddLine("Millable (5 per operation)", 0.6, 1, 0.6) end
-            if bit.band(selected.kinds, 2) ~= 0 then AddLine("Prospectable (5 per operation)", 0.6, 1, 0.6) end
-            if bit.band(selected.kinds, 4) ~= 0 then AddLine("Disenchantable", 0.6, 1, 0.6) end
-            if bit.band(selected.kinds, 8) ~= 0 then
+            if bit.band(selKinds, KIND_MILL) ~= 0 then AddLine("Millable (5 per operation)", 0.6, 1, 0.6) end
+            if bit.band(selKinds, KIND_PROSPECT) ~= 0 then AddLine("Prospectable (5 per operation)", 0.6, 1, 0.6) end
+            if bit.band(selKinds, KIND_DISENCHANT) ~= 0 then AddLine("Disenchantable", 0.6, 1, 0.6) end
+            if bit.band(selKinds, KIND_RENDER) ~= 0 then
                 -- The rate is per source and worth stating plainly: it is the
                 -- difference between 15 and 100 of the same-looking pile.
                 AddLine(string.format("Renders down (%d per operation, %s total)",
@@ -951,10 +1052,83 @@ function RefreshDetail()
         -- and would be drawn underneath them.
         if frame.amount then frame.amount:Hide() end
         if frame.amountLabel then frame.amountLabel:Hide() end
-        detail.mill:Show()
-        detail.prospect:Show()
-        detail.disenchant:Show()
-        detail.render:Show()
+
+        --[[
+            A button appears only when the VIEW offers it AND the SELECTED row can
+            actually take it.
+
+            Both halves matter. The view keeps Rendering from showing a Mill
+            button; the row's own kinds keep a stack that mills but cannot prospect
+            from offering Prospect All. Previously all four showed unconditionally,
+            so three of them were usually wrong for whatever was selected -- which
+            is what made this screen feel broken.
+
+            With nothing selected there is nothing to act on, so none show.
+
+            ★ ANCHOR THE VISIBLE ONE TO THE BASE SLOT. The four are chained
+              left-to-right (prospect -> mill, disenchant -> prospect, ...), and a
+              hidden frame still resolves its anchor -- so a lone Render button
+              would draw in the fourth slot with three button-widths of empty space
+              to its left. Re-pointing the one we show is the whole fix.
+        ]]
+        local kinds = selKinds
+        local shown = nil
+
+        --[[
+            How many operations the selected stack can actually pay for.
+
+            Owner's screenshot: Crawler Meat x37, "Renders down (100 per operation,
+            0 total)", and a fully-lit Render All underneath it. The pane already
+            said it was impossible; the button still looked ready, and pressing it
+            just returned "outofmats". Greying it says the same thing before the
+            click instead of after.
+
+            The per-operation cost mirrors what the pane prints directly above --
+            `perOp` from the server for a render (it varies 100 down to 15 by source
+            ilvl, which is exactly why it cannot be a constant), and the fixed rates
+            the pane hardcodes for the rest. Reusing the displayed numbers means the
+            button and the text can never disagree.
+        ]]
+        local function OpsAvailable(entry, kindBit)
+            if not entry or not entry.count then return 0 end
+
+            local per
+            if kindBit == KIND_RENDER then
+                per = entry.perOp or 1
+            elseif kindBit == KIND_DISENCHANT then
+                per = 1
+            else
+                per = 5     -- mill and prospect
+            end
+
+            if per < 1 then per = 1 end
+            return math.floor(entry.count / per)
+        end
+
+        local function GateButton(button, kindBit)
+            if not button then return end
+            if bit.band(procView.mask, kindBit) ~= 0 and bit.band(kinds, kindBit) ~= 0 then
+                if not shown then
+                    button:ClearAllPoints()
+                    button:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 400, 60)
+                    shown = button
+                end
+                button:Show()
+
+                if OpsAvailable(selected, kindBit) > 0 then
+                    button:Enable()
+                else
+                    button:Disable()
+                end
+            else
+                button:Hide()
+            end
+        end
+
+        GateButton(detail.mill,       KIND_MILL)
+        GateButton(detail.prospect,   KIND_PROSPECT)
+        GateButton(detail.disenchant, KIND_DISENCHANT)
+        GateButton(detail.render,     KIND_RENDER)
         return
     end
 
@@ -1091,19 +1265,22 @@ end
 -- side of the screen, so the last professions were simply unreachable. A dropdown
 -- is a fixed width whatever the character knows.
 --
--- Bulk processing lives in the same dropdown rather than as a separate button:
--- it is another view of the same window, and one control that always says what
--- you are looking at beats two that can disagree.
+-- The bulk-processing views live in the same dropdown rather than as separate
+-- buttons: they are other views of the same window, and one control that always
+-- says what you are looking at beats several that can disagree. Since 2026-08-12
+-- there is one entry per operation (Milling, Prospecting, Disenchanting,
+-- Rendering) instead of a single mixed "Bulk processing" list.
 -- The one search box serves both lists, so its greyed hint says which one it is
 -- pointed at right now.
 local function UpdateSearchHint()
     if not (frame and frame.search and frame.search.placeholder) then return end
-    frame.search.placeholder:SetText(
-        (frame.mode == "process") and SEARCH_HINT.process or SEARCH_HINT.craft)
+    local view = ProcView(frame.mode)
+    frame.search.placeholder:SetText(view and view.hint or SEARCH_HINT.craft)
 end
 
 local function ProfessionLabel()
-    if frame and frame.mode == "process" then return "Bulk processing" end
+    local view = frame and ProcView(frame.mode)
+    if view then return view.label end
 
     for _, prof in ipairs(professions) do
         if prof.skill == selectedSkill then
@@ -1138,21 +1315,32 @@ function BuildProfessionTabs()
             UIDropDownMenu_AddButton(info, level)
         end
 
-        local sep = UIDropDownMenu_CreateInfo()
-        sep.text = "Bulk processing"
-        sep.value = "process"
-        sep.checked = (frame.mode == "process")
-        sep.func = function()
-            frame.mode = "process"
-            Send("FRGPROCLIST")
-            ApplyFilter()   -- the query carries over to this list too
-            ResetScroll()
-            UpdateSearchHint()
-            UIDropDownMenu_SetText(frame.profDrop, ProfessionLabel())
-            RefreshList()
-            RefreshDetail()
+        -- One entry per bulk-processing view. Same list underneath, filtered by the
+        -- view's kinds mask -- so each tab shows only what it can actually act on.
+        for _, key in ipairs(PROC_VIEW_ORDER) do
+            local view = PROC_VIEWS[key]
+            local entry = UIDropDownMenu_CreateInfo()
+            entry.text = view.label
+            entry.value = key
+            entry.checked = (frame.mode == key)
+            entry.func = function()
+                frame.mode = key
+                -- Re-asked per switch: the list is the player's VAULT, which the
+                -- job they just ran will have changed.
+                Send("FRGPROCLIST")
+                ApplyFilter()   -- the query carries over to this list too
+                ResetScroll()
+                -- Selecting a row in one view and switching leaves a selection the
+                -- new view may not contain at all, and the detail pane would then
+                -- describe something the list no longer shows.
+                detail.processEntry = nil
+                UpdateSearchHint()
+                UIDropDownMenu_SetText(frame.profDrop, ProfessionLabel())
+                RefreshList()
+                RefreshDetail()
+            end
+            UIDropDownMenu_AddButton(entry, level)
         end
-        UIDropDownMenu_AddButton(sep, level)
     end)
 
     UIDropDownMenu_SetWidth(frame.profDrop, 190)
@@ -1330,7 +1518,7 @@ local function BuildFrame(parent)
         button.right:SetPoint("RIGHT", button, "RIGHT", -4, 0)
 
         button:SetScript("OnClick", function(self)
-            if frame.mode == "process" then
+            if ProcView(frame.mode) then
                 detail.processEntry = self.entry
                 RefreshDetail()
             elseif self.spell then
@@ -1489,7 +1677,8 @@ local function BuildFrame(parent)
     end)
     detail.buy:Hide()
 
-    -- Bulk processing buttons, shown only on the processing tab
+    -- Bulk processing buttons. Shown only on a processing view, and only when the
+    -- view AND the selected row both support that operation -- see RefreshDetail.
     local function StartProcess(kind)
         local entry = detail.processEntry
         if not entry then return end
