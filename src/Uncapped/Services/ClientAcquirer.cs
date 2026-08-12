@@ -8,6 +8,17 @@ namespace Uncapped.Services;
 public sealed record AcquireProgress(string Status, double Fraction, string Detail);
 
 /// <summary>
+/// One file of the stock client that we host ourselves and pin by hash.
+///
+/// This is the type that closes the hole described on <see cref="ClientAcquirer"/>: every
+/// entry here comes from the same <see cref="Baseline"/> the integrity check verifies
+/// against, so a file installed through this path cannot disagree with the file the
+/// verifier is about to demand.
+/// </summary>
+/// <param name="RelativePath">Install-root-relative, already normalised for this OS.</param>
+public sealed record ClientBaseFile(string RelativePath, string Url, string Sha256, long Size);
+
+/// <summary>
 /// Fetches the base client when the player has none, via BitTorrent, with an HTTP fallback.
 ///
 /// Two deliberate choices here:
@@ -20,9 +31,45 @@ public sealed record AcquireProgress(string Status, double Fraction, string Deta
 ///
 /// - Disk space is checked before a single byte is transferred. The archive and its
 ///   extraction coexist, so roughly twice the client size must be free.
+///
+/// ★★ WHY ACQUISITION ENDS BY PULLING FILES FROM OUR OWN HOST
+///
+/// Whatever an archive hands us is then judged by <see cref="IntegrityVerifier"/> against
+/// <see cref="Baseline"/>, and until 2026-08-12 nothing guaranteed those two agreed. They did
+/// not. The Internet Archive's WoW_3.3.5-12340 item is a DIFFERENT 3.3.5a build from the one
+/// the baseline was generated against -- six required files differ:
+///
+///     Data/common-2.MPQ   1,810,430,636 expected   1,814,309,500 shipped
+///     Data/common.MPQ     2,881,154,862 expected   2,884,769,683 shipped
+///     Data/expansion.MPQ  1,921,219,911 expected   1,923,425,963 shipped
+///     Data/lichking.MPQ   2,553,948,549 expected   2,581,186,393 shipped
+///     Data/patch-2.MPQ    1,401,729,059 expected   1,403,129,115 shipped
+///     Scan.dll                   47,876 expected          52,996 shipped
+///
+/// Six differed and exactly those six were flagged; the two that matched passed. So anyone
+/// whose network blocked BitTorrent downloaded 17 GB through our own launcher and was then
+/// told by that same launcher that their files were corrupt, with PLAY permanently disabled.
+/// Their files were fine. We shipped them the wrong build.
+///
+/// The fix is structural rather than a new hash to trust: after ANY acquisition path, every
+/// required baseline file is checked and re-fetched from our host if it does not match. The
+/// archive becomes a fast way to get most of the bytes, never the authority on what they
+/// should be. That makes this class incapable of producing a client its own verifier rejects,
+/// which is the property that was missing.
+///
+/// The locale half is deliberately still taken from the Archive's per-language zip: it is the
+/// only source for Data/enUS/Interface/Cinematics and the Documentation tree, which we do not
+/// host, and it was measured to match the baseline exactly -- all 11 required MPQs and all 136
+/// tail entries. If that ever stops being true the loop below simply re-downloads them from us.
 /// </summary>
 public sealed class ClientAcquirer
 {
+    /// <summary>
+    /// Attempts per base file before giving up. Each attempt RESUMES rather than restarting,
+    /// so a link that drops every few minutes still finishes a 4 GB MPQ.
+    /// </summary>
+    private const int BaseFileAttempts = 5;
+
     private readonly HttpClient _http;
     private readonly bool _allowInbound;
 
@@ -53,17 +100,29 @@ public sealed class ClientAcquirer
     /// often on different drives. Checking only the install drive would let C: fill up
     /// silently. Both are checked, and combined when they are the same drive.
     /// </summary>
-    public static void EnsureEnoughSpace(string targetDir, ClientSource source)
+    /// <param name="largestBaseFile">
+    /// Size of the biggest file fetched from our host, which needs room on the INSTALL drive
+    /// rather than the download drive -- base files stream to a .uncapped-tmp beside their
+    /// destination and are moved into place, so they never pass through %LOCALAPPDATA%.
+    ///
+    /// It is counted on top of the installed size because the two genuinely coexist whenever an
+    /// archive already put a copy of that file there: the wrong 4 GB patch.MPQ is still on disk
+    /// while the right one downloads next to it. On the intended manifest, where the archive
+    /// supplies only the locale folder, this is headroom rather than a real requirement -- and
+    /// headroom on a check that already refuses installs is the correct direction to be wrong in.
+    /// </param>
+    public static void EnsureEnoughSpace(string targetDir, ClientSource source, long largestBaseFile = 0)
     {
         var downloadDrive = DriveOf(AppPaths.DownloadDir);
         var installDrive = DriveOf(targetDir);
         if (downloadDrive is null || installDrive is null) return;
 
+        var installNeeded = source.InstalledBytes + Math.Max(0, largestBaseFile);
         var sameDrive = string.Equals(downloadDrive, installDrive, StringComparison.OrdinalIgnoreCase);
 
         if (sameDrive)
         {
-            var needed = source.PeakArchiveBytes() + source.InstalledBytes;
+            var needed = source.PeakArchiveBytes() + installNeeded;
             var free = FreeOn(installDrive);
             if (free < needed)
                 throw new IOException(
@@ -81,19 +140,73 @@ public sealed class ClientAcquirer
                 $"{AppPaths.DownloadDir}), but only {Gb(freeDownload)} is free.");
 
         var freeInstall = FreeOn(installDrive);
-        if (freeInstall < source.InstalledBytes)
+        if (freeInstall < installNeeded)
             throw new IOException(
                 $"Not enough space on {installDrive.TrimEnd('\\')} for the game. About " +
-                $"{Gb(source.InstalledBytes)} is needed but only {Gb(freeInstall)} is free.");
+                $"{Gb(installNeeded)} is needed but only {Gb(freeInstall)} is free.");
     }
 
+    /// <summary>
+    /// The authoritative file list for a fresh install: every required baseline file we
+    /// publish a download for, plus the client executable.
+    ///
+    /// The executable is here because the baseline deliberately does not carry one. Hardening
+    /// renames Wow.exe and <see cref="LargeAddressAware"/> rewrites two bytes of its PE header,
+    /// so its hash on a real install is never the stock hash and baselining it would flag every
+    /// client we ship. It lives in the manifest instead, as UncappedClient.dat.
+    ///
+    /// That matters more than it looks: <see cref="InstallLocator.Validate"/> runs the moment
+    /// acquisition returns and rejects a folder with no game executable. The archive used to
+    /// supply Wow.exe, so dropping the archive without supplying the executable here would
+    /// produce a freshly downloaded client that the launcher refuses as incomplete.
+    /// </summary>
+    public static IReadOnlyList<ClientBaseFile> BaseFilesFrom(Baseline? baseline, Manifest manifest)
+    {
+        var files = new List<ClientBaseFile>();
+
+        if (baseline is not null)
+        {
+            foreach (var file in baseline.Files)
+            {
+                if (!file.Required) continue;
+
+                // A required file with no published download cannot be repaired or acquired.
+                // Skipping it is right: the alternative is inventing a URL.
+                if (string.IsNullOrWhiteSpace(file.Url) || string.IsNullOrEmpty(file.Sha256)) continue;
+
+                var relative = SyncService.NormalizeRelative(file.Path);
+                if (relative is null) continue;
+
+                files.Add(new ClientBaseFile(relative, file.Url!, file.Sha256, file.Size));
+            }
+        }
+
+        var exe = manifest.Files.FirstOrDefault(f =>
+            string.Equals(f.Path, ClientExecutable.HiddenName, StringComparison.OrdinalIgnoreCase));
+
+        if (exe is not null && !string.IsNullOrWhiteSpace(exe.Url) && !string.IsNullOrEmpty(exe.Sha256))
+        {
+            var relative = SyncService.NormalizeRelative(exe.Path);
+            if (relative is not null)
+                files.Add(new ClientBaseFile(relative, exe.Url, exe.Sha256, exe.Size));
+        }
+
+        return files;
+    }
+
+    /// <param name="baseFiles">
+    /// What this install must end up containing, from <see cref="BaseFilesFrom"/>. Empty is
+    /// allowed and means "archives only" -- the pre-1.10 behaviour, reached when the manifest
+    /// publishes no baselineUrl at all.
+    /// </param>
     public async Task<string> AcquireAsync(
         ClientSource source,
+        IReadOnlyList<ClientBaseFile> baseFiles,
         string targetDir,
         IProgress<AcquireProgress> progress,
         CancellationToken ct)
     {
-        EnsureEnoughSpace(targetDir, source);
+        EnsureEnoughSpace(targetDir, source, baseFiles.Count == 0 ? 0 : baseFiles.Max(f => f.Size));
 
         Directory.CreateDirectory(targetDir);
         Directory.CreateDirectory(AppPaths.DownloadDir);
@@ -110,7 +223,9 @@ public sealed class ClientAcquirer
         var httpArchives = source.HttpArchives();
 
         Log.Write($"client acquire: target={targetDir} magnet={(string.IsNullOrWhiteSpace(source.Magnet) ? "no" : "yes")} " +
-                  $"httpParts={httpArchives.Count}");
+                  $"httpParts={httpArchives.Count} baseFiles={baseFiles.Count}");
+
+        var gotArchive = false;
 
         if (!string.IsNullOrWhiteSpace(source.Magnet))
         {
@@ -120,8 +235,8 @@ public sealed class ClientAcquirer
                 var archive = await DownloadViaTorrentAsync(source, progress, ct);
                 Log.Write($"client acquire: torrent finished -> {archive}");
                 await ExtractAndDeleteAsync(archive, targetDir, progress, ct);
-                Log.Write("client acquire: done via torrent");
-                return targetDir;
+                Log.Write("client acquire: unpacked via torrent");
+                gotArchive = true;
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) when (httpArchives.Count > 0)
@@ -133,37 +248,293 @@ public sealed class ClientAcquirer
                     "BitTorrent did not work — trying the direct download instead.", 0, ex.Message));
             }
         }
-        else if (httpArchives.Count == 0)
-        {
-            throw new InvalidOperationException("The manifest lists no way to download the client.");
-        }
 
-        if (httpArchives.Count == 0)
+        if (!gotArchive && httpArchives.Count == 0)
             throw new InvalidOperationException("The manifest lists no way to download the client.");
+
+        if (!gotArchive)
+        {
+            /*
+             * One at a time, extracting each before fetching the next.
+             *
+             * Not all-then-extract: holding every part on disk at once would need 16 GB of
+             * downloads beside the unpacked game, on a drive we have already told the player only
+             * needs room for the largest single part.
+             */
+            for (var i = 0; i < httpArchives.Count; i++)
+            {
+                var part = httpArchives[i];
+                var label = httpArchives.Count > 1 ? $" (part {i + 1} of {httpArchives.Count})" : "";
+
+                Log.Write($"client acquire: HTTP part {i + 1}/{httpArchives.Count} " +
+                          $"({part.Bytes} bytes expected) {part.Url}");
+
+                var archive = await DownloadOneAsync(part, label, progress, ct);
+                await ExtractAndDeleteAsync(archive, targetDir, progress, ct);
+
+                Log.Write($"client acquire: HTTP part {i + 1}/{httpArchives.Count} extracted");
+            }
+
+            Log.Write("client acquire: archives unpacked via HTTP");
+        }
 
         /*
-         * One at a time, extracting each before fetching the next.
+         * ★ LAST, AND OVER THE TOP OF WHATEVER THE ARCHIVE LEFT.
          *
-         * Not all-then-extract: holding every part on disk at once would need 16 GB of
-         * downloads beside the unpacked game, on a drive we have already told the player only
-         * needs room for the largest single part.
+         * Ordering is the safety property, not an implementation detail. Our files are written
+         * AFTER the archive is expanded, so if a manifest still lists an archive carrying the
+         * wrong build, the correct bytes overwrite the wrong ones rather than the other way
+         * round. Acquisition is therefore correct whether or not the manifest has been
+         * updated -- the manifest edit only decides how much is downloaded needlessly, never
+         * whether the result is right. Given that a partly-updated manifest has silently broken
+         * this launcher twice before, that independence is worth the extra pass.
          */
-        for (var i = 0; i < httpArchives.Count; i++)
+        await EnsureBaseFilesAsync(baseFiles, targetDir, progress, ct);
+
+        Log.Write("client acquire: done");
+        return targetDir;
+    }
+
+    /// <summary>
+    /// Brings every hosted base file to the exact bytes the baseline names, downloading only
+    /// what is not already right.
+    ///
+    /// The skip check is what keeps this cheap. After the locale zip is expanded, its 11
+    /// required MPQs already hash correctly and cost nothing but a read; the ~16 GB the Archive
+    /// gets wrong is what actually transfers. It also means a retried install resumes at file
+    /// granularity for free, and that a future change to either side self-corrects here instead
+    /// of becoming a support thread.
+    /// </summary>
+    private async Task EnsureBaseFilesAsync(
+        IReadOnlyList<ClientBaseFile> files, string targetDir,
+        IProgress<AcquireProgress> progress, CancellationToken ct)
+    {
+        if (files.Count == 0)
         {
-            var part = httpArchives[i];
-            var label = httpArchives.Count > 1 ? $" (part {i + 1} of {httpArchives.Count})" : "";
-
-            Log.Write($"client acquire: HTTP part {i + 1}/{httpArchives.Count} " +
-                      $"({part.Bytes} bytes expected) {part.Url}");
-
-            var archive = await DownloadOneAsync(part, label, progress, ct);
-            await ExtractAndDeleteAsync(archive, targetDir, progress, ct);
-
-            Log.Write($"client acquire: HTTP part {i + 1}/{httpArchives.Count} extracted");
+            // Reached only when the manifest publishes no baselineUrl, i.e. integrity checking
+            // is switched off wholesale. Worth a log line, because it is also what a failed
+            // baseline fetch would look like from in here.
+            Log.Write("client acquire: no base file list; leaving the archive's files as they are");
+            return;
         }
 
-        Log.Write("client acquire: done via HTTP");
-        return targetDir;
+        progress.Report(new AcquireProgress("Checking the game files", 0, ""));
+
+        // Which ones actually need fetching. Done as its own pass so the progress bar can be
+        // driven by bytes remaining rather than jumping about as each file is examined.
+        var needed = new List<ClientBaseFile>();
+        long neededBytes = 0;
+        var examined = 0;
+
+        foreach (var file in files)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var full = Path.Combine(targetDir, file.RelativePath);
+
+            // Reported per file: after a torrent this pass reads the whole 17 GB client to
+            // confirm it, which is ten seconds or so of a bar that would otherwise sit still.
+            progress.Report(new AcquireProgress(
+                "Checking the game files",
+                (double)examined / files.Count,
+                Path.GetFileName(file.RelativePath)));
+
+            examined++;
+
+            if (await AlreadyCorrectAsync(full, file, ct)) continue;
+
+            needed.Add(file);
+            neededBytes += file.Size;
+        }
+
+        Log.Write($"client acquire: base files — {files.Count - needed.Count} already correct, " +
+                  $"{needed.Count} to fetch ({neededBytes:N0} bytes)");
+
+        if (needed.Count == 0) return;
+
+        long doneBytes = 0;
+
+        foreach (var file in needed)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var full = Path.Combine(targetDir, file.RelativePath);
+            var dir = Path.GetDirectoryName(full);
+            if (dir is not null) Directory.CreateDirectory(dir);
+
+            var name = Path.GetFileName(file.RelativePath);
+            var startedAt = doneBytes;
+
+            await DownloadBaseFileAsync(file, full, name, progress, neededBytes, startedAt, ct);
+
+            doneBytes = startedAt + file.Size;
+            Log.Write($"client acquire: base file ok {file.RelativePath}");
+        }
+    }
+
+    /// <summary>
+    /// True when the file on disk is already exactly what the baseline names. Size is checked
+    /// first because it settles almost every case without reading a byte.
+    /// </summary>
+    private static async Task<bool> AlreadyCorrectAsync(
+        string full, ClientBaseFile file, CancellationToken ct)
+    {
+        try
+        {
+            if (!File.Exists(full)) return false;
+            if (new FileInfo(full).Length != file.Size) return false;
+
+            var actual = await Hashing.Sha256FileAsync(full, ct);
+            return Hashing.Matches(actual, file.Sha256);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            // Unreadable counts as not correct: re-fetching is always a safe answer here.
+            Log.Write($"client acquire: could not check {file.RelativePath} — {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Downloads one base file, resuming a partial transfer rather than starting again.
+    ///
+    /// ★★ THIS IS THE PART THAT MUST NOT REINTRODUCE THE BUG IT IS FIXING. A truncated MPQ left
+    /// on disk is indistinguishable, to the player, from the wrong-build MPQ this whole change
+    /// exists to eliminate: both read as "your files are corrupt, PLAY is disabled". So the
+    /// download lands on a .uncapped-tmp file and is moved into place ONLY after its sha256
+    /// matches. An interrupted install leaves debris the next attempt resumes from, never a
+    /// short file the client would try to load.
+    ///
+    /// .uncapped-tmp is already in the baseline's toleratedPatterns, so the leftovers cannot be
+    /// reported as foreign files either.
+    /// </summary>
+    private async Task DownloadBaseFileAsync(
+        ClientBaseFile file, string full, string name,
+        IProgress<AcquireProgress> progress, long totalBytes, long bytesBefore,
+        CancellationToken ct)
+    {
+        var temp = full + ".uncapped-tmp";
+
+        void Report(long have, string detail) =>
+            progress.Report(new AcquireProgress(
+                $"Downloading the game client — {name}",
+                totalBytes > 0 ? (double)(bytesBefore + have) / totalBytes : 0,
+                detail));
+
+        Exception? last = null;
+
+        for (var attempt = 1; attempt <= BaseFileAttempts; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            long have = 0;
+            try { if (File.Exists(temp)) have = new FileInfo(temp).Length; }
+            catch { have = 0; }
+
+            // More on disk than the file is meant to be means the temp belongs to something
+            // else, or to a version of this file we are no longer fetching. Start over.
+            if (have > file.Size)
+            {
+                try { File.Delete(temp); } catch { /* the truncate below still handles it */ }
+                have = 0;
+            }
+
+            try
+            {
+                if (have < file.Size)
+                {
+                    await TransferAsync(file, temp, have, Report, ct);
+                }
+
+                var length = new FileInfo(temp).Length;
+                if (length != file.Size)
+                    throw new IOException($"expected {file.Size:N0} bytes, got {length:N0}");
+
+                Report(file.Size, "verifying");
+
+                var actual = await Hashing.Sha256FileAsync(temp, ct);
+                if (!Hashing.Matches(actual, file.Sha256))
+                {
+                    // The bytes are wrong, so nothing about them is worth resuming from.
+                    try { File.Delete(temp); } catch { /* best effort */ }
+                    throw new InvalidDataException(
+                        $"checksum mismatch (expected {file.Sha256[..Math.Min(12, file.Sha256.Length)]}…, " +
+                        $"got {actual[..12]}…)");
+                }
+
+                File.Move(temp, full, overwrite: true);
+                return;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                last = ex;
+                Log.Write($"client acquire: {file.RelativePath} attempt {attempt}/{BaseFileAttempts} " +
+                          $"failed — {ex.GetType().Name}: {ex.Message}");
+
+                if (attempt < BaseFileAttempts)
+                {
+                    progress.Report(new AcquireProgress(
+                        $"Downloading the game client — {name}",
+                        totalBytes > 0 ? (double)bytesBefore / totalBytes : 0,
+                        $"connection problem, retrying ({attempt} of {BaseFileAttempts})"));
+
+                    await Task.Delay(TimeSpan.FromSeconds(3 * attempt), ct);
+                }
+            }
+        }
+
+        throw new IOException(
+            $"{name} could not be downloaded after {BaseFileAttempts} attempts. {last?.Message}",
+            last);
+    }
+
+    /// <summary>
+    /// Streams the remainder of a file onto the temp, asking for a byte range when there is
+    /// already something there. A host that ignores the range and replies 200 is handled by
+    /// starting the file again rather than appending a second copy of it onto the first.
+    /// </summary>
+    private async Task TransferAsync(
+        ClientBaseFile file, string temp, long have, Action<long, string> report, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, file.Url);
+        if (have > 0) request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(have, null);
+
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        response.EnsureSuccessStatusCode();
+
+        var resuming = have > 0 && response.StatusCode == System.Net.HttpStatusCode.PartialContent;
+        if (have > 0 && !resuming)
+        {
+            Log.Write($"client acquire: {file.RelativePath} — host ignored the range request, restarting");
+            have = 0;
+        }
+
+        var mode = resuming ? FileMode.Append : FileMode.Create;
+
+        await using var input = await response.Content.ReadAsStreamAsync(ct);
+        await using var output = new FileStream(
+            temp, mode, FileAccess.Write, FileShare.None, 1024 * 256, useAsync: true);
+
+        var buffer = new byte[1024 * 256];
+        var copied = have;
+        var lastReport = 0L;
+        int read;
+
+        while ((read = await input.ReadAsync(buffer, ct)) > 0)
+        {
+            await output.WriteAsync(buffer.AsMemory(0, read), ct);
+            copied += read;
+
+            // Every few MB rather than every buffer: this loop runs ~65,000 times per GB and
+            // the UI cannot use more than a handful of updates a second.
+            if (copied - lastReport >= 4L * 1024 * 1024)
+            {
+                lastReport = copied;
+                report(copied, $"{Gb(copied)} of {Gb(file.Size)}");
+            }
+        }
     }
 
     private async Task<string> DownloadViaTorrentAsync(

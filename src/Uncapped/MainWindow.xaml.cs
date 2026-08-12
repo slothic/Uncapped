@@ -283,6 +283,38 @@ public partial class MainWindow : Window
 
     private async Task<string?> DownloadClientAsync(Manifest manifest)
     {
+        /*
+         * ★ THE BASELINE IS LOADED BEFORE THE CLIENT IS DOWNLOADED, NOT AFTER.
+         *
+         * It used to be fetched only on the verification pass, which ran after acquisition had
+         * already finished. That ordering is what allowed the launcher to install a client from
+         * a mirror and only then discover it was a different 3.3.5a build -- see the header of
+         * ClientAcquirer. Acquisition now works from the same file list the verifier uses, so
+         * it has to be in hand first. The ??= keeps this to one fetch per run.
+         */
+        _baseline ??= await new BaselineService(_http).LoadAsync(manifest, _cts.Token);
+
+        if (!string.IsNullOrWhiteSpace(manifest.BaselineUrl) && _baseline is null)
+        {
+            /*
+             * Refusing is the honest answer, and the cheap one to recover from.
+             *
+             * Without the baseline we do not know which files the client needs or what they
+             * should hash to, so the best we could do is unpack a mirror and hope -- which is
+             * precisely the behaviour being removed. A player who cannot reach the patch host
+             * cannot play either, so stopping here costs them nothing and tells them something
+             * true, instead of spending 17 GB of their bandwidth to fail later.
+             */
+            Log.Write("install: refusing to download a client — the baseline could not be fetched");
+            MessageBox.Show(
+                "The launcher could not reach the update server to find out which game files to " +
+                "download.\n\nCheck your internet connection and try again. If it keeps happening, " +
+                "the server may be down for a moment.",
+                "Cannot download the game yet", MessageBoxButton.OK, MessageBoxImage.Error);
+            SetStatus("Could not reach the update server.");
+            return null;
+        }
+
         using var dialog = new System.Windows.Forms.FolderBrowserDialog
         {
             Description = "Choose where to install the game (about 17 GB, plus the same again while unpacking)",
@@ -354,7 +386,10 @@ public partial class MainWindow : Window
                 SetProgress(p.Fraction);
             });
 
-            await acquirer.AcquireAsync(manifest.Client, target, reporter, _cts.Token);
+            var baseFiles = ClientAcquirer.BaseFilesFrom(_baseline, manifest);
+            Log.Write($"install: {baseFiles.Count} hosted base file(s) will be enforced after unpacking");
+
+            await acquirer.AcquireAsync(manifest.Client, baseFiles, target, reporter, _cts.Token);
         }
         catch (OperationCanceledException) { return null; }
         catch (Exception ex)

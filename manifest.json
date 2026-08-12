@@ -1,8 +1,8 @@
 {
     "manifestVersion":  1,
-    "launcherVersion":  "1.11.1",
-    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.11.1/Uncapped.exe",
-    "launcherSha256":  "3af118b7781a4c712b08be065f63cd03dea6a7464f23d8df161c2e31f6bbb10e",
+    "launcherVersion":  "1.12.0",
+    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.12.0/Uncapped.exe",
+    "launcherSha256":  "77fd19eb3694fca61c9a96fd4c18927bb02be5640f602a09557fbbaaf77fbea2",
     "realm":  {
                   "name":  "Uncapped",
                   "address":  "152.53.115.249",
@@ -13,11 +13,6 @@
                    "magnet":  "magnet:?xt=urn:btih:2ba2833baf733ce0a16040d43ed09491f2bf2ab2\u0026dn=ChromieCraft_3.3.5a.zip\u0026tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce\u0026tr=http%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce\u0026tr=udp%3A%2F%2Ftracker.uw0.xyz%3A6969%2Fannounce\u0026tr=udp%3A%2F%2Ftracker.zerobytes.xyz%3A1337%2Fannounce",
                    "directDownloadUrl":  "",
                    "directDownloadUrls":  [
-                                              {
-                                                  "url":  "https://archive.org/download/WoW_3.3.5-12340/3.3.5-12340_Common.zip",
-                                                  "name":  "3.3.5-12340_Common.zip",
-                                                  "bytes":  15084499971
-                                              },
                                               {
                                                   "url":  "https://archive.org/download/WoW_3.3.5-12340/3.3.5-12340_enUS.zip",
                                                   "name":  "3.3.5-12340_enUS.zip",
