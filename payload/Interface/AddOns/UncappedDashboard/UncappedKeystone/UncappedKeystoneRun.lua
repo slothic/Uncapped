@@ -131,7 +131,7 @@ end
      Rendering
   -------------------------------------------------------------------------- ]]
 local function SetToggle(btn, on, label)
-    btn:SetText((on and (COLOR_GOOD .. "ON|r  ") or (COLOR_DIM .. "OFF|r ")) .. COLOR_LABEL .. label .. "|r")
+    SetButtonLabel(btn, (on and (COLOR_GOOD .. "ON|r  ") or (COLOR_DIM .. "OFF|r ")) .. COLOR_LABEL .. label .. "|r")
 end
 
 function Run.Render()
@@ -172,13 +172,40 @@ end
 --[[ ------------------------------------------------------------------------
      Frame
   -------------------------------------------------------------------------- ]]
+--[[
+    ⚠ USE THE HOUSE WIDGET KIT, NOT UIPanelButtonTemplate.
+
+    The first version of this panel used raw Blizzard `UIPanelButtonTemplate`
+    buttons. They came out red and chunky against every other Uncapped panel,
+    which are all UncappedUI -- and they OVERLAPPED, because that template draws
+    a border wider than the width you set, so buttons spaced for their logical
+    width collide once they render.
+
+    UncappedUIKit.CreateButton is the same control the Dashboard, the Vault and
+    the loot feed use, so this panel now looks like it belongs to the addon it
+    ships inside.
+
+    ★ The fallback is deliberate and must stay: UncappedUI is a separate addon in
+      the payload, and if a player has it disabled this panel degrades to plain
+      buttons instead of erroring on a nil global. Ugly beats broken.
+]]
 local function MakeButton(parent, label, w, onClick)
-    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    b:SetWidth(w)
-    b:SetHeight(22)
-    b:SetText(label)
+    local b
+    if UncappedUIKit and UncappedUIKit.CreateButton then
+        b = UncappedUIKit.CreateButton(parent, label, w, 24)
+    else
+        b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+        b:SetWidth(w)
+        b:SetHeight(24)
+        b:SetText(label)
+    end
     b:SetScript("OnClick", onClick)
     return b
+end
+
+-- Kit buttons carry their label on `b.text`; the Blizzard fallback uses SetText.
+local function SetButtonLabel(b, label)
+    if b.text and b.text.SetText then b.text:SetText(label) else b:SetText(label) end
 end
 
 local function BuildFrame(parent)
@@ -206,11 +233,17 @@ local function BuildFrame(parent)
         end
     end
 
+    -- ⚠ SPACING: step is button width PLUS a real gap. The first version used
+    -- 42-wide buttons 46 apart and they still collided, because the Blizzard
+    -- template draws wider than its SetWidth. 54/62 leaves the gap visible with
+    -- the kit and survives the fallback too.
+    local BTN_W, BTN_STEP = 54, 62
     local x = 0
     for _, spec in ipairs({ { "-10", -10 }, { "-1", -1 }, { "+1", 1 }, { "+10", 10 } }) do
-        local b = MakeButton(frame, spec[1], 42, Step(spec[2]))
-        b:SetPoint("TOPLEFT", widgets.highest, "BOTTOMLEFT", x, -10)
-        x = x + 46
+        local b = MakeButton(frame, spec[1], BTN_W, Step(spec[2]))
+        -- -28 not -10: the row sat on top of the "Best clear" line above it.
+        b:SetPoint("TOPLEFT", widgets.highest, "BOTTOMLEFT", x, -28)
+        x = x + BTN_STEP
     end
 
     -- Toggles. Each sends and waits to be told the new value.
@@ -220,22 +253,24 @@ local function BuildFrame(parent)
         end
     end
 
-    widgets.loop = MakeButton(frame, "", 150, Toggle("loop", function() return state.loop end))
-    widgets.loop:SetPoint("TOPLEFT", widgets.highest, "BOTTOMLEFT", 0, -44)
+    -- The toggle column hangs off the STEPPER row, not off `highest`, so the two
+    -- groups can never be anchored into each other again.
+    widgets.loop = MakeButton(frame, "", 170, Toggle("loop", function() return state.loop end))
+    widgets.loop:SetPoint("TOPLEFT", widgets.highest, "BOTTOMLEFT", 0, -66)
 
-    widgets.auto = MakeButton(frame, "", 150, Toggle("auto", function() return state.autostart end))
-    widgets.auto:SetPoint("TOPLEFT", widgets.loop, "BOTTOMLEFT", 0, -6)
+    widgets.auto = MakeButton(frame, "", 170, Toggle("auto", function() return state.autostart end))
+    widgets.auto:SetPoint("TOPLEFT", widgets.loop, "BOTTOMLEFT", 0, -8)
 
-    widgets.lock = MakeButton(frame, "", 150, Toggle("lock", function() return state.locked end))
-    widgets.lock:SetPoint("TOPLEFT", widgets.auto, "BOTTOMLEFT", 0, -6)
+    widgets.lock = MakeButton(frame, "", 170, Toggle("lock", function() return state.locked end))
+    widgets.lock:SetPoint("TOPLEFT", widgets.auto, "BOTTOMLEFT", 0, -8)
 
-    widgets.start = MakeButton(frame, "Start the run", 150, function()
+    widgets.start = MakeButton(frame, "Start the run", 170, function()
         Send("MKST")
     end)
-    widgets.start:SetPoint("TOPLEFT", widgets.lock, "BOTTOMLEFT", 0, -18)
+    widgets.start:SetPoint("TOPLEFT", widgets.lock, "BOTTOMLEFT", 0, -22)
 
     widgets.status = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    widgets.status:SetPoint("TOPLEFT", widgets.start, "BOTTOMLEFT", 0, -12)
+    widgets.status:SetPoint("TOPLEFT", widgets.start, "BOTTOMLEFT", 0, -14)
     widgets.status:SetWidth(320)
     widgets.status:SetJustifyH("LEFT")
 

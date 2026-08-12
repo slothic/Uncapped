@@ -336,16 +336,34 @@ local function BuildFrame(parent)
         { key = "rewards",  label = "Reward Preview" },
     }
 
+    --[[
+        ⚠ HOUSE WIDGET KIT, NOT UIPanelButtonTemplate.
+
+        These started as raw Blizzard buttons and looked like it -- red and boxy
+        against a Dashboard where every other control is UncappedUI. The kit also
+        gives a proper SELECTED state (SetButtonActive), which a tab strip needs
+        and the Blizzard template does not have.
+
+        ★ Fallback kept on purpose: UncappedUI is a separate addon in the payload.
+          With it disabled this degrades to plain buttons rather than erroring on a
+          nil global, on the Dashboard's most-used tab.
+    ]]
     local sx = 8
     for _, spec in ipairs(SUBTABS) do
-        local b = CreateFrame("Button", nil, strip, "UIPanelButtonTemplate")
-        b:SetHeight(20)
-        b:SetWidth(max(90, strlen(spec.label) * 8))
-        b:SetPoint("TOPLEFT", sx, -3)
-        b:SetText(spec.label)
+        local w = max(104, strlen(spec.label) * 9)
+        local b
+        if UncappedUIKit and UncappedUIKit.CreateButton then
+            b = UncappedUIKit.CreateButton(strip, spec.label, w, 22)
+        else
+            b = CreateFrame("Button", nil, strip, "UIPanelButtonTemplate")
+            b:SetWidth(w)
+            b:SetHeight(22)
+            b:SetText(spec.label)
+        end
+        b:SetPoint("TOPLEFT", sx, -2)
         b:SetScript("OnClick", function() ShowSection(spec.key) end)
         subButtons[spec.key] = b
-        sx = sx + b:GetWidth() + 4
+        sx = sx + w + 8   -- +8, not +4: the old gap let the labels crowd together
     end
 
     -- Shows one section and hides the rest. A section is just a list of regions,
@@ -363,8 +381,17 @@ local function BuildFrame(parent)
                     if on then region:Show() else region:Hide() end
                 end
             end
+            -- Selected state via the kit (the gold "current tab" look). Disable()
+            -- was the first attempt and it just greys the label out, which reads
+            -- as "this tab is unavailable" rather than "you are on this tab".
             if subButtons[k] then
-                if on then subButtons[k]:Disable() else subButtons[k]:Enable() end
+                if UncappedUIKit and UncappedUIKit.SetButtonActive then
+                    UncappedUIKit.SetButtonActive(subButtons[k], on)
+                elseif on then
+                    subButtons[k]:Disable()
+                else
+                    subButtons[k]:Enable()
+                end
             end
         end
 
