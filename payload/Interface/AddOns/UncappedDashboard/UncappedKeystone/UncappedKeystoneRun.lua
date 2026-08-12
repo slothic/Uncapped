@@ -130,6 +130,25 @@ end
 --[[ ------------------------------------------------------------------------
      Rendering
   -------------------------------------------------------------------------- ]]
+--[[
+    ⚠ DEFINED HERE, ABOVE ITS FIRST USE, AND THAT IS NOT COSMETIC.
+
+    This lived down in the frame-building section, BELOW SetToggle. In Lua a
+    `local function` only becomes visible to closures created after it, so
+    SetToggle compiled `SetButtonLabel` as a GLOBAL lookup and blew up the first
+    time a toggle rendered:
+
+        attempt to call global 'SetButtonLabel' (a nil value)
+
+    ★ luac -p CANNOT catch this -- it is valid syntax and a runtime nil. Syntax
+      checking a Lua file proves it parses, not that its locals are in scope where
+      they are used. Order matters, so keep helpers above their callers.
+]]
+local function SetButtonLabel(b, label)
+    -- Kit buttons carry their label on `b.text`; the Blizzard fallback uses SetText.
+    if b.text and b.text.SetText then b.text:SetText(label) else b:SetText(label) end
+end
+
 local function SetToggle(btn, on, label)
     SetButtonLabel(btn, (on and (COLOR_GOOD .. "ON|r  ") or (COLOR_DIM .. "OFF|r ")) .. COLOR_LABEL .. label .. "|r")
 end
@@ -203,10 +222,6 @@ local function MakeButton(parent, label, w, onClick)
     return b
 end
 
--- Kit buttons carry their label on `b.text`; the Blizzard fallback uses SetText.
-local function SetButtonLabel(b, label)
-    if b.text and b.text.SetText then b.text:SetText(label) else b:SetText(label) end
-end
 
 local function BuildFrame(parent)
     if frame then return frame end
