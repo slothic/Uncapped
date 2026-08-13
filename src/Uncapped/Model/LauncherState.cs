@@ -41,6 +41,36 @@ public sealed class LauncherState
     [JsonPropertyName("reportedCrashes")] public List<string> ReportedCrashes { get; set; } = new();
 
     /// <summary>
+    /// ★ TEMPORARY (FPS investigation). An anonymous handle for this install, so frame logs
+    /// arriving in the channel can be told apart and one install followed across sessions.
+    ///
+    /// 8 bytes from the OS cryptographic RNG, rendered as hex, generated once and then only
+    /// read. It is DERIVED FROM NOTHING — not the account name, not a character name, not the
+    /// machine name, not the hardware. It means nothing outside our own channel, and it is
+    /// gone the moment this file is deleted. See <see cref="Services.FpsReporter"/>.
+    /// </summary>
+    [JsonPropertyName("installToken")] public string? InstallTokenValue { get; set; }
+
+    /// <summary>How many frame logs this install has uploaded. Bookkeeping only.</summary>
+    [JsonPropertyName("fpsReportsSent")] public int FpsReportsSent { get; set; }
+
+    /// <summary>
+    /// The token, minted on first use. Saving is the caller's job — the one place that reads
+    /// this already saves the state straight afterwards.
+    /// </summary>
+    [JsonIgnore]
+    public string InstallToken
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(InstallTokenValue))
+                InstallTokenValue = Convert.ToHexString(
+                    System.Security.Cryptography.RandomNumberGenerator.GetBytes(8)).ToLowerInvariant();
+            return InstallTokenValue!;
+        }
+    }
+
+    /// <summary>
     /// Whether the one-time view-distance bump has been applied to this install. Existing
     /// players installed before farclip became a first-run default, so it is raised once at
     /// PLAY — and only once, because view distance is a real performance trade the player is

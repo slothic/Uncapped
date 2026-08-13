@@ -30,6 +30,21 @@ public sealed class Manifest
     [JsonPropertyName("crashReportWebhook")] public string? CrashReportWebhook { get; set; }
 
     /// <summary>
+    /// ★ TEMPORARY. Discord webhook the client's frame-time log is posted to on PLAY, for the
+    /// FPS investigation. A SEPARATE channel from crashes on purpose — different data at a
+    /// completely different volume, and mixing them would make crash triage unreadable.
+    ///
+    /// ★★ THIS FIELD IS THE OFF SWITCH FOR THE WHOLE FEATURE. Same contract as
+    /// <see cref="CrashReportWebhook"/>: a value that is present but is not an http URL — "off"
+    /// will do — disables it. Unlike crash reporting, that also stops the client COLLECTING
+    /// (the launcher drops a marker file the DLL reads) and deletes any log already gathered.
+    /// So retiring the diagnostic is one manifest edit, with no client release.
+    ///
+    /// Remove this field entirely when the investigation is done and the DLL side comes out.
+    /// </summary>
+    [JsonPropertyName("fpsReportWebhook")] public string? FpsReportWebhook { get; set; }
+
+    /// <summary>
     /// Rename the client executable and remove Repair.exe, so players cannot start an
     /// unsynced client by double-clicking it.
     /// </summary>

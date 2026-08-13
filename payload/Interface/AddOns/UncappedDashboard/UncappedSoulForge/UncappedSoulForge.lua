@@ -634,18 +634,47 @@ local function BuildUI(parent)
   wlBtn:SetSize(170, 24); wlBtn:SetPoint("LEFT", sbBtn, "RIGHT", 10, 0); wlBtn:SetText("Whitelist\226\128\166")
   wlBtn:SetScript("OnClick", function() if UI and UI.OpenWhitelist then UI:OpenWhitelist() end end)
 
+  -- ---- second button row --------------------------------------------------
+  -- [#424] Sockets and [#688] Banned Procs.
+  --
+  -- ★ WHY BUTTONS HERE RATHER THAN NEW DASHBOARD TABS. The nav column is FULL:
+  --   UncappedDashboardConfig.lua spells out that at 16 tabs the window's zoom
+  --   ceiling collapses to ~1.01, i.e. a sixteenth tab ends zooming for everyone,
+  --   and 17 clips buttons off the bottom. There are 15.
+  --
+  -- ★ AND WHY POPUPS RATHER THAN EMBEDDED VIEWS. This addon's own rule, stated at
+  --   its dashboard-embedding block: "The Extractor, Socket, and Whitelist
+  --   windows stay separate popups -- they're triggered by a specific action
+  --   rather than being 'the Soul Forge screen' itself." Both of these are that
+  --   shape. What #424 actually reported is that the Socket window was reachable
+  --   ONLY through /socket, a command that appears in no help text -- so it had
+  --   no entry point in the Dashboard at all. This is that entry point.
+  --
+  -- Same 170-wide geometry as the row above, so the panel's 374 min content width
+  -- (see SF.UI.GetMinWidth) still holds and nothing overflows.
+  local sockBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  sockBtn:SetSize(170, 24); sockBtn:SetPoint("TOPLEFT", 6, -278); sockBtn:SetText("Sockets\226\128\166")
+  sockBtn:SetScript("OnClick", function() if UI and UI.OpenSockets then UI:OpenSockets() end end)
+
+  local bpBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  bpBtn:SetSize(170, 24); bpBtn:SetPoint("LEFT", sockBtn, "RIGHT", 10, 0); bpBtn:SetText("Banned Procs\226\128\166")
+  bpBtn:SetScript("OnClick", function() if UI and UI.OpenBannedProcs then UI:OpenBannedProcs() end end)
+
   -- ---- your soulbound gear ----
+  -- Everything below here moved down 28 to make room for the second button row.
+  -- The gear list is anchored BOTTOMRIGHT and recomputes how many rows fit on
+  -- OnSizeChanged, so it simply shows two fewer rows rather than overflowing.
   local eqHdr = f:CreateFontString(nil,"OVERLAY","GameFontNormal")
-  eqHdr:SetPoint("TOPLEFT", 6, -284); eqHdr:SetText("|cff40c0f0Your soulbound gear|r")
+  eqHdr:SetPoint("TOPLEFT", 6, -312); eqHdr:SetText("|cff40c0f0Your soulbound gear|r")
   local dLine = f:CreateTexture(nil,"ARTWORK"); dLine:SetTexture("Interface\\Buttons\\WHITE8X8")
   dLine:SetGradientAlpha("HORIZONTAL", 0.25,0.60,0.90,0.6, 0.25,0.60,0.90,0.0)
-  dLine:SetHeight(2); dLine:SetPoint("TOPLEFT", 6, -300); dLine:SetPoint("TOPRIGHT", -6, -300)
+  dLine:SetHeight(2); dLine:SetPoint("TOPLEFT", 6, -328); dLine:SetPoint("TOPRIGHT", -6, -328)
 
   -- Stretches to fill whatever's left of the panel below the divider; a pool
   -- of EQ_ROWS_MAX row frames is pre-built, but only however many actually
   -- fit (recomputed on OnSizeChanged, see below) are ever shown at once.
   local scroll = CreateFrame("ScrollFrame", "UncappedSoulforgeEqScroll", f, "FauxScrollFrameTemplate")
-  scroll:SetPoint("TOPLEFT", 8, -308); scroll:SetPoint("BOTTOMRIGHT", -23, 8)
+  scroll:SetPoint("TOPLEFT", 8, -336); scroll:SetPoint("BOTTOMRIGHT", -23, 8)
   scroll:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, EQ_H, function() if UI then UI:RefreshEquipped() end end)
   end)
@@ -1635,6 +1664,218 @@ local function openSockets()
   send("ICSOCKBAG")
 end
 
+-- ============================ banned procs [#688] =========================
+-- Des: "a better way to view the banned procs list would be nice. as it stands
+-- we just have item ID numbers in a chat list."
+--
+-- The register itself is a compile-time constant on the server
+-- (s_procSpellBlacklist) and always was -- what was missing was a way to READ
+-- it. `.bannedprocs list` pages it 15 at a time into the chat frame with a name
+-- and nothing else, so a player whose weapon had gone quiet got a name they
+-- already knew and no reason.
+--
+-- ★ NAMES AND ICONS ARE RESOLVED HERE, NOT SENT. GetSpellInfo(id) reads the
+--   client's own Spell.dbc, which is the same file the server reads
+--   (patch-enUS-U is kept in step with it), so they cannot disagree -- and it
+--   keeps a ~150-entry register down to about fifteen addon messages instead of
+--   one per spell. A spell the client cannot resolve degrades to "Spell #<id>"
+--   with the default question-mark icon rather than being dropped: an
+--   unresolvable row still tells the player that id is switched off, which is
+--   the whole point of the list.
+local BP, bpRows = nil, {}
+local BP_ROWS, BP_H = 14, 22
+local bpReasons = {}          -- index -> sentence, replaced wholesale per burst
+local bpEntries = {}          -- { spellId, reasonIdx, name } committed on ICBPEND
+local bpStaging = nil
+local bpFilter = ""
+
+-- Cheap and safe: GetSpellInfo returns nil for anything the client's DBC has no
+-- row for, which is the only failure mode worth handling here.
+local function bpSpellName(id)
+  local name = GetSpellInfo and GetSpellInfo(id)
+  return name or ("Spell #" .. tostring(id))
+end
+
+local function bpSpellIcon(id)
+  local _, _, icon = GetSpellInfo and GetSpellInfo(id)
+  return icon or "Interface\\Icons\\INV_Misc_QuestionMark"
+end
+
+local function bpVisible()
+  if bpFilter == "" then return bpEntries end
+  local out = {}
+  for _, e in ipairs(bpEntries) do
+    local reason = bpReasons[e.reasonIdx] or ""
+    if e.name:lower():find(bpFilter, 1, true) or reason:lower():find(bpFilter, 1, true) then
+      tinsert(out, e)
+    end
+  end
+  return out
+end
+
+local function BuildBannedProcs()
+  if BP then return BP end
+
+  local f = CreateFrame("Frame", "UncappedBannedProcsFrame", UIParent)
+  f:SetSize(640, 420)
+  f:SetPoint("CENTER")
+  f:SetFrameStrata("HIGH")
+  f:SetBackdrop({
+    bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", tile = true, tileSize = 32, edgeSize = 32,
+    insets = { left = 11, right = 12, top = 12, bottom = 11 } })
+  f:SetBackdropBorderColor(0.35, 0.75, 0.9, 1)
+  f:EnableMouse(true); f:SetMovable(true); f:RegisterForDrag("LeftButton")
+  f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
+  f:SetClampedToScreen(true); f:Hide()
+  tinsert(UISpecialFrames, "UncappedBannedProcsFrame")   -- Esc closes it
+  -- UIParent-parented pop-out: owns its own zoom, same as the Socket and
+  -- Whitelist windows.
+  if UncappedScale_Register then UncappedScale_Register(f, { group = "dashboard" }) end
+
+  local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  title:SetPoint("TOPLEFT", 22, -18); title:SetText("|cff59bfe6Disabled Effects|r")
+
+  local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+  close:SetPoint("TOPRIGHT", -8, -8)
+
+  local blurb = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  blurb:SetPoint("TOPLEFT", 22, -46); blurb:SetPoint("TOPRIGHT", -22, -46)
+  blurb:SetJustifyH("LEFT")
+  -- Says the thing the report was really about: the tooltip is built by the
+  -- CLIENT from its own item cache, so an item whose effect is switched off here
+  -- still reads as if it works. Nothing is wrong with the item.
+  blurb:SetText("|cffb0b0b0These effects are switched off on this realm. An item carrying one still shows it on "
+    .. "its tooltip -- the client draws that from its own files and the server cannot edit it -- but the effect "
+    .. "does nothing, and it cannot be extracted or soulbound.|r")
+
+  local filter = CreateFrame("EditBox", "UncappedBannedProcsFilter", f, "InputBoxTemplate")
+  filter:SetSize(200, 20); filter:SetPoint("TOPLEFT", 26, -92)
+  filter:SetAutoFocus(false)
+  filter:SetScript("OnTextChanged", function(self)
+    bpFilter = (self:GetText() or ""):lower()
+    if BP and BP:IsShown() then BP:Refresh() end
+  end)
+  filter:SetScript("OnEscapePressed", function(self) self:SetText(""); self:ClearFocus() end)
+
+  local filterHint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  filterHint:SetPoint("LEFT", filter, "RIGHT", 10, 0)
+  filterHint:SetText("search by effect name or reason")
+
+  local count = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  count:SetPoint("TOPRIGHT", -24, -92); count:SetJustifyH("RIGHT")
+  f.count = count
+
+  local scroll = CreateFrame("ScrollFrame", "UncappedBannedProcsScroll", f, "FauxScrollFrameTemplate")
+  scroll:SetPoint("TOPLEFT", 24, -120); scroll:SetPoint("BOTTOMRIGHT", -34, 20)
+  scroll:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, BP_H, function() if BP then BP:Refresh() end end)
+  end)
+  scroll:EnableMouseWheel(true)
+  scroll:SetScript("OnMouseWheel", function(self, delta)
+    local sb = _G["UncappedBannedProcsScrollScrollBar"]
+    if sb then sb:SetValue(sb:GetValue() - delta * BP_H) end
+  end)
+  f.scroll = scroll
+
+  for i = 1, BP_ROWS do
+    local row = CreateFrame("Button", nil, f)
+    row:SetHeight(BP_H)
+    row:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, -(i - 1) * BP_H)
+    row:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", 0, -(i - 1) * BP_H)
+
+    row.icon = row:CreateTexture(nil, "ARTWORK")
+    row.icon:SetSize(18, 18); row.icon:SetPoint("LEFT", 0, 0)
+    -- Trim the stock icon border so a 18px icon does not read as a grey box.
+    row.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+
+    row.name = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.name:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
+    row.name:SetWidth(180); row.name:SetJustifyH("LEFT")
+
+    row.reason = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    row.reason:SetPoint("LEFT", row.name, "RIGHT", 8, 0)
+    row.reason:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+    row.reason:SetJustifyH("LEFT")
+
+    -- The reason is truncated to one line in the row, so the full sentence (and
+    -- the spell id, which is what anyone reporting a problem will be asked for)
+    -- lives on the tooltip.
+    row:SetScript("OnEnter", function(self)
+      local e = self.entry
+      if not e then return end
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:AddLine(e.name, 1, 0.82, 0)
+      GameTooltip:AddLine("Spell ID " .. tostring(e.spellId), 0.6, 0.6, 0.6)
+      GameTooltip:AddLine(" ")
+      GameTooltip:AddLine(bpReasons[e.reasonIdx] or "Disabled on this realm.", 1, 1, 1, true)
+      GameTooltip:Show()
+    end)
+    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    row:Hide()
+    bpRows[i] = row
+  end
+
+  function f:Refresh()
+    local data = bpVisible()
+
+    FauxScrollFrame_Update(self.scroll, #data, BP_ROWS, BP_H)
+    local offset = FauxScrollFrame_GetOffset(self.scroll) or 0
+
+    for i = 1, BP_ROWS do
+      local row = bpRows[i]
+      local e = data[i + offset]
+      if e then
+        row.entry = e
+        row.icon:SetTexture(bpSpellIcon(e.spellId))
+        row.name:SetText("|cffffffff" .. e.name .. "|r")
+        row.reason:SetText(bpReasons[e.reasonIdx] or "Disabled on this realm.")
+        row:Show()
+      else
+        row.entry = nil
+        row:Hide()
+      end
+    end
+
+    if #bpEntries == 0 then
+      self.count:SetText("|cff808080waiting for the server\226\128\166|r")
+    elseif bpFilter ~= "" then
+      self.count:SetText(string.format("|cffffd100%d|r of %d effects", #data, #bpEntries))
+    else
+      self.count:SetText(string.format("|cffffd100%d|r effects", #bpEntries))
+    end
+  end
+
+  BP = f
+  return f
+end
+
+-- Commit the staged burst. Sorted by reason group then name, so the list reads
+-- as the categories it actually is rather than as spell-id order, which means
+-- nothing to anyone.
+local function commitBannedProcs()
+  if not bpStaging then return end
+  bpReasons = bpStaging.reasons
+  bpEntries = bpStaging.entries
+  bpStaging = nil
+
+  for _, e in ipairs(bpEntries) do e.name = bpSpellName(e.spellId) end
+  table.sort(bpEntries, function(a, b)
+    if a.reasonIdx ~= b.reasonIdx then return a.reasonIdx < b.reasonIdx end
+    return a.name < b.name
+  end)
+
+  if BP and BP:IsShown() then BP:Refresh() end
+end
+
+local function openBannedProcs()
+  BuildBannedProcs()
+  BP:Show()
+  BP:Refresh()
+  send("ICBPGET")
+end
+
 -- ============================ receive =====================================
 local function OnLine(body)
   dbg("<- " .. body)
@@ -1802,6 +2043,29 @@ local function OnLine(body)
     PlaySoundFile(SND_SEAL)
   elseif cmd == "ICSOCKOPEN" then       -- a Scroll of Socket was used -> open the panel
     openSockets()
+
+  -- ---- banned-proc register [#688] ----------------------------------------
+  -- Staged, then swapped in on ICBPEND, so a dropped line can never leave the
+  -- panel showing half a register. The reason TABLE arrives in the same burst as
+  -- the ids that index into it and is replaced with them, so an index can never
+  -- point at a sentence from an older server build.
+  elseif cmd == "ICBPR" then            -- <index>:<sentence>
+    local idx, text = rest:match("^(%d+):(.+)$")
+    if idx then
+      bpStaging = bpStaging or { reasons = {}, entries = {} }
+      bpStaging.reasons[tonumber(idx)] = text
+    end
+  elseif cmd == "ICBPS" then            -- <reasonIndex>:<id>,<id>,<id>...
+    local idx, ids = rest:match("^(%d+):(.+)$")
+    if idx then
+      bpStaging = bpStaging or { reasons = {}, entries = {} }
+      local r = tonumber(idx)
+      for id in ids:gmatch("(%d+)") do
+        tinsert(bpStaging.entries, { spellId = tonumber(id), reasonIdx = r })
+      end
+    end
+  elseif cmd == "ICBPEND" then
+    commitBannedProcs()
   elseif cmd == "ICSOCKI" then          -- <bag>:<slot>:<entry>:<equipped>:<capacity>:<emptyTotal>
     local bag, slot, entry, eq, cap, empty = rest:match("^(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
     if bag then
@@ -2146,6 +2410,30 @@ local function attachWhitelistOpener()
   end
 end
 
+-- Same trick for the two second-row buttons: BuildUI runs long before
+-- BuildSocketUI / BuildBannedProcs are declared, so the buttons call a METHOD
+-- that is attached here rather than an upvalue that would still be nil.
+-- [#424] and [#688].
+local function attachExtraOpeners()
+  if not UI then return end
+
+  if not UI.OpenSockets then
+    function UI:OpenSockets()
+      -- Toggle, matching /socket: clicking the button with the window already up
+      -- closes it, which is what every other Uncapped pop-out does.
+      BuildSocketUI()
+      if SOCK:IsShown() then SOCK:Hide() else openSockets() end
+    end
+  end
+
+  if not UI.OpenBannedProcs then
+    function UI:OpenBannedProcs()
+      BuildBannedProcs()
+      if BP:IsShown() then BP:Hide() else openBannedProcs() end
+    end
+  end
+end
+
 -- ============================ events / slash ==============================
 local invTimer = CreateFrame("Frame"); invTimer:Hide()
 local invDue = nil
@@ -2207,6 +2495,7 @@ function SF.UI.EmbedInto(parent)
   BuildUI(parent)
   attachMethods()
   attachWhitelistOpener()
+  attachExtraOpeners()   -- [#424] Sockets, [#688] Banned Procs
   UI:Show()
   return UI
 end
@@ -2246,6 +2535,17 @@ SLASH_SOCKET2 = "/sock"
 SlashCmdList["SOCKET"] = function()
   BuildSocketUI()
   if SOCK:IsShown() then SOCK:Hide() else openSockets() end
+end
+
+-- [#688] Also reachable from the Soul Forge tab's "Banned Procs..." button; the
+-- slash command is the muscle-memory path for anyone who already knows
+-- `.bannedprocs`, which this replaces for reading (that command still works and
+-- still has `mine`, which this panel does not).
+SLASH_BANNEDPROCS1 = "/bannedprocs"
+SLASH_BANNEDPROCS2 = "/bprocs"
+SlashCmdList["BANNEDPROCS"] = function()
+  BuildBannedProcs()
+  if BP:IsShown() then BP:Hide() else openBannedProcs() end
 end
 
 SLASH_ICDEBUG1 = "/sbdebug"

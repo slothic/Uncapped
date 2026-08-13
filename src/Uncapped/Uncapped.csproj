@@ -11,7 +11,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Uncapped</RootNamespace>
     <AssemblyName>Uncapped</AssemblyName>
-    <Version>1.12.1</Version>
+    <Version>1.13.0</Version>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <!-- Framework-dependent: ~2 MB instead of ~109 MB self-contained. The cost is that
          players need the .NET 9 Desktop Runtime installed. We cannot detect that ourselves -
@@ -59,6 +59,13 @@
       <WebhookFile>$(MSBuildProjectDirectory)\webhook.local.txt</WebhookFile>
       <WebhookValue></WebhookValue>
       <WebhookValue Condition="Exists('$(WebhookFile)')">$([System.IO.File]::ReadAllText('$(WebhookFile)').Trim())</WebhookValue>
+      <!-- ★ TEMPORARY (FPS investigation). Same mechanism, separate channel. Intended to stay
+           EMPTY: the manifest's fpsReportWebhook is the mechanism, and a temporary diagnostic
+           has no business baking a webhook into a public binary. The hook exists so the two
+           reporters behave identically rather than one having a fallback the other lacks. -->
+      <FpsWebhookFile>$(MSBuildProjectDirectory)\fpswebhook.local.txt</FpsWebhookFile>
+      <FpsWebhookValue></FpsWebhookValue>
+      <FpsWebhookValue Condition="Exists('$(FpsWebhookFile)')">$([System.IO.File]::ReadAllText('$(FpsWebhookFile)').Trim())</FpsWebhookValue>
       <GeneratedSecrets>$(IntermediateOutputPath)BuildSecrets.g.cs</GeneratedSecrets>
     </PropertyGroup>
 
@@ -68,6 +75,7 @@
       <SecretLine Include="internal static class BuildSecrets" />
       <SecretLine Include="{" />
       <SecretLine Include="    public const string CrashWebhook = &quot;$(WebhookValue)&quot;%3B" />
+      <SecretLine Include="    public const string FpsWebhook = &quot;$(FpsWebhookValue)&quot;%3B" />
       <SecretLine Include="}" />
     </ItemGroup>
 

@@ -198,6 +198,33 @@ local quote = nil           -- { cost=, buy=, tokenOnly=, unbuyable= }
 local processable = {}      -- { item=, count=, kinds= }
 local job = nil             -- { done=, total=, crafted= } while a job runs
 
+--[[
+    Report #737: "Forge moving on to a new recipe if there's no mats for current
+    -- works only on the 'craft' button, doesn't work on 'craft all'."
+
+    ★ THE AUTO-ADVANCE WAS WIRED TO A FAILURE, AND CRAFT ALL DOES NOT FAIL.
+
+    "Craft" sends whatever is in the Amount box. Ask for 20 with materials for 3
+    and the server refuses the plan with "missing" -- a failure string, which is
+    what the FRGDONE handler watches for, so the selection moves on. Correct.
+
+    "Craft All" sends exactly MaxCraftable(), i.e. precisely what the materials
+    support. It therefore succeeds, every time, by construction. The run ends
+    with an EMPTY failure and the advance never fires -- not because anything
+    went wrong, but because nothing did. The button that most needs to move on is
+    the one that can never trigger the move.
+
+    So the trigger cannot be the failure; it has to be the STATE AFTERWARDS.
+    This holds the spell id of a clean run until its refreshed counts land, and
+    the FRGMAT handler advances if the recipe can no longer be made at all.
+
+    ⚠ It waits for FRGMAT rather than deciding immediately, because the counts in
+      `mats` at FRGDONE time are the PRE-craft ones -- they would say the recipe
+      is still makeable and the advance would never fire for the opposite reason.
+      FRGDONE already re-asks (Send "FRGMATS:"), so this costs no extra traffic.
+]]
+local advanceWhenMatsLand = nil
+
 local frame, listScroll, listButtons, detail, progress
 local QUESTION_MARK = "Interface\\Icons\\INV_Misc_QuestionMark"
 
@@ -584,6 +611,31 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
                 ApplyFilter()   -- fresher counts can change the craftable filter
                 RefreshDetail()
             end
+
+            --[[
+                Report #737, second half. A craft that ENDED CLEANLY still leaves
+                you on a recipe you may no longer be able to make -- see the note
+                on advanceWhenMatsLand. These are the fresh counts, so now the
+                question can be answered honestly.
+
+                Cleared BEFORE advancing, not after: AdvanceToNextCraftable calls
+                SelectRecipe, which sends FRGMATS for the NEW recipe, and that
+                reply lands back here. Leaving the flag set would walk the list.
+
+                MaxCraftable() falls back to the list snapshot when a recipe has
+                no reagent rows, and that snapshot is stale between full fetches
+                -- so `possible` may be nil for the row we are on. nil is treated
+                as "do not move", because moving off a recipe on the strength of a
+                number we never asked for is worse than leaving the player where
+                they chose to be.
+            ]]
+            if advanceWhenMatsLand == spellId and spellId == selectedSpell then
+                advanceWhenMatsLand = nil
+                local possible = MaxCraftable(spellId)
+                if possible and possible <= 0 then
+                    AdvanceToNextCraftable()
+                end
+            end
         end
 
     elseif body:find("^FRGPROD:") then
@@ -726,8 +778,18 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
             unreachablemats = true,
         }
 
-        if failure and OUT_OF_MATERIALS[failure] and frame and frame.mode == "craft" then
-            AdvanceToNextCraftable()
+        advanceWhenMatsLand = nil
+
+        if frame and frame.mode == "craft" then
+            if failure and OUT_OF_MATERIALS[failure] then
+                AdvanceToNextCraftable()
+            elseif (not failure or failure == "") and crafted > 0 and selectedSpell then
+                -- Report #737. A CLEAN finish is exactly what "Craft All" always
+                -- produces, so this is the branch that actually fires for it. The
+                -- decision waits for the refreshed counts requested just above --
+                -- see the note on advanceWhenMatsLand and the FRGMAT handler.
+                advanceWhenMatsLand = selectedSpell
+            end
         end
 
     elseif body:find("^FRGPROCROW:") then
@@ -879,6 +941,10 @@ end
 local function SelectRecipe(spellId)
     selectedSpell = spellId
     quote = nil
+    -- Any pending #737 advance belonged to the recipe we are leaving. Choosing a
+    -- recipe by hand is the player overriding it, and a stale flag would move
+    -- them off their own choice the moment its counts arrived.
+    advanceWhenMatsLand = nil
     plan = { steps = {}, needs = {}, total = 0, feasible = true }
     staging.steps, staging.needs = {}, {}
     if spellId then
@@ -1765,12 +1831,27 @@ local function BuildFrame(parent)
         if not perOp or perOp < 1 then perOp = 1 end
         local ops = math.floor(entry.count / perOp)
         if ops < 1 then return end
-        -- The server clamps a single request to 10,000 operations (MAX_BATCH),
-        -- so clamp here too or the progress bar promises a total the run will
-        -- never reach: a 2.6-million meat pile is five presses, and the bar has
-        -- to say 10,000 each time rather than 43,565 once. Press again for the
-        -- rest -- the row's count refreshes when the run finishes.
-        if ops > 10000 then ops = 10000 end
+        --[[
+            The server clamps a single request, and the clamp is no longer one
+            number -- so neither is this, or the progress bar promises a total the
+            run will never reach.
+
+            Mill / prospect / disenchant ROLL A LOOT TABLE per operation. There is
+            no closed form for a roll, so those stay at 10,000 a press exactly as
+            before.
+
+            RENDER (kind 3) does not roll. It is a conversion -- a fixed number of
+            source items in, a fixed number out -- so the server resolves the whole
+            pile as arithmetic and a 2.6-million meat stack is ONE press instead of
+            the 261 this used to require.
+
+            ⚠ The server decides for itself and clamps again; this only keeps the
+              progress bar honest. An older server that does not know the higher
+              ceiling will clamp to 10,000 and the bar corrects itself on the first
+              FRGPROG.
+        ]]
+        local cap = (kind == 3) and 1000000 or 10000
+        if ops > cap then ops = cap end
         Send(string.format("FRGPROC:%d:%d:%d", kind, entry.item, ops))
         job = { done = 0, total = ops, crafted = 0 }
         RefreshProgress()

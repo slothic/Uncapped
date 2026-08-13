@@ -1200,6 +1200,35 @@ public partial class MainWindow : Window
                 return;
             }
 
+            // ★ TEMPORARY (FPS investigation). Ship the last session's frame log and clear it,
+            // BEFORE the client starts writing the next one — a client launched first would be
+            // appending to the file we are reading and deleting.
+            //
+            // Here rather than beside the crash reporter in SyncAndPrepareAsync, which only
+            // runs when the manifest has moved. This has to be every PLAY, because that is the
+            // boundary between one play session's log and the next.
+            //
+            // Bounded: PLAY must not wait on someone's network. On timeout or failure the log
+            // is left where it is and the next PLAY tries again.
+            if (_manifest is not null)
+            {
+                try
+                {
+                    using var upload = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+                    upload.CancelAfter(TimeSpan.FromSeconds(20));
+
+                    if (await new FpsReporter(_http)
+                            .ReportAsync(installPath, _manifest, _state, upload.Token))
+                        Log.Write("uploaded frame log");
+                }
+                catch (OperationCanceledException) when (!_cts.IsCancellationRequested)
+                {
+                    Log.Write("frame log upload timed out; kept for next launch");
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex) { Log.Write($"frame log: {ex.Message}"); }
+            }
+
             // Exclusive fullscreen crashes this client on too many machines to leave to the
             // player's saved setting — and the client rewrites Config.wtf when it exits, so
             // anyone who switched in-game would be back in fullscreen next launch. Hence

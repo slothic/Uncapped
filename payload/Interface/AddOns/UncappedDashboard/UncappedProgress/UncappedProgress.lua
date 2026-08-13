@@ -27,6 +27,12 @@
 --                       literal string "ds" in chat to open a gossip window that
 --                       appears in no help text anywhere.
 --
+--   Pet Dungeon Stats   [#636] The same ledger, for your pet -- one pool per pet,
+--                       plus the conversion. Both halves were already live on the
+--                       server; the only way to reach either was `.dspet`, an
+--                       undocumented command that needs the pet SUMMONED, so a
+--                       hunter could not see three of four stabled pools at all.
+--
 -- EVERYTHING HERE IS SERVER-AUTHORITATIVE. This addon stores nothing but which
 -- rows are on screen. It holds no opinion about what a clear is worth: the
 -- server sends the already-derived speed/loot/Anima/stat numbers, computed by
@@ -121,6 +127,14 @@ local ESSENCE_STATS = {
     "Spirit", "Defense Rating", "Spell Power", "Expertise",
 }
 
+-- [#636] A pet pool has only the first five -- no Defense Rating, Spell Power or
+-- Expertise. This array is positional and its ORDER IS THE WIRE ORDER, matching
+-- DungeonStats::PET_STAT_COUNT and the UNIT_MOD_STAT_START order the server
+-- indexes with. The INDEX (0-based, so PET_STATS[n] is stat n-1) is what DSPCONV
+-- sends, so reordering this silently converts the wrong stat -- which is not a
+-- mistake a player can undo. Do not reorder.
+local PET_STATS = { "Strength", "Agility", "Stamina", "Intellect", "Spirit" }
+
 -- ---------------------------------------------------------------------------
 -- State. Rebuilt wholesale from each burst -- there is no incremental update, so
 -- a dropped line can never leave a stale row behind. `pending` is the burst being
@@ -158,6 +172,30 @@ local waited  = 0            -- seconds since it went out
 local timedOut = false
 
 -- ---------------------------------------------------------------------------
+-- [#636] Pet Dungeon Stats -- a SEPARATE burst with separate state.
+--
+-- ★ NOT folded into `pending`/`state` above, deliberately. DSP* is its own
+--   request/reply pair with its own terminator, and a conversion re-sends only
+--   the pet burst. Staging pet rows into the Progress accumulator would mean the
+--   next PRGEND -- which knows nothing about pets -- swapped them out from under
+--   the panel, so a conversion would appear to work and then blank itself the
+--   moment anything else refreshed. Two bursts, two accumulators, one Render.
+--
+-- petSel is keyed by pet NUMBER, not by list index: the list is sorted by pooled
+-- total, so converting stats can reorder it, and an index would silently move
+-- the selection onto a different pet between the click and the Convert.
+-- ---------------------------------------------------------------------------
+local petState = { received = false, rate = 2, active = 0, pets = {} }
+local petPending = nil
+local petSel = nil           -- selected pet NUMBER (nil = "first in the list")
+-- 0-based stat indexes into PET_STATS, matching the wire. Spirit -> Strength is
+-- the default because Spirit is the one of the five that does least for most
+-- pets, so it is the likeliest source; both are re-picked before anything is
+-- spent, and the server validates them again regardless.
+local petFrom, petTo = 4, 0
+local petError = nil         -- last refusal, shown under the converter
+
+-- ---------------------------------------------------------------------------
 -- Layout
 -- ---------------------------------------------------------------------------
 local PAD        = 18
@@ -181,6 +219,11 @@ local lines = {}          -- pooled font strings for the static top block
 local listRows = {}       -- pooled { name, clears, speed, loot, anima, stat }
 local listHeader = nil
 local listTop = 0         -- y offset the list was last anchored at
+
+-- [#636] The pet converter's live widgets. Created ONCE in BuildFrame and
+-- re-anchored by Render, like listScroll -- 3.3.5a cannot destroy a frame, so
+-- anything built per paint leaks one set per refresh for the whole session.
+local petUI = nil
 
 -- ---------------------------------------------------------------------------
 -- Formatting helpers
@@ -239,6 +282,15 @@ local function Request()
     waited   = 0
     timedOut = false
     Send("PRGGET")
+
+    -- [#636] The pet pools are a second, independent burst. Asked for here so
+    -- opening the tab is still ONE user action -- but not tied to the PRG reply
+    -- in any way, so a server that answers one and not the other renders the
+    -- half it has instead of neither. There is deliberately no separate timeout:
+    -- a server old enough to lack DSPGET lacks PRGGET too, and that one timeout
+    -- already says so.
+    petPending = nil
+    Send("DSPGET")
 end
 
 -- Opens (or reuses) the accumulator for the burst currently arriving. The first
@@ -249,7 +301,89 @@ local function Staging()
     return pending
 end
 
+-- ---------------------------------------------------------------------------
+-- [#636] The DSP* burst -- pet pools and the conversion reply.
+--
+-- Returns true when it consumed the line, so the Progress parser below never
+-- sees it. Kept in its own function rather than bolted onto HandleMessage
+-- because the two bursts share nothing but the transport.
+-- ---------------------------------------------------------------------------
+local function HandlePetMessage(text)
+    local err = string.match(text, "^DSPERR:(.+)$")
+    if err then
+        -- "busy" is the throttle and is not worth showing anyone -- the panel is
+        -- already painting real data and a refusal to repaint it changes
+        -- nothing. Everything else is a REFUSED CONVERSION and is the whole
+        -- reason a player is looking at this section, so it is surfaced verbatim:
+        -- the server composes those sentences (not enough Spirit, already at the
+        -- cap, that pet has no banked stats) and it is the only thing that knows
+        -- the real numbers.
+        if err ~= "busy" then petError = err end
+        petPending = nil
+        if frame and frame:IsShown() then Render() end
+        return true
+    end
+
+    local rate, active = string.match(text, "^DSPCFG:(%d+):(%d+)$")
+    if rate then
+        petPending = { received = true, rate = tonumber(rate) or 2,
+                       active = tonumber(active) or 0, pets = {} }
+        return true
+    end
+
+    -- The pet's NAME is last and captured with (.*)$ -- it may legitimately be
+    -- EMPTY (pool 0 belongs to a minion with no character_pet row to name it),
+    -- and a player-chosen name can contain colons. Same rule as PRGSR's map name,
+    -- except that this one also has to survive being blank.
+    local num, act, s1, s2, s3, s4, s5, name =
+        string.match(text, "^DSPPET:(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(.*)$")
+    if num then
+        -- A row before DSPCFG means a burst we never saw the head of. Open an
+        -- accumulator anyway rather than dropping it: a missing config line costs
+        -- a default conversion rate, a dropped row costs a whole pet.
+        if not petPending then
+            petPending = { received = true, rate = petState.rate or 2, active = 0, pets = {} }
+        end
+        tinsert(petPending.pets, {
+            num    = tonumber(num) or 0,
+            active = act == "1",
+            name   = (name ~= "" and name) or nil,
+            stats  = { tonumber(s1) or 0, tonumber(s2) or 0, tonumber(s3) or 0,
+                       tonumber(s4) or 0, tonumber(s5) or 0 },
+        })
+        return true
+    end
+
+    -- DSPEND is the only place petState is replaced, so the panel never paints a
+    -- half-arrived list. A count of zero is a real answer ("you have no pet
+    -- pools"), not a dropped burst.
+    if string.match(text, "^DSPEND:(%d+)$") then
+        petState = petPending or { received = true, rate = 2, active = 0, pets = {} }
+        petPending = nil
+
+        -- Drop a selection whose pet is no longer in the list (stabled pet
+        -- released, or a fresh character). Left dangling it would send DSPCONV
+        -- for a pool the server would rightly refuse, with a confusing message.
+        if petSel then
+            local stillThere = false
+            for _, p in ipairs(petState.pets) do
+                if p.num == petSel then stillThere = true; break end
+            end
+            if not stillThere then petSel = nil end
+        end
+
+        if frame and frame:IsShown() then Render() end
+        return true
+    end
+
+    return false
+end
+
 local function HandleMessage(text)
+    if string.sub(text, 1, 3) == "DSP" then
+        return HandlePetMessage(text)
+    end
+
     -- PRGERR means the server heard us and declined (throttle). Deliberately NOT
     -- treated as "no reply": the whole point of answering a throttled request is
     -- that the client can tell a busy server apart from a server with no PRGGET
@@ -469,6 +603,32 @@ local function RefreshListRows()
 end
 
 -- ---------------------------------------------------------------------------
+-- [#636] Pet Dungeon Stats -- helpers
+-- ---------------------------------------------------------------------------
+
+-- The pool the converter acts on. Follows petSel when it still exists, and
+-- otherwise falls back to the first row -- which is the richest, because the
+-- server sorts by pooled total.
+local function SelectedPet()
+    local pets = petState.pets or {}
+    if petSel then
+        for _, p in ipairs(pets) do
+            if p.num == petSel then return p end
+        end
+    end
+    return pets[1]
+end
+
+-- "Snuffles", or "Your minion" for pool 0, which has no character_pet row to be
+-- named from and is the ONLY pool every non-hunter has. Never "Pet 0".
+local function PetLabel(p)
+    if not p then return "" end
+    if p.name then return p.name end
+    if p.num == 0 then return "Your minion" end
+    return "Pet #" .. tostring(p.num)
+end
+
+-- ---------------------------------------------------------------------------
 -- Render
 -- ---------------------------------------------------------------------------
 function Render()
@@ -548,6 +708,14 @@ function Render()
         for n = 1, #(listHeader or {}) do listHeader[n]:Hide() end
     end
 
+    -- [#636] The pet converter's widgets are real frames, not pooled font
+    -- strings, so HideRest() cannot reach them. Every early return below has to
+    -- hide them explicitly or last paint's dropdowns float over whatever
+    -- replaced them -- the same trap the list header already documents.
+    local function HidePetUI()
+        if petUI then petUI.holder:Hide() end
+    end
+
     -- ---- not answered yet ----------------------------------------------------
     if not state.received then
         Head("Progress")
@@ -564,6 +732,7 @@ function Render()
         end
         HideRest()
         HideList()
+        HidePetUI()
         if statusText then statusText:SetText("") end
         return
     end
@@ -604,6 +773,58 @@ function Render()
     end
 
     y = y - 6
+
+    -- ---- pet dungeon stats [#636] --------------------------------------------
+    --
+    -- Deliberately right under the player's own banked ledger: they are the same
+    -- currency earned on the same kill, and reading one without the other was
+    -- most of what made the pet pool feel invisible.
+    local pets = petState.pets or {}
+    if not petState.received then
+        -- No DSP reply at all. Say nothing rather than claiming zero -- an older
+        -- server simply has no DSPGET handler, and this section not existing is
+        -- the honest rendering of that.
+        HidePetUI()
+    elseif #pets == 0 then
+        Head("Pet Dungeon Stats")
+        Note("Your pet hasn't banked any stats yet. Every dungeon kill rolls for it, "
+            .. "the same as it does for you -- and the pool follows the pet, so a "
+            .. "stabled one keeps what it earned.", 470)
+        HidePetUI()
+        y = y - 6
+    else
+        local sel = SelectedPet()
+        Head("Pet Dungeon Stats")
+
+        -- One line, five values. A pet pool has only the first five stats (no
+        -- Defense Rating, Spell Power or Expertise), so this fits on a row and
+        -- does not need the two-column Pair layout the eight-stat ledger uses.
+        local parts = {}
+        for n = 1, 5 do
+            parts[n] = string.format("%s%s|r %s%s|r",
+                COLOR_DIM, string.sub(PET_STATS[n], 1, 3),
+                COLOR_VALUE, Short(sel.stats[n]))
+        end
+        local fs = AcquireLine(i, 0, y, LIST_WIDTH)
+        fs:SetText(table.concat(parts, "   "))
+        i, y = i + 1, y - (ROW_H + 2)
+
+        if petUI then
+            petUI.holder:ClearAllPoints()
+            petUI.holder:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, y)
+            petUI.holder:Show()
+            petUI.Refresh()
+        end
+        y = y - (petUI and petUI.HEIGHT or 0)
+
+        if petError then
+            Warn(petError, 470)
+        else
+            Note(string.format("Costs %d of the source for every 1 gained. Also available as "
+                .. "/dspet -- this does exactly the same thing.", petState.rate or 2), 470)
+        end
+        y = y - 6
+    end
 
     -- ---- SoulRush ------------------------------------------------------------
     if not state.srEnabled then
@@ -698,6 +919,163 @@ function Render()
     RefreshListRows()
 end
 
+-- ---------------------------------------------------------------------------
+-- [#636] The pet converter row.
+--
+-- ONE row, on purpose. The Dashboard derives its window height floor from this
+-- panel's GetMinHeight, and that floor is clamped to what the screen can show
+-- (DashboardButtons.SetMinContentHeight -> GetMaxHeight). Asking for more height
+-- than the screen has does not scroll -- it CLIPS, and the first thing off the
+-- bottom would be the SoulRush list. A second widget row costs ~30 units and the
+-- budget does not have them, so the pet selector shares the row with the
+-- converter rather than sitting above it.
+--
+-- Dropdowns are anchored to each OTHER, not to fixed x offsets:
+-- UIDropDownMenu_SetWidth sets the inner text width and the frame ends up
+-- noticeably wider than the number you passed, by an amount that is not worth
+-- hard-coding. Relative anchoring absorbs that; a column of magic numbers would
+-- have to be re-tuned by hand the first time a stat name got longer.
+-- ---------------------------------------------------------------------------
+local function BuildPetUI(parent)
+    -- Guarded as a whole: these are stock 3.3.5a FrameXML globals and every
+    -- other Uncapped panel uses them unguarded, but this file's standing rule is
+    -- degrade-never-error, and a missing dropdown API should cost the converter,
+    -- not the whole Progress tab.
+    if not UIDropDownMenu_Initialize or not UIDropDownMenu_SetWidth then return nil end
+
+    local ui = {}
+    ui.HEIGHT = 30
+
+    local holder = CreateFrame("Frame", nil, parent)
+    holder:SetWidth(LIST_WIDTH)
+    holder:SetHeight(ui.HEIGHT)
+    holder:Hide()
+    ui.holder = holder
+
+    local function MakeDrop(name, width, anchorTo)
+        local dd = CreateFrame("Frame", name, holder, "UIDropDownMenuTemplate")
+        if anchorTo then
+            dd:SetPoint("LEFT", anchorTo, "RIGHT", -14, 0)
+        else
+            -- The template carries a chunk of built-in left padding, so a bare 0
+            -- would leave the visible control indented past everything else on
+            -- the panel.
+            dd:SetPoint("TOPLEFT", holder, "TOPLEFT", -16, 0)
+        end
+        UIDropDownMenu_SetWidth(dd, width)
+        return dd
+    end
+
+    ui.petDrop = MakeDrop("UncappedProgressPetDrop", 88)
+    ui.fromDrop = MakeDrop("UncappedProgressPetFrom", 66, ui.petDrop)
+
+    local arrow = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    arrow:SetPoint("LEFT", ui.fromDrop, "RIGHT", -10, 2)
+    arrow:SetText(COLOR_DIM .. "into|r")
+    ui.arrow = arrow
+
+    ui.toDrop = MakeDrop("UncappedProgressPetTo", 66, arrow)
+
+    ui.amount = CreateFrame("EditBox", "UncappedProgressPetAmount", holder, "InputBoxTemplate")
+    ui.amount:SetPoint("LEFT", ui.toDrop, "RIGHT", 2, 2)
+    ui.amount:SetWidth(52)
+    ui.amount:SetHeight(18)
+    ui.amount:SetAutoFocus(false)
+    ui.amount:SetNumeric(true)     -- whole numbers only, the same rule the server enforces
+    ui.amount:SetMaxLetters(15)    -- the stat cap is 1e15
+    ui.amount:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+    ui.convert = CreateFrame("Button", nil, holder, "UIPanelButtonTemplate")
+    ui.convert:SetPoint("LEFT", ui.amount, "RIGHT", 10, -2)
+    ui.convert:SetWidth(74)
+    ui.convert:SetHeight(20)
+    ui.convert:SetText("Convert")
+
+    local function DoConvert()
+        local sel = SelectedPet()
+        if not sel then return end
+
+        local amount = tonumber(ui.amount:GetText() or "")
+        if not amount or amount < 1 then
+            -- Answered locally: the server would refuse this with the same
+            -- sentence, and making the player wait a round trip to be told they
+            -- left the box empty is worse than saying so at once.
+            petError = "Enter a whole number greater than 0."
+            Render()
+            return
+        end
+
+        if petFrom == petTo then
+            petError = "Pick two different stats."
+            Render()
+            return
+        end
+
+        petError = nil
+        ui.amount:ClearFocus()
+        -- Fire and forget. The server replies with either DSPERR (which Render
+        -- surfaces verbatim) or a fresh DSPCFG/DSPPET/DSPEND burst carrying the
+        -- new numbers, so there is nothing to update optimistically -- and
+        -- nothing that can leave the panel claiming a conversion that did not
+        -- happen.
+        Send(string.format("DSPCONV:%d:%d:%d:%d", sel.num, petFrom, petTo, math.floor(amount)))
+    end
+
+    ui.convert:SetScript("OnClick", DoConvert)
+    ui.amount:SetScript("OnEnterPressed", DoConvert)
+
+    -- Repaints the three dropdown captions from current state. Called on every
+    -- Render, so a burst that renamed or reordered the pets cannot leave a stale
+    -- caption over a different pool.
+    function ui.Refresh()
+        local sel = SelectedPet()
+        UIDropDownMenu_SetText(ui.petDrop, PetLabel(sel))
+        UIDropDownMenu_SetText(ui.fromDrop, PET_STATS[petFrom + 1] or "?")
+        UIDropDownMenu_SetText(ui.toDrop, PET_STATS[petTo + 1] or "?")
+    end
+
+    UIDropDownMenu_Initialize(ui.petDrop, function()
+        for _, p in ipairs(petState.pets or {}) do
+            local info = UIDropDownMenu_CreateInfo()
+            -- The pet that is actually out is marked rather than sorted to the
+            -- top: the list order is "richest pool first" and comes from the
+            -- server, and re-sorting it here would make the panel and the wire
+            -- disagree about which row is which.
+            info.text = PetLabel(p) .. (p.active and (" " .. COLOR_HERE .. "(out)|r") or "")
+            info.value = p.num
+            info.checked = (SelectedPet() == p)
+            info.func = function(self)
+                petSel = self.value
+                CloseDropDownMenus()
+                Render()
+            end
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+
+    local function StatMenu(dd, get, set)
+        UIDropDownMenu_Initialize(dd, function()
+            for n = 1, #PET_STATS do
+                local info = UIDropDownMenu_CreateInfo()
+                info.text = PET_STATS[n]
+                info.value = n - 1        -- 0-based, matching the wire
+                info.checked = (get() == n - 1)
+                info.func = function(self)
+                    set(self.value)
+                    CloseDropDownMenus()
+                    Render()
+                end
+                UIDropDownMenu_AddButton(info)
+            end
+        end)
+    end
+
+    StatMenu(ui.fromDrop, function() return petFrom end, function(v) petFrom = v end)
+    StatMenu(ui.toDrop, function() return petTo end, function(v) petTo = v end)
+
+    return ui
+end
+
 local function BuildFrame(parent)
     if frame then return end
 
@@ -722,6 +1100,12 @@ local function BuildFrame(parent)
         if sb then sb:SetValue(sb:GetValue() - delta * ROW_H) end
     end)
     listScroll:Hide()
+
+    -- [#636] Built once, re-anchored by Render. Returns nil on a client whose
+    -- dropdown API is missing, in which case the pet section still RENDERS (the
+    -- numbers are plain font strings) and only the converter is absent -- which
+    -- is a strictly better outcome than the whole tab erroring.
+    petUI = BuildPetUI(frame)
 
     -- The reply timeout. 3.3.5a has no C_Timer, so this is an OnUpdate with an
     -- accumulator -- the standard shape on this client. It only runs while the
@@ -773,8 +1157,19 @@ end
 -- 300px on a hunter (the tallest case -- two extra talent rows and two notes),
 -- the list is 12 * 14 = 168, the status line reserves 30, and the Dashboard's
 -- own chrome above/around the content area is ~72.
+--
+-- [#636] +88 for the pet section: heading 18, the five-stat line 16, the
+-- converter row 30, its note 16, and 8 of padding.
+--
+-- ⚠ THIS NUMBER IS A REQUEST AGAINST A HARD CEILING, not a guarantee.
+--   DashboardButtons.SetMinContentHeight clamps it to GetMaxHeight(), i.e. what
+--   the screen can actually show, and content past that is CLIPPED, not
+--   scrolled -- the SoulRush list sits last, so it is what would be lost. At 658
+--   there is roughly 50 units of headroom on a default-scale 768-tall UIParent.
+--   Before adding anything else here, take the height out of something rather
+--   than adding to this total.
 function Progress.UI.GetMinHeight()
-    return 300 + (LIST_ROWS * ROW_H) + 30 + 72
+    return 300 + 88 + (LIST_ROWS * ROW_H) + 30 + 72
 end
 
 local function OpenInDashboard()
@@ -802,7 +1197,12 @@ comms:SetScript("OnEvent", function(self, event, a1, a2)
 
     if event ~= "CHAT_MSG_ADDON" then return end
     if a1 ~= ADDON_PIPE_PREFIX or not a2 then return end
-    if string.sub(a2, 1, 3) ~= "PRG" then return end
+    -- Two token families land here now: PRG* (the Progress burst) and DSP* (the
+    -- pet pools, #636). Cheap prefix test first -- this handler sees every
+    -- server->client line on the shared UNC pipe, which in an AoE Mythic+ pull is
+    -- well over a hundred a second.
+    local head = string.sub(a2, 1, 3)
+    if head ~= "PRG" and head ~= "DSP" then return end
     HandleMessage(a2)
 end)
 
@@ -834,4 +1234,7 @@ if UncappedUI then
     L:Note("Also shows how many bonus talent points you and your pet have earned against "
         .. "your class maximum, and the stat ledger you have banked from kills. "
         .. "Also available with /progress.", 48)
+    L:Note("Your pet's own banked stats are here too, one pool per pet -- including "
+        .. "stabled ones you do not have out -- and you can convert between them from "
+        .. "the same row. The /dspet command does the same thing.", 48)
 end

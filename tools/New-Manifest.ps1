@@ -42,6 +42,15 @@ param(
     # webhook shipped in a public client can be extracted by anyone who looks.
     # Empty disables crash reporting entirely.
     [string]$CrashReportWebhook = '',
+    # Discord webhook that client FPS diagnostics get posted to, on the same terms as the
+    # crash webhook above: manifest rather than binary, so it rotates without a release.
+    #
+    # ★ THIS IS TEMPORARY INSTRUMENTATION (2026-08-13, the big-pull FPS investigation).
+    #   Setting it to a value that is not an http(s) URL -- "off" is the convention -- stops
+    #   the upload, tells the DLL to stop COLLECTING, and deletes logs already on disk,
+    #   within the running session. That is how this gets removed: a manifest edit, not a
+    #   client release. Empty disables it the same way.
+    [string]$FpsReportWebhook = '',
     # Rename the client executable and delete Repair.exe, so players cannot start an unsynced
     # client by double-clicking it.
     [bool]  $HardenClient    = $true,
@@ -521,6 +530,9 @@ if ($launcherHash) { $launcherHashValue = $launcherHash }
 $crashWebhookValue = $null
 if ($CrashReportWebhook) { $crashWebhookValue = $CrashReportWebhook }
 
+$fpsWebhookValue = $null
+if ($FpsReportWebhook) { $fpsWebhookValue = $FpsReportWebhook }
+
 $newsUrlValue = $null
 if ($NewsUrl) { $newsUrlValue = $NewsUrl }
 
@@ -581,6 +593,7 @@ $manifest = [ordered]@{
         installedBytes    = $installedBytes
     }
     crashReportWebhook = $crashWebhookValue
+    fpsReportWebhook   = $fpsWebhookValue
     hardenClient       = $HardenClient
     largeAddressAware  = $LargeAddressAware
 

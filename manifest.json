@@ -1,8 +1,8 @@
 {
     "manifestVersion":  1,
-    "launcherVersion":  "1.12.1",
-    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.12.1/Uncapped.exe",
-    "launcherSha256":  "d3e5825ffccd880d2a0cb6d13e2c56c80a0e0959511f3f348bd259b7200a8fd3",
+    "launcherVersion":  "1.13.0",
+    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.13.0/Uncapped.exe",
+    "launcherSha256":  "835e6dab3dd499e46359610360e5c00207fa2b656ea5c621dd2264fc69587cbb",
     "realm":  {
                   "name":  "Uncapped",
                   "address":  "152.53.115.249",
@@ -24,6 +24,7 @@
                    "installedBytes":  19327352832
                },
     "crashReportWebhook":  null,
+    "fpsReportWebhook":  "https://discord.com/api/webhooks/1537273806928875563/RFh2lGOqov2X_IF9-49YVkW6EeXURSvEAN4sxxMBF64Ce61h-7Zd9SDUBDoA-Y7qvb6p",
     "hardenClient":  true,
     "largeAddressAware":  true,
     "baselineUrl":  "http://152.53.115.249/baseline.json",
@@ -1638,8 +1639,8 @@
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/UncappedPerf.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/UncappedPerf.lua",
-                      "sha256":  "741e7fd620d6492567fd89a36b3d7b7d5839948b198f706bf254593c9b9ecbeb",
-                      "size":  13583
+                      "sha256":  "7a412075ea3b025725f7ddcbcc6826e6662d289c58bf0a90a0a6e490f1a7ffc9",
+                      "size":  14892
                   },
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/fonts/Anton-Regular.ttf",
@@ -1806,8 +1807,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedForge/UncappedForge.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedForge/UncappedForge.lua",
-                      "sha256":  "e96acb0c5a47ebcbbed6df4c736fcdf69052ebe004597ae484f60d7b87cbd729",
-                      "size":  100489
+                      "sha256":  "b5f01b69dda216b3ac38cb8939e2d92e70ab248489ae54baa8f4e9d3f2dfd567",
+                      "size":  104679
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedKeystone/UncappedKeystone.lua",
@@ -1830,8 +1831,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedProgress/UncappedProgress.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedProgress/UncappedProgress.lua",
-                      "sha256":  "bb16c8c92fc6614d339bb5f5b6a90f3117455f56c7cb217062444a2aa75564b2",
-                      "size":  36337
+                      "sha256":  "3e9fe038ea859d025883c68e73172dac1755b74793252940e3e250ee4a910968",
+                      "size":  55334
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedScrolls/UncappedScrolls.lua",
@@ -1842,8 +1843,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedSoulForge/UncappedSoulForge.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedSoulForge/UncappedSoulForge.lua",
-                      "sha256":  "d9cb8488efcdeb94e7304afde04c65f236cab95e87d5e856294ada63fe8e8e11",
-                      "size":  105159
+                      "sha256":  "e613c9571b562441c999e3a6bceddb0704f4514275ba7bbfadd116d2d0d63776",
+                      "size":  118483
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedTransmog/UncappedTransmog.lua",
@@ -1872,8 +1873,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedGCD/UncappedGCD.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedGCD/UncappedGCD.lua",
-                      "sha256":  "be6af7ad27828a8ca279e13b8e6863ebd79d73b08d0072c73238f031b3cf8166",
-                      "size":  21965
+                      "sha256":  "a771278aede6ea61b9d4a208ee4710ed362fa0358526c5495dbceb4b964c56c9",
+                      "size":  23640
                   },
                   {
                       "path":  "Interface/AddOns/UncappedGCD/UncappedGCD.toc",
@@ -2993,9 +2994,9 @@
                   },
                   {
                       "path":  "UncappedCT.dll",
-                      "url":  "http://152.53.115.249/patches/UncappedCT-2026.08.13b.dll",
-                      "sha256":  "1feba2d31a1bf5bbb114a4f16bd1e692f994e3abc620447cc77c2aac8abce174",
-                      "size":  441856
+                      "url":  "http://152.53.115.249/patches/UncappedCT-2026.08.13c.dll",
+                      "sha256":  "198ed652a7918f6a40ed9736b5f77788f6b1fa48852b2861ed5b99f7f9cda61b",
+                      "size":  445952
                   }
               ],
     "archives":  [

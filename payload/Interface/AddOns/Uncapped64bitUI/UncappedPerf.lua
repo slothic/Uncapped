@@ -270,13 +270,34 @@ if UncappedUI then
         .. "during a big pull, because every hit on every target draws one -- but they are also how you "
         .. "read a fight here. Turn them off only if the presets above were not enough.", 50)
 
+    --[[ ★★ [#447] THESE TWO BOXES WERE BOUND TO CVARS THIS CLIENT DOES NOT HAVE.
+         `floatingCombatTextCombatDamage` / `...Healing` are Cataclysm-era names. This
+         client's engine floaters are gated by CombatDamage / CombatHealing /
+         PetMeleeDamage / PetSpellDamage -- verified against the shipped binary
+         (Client\ChromieCraft_3.3.5a\UncappedClient.dat: the floatingCombatText* names
+         are absent, the four below are present). See NativeCT/notes/CLIENT_MAP.md.
+
+         With the wrong name GetCVar returns nil, so the box rendered permanently
+         UNCHECKED, and SetCVar threw straight into the pcall, so clicking it did
+         nothing. That is a dead switch sitting directly under the one feature this
+         realm exists for -- and since 2026-08-08 the engine floaters are the ONLY
+         renderer left (FCT_ADDON_DRAWS is false and we pin SHOW_COMBAT_TEXT to "0"),
+         so a player whose CombatDamage happened to be 0 had no combat numbers at all
+         and no working control anywhere to bring them back.
+
+         Pet damage rides along with the enemy-damage box because it is the same
+         decision to the player, and leaving it out means two more silent CVars. ]]
     L:Check("Show damage numbers over enemies",
-        function() local ok, v = pcall(GetCVar, "floatingCombatTextCombatDamage") return ok and v == "1" end,
-        function(v) pcall(SetCVar, "floatingCombatTextCombatDamage", v and "1" or "0") end)
+        function() local ok, v = pcall(GetCVar, "CombatDamage") return ok and v == "1" end,
+        function(v)
+            pcall(SetCVar, "CombatDamage",   v and "1" or "0")
+            pcall(SetCVar, "PetMeleeDamage", v and "1" or "0")
+            pcall(SetCVar, "PetSpellDamage", v and "1" or "0")
+        end)
 
     L:Check("Show healing numbers",
-        function() local ok, v = pcall(GetCVar, "floatingCombatTextCombatHealing") return ok and v == "1" end,
-        function(v) pcall(SetCVar, "floatingCombatTextCombatHealing", v and "1" or "0") end)
+        function() local ok, v = pcall(GetCVar, "CombatHealing") return ok and v == "1" end,
+        function(v) pcall(SetCVar, "CombatHealing", v and "1" or "0") end)
 
     L:Note("You can also hide only the SMALL hits and keep the big ones, which costs you nothing you "
         .. "were reading anyway: |cffffff00/hideunder 500m|r. That one is filtered on the server, so "

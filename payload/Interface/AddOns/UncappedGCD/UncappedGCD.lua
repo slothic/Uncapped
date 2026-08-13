@@ -373,7 +373,17 @@ end
 -- ===========================================================================
 
 local sentName, sentAt = nil, 0
-local SENT_WINDOW = 10   -- seconds; long enough for the slowest cast bar
+-- ★ [#487] Was 10 seconds, and sentName was cleared ONLY by being consumed. A press
+-- that resolved to nothing -- out of mana, out of range, refused for GCD, interrupted --
+-- therefore left the addon armed with that spell's name for a full ten seconds, and the
+-- next server-originated cast under the same name painted a whole-bar sweep the server
+-- had never applied. Des reported it as "Arcane Explosion randomly casts after combat and
+-- then I can't cast anything else": a levelling mage mashing one AoE button fails presses
+-- constantly, so the window was open almost permanently on exactly one spell name.
+--
+-- Three seconds still covers the slowest cast bar on this realm, and the FAILED /
+-- INTERRUPTED handlers below close the window the moment a press is known to be dead.
+local SENT_WINDOW = 3
 
 local function StartGCD(spellName)
     if not db.showGcd then return end
@@ -421,6 +431,12 @@ ev:RegisterEvent("PLAYER_ENTERING_WORLD")
 ev:RegisterEvent("CHAT_MSG_ADDON")
 ev:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 ev:RegisterEvent("UNIT_SPELLCAST_SENT")
+-- [#487] A press that produced nothing must not stay armed. pcall on FAILED_QUIET
+-- because RegisterEvent on an event this client does not know is a hard error, and
+-- that is the one of the three not worth betting the addon's load on.
+ev:RegisterEvent("UNIT_SPELLCAST_FAILED")
+ev:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
+pcall(ev.RegisterEvent, ev, "UNIT_SPELLCAST_FAILED_QUIET")
 ev:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
 -- Bars are rebuilt when the player changes them, so drop the cached list and
 -- let the next cast re-scan rather than holding stale frames.
@@ -465,6 +481,13 @@ ev:SetScript("OnEvent", function(self, e, a1, a2)
     elseif e == "UNIT_SPELLCAST_SENT" then
         -- Only the local player's own cast requests raise this.
         if a1 == "player" then sentName, sentAt = a2, GetTime() end
+    elseif e == "UNIT_SPELLCAST_FAILED" or e == "UNIT_SPELLCAST_FAILED_QUIET"
+        or e == "UNIT_SPELLCAST_INTERRUPTED" then
+        -- [#487] This press is dead: disarm, so nothing the SERVER casts later under
+        -- the same name can claim it. 3.3.5 hands these the same (unit, spellName, rank)
+        -- shape as _SENT, so a2 is directly comparable to sentName; the a2 == nil arm is
+        -- for the quiet variant, which does not always carry a name.
+        if a1 == "player" and (a2 == nil or a2 == sentName) then sentName = nil end
     elseif e == "ACTIONBAR_UPDATE_COOLDOWN" then
         ApplyGCD()                  -- repaint over the stock refresh, if ours is still live
     elseif e == "ACTIONBAR_SLOT_CHANGED" then

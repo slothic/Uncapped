@@ -26,6 +26,12 @@ uncapped.config.json
 # is not a URL, or empty to fall back to this baked-in one.
 src/Uncapped/webhook.local.txt
 
+# ★ TEMPORARY (FPS investigation). Same reasoning as the crash webhook above, separate
+# channel. Expected to stay ABSENT: the manifest field fpsReportWebhook is the mechanism,
+# and a diagnostic we intend to remove has no business baking a webhook into a public
+# binary. Ignored here so that nobody who does create one can commit it by accident.
+src/Uncapped/fpswebhook.local.txt
+
 # payload/ and manifest.json are generated but MUST be committed:
 # they are what the launcher actually downloads.
 #
