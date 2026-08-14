@@ -145,7 +145,14 @@ local cachedPos, cachedAt = nil, 0
 -- map, do we re-point it -- never from a hot loop, never while the map is open.
 function UQ.PlayerNode()
     local now = GetTime()
-    if cachedPos and (now - cachedAt) < POS_INTERVAL then return cachedPos end
+    -- ★ [#765] THROTTLE ON TIME ALONE. `cachedPos and ...` meant the throttle only
+    -- applied once there WAS a position -- so the one case that costs anything, having
+    -- none (an instance: the client reports no world position there), re-ran
+    -- GetPlayerMapPosition and SetMapToCurrentZone on EVERY FRAME for as long as the
+    -- player was inside. SetMapToCurrentZone repoints the world map and fires
+    -- WORLD_MAP_UPDATE; doing that 45 times a second in a dungeon is the same bill the
+    -- blocked Hide was running up, and it is not even combat-gated.
+    if (now - cachedAt) < POS_INTERVAL then return cachedPos end
     cachedAt = now
 
     local mx, my = GetPlayerMapPosition("player")
@@ -166,6 +173,9 @@ end
 
 function UQ.ForgetPlayerPos()
     cachedPos = nil
+    -- The throttle now runs on time alone, so the stamp has to be cleared too or a zone
+    -- change would wait out the rest of the interval before the arrow could re-acquire.
+    cachedAt = 0
 end
 
 local PlayerNode = UQ.PlayerNode
@@ -794,6 +804,14 @@ local function UseSheet(frame, which)
     local sheet = SHEETS[which]
     if not sheet then return end
 
+    -- ★ [#765] `frame` here is the arrow, and the arrow is PROTECTED (see the note
+    -- on HideArrow further down). SetWidth/SetHeight are refused in combat, so the
+    -- swap half-applies, the width check below reads as "not applied", and this runs
+    -- again on the very next frame -- a second ADDON_ACTION_BLOCKED storm at frame
+    -- rate, from the same cause. Keep the current sheet until the lockdown drops; the
+    -- driver calls this every frame, so it corrects itself the instant combat ends.
+    if InCombatLockdown() then return end
+
     --[[ ★ VERIFY, don't just trust the marker.
 
          The marker was the only evidence the swap had happened, which makes it
@@ -828,19 +846,72 @@ end
 -- the handler that was supposed to show it.
 local driver = CreateFrame("Frame")
 
+-- ★★ [#765] THE ARROW IS A PROTECTED FRAME AND NOTHING ABOUT IT SAYS SO.
+--
+-- `arrow.itemButton` is a SecureActionButtonTemplate parented to `arrow`, and a
+-- frame with a protected descendant is itself protected. Hide/Show, SetWidth,
+-- SetHeight, SetScale and SetPoint on the arrow are therefore ALL refused in
+-- combat -- and every hide below runs from an OnUpdate, so a refused Hide leaves
+-- the frame shown, the next frame tries again, and the client logs
+-- ADDON_ACTION_BLOCKED at frame rate. Measured live at 45-48 per second.
+--
+-- The path that reaches it is the ordinary one, not an edge case: PlayerNode()
+-- returns nil for the WHOLE time a player is inside an instance, because the
+-- client reports no world position there. So every dungeon and raid boss fight
+-- runs the `not player` branch on every single frame.
+--
+-- SetAlpha is NOT protected, so combat gets an arrow faded to nothing and the
+-- real Hide happens on the first frame after the lockdown drops. This driver runs
+-- every frame, so nothing extra is needed to finish the job.
+--
+-- useButton is itself a secure frame, so its Hide is refused too. It is left alone
+-- until combat ends, which is exactly what the note above its creation already
+-- describes.
+local arrowFaded = false
+
+local function HideArrow()
+    if arrow:IsShown() then
+        if InCombatLockdown() then
+            if not arrowFaded then
+                arrow:SetAlpha(0)
+                arrowFaded = true
+            end
+            return
+        end
+        arrow:Hide()
+    end
+
+    if arrowFaded then
+        arrow:SetAlpha(1)
+        arrowFaded = false
+    end
+end
+
+local function ShowArrow()
+    if arrowFaded then
+        arrow:SetAlpha(1)
+        arrowFaded = false
+    end
+    if not arrow:IsShown() then arrow:Show() end
+end
+
+local function HideUseButton()
+    if useButton:IsShown() and not InCombatLockdown() then useButton:Hide() end
+end
+
 driver:SetScript("OnUpdate", function(_, elapsed)
     local self = arrow
 
     if not db.arrowEnabled then
-        self:Hide()
-        useButton:Hide()
+        HideArrow()
+        HideUseButton()
         return
     end
 
     local player = PlayerNode()
     if not player then
-        self:Hide()
-        useButton:Hide()
+        HideArrow()
+        HideUseButton()
         return
     end
 
@@ -864,18 +935,18 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     end
 
     if not target then
-        self:Hide()
-        useButton:Hide()
+        HideArrow()
+        HideUseButton()
         return
     end
 
     local dist, dx, dy = WorldDistance(player, target)
     if not dist then
-        self:Hide()
+        HideArrow()
         return
     end
 
-    self:Show()
+    ShowArrow()
 
     if dist <= ARRIVE_YARDS then
         -- Arrived: swap to the animated down-arrow, held green.

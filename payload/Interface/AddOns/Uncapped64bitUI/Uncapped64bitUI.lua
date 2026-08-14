@@ -688,6 +688,7 @@ end
 -- Declared HERE, above the listener, so both the message handler below and the
 -- tooltip hook much further down capture the same upvalues.
 local banItems       = {}    -- [itemId] = true
+local partialItems   = {}    -- [itemId] = true; banned, but only SOME of its effects (#788)
 local restrictItems  = {}    -- [itemId] = mapId
 local restrictMaps   = {}    -- [mapId]  = map name, sent by the server
 local banFeedLoaded  = false
@@ -721,6 +722,18 @@ end
 local function OnBanLine(msg)
     local body = msg:match("^ICBAN:(.*)$")
     if body then AbsorbBanChunk(body); return true end
+
+    -- [#788] A subset of the ICBAN entries: items where only SOME of the effects are
+    -- banned. No pattern collision with the line above -- "^ICBAN:" needs the colon
+    -- immediately, and this has a P there.
+    local pBody = msg:match("^ICBANP:(.*)$")
+    if pBody then
+        for id in pBody:gmatch("(%d+)") do
+            local n = tonumber(id)
+            if n then partialItems[n] = true end
+        end
+        return true
+    end
 
     if msg:find("^ICBANEND:") then
         banFeedLoaded = true
@@ -2480,7 +2493,16 @@ local function AppendBanNote(tt)
         tt:AddLine(BAN_MARKER .. " this effect only works in " .. where .. ".", 1, 0.5, 0.2, true)
     end
     if banned then
-        tt:AddLine(BAN_MARKER .. " this effect cannot be extracted or soulbound.", 1, 0.3, 0.3, true)
+        -- [#788] Say WHICH is true. Val'anyr's cosmetic glow is banned and its real proc
+        -- extracts fine, so the flat line was a lie about the effect the player actually
+        -- wanted -- and a tooltip that lies is worse than one that says nothing. Amber
+        -- rather than red: this is a caveat, not a refusal.
+        if partialItems[id] then
+            tt:AddLine(BAN_MARKER .. " one of this item's effects cannot be extracted or soulbound. The rest can.",
+                1, 0.6, 0.3, true)
+        else
+            tt:AddLine(BAN_MARKER .. " this effect cannot be extracted or soulbound.", 1, 0.3, 0.3, true)
+        end
     end
     tt:Show()   -- re-fit; the tooltip has grown
 end
@@ -2742,9 +2764,16 @@ local optSub = optPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall
 optSub:SetPoint("TOPLEFT", optTitle, "BOTTOMLEFT", 0, -8)
 optSub:SetPoint("RIGHT", optPanel, "RIGHT", -16, 0)   -- wrap to the real panel width
 optSub:SetJustifyH("LEFT")
-optSub:SetText("Your numbers scroll in the standard combat-text column. The sliders and "
-    .. "font below tune the classic floating numbers instead -- switch them on at the "
-    .. "bottom. Changes apply instantly; Preview shows a sample burst.")
+-- [#766] This page was still selling a feature that was retired on 2026-08-08. The addon
+-- stopped drawing its own floating text when the DLL took over the engine's body floaters
+-- and corrected them to real 64-bit values, but the copy here still said "switch them on
+-- at the bottom" -- so a player with no numbers ticked a box that nothing reads any more
+-- and concluded the combat text was broken. Say what is actually true.
+optSub:SetText("|cffff8040Your damage numbers are now drawn by the game engine, over the "
+    .. "enemy's body, and corrected to real 64-bit values -- this addon no longer draws "
+    .. "its own.|r  Turn them on or off under |cffffd100Uncapped > Performance|r, and hide "
+    .. "small hits with |cffffff00/hideunder 500m|r.  The sliders below only affect the "
+    .. "classic floating numbers, which are not currently drawn.")
 
 -- ★ EVERYTHING BELOW BUILDS INTO A SCROLLING BODY, NOT INTO THE PANEL.
 --
@@ -2910,7 +2939,10 @@ resetBtn:SetText("Reset to defaults")
 -- favour instead of ours.
 local legacyCheck = CreateFrame("CheckButton", "Uncapped64LegacyFctCheck", optBody, "InterfaceOptionsCheckButtonTemplate")
 legacyCheck:SetPoint("TOPLEFT", optBody, "TOPLEFT", 20, -352)
-_G["Uncapped64LegacyFctCheckText"]:SetText("Use classic floating numbers instead of the scrolling column")
+-- [#766] Retired 2026-08-08 -- FCT_ADDON_DRAWS gates the whole path in front of this, so
+-- the box wrote a saved variable nothing reads. Greyed rather than removed so a player who
+-- remembers ticking it can see what happened to it.
+_G["Uncapped64LegacyFctCheckText"]:SetText("|cff808080Classic floating numbers (retired -- see above)|r")
 legacyCheck.tooltipText = "Draws damage and healing as floating numbers over the units involved, "
     .. "the way this addon did before. Outgoing numbers follow the target, so they can "
     .. "land off-position on a heavily scaled boss. The sliders and font above only "
@@ -2922,6 +2954,7 @@ legacyCheck:SetScript("OnClick", function(self)
     end
     if CT_ApplyBlizzardSurfaces then CT_ApplyBlizzardSurfaces() end
 end)
+legacyCheck:Disable()   -- [#766] nothing reads Cfg.legacyFct any more
 
 local function ApplyDefaults()
     for k, v in pairs(CFG_DEFAULTS) do

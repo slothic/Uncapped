@@ -380,11 +380,30 @@ end
 -- if the two ever disagree the list sorts into an order its own colours contradict.
 local DIFFICULTY_RANK = { optimal = 1, medium = 2, easy = 3, trivial = 4 }
 
+-- ★★ [#790] tlow AND thigh WERE USED THE WRONG WAY ROUND, and `min` is unusable.
+--
+-- In 3.3.5 TrivialSkillLineRankHigh is the GREY point and ...Low is the YELLOW point,
+-- with Low < High in every row of the shipped data. Testing tlow first therefore caught
+-- everything at or above YELLOW and called it trivial, and made the "easy" branch
+-- unreachable.
+--
+-- And MinSkillLineRank is 1 for every crafting recipe in the game -- gathering skills use
+-- it, recipes do not -- so `rank >= recipe.min + 25` was `rank >= 26`, always true, which
+-- made "optimal" unreachable as well.
+--
+-- Net effect at this realm's automatic Grand Master 450: 558 of 566 Jewelcrafting recipes
+-- tied at "trivial", the comparator fell through to its alphabetical tiebreak, and sorting
+-- by difficulty produced the A-Z list. Green sits midway between yellow and grey, exactly
+-- as the client's own tradeskill window does it.
 local function DifficultyTier(recipe)
-    local rank = SkillRank(recipe.skill)
-    if recipe.tlow > 0 and rank >= recipe.tlow then return "trivial" end
-    if recipe.thigh > 0 and rank >= recipe.thigh then return "easy" end
-    if rank >= recipe.min + 25 then return "medium" end
+    local rank   = SkillRank(recipe.skill)
+    local grey   = recipe.thigh or 0
+    local yellow = recipe.tlow or 0
+    local green  = (grey > 0 and yellow > 0) and math.floor((grey + yellow) / 2) or 0
+
+    if grey   > 0 and rank >= grey   then return "trivial" end
+    if green  > 0 and rank >= green  then return "easy"    end
+    if yellow > 0 and rank >= yellow then return "medium"  end
     return "optimal"
 end
 
@@ -434,7 +453,17 @@ local function SortRecipes()
     if not sortDirty then return end
     sortDirty = false
 
-    if db.sortMode == "difficulty" then
+    if db.sortMode == "level" then
+        -- [#790] Highest recipe level first. `min` cannot be used -- it is 1 for every
+        -- crafting recipe -- so this ranks on the yellow threshold, which is the recipe's
+        -- real skill level plus a constant and therefore orders identically. Puts the
+        -- max-level gem cuts at the top, which is the whole request.
+        table.sort(recipes, function(a, b)
+            local la, lb = a.tlow or 0, b.tlow or 0
+            if la ~= lb then return la > lb end
+            return (RecipeName(a) or "") < (RecipeName(b) or "")
+        end)
+    elseif db.sortMode == "difficulty" then
         -- Hardest first (the ones still granting skill), then alphabetical inside
         -- each tier so the order is stable rather than arbitrary within a colour.
         table.sort(recipes, function(a, b)
@@ -1575,6 +1604,7 @@ local function BuildFrame(parent)
     -- worth skill points at the top of the list.
     local SORTS = {
         { value = "name",       text = "Name" },
+        { value = "level",      text = "Skill level" },   -- [#790]
         { value = "difficulty", text = "Difficulty" },
     }
 

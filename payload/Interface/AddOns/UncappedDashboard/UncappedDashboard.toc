@@ -1,8 +1,8 @@
-## Interface: 30300
+﻿## Interface: 30300
 ## Title: Uncapped Dashboard
 ## Notes: Central launcher panel for the Uncapped addon suite.
 ## Author: Uncapped
-## Version: 1.0.0
+## Version: 1.0.1
 ## OptionalDeps: UncappedUI
 ## SavedVariables: UncappedDashboardDB, UncappedSoulForgeDB, UncappedAnimaDB, UncappedForgeDB, UncappedVaultDB, UncappedTransmogDB, UncappedKeystoneDB
 

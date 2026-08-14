@@ -616,7 +616,11 @@ $manifest = [ordered]@{
 
     # Force-ticked in AddOns.txt on every launch. StatFeed is the reason the launcher exists;
     # without it players see no stat-gain messages at all.
-    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests', 'UncappedBugReporter', 'UncappedShieldBar')
+    # [#766] Uncapped64bitUI added 2026-08-14. Its own .toc says "Required on this realm"
+    # and it was in ownedPaths (so it installs) but not here -- so a player who ever
+    # unticked it in the AddOns list stayed unticked forever, and every 64-bit number and
+    # all of the combat-text controls silently died for them.
+    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests', 'UncappedBugReporter', 'UncappedShieldBar', 'Uncapped64bitUI')
 
     # Switched off in AddOns.txt on clients that already have them. Needed because dropping
     # an addon from the payload does not uninstall it - the launcher never deletes

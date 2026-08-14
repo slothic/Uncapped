@@ -1,8 +1,8 @@
-## Interface: 30300
+﻿## Interface: 30300
 ## Title: Uncapped Quests
 ## Notes: Quest objectives on the world map, a routed waypoint arrow, and the quest ledger.
 ## Author: Uncapped
-## Version: 1.1.0
+## Version: 1.2.0
 ## SavedVariables: UncappedQuestsDB
 ## OptionalDeps: WDM, UncappedOptions, UncappedUI
 
