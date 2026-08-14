@@ -159,6 +159,29 @@ frame.wipes:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -12)
 frame.wipes:SetJustifyH("RIGHT")
 frame.wipes:Hide()
 
+--[[ Deaths this run (report #807), directly under the wipe counter.
+
+     WHY IT IS A SEPARATE NUMBER FROM WIPES. A wipe says the fight ended; a death
+     says how the fight went, and they are not the same measurement. A raid that
+     cleared with nineteen deaths and no wipes had a completely different night
+     from one that cleared clean, and until now the HUD could not tell them apart
+     at all. The reporter's complaint was literally "it doesn't count up when you
+     die" -- they were watching the wipe counter and expecting a death counter.
+
+     ★ ANCHORED TO frame.wipes, WHICH IS ITSELF ANCHORED TO THE FRAME. Same reason
+     as the note above: the title -> timer -> bar -> boss-rows chain must not gain
+     a link, or every boss row shifts down and the log is the part people read.
+     Hanging off wipes keeps both counters out of that chain entirely.
+
+     ⚠ It does NOT hide when wipes hide. The wipe allowance is a raid rule and the
+     server only sends UMW on a raid map -- deaths are counted on every run, five
+     man included, so this shows wherever the server sends UMD. It starts hidden
+     only because a run with no deaths yet has nothing worth a line. ]]
+frame.deaths = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+frame.deaths:SetPoint("TOPRIGHT", frame.wipes, "BOTTOMRIGHT", 0, -2)
+frame.deaths:SetJustifyH("RIGHT")
+frame.deaths:Hide()
+
 -- Big countdown timer.
 frame.timer = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
 frame.timer:SetPoint("TOP", frame.title, "BOTTOM", 0, -4)
@@ -395,6 +418,11 @@ local function StartRun(remaining, level, trashNeeded, token)
         run.wipesUsed = 0
         run.wipeAllowance = nil
         frame.wipes:Hide()
+        -- Deaths belong to the run, so a new run starts at none (report #807).
+        -- Hidden rather than "Deaths 0" for the same reason UpdateDeaths hides a
+        -- zero: a run nobody has died on yet should not carry a line about it.
+        run.deaths = 0
+        frame.deaths:Hide()
     end
 
     frame.title:SetText("Mythic+ Keystone +" .. level)
@@ -487,6 +515,28 @@ local function UpdateWipes(used, allowance)
     frame.wipes:Show()
 end
 
+--[[ Deaths this run (report #807).
+
+     No allowance to compare against and no urgency colouring, deliberately: this
+     is a record of how the run went, not a resource you are spending. Colouring
+     it red at some threshold would invent a rule the server does not have.
+
+     Zero stays hidden. A clean run should not carry a line saying "Deaths 0" --
+     the absence of the line IS the zero, and it keeps the HUD quiet for the runs
+     where nothing has gone wrong yet. ]]
+local function UpdateDeaths(count)
+    run.deaths = count
+
+    if not count or count == 0 then
+        frame.deaths:Hide()
+        return
+    end
+
+    frame.deaths:SetText(string.format("Deaths  %d", count))
+    frame.deaths:SetTextColor(0.8, 0.8, 0.8)
+    frame.deaths:Show()
+end
+
 -- ---------------------------------------------------------------------------
 -- Surviving /reload  (report #433)
 -- ---------------------------------------------------------------------------
@@ -565,12 +615,30 @@ local function RestoreRun()
     ApplyTimerVisibility()
     RefreshBar()
     RefreshBossLog()
+
+    -- ★ THE TWO COUNTERS HAVE TO BE REBUILT EXPLICITLY, and neither was.
+    --
+    -- Everything above is restored because RefreshBar and RefreshBossLog redraw
+    -- from `run`. The wipe and death lines have no refresher -- they are only ever
+    -- painted by their Update function, from a server message -- so a /reload left
+    -- both blank until the server happened to send another one, which for wipes
+    -- means "until the next wipe". Found while adding deaths (report #807); the
+    -- wipe half was the same latent bug and is fixed with it rather than left as
+    -- the odd one out.
+    UpdateWipes(saved.wipesUsed or 0, saved.wipeAllowance)
+    UpdateDeaths(saved.deaths or 0)
+
     frame:Show()
 end
 
 -- Hide the protocol lines from chat.
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and (msg:find("^UMS:") or msg:find("^UMT:") or msg:find("^UMR:") or msg:find("^UMB:") or msg:find("^UMW:")) then
+    -- ⚠ EVERY NEW OPCODE MUST BE ADDED HERE TOO. This filter is what stops the
+    -- protocol appearing as chat text on the legacy CHAT_MSG_CHANNEL transport;
+    -- a line handled in the dispatch but missing from this list is invisible in
+    -- testing on the addon pipe and prints raw "UMD:3" to anyone still on the old
+    -- transport. UMD added with report #807.
+    if msg and (msg:find("^UMS:") or msg:find("^UMT:") or msg:find("^UMR:") or msg:find("^UMB:") or msg:find("^UMW:") or msg:find("^UMD:")) then
         return true
     end
     return false
@@ -715,6 +783,14 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
     local used, allow = msg:match("^UMW:(%d+):(%d+)$")
     if used then
         UpdateWipes(tonumber(used), tonumber(allow))
+        return
+    end
+
+    -- UMD:<deaths>  -- deaths so far this run (report #807). Sent on every run,
+    -- five-man and raid alike, unlike UMW which is a raid-only rule.
+    local deaths = msg:match("^UMD:(%d+)$")
+    if deaths then
+        UpdateDeaths(tonumber(deaths))
         return
     end
 
