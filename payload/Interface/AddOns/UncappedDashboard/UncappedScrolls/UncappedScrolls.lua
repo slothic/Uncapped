@@ -137,11 +137,16 @@ local function Render()
         Row("  ...on your pet", string.format("+%d  %s(%.1fx, hunters only)|r",
             state.petDelver, COLOR_DIM, state.petMult))
     end
-    Row("Quest bonus",      string.format("x%.1f Anima  %s(%d quests)|r",
-        state.questMult, COLOR_DIM, state.questCount))
 
     y = y - 6
     Head("This character")
+
+    -- Quest bonus moved down here from "Account-wide" (2026-08-14). It used to
+    -- pool every character on the account into one count, which paid an alt again
+    -- for quests the main had already done; it now counts only this character's
+    -- own completed quests, so it belongs under this heading.
+    Row("Quest bonus",      string.format("x%.1f Anima  %s(%d quests)|r",
+        state.questMult, COLOR_DIM, state.questCount))
 
     if #state.professions > 0 then
         for n = 1, #state.professions do

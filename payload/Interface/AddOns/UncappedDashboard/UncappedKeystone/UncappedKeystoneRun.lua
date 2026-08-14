@@ -170,7 +170,22 @@ function Run.Render()
     end
 
     widgets.level:SetText(COLOR_LABEL .. "Keystone level  " .. COLOR_VALUE .. "+" .. state.level .. "|r")
-    widgets.highest:SetText(COLOR_DIM .. "Best clear: +" .. state.highest .. "|r")
+    -- The ceiling is best-clear + 1 (server: MythicPlus::EntitledKeystoneLevel).
+    -- Derived here rather than sent, because `highest` is already in the state
+    -- message and a second field carrying the same fact is a second field that
+    -- can disagree with the first.
+    --
+    -- Shown even when the player is nowhere near it: "why can I not go higher"
+    -- is the question this line exists to answer BEFORE it is asked, and a
+    -- stepper that silently refuses reads as a broken button.
+    local cap = (state.highest or 0) + 1
+    if state.level >= cap then
+        widgets.highest:SetText(COLOR_DIM .. "Best clear: +" .. state.highest
+            .. "  --  at your limit, clear +" .. state.level .. " to unlock +" .. (state.level + 1) .. "|r")
+    else
+        widgets.highest:SetText(COLOR_DIM .. "Best clear: +" .. state.highest
+            .. "  (max +" .. cap .. ")|r")
+    end
 
     SetToggle(widgets.loop, state.loop, "Loop on clear")
     SetToggle(widgets.auto, state.autostart, "Autostart")

@@ -1819,8 +1819,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedKeystone/UncappedKeystoneRun.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedKeystone/UncappedKeystoneRun.lua",
-                      "sha256":  "c2efdad2004e987c6cd4285d76186746bba64ee1bf54a784f2310d35f327f350",
-                      "size":  13946
+                      "sha256":  "c51f5326cfb1df0453eb8e3f129fd4bf919fb7cd017292f43b9cb8cbd0b51298",
+                      "size":  14764
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedPrestige/UncappedPrestige.lua",
@@ -1837,8 +1837,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedScrolls/UncappedScrolls.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedScrolls/UncappedScrolls.lua",
-                      "sha256":  "b6fa520e6a1b27a11cf38288432a074a19469063acbdc3964a45e58ec284fbfd",
-                      "size":  14541
+                      "sha256":  "70aa5f131ec1254e8f10cb3f02a6750a1132bc7079dbd096791989023aca6e3c",
+                      "size":  14854
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedSoulForge/UncappedSoulForge.lua",
@@ -2982,9 +2982,9 @@
                   },
                   {
                       "path":  "Data/enUS/patch-enUS-U.MPQ",
-                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.08.13a.MPQ",
-                      "sha256":  "e5e4712b24d33641de1a8813a7e3299f5a3116845d4ab06d757631c5ffb7af1f",
-                      "size":  29815588
+                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.08.14b.MPQ",
+                      "sha256":  "01704cc2e841366f150da01c9a5eb080061865b191f4586f7aa1105ebb3c2ce4",
+                      "size":  29819789
                   },
                   {
                       "path":  "UncappedClient.dat",
