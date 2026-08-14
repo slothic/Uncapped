@@ -110,8 +110,11 @@ local function HandleMessage(msg)
         -- longer applies survives into a state that has no MKSR at all.
         state.reason = nil
 
-        local lvl, here, atAll, loop, auto, lock, highest =
-            strmatch(strsub(msg, 6), "^(%-?%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
+        -- [#832] `heroic` is the eighth field, appended by the server. Parsed with
+        -- an optional group so this addon still reads a seven-field line from an
+        -- older worldserver instead of rejecting the whole message and going blank.
+        local lvl, here, atAll, loop, auto, lock, highest, heroic =
+            strmatch(strsub(msg, 6), "^(%-?%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):?(%d*)$")
         if not lvl then return true end
 
         state.level      = tonumber(lvl) or 0
@@ -121,6 +124,7 @@ local function HandleMessage(msg)
         state.autostart  = (auto  == "1")
         state.locked     = (lock  == "1")
         state.highest    = tonumber(highest) or 0
+        state.heroic     = (heroic == "1")
         return true
     end
 
@@ -190,6 +194,7 @@ function Run.Render()
     SetToggle(widgets.loop, state.loop, "Loop on clear")
     SetToggle(widgets.auto, state.autostart, "Autostart")
     SetToggle(widgets.lock, state.locked, "Lock level")
+    SetToggle(widgets.heroic, state.heroic, "Force heroic")   -- [#832]
 
     -- Start is enabled ONLY on the server's answer for "here". The reason text
     -- carries the rest; we never guess at it.
@@ -294,10 +299,17 @@ local function BuildFrame(parent)
     widgets.lock = MakeButton(frame, "", 170, Toggle("lock", function() return state.locked end))
     widgets.lock:SetPoint("TOPLEFT", widgets.auto, "BOTTOMLEFT", 0, -8)
 
+    -- [#832] "The Hug option to start keystones lacks the ability to force the
+    -- dungeon to heroic mode the way keystone item does." It does now -- this is
+    -- the same setting the item's own toggle writes, which until now had exactly
+    -- one caller and no way to reach it from the dashboard.
+    widgets.heroic = MakeButton(frame, "", 170, Toggle("heroic", function() return state.heroic end))
+    widgets.heroic:SetPoint("TOPLEFT", widgets.lock, "BOTTOMLEFT", 0, -8)
+
     widgets.start = MakeButton(frame, "Start the run", 170, function()
         Send("MKST")
     end)
-    widgets.start:SetPoint("TOPLEFT", widgets.lock, "BOTTOMLEFT", 0, -22)
+    widgets.start:SetPoint("TOPLEFT", widgets.heroic, "BOTTOMLEFT", 0, -22)
 
     widgets.status = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     widgets.status:SetPoint("TOPLEFT", widgets.start, "BOTTOMLEFT", 0, -14)

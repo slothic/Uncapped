@@ -370,6 +370,19 @@ local function RefreshBar()
 end
 
 frame:SetScript("OnUpdate", function(self)
+    -- [#863/#837] A finished run holds its reason on screen briefly, then puts
+    -- itself away. Checked BEFORE the run.active guard below, because by the time
+    -- this matters the run is deliberately no longer active -- putting it after
+    -- would mean the frame never hides and we would have replaced a stuck HUD with
+    -- a differently stuck HUD.
+    if self.hideAt then
+        if GetTime() >= self.hideAt then
+            self.hideAt = nil
+            self:Hide()
+        end
+        return
+    end
+
     if not run.active or not run.timed then return end
     local remaining = run.limit - (GetTime() - run.startTime)
     if remaining < 0 then remaining = 0 end   -- hold at 0:00, never wrap to negative
@@ -400,6 +413,10 @@ local function StartRun(remaining, level, trashNeeded, token)
     local sameRun = (token ~= nil and run.token ~= nil and token == run.token)
 
     run.active = true
+    -- [#863/#837] Cancel any pending "run ended" hide. A group that fails a key and
+    -- immediately re-enters would otherwise start a live run carrying the previous
+    -- run's hide timer, and the HUD would vanish a few seconds in.
+    frame.hideAt = nil
     -- Timed only for a real dungeon keystone with a limit; raids are untimed.
     run.timed = (remaining and remaining > 0) and not InRaidInstance()
     run.startTime = GetTime()
@@ -638,7 +655,10 @@ ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
     -- a line handled in the dispatch but missing from this list is invisible in
     -- testing on the addon pipe and prints raw "UMD:3" to anyone still on the old
     -- transport. UMD added with report #807.
-    if msg and (msg:find("^UMS:") or msg:find("^UMT:") or msg:find("^UMR:") or msg:find("^UMB:") or msg:find("^UMW:") or msg:find("^UMD:")) then
+    -- UMX added with reports #863/#837 -- and note the warning above is exactly why:
+    -- it is dispatched below, so omitting it here would print raw "UMX:..." as chat
+    -- to anyone still on the legacy transport.
+    if msg and (msg:find("^UMS:") or msg:find("^UMT:") or msg:find("^UMR:") or msg:find("^UMB:") or msg:find("^UMW:") or msg:find("^UMD:") or msg:find("^UMX:")) then
         return true
     end
     return false
@@ -775,6 +795,33 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
     local killed, needKills = msg:match("^UMT:(%d+):(%d+)$")
     if killed then
         UpdateTrash(tonumber(killed), tonumber(needKills))
+        return
+    end
+
+    --[[
+        UMX:<reason>  -- the run has ENDED. [#863/#837]
+
+        ★★ Until this existed the addon had NO way to learn a run was over except
+        the player walking out of the instance (PLAYER_ENTERING_WORLD, above). So a
+        failed run left the HUD up with a frozen clock and a trash bar that kept
+        filling, because the server also kept counting kills against a dead run.
+
+        That is both reports: one group cleared the whole of Blackfathom inside a
+        run that had died five seconds in, watching the bar reach 100%, and filed
+        "key did not end when it should" -- and the other saw a clock that never
+        started and called it "the key keeps bugging out".
+
+        The HUD is left VISIBLE for a few seconds carrying the reason rather than
+        vanishing: a run ending is information, and a frame that simply disappears
+        is how people end up unsure whether it ended or the addon broke.
+    ]]
+    local endReason = msg:match("^UMX:(.+)$")
+    if endReason then
+        run.active = false
+        run.timed  = false                       -- stops the OnUpdate clock
+        frame.title:SetText("|cffff4040" .. endReason .. "|r")
+        frame.hideAt = GetTime() + 8             -- honoured at the top of OnUpdate
+        frame:Show()                             -- make sure the reason is actually seen
         return
     end
 

@@ -520,6 +520,42 @@ function Core.Comma(n)
     return s
 end
 
+--[[
+    [#809] Short form for places with no room for the full number.
+
+    The grid cell is 38px and the count label has no width set at all, so a
+    six-digit stack runs straight across the neighbouring item. Live vault data at
+    the time of writing: 163 stacks over 1,000 and 20 over 10,000, topping out at
+    235,345 Silk Cloth -- so the overflow is real today, even though the reporter's
+    "1 million" case does not exist yet.
+
+    ★ Threshold is 10,000, NOT 1,000. Below that the comma form is the same width
+      and strictly more informative: "1,240" beats "1.2K" in the same space. This
+      matches the threshold StatFeed already uses, so the two agree on screen.
+
+    ⚠ Anywhere this is used, the EXACT count must still be reachable -- the
+      tooltips carry it. Abbreviating without that just deletes information.
+]]
+function Core.Abbrev(n)
+    local v = floor(tonumber(n) or 0)
+    if v < 10000 then
+        return Core.Comma(v)
+    end
+
+    local units = { { 1e12, "T" }, { 1e9, "B" }, { 1e6, "M" }, { 1e3, "K" } }
+    for _, u in ipairs(units) do
+        if v >= u[1] then
+            local scaled = v / u[1]
+            -- One decimal below 10 (9.4M), none above (94M) -- keeps it to at most
+            -- four characters, which is what actually has to fit.
+            local fmt = scaled < 10 and "%.1f%s" or "%.0f%s"
+            return format(fmt, scaled, u[2])
+        end
+    end
+
+    return Core.Comma(v)
+end
+
 local function ResolveName(it)
     if it.n and it.n ~= "" then return it.n end
     it.n = GetItemInfo(it.e) or ""

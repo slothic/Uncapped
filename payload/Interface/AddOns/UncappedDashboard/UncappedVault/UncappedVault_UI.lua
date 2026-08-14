@@ -366,6 +366,10 @@ local function CreateRow(parent, index)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         local link = select(2, GetItemInfo(self.item.e))
         if link then GameTooltip:SetHyperlink(link) else GameTooltip:SetText(ItemName(self.item)) end
+        -- [#809] The EXACT count, because the grid label is now abbreviated. Without
+        -- this line the true stack size is unreachable anywhere in the UI, which
+        -- would trade an overflow bug for a missing-information one.
+        GameTooltip:AddLine("Stored: " .. Core.Comma(self.item.c or 0), 1, 0.82, 0.22)
         GameTooltip:AddLine("Right-click to withdraw one.", 0.7, 0.7, 0.7)
         GameTooltip:AddLine("Shift-right-click to withdraw all.", 0.7, 0.7, 0.7)
         GameTooltip:Show()
@@ -489,7 +493,7 @@ local function RefreshCategories()
             row.key = cat.key
             row.subcategory = cat.subcategory
             row.label:SetText(cat.label)
-            row.count:SetText(Core.Comma(cat.count))
+            row.count:SetText(Core.Abbrev(cat.count))   -- [#809] sidebar is narrow too
             row.label:ClearAllPoints()
             -- Width-capped and non-wrapping -- unbounded before, so a long
             -- category/subcategory name could run past categoryPanel's right
@@ -698,7 +702,10 @@ function RefreshGrid()
             b:SetPoint("TOPLEFT", gridPanel, "TOPLEFT", x, y)
             b:SetBackdropBorderColor(r, g, bl, 0.95)
             b.icon:SetTexture(ItemIcon(it))
-            if (it.c or 0) > 1 then b.count:SetText(Core.Comma(it.c)) else b.count:SetText("") end
+            -- [#809] Abbreviated: the cell is 38px and this label has no width, so
+            -- a six-digit stack overruns the item next to it. The exact number is
+            -- in the tooltip -- see the count line added there.
+            if (it.c or 0) > 1 then b.count:SetText(Core.Abbrev(it.c)) else b.count:SetText("") end
             b:Show()
 
             col = col + 1
