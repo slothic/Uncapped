@@ -333,6 +333,7 @@ local function BuildFrame(parent)
 
     local SUBTABS = {
         { key = "keystone", label = "Your Keystone" },
+        { key = "lfg",      label = "Group Finder" },   -- [#605]
         { key = "rewards",  label = "Reward Preview" },
     }
 
@@ -399,6 +400,8 @@ local function BuildFrame(parent)
         -- never shows a stale number.
         if key == "keystone" and _G.UncappedKeystoneRun and _G.UncappedKeystoneRun.UI then
             _G.UncappedKeystoneRun.UI.Activate()
+        elseif key == "lfg" and _G.UncappedLFG and _G.UncappedLFG.UI then
+            _G.UncappedLFG.UI.Activate()
         elseif key == "rewards" then
             Keystone.Render()
             Request()
@@ -506,6 +509,25 @@ local function BuildFrame(parent)
             runFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
             sections["keystone"] = { runFrame }
         end
+    end
+
+    -- [#605] The Group Finder, embedded exactly like the run panel above and
+    -- guarded for the same reason: the two ship as separate files in one payload,
+    -- and a partial install must degrade to "the other tabs still work".
+    if _G.UncappedLFG and _G.UncappedLFG.UI then
+        local lfgFrame = _G.UncappedLFG.UI.EmbedInto(frame)
+        if lfgFrame then
+            lfgFrame:ClearAllPoints()
+            lfgFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -SUBTAB_H)
+            lfgFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+            sections["lfg"] = { lfgFrame }
+        end
+    end
+
+    if not sections["lfg"] then
+        -- Same rule as the keystone sub-tab: a button that does nothing when
+        -- pressed is worse than no button.
+        if subButtons["lfg"] then subButtons["lfg"]:Hide() end
     end
 
     if not sections["keystone"] then

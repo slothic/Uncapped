@@ -22,6 +22,10 @@ UncappedPrestige\UncappedPrestige.lua
 ## first embed, so if it ran before UncappedKeystoneRun existed the "Your
 ## Keystone" sub-tab would be missing for the rest of the session.
 UncappedKeystone\UncappedKeystoneRun.lua
+## [#605] The LFG noticeboard. Loads AFTER the run panel for the same reason
+## the run panel loads before UncappedKeystone: whoever builds a frame first
+## caches it, so load order decides which sub-tabs exist for the session.
+UncappedKeystone\UncappedLFG.lua
 UncappedKeystone\UncappedKeystone.lua
 UncappedTransmog\UncappedTransmogData.lua
 UncappedTransmog\UncappedTransmog.lua

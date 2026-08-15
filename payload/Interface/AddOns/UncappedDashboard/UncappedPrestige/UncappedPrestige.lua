@@ -201,6 +201,22 @@ local function Plural(n, one, many)
     return n == 1 and one or many
 end
 
+-- Hundredths of a percent -> a readable percentage, with trailing zeroes trimmed
+-- so 25 reads "0.25", 500 reads "5" and 250 reads "2.5" rather than "2.50".
+--
+-- ⚠ The server sends this unit because the wire is integer-only (`%d+`); at the
+-- shipped 0.25%/level, whole percent would round the first three prestige levels
+-- to zero and tenths would still be 20% off at prestige 1.
+local function FormatHundredths(v)
+    v = tonumber(v) or 0
+    if v % 100 == 0 then
+        return string.format("%d", v / 100)
+    elseif v % 10 == 0 then
+        return string.format("%.1f", v / 100)
+    end
+    return string.format("%.2f", v / 100)
+end
+
 -- ---------------------------------------------------------------------------
 -- The sentences.
 --
@@ -229,18 +245,18 @@ local function PayoutLines(d)
         end
     end
 
+    -- ★ craftPct arrives in HUNDREDTHS of a percent (25 = 0.25%). The server cannot
+    -- send a decimal: this whole line is matched with `%d+`, and "0.25" fails the
+    -- match and silently zeroes the entire config. See prestige_comms_playerscript.
+    --
+    -- ⚠ It used to be whole percent AND it meant something else -- extra copies of
+    -- whatever you crafted. That payout was removed on 2026-08-15 (it compounded
+    -- across crafting chains and was being melted back into materials); a craft now
+    -- renders Soulforge food instead. REQUIRED_CLIENT_VERSION was bumped with it, so
+    -- an addon this old cannot be connected and reading 25 as "25%".
     if HasFlag(d.flags, F_CRAFT) and d.craftPct > 0 then
-        local extra = math.floor(d.craftPct / 100)
-        local chance = d.craftPct - extra * 100
-        if extra <= 0 then
-            add(string.format("A %s%d%%|r chance to make an extra item on every craft.", COLOR_VALUE, chance))
-        elseif chance <= 0 then
-            add(string.format("Every craft makes %s%d|r extra %s.",
-                COLOR_VALUE, extra, Plural(extra, "item", "items")))
-        else
-            add(string.format("Every craft makes %s%d|r extra, plus a %s%d%%|r shot at one more.",
-                COLOR_VALUE, extra, COLOR_VALUE, chance))
-        end
+        add(string.format("A %s%s%%|r chance to render Soulforge food on every craft.",
+            COLOR_VALUE, FormatHundredths(d.craftPct)))
     end
 
     if HasFlag(d.flags, F_GATHER) and d.gatherPct > 0 then
@@ -275,7 +291,7 @@ local function NextLine(d)
         parts[#parts + 1] = string.format("enchants +%d%%", d.nextMultPct)
     end
     if HasFlag(d.flags, F_CRAFT) and d.nextCraftPct > 0 then
-        parts[#parts + 1] = string.format("extra items %d%%", d.nextCraftPct)
+        parts[#parts + 1] = string.format("soul food %s%%", FormatHundredths(d.nextCraftPct))
     end
     -- nextGatherPct is 0 when the server refused to preview it (the realm has
     -- overridden or capped the gathering curve, and it is then not computable
@@ -996,7 +1012,7 @@ if UncappedUI then
         .. "profession's prestige. Prestige 1 costs a fixed number of crafts and every level after "
         .. "costs double the last, so the ladder never ends.", 48)
     L:Note("What a level pays depends on the profession: enchanters and the four professions with "
-        .. "their own enchants get stronger enchants, crafters get extra items, and gatherers get "
+        .. "their own enchants get stronger enchants, crafters get a chance at Soulforge food, and gatherers get "
         .. "bigger hauls and better odds on rare materials. The panel says which, per profession. "
         .. "Also available with /prestige.", 60)
 end

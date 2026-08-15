@@ -1,0 +1,342 @@
+--[[ ==========================================================================
+     UncappedLFG -- the Mythic+ noticeboard. Report #605.
+
+     Owner ruling 2026-08-15, and the whole design follows from it:
+
+       * NOTICEBOARD, NOT MATCHMAKER. You queue, you SEE who is waiting, and
+         whoever queued first starts it with however many are there. No minimum
+         size, no roles -- at this realm's population a queue that waits for a
+         tank and a healer never pops, and a queue that never pops is a button
+         people stop pressing.
+       * QUEUE BY LEVEL. You pick the level; you only ever see people who picked
+         the same one and are entitled to it.
+       * READY CHECK FIRST. Nobody is yanked out of what they were doing.
+       * DUNGEONS AND RAIDS, up to 40 -- this realm raised the instance cap, so
+         the "group" the server builds may be a full raid.
+
+     ★★ THE PANEL DECIDES NOTHING, same rule as the keystone panel next door. It
+        renders what the server sent and sends what was pressed. Entitlement, map
+        eligibility, leadership and the ready check all live server-side, and every
+        action is answered with FULL STATE rather than an acknowledgement -- so a
+        refused join and an accepted one are indistinguishable from here. That is
+        what stops this drifting away from the server.
+
+     ⚠ DEGRADE, NEVER ERROR. This ships in a payload release and will first run
+       against whatever server build happens to be up. An older server never
+       answers MLFQ, so the panel says so after a timeout rather than sitting on
+       "Loading..." forever.
+
+     3.3.5a: no C_Timer (hence OnUpdate for timers), no BackdropTemplate.
+
+       /mlfg          open it
+       /mlfg sync     force a refresh
+     ========================================================================== ]]
+
+local ADDON_PIPE_PREFIX = "UNC"          -- server -> client
+local TRANSPORT_PREFIX  = "REAGENTBANK"  -- client -> server (shared transport)
+
+local REPLY_TIMEOUT = 6.0
+
+local COLOR_HEAD  = "|cff9CC243"
+local COLOR_LABEL = "|cffffffff"
+local COLOR_VALUE = "|cffffff00"
+local COLOR_DIM   = "|cff888888"
+local COLOR_GOOD  = "|cff1eff00"
+local COLOR_BAD   = "|cffff5555"
+
+local LFG = _G.UncappedLFG or {}
+_G.UncappedLFG = LFG
+LFG.UI = {}
+
+local format, strmatch, strsub, strtrim, strlower =
+    string.format, string.match, string.sub, strtrim, string.lower
+
+-- Server-owned. Never computed here.
+local state = {
+    loaded    = false,
+    mapId     = 0,
+    level     = 0,
+    isLeader  = false,
+    count     = 0,
+    checking  = false,
+    secsLeft  = 0,
+    members   = {},   -- { {name=, ready=} }
+    message   = nil,
+}
+
+-- The level the player has *selected* in the UI. This one IS local -- it is a
+-- form field, not server state, and it is only meaningful until Queue is pressed.
+local pickLevel = 1
+
+local frame, widgets = nil, {}
+local pending = false
+local pendingSince = 0
+
+local function Send(msg)
+    SendAddonMessage(TRANSPORT_PREFIX, msg, "WHISPER", UnitName("player"))
+end
+
+local function Request()
+    pending = true
+    pendingSince = GetTime()
+    Send("MLFQ")
+end
+
+--[[ ------------------------------------------------------------------------
+     Incoming
+  -------------------------------------------------------------------------- ]]
+local building = nil
+
+local function HandleMessage(msg)
+    if not msg then return end
+
+    -- MLFH:<mapId>:<level>:<isLeader>:<count>:<checking>:<secsLeft>
+    local mapId, level, leader, count, checking, secs =
+        strmatch(msg, "^MLFH:(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
+    if mapId then
+        building = {
+            mapId    = tonumber(mapId) or 0,
+            level    = tonumber(level) or 0,
+            isLeader = (leader == "1"),
+            count    = tonumber(count) or 0,
+            checking = (checking == "1"),
+            secsLeft = tonumber(secs) or 0,
+            members  = {},
+        }
+        return
+    end
+
+    -- MLFP:<name>:<readyState>
+    local pname, pready = strmatch(msg, "^MLFP:(.+):(%d+)$")
+    if pname and building then
+        building.members[#building.members + 1] =
+            { name = pname, ready = tonumber(pready) or 0 }
+        return
+    end
+
+    -- MLFM:<text>
+    local text = strmatch(msg, "^MLFM:(.+)$")
+    if text then
+        DEFAULT_CHAT_FRAME:AddMessage(COLOR_HEAD .. "[Mythic+ LFG]|r " .. text)
+        return
+    end
+
+    -- MLFC:<seconds> -- ready check opened. Deliberately noisy: a prompt you miss
+    -- is a group you get dropped from.
+    local secsC = strmatch(msg, "^MLFC:(%d+)$")
+    if secsC then
+        DEFAULT_CHAT_FRAME:AddMessage(COLOR_HEAD .. "[Mythic+ LFG]|r " ..
+            COLOR_GOOD .. "Ready check! " .. COLOR_LABEL ..
+            "Answer within " .. secsC .. " seconds." .. "|r")
+        PlaySound("ReadyCheck")
+        if LFG.UI.Refresh then LFG.UI.Refresh() end
+        return
+    end
+
+    if msg == "MLFE" then
+        pending = false
+        if building then
+            state.loaded   = true
+            state.mapId    = building.mapId
+            state.level    = building.level
+            state.isLeader = building.isLeader
+            state.count    = building.count
+            state.checking = building.checking
+            state.secsLeft = building.secsLeft
+            state.members  = building.members
+            building = nil
+        end
+        if LFG.UI.Refresh then LFG.UI.Refresh() end
+        return
+    end
+end
+
+--[[ ------------------------------------------------------------------------
+     UI
+  -------------------------------------------------------------------------- ]]
+local function MakeButton(parent, label, w, onClick)
+    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    b:SetWidth(w or 120)
+    b:SetHeight(22)
+    b:SetText(label)
+    b:SetScript("OnClick", onClick)
+    return b
+end
+
+local function BuildFrame(parent)
+    if frame then return frame end
+
+    frame = CreateFrame("Frame", nil, parent)
+    frame:SetAllPoints(parent)
+
+    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -12)
+    title:SetText(COLOR_HEAD .. "Mythic+ Group Finder|r")
+
+    widgets.hint = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    widgets.hint:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
+    widgets.hint:SetJustifyH("LEFT")
+    widgets.hint:SetWidth(330)
+    widgets.hint:SetText(COLOR_DIM ..
+        "Queue for the dungeon you're standing at, at the level you want. " ..
+        "Whoever's been waiting longest can start it with however many are there.|r")
+
+    -- Level stepper. The dungeon is "wherever you are" -- same rule the keystone
+    -- panel follows, so there is deliberately no map picker here either.
+    widgets.level = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    widgets.level:SetPoint("TOPLEFT", widgets.hint, "BOTTOMLEFT", 0, -14)
+
+    widgets.minus = MakeButton(frame, "-", 26, function()
+        if pickLevel > 1 then pickLevel = pickLevel - 1 end
+        if LFG.UI.Refresh then LFG.UI.Refresh() end
+    end)
+    widgets.minus:SetPoint("TOPLEFT", widgets.level, "BOTTOMLEFT", 0, -6)
+
+    widgets.plus = MakeButton(frame, "+", 26, function()
+        pickLevel = pickLevel + 1
+        if LFG.UI.Refresh then LFG.UI.Refresh() end
+    end)
+    widgets.plus:SetPoint("LEFT", widgets.minus, "RIGHT", 4, 0)
+
+    widgets.queue = MakeButton(frame, "Queue", 120, function()
+        local map = GetCurrentMapAreaID and 0 or 0
+        -- The server resolves the map from the player's own position; we send the
+        -- instance map id we are standing in, which for the dashboard's purposes
+        -- is whatever GetInstanceInfo reports.
+        local _, _, _, _, _, _, _, instanceMapId = GetInstanceInfo()
+        Send("MLFJ:" .. tostring(instanceMapId or map) .. ":" .. tostring(pickLevel))
+    end)
+    widgets.queue:SetPoint("LEFT", widgets.plus, "RIGHT", 12, 0)
+
+    widgets.leave = MakeButton(frame, "Leave", 100, function() Send("MLFL") end)
+    widgets.leave:SetPoint("LEFT", widgets.queue, "RIGHT", 6, 0)
+
+    widgets.roster = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    widgets.roster:SetPoint("TOPLEFT", widgets.minus, "BOTTOMLEFT", 0, -14)
+    widgets.roster:SetJustifyH("LEFT")
+    widgets.roster:SetWidth(330)
+
+    widgets.start = MakeButton(frame, "Start the group", 150, function() Send("MLFS") end)
+    widgets.start:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 14, 42)
+
+    widgets.accept = MakeButton(frame, "I'm ready", 110, function() Send("MLFR:1") end)
+    widgets.accept:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 14, 14)
+
+    widgets.decline = MakeButton(frame, "Decline", 110, function() Send("MLFR:0") end)
+    widgets.decline:SetPoint("LEFT", widgets.accept, "RIGHT", 6, 0)
+
+    widgets.status = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    widgets.status:SetPoint("BOTTOMLEFT", widgets.start, "TOPLEFT", 0, 8)
+
+    -- Timeout watchdog: never sit on "Loading..." forever against an old server.
+    frame:SetScript("OnUpdate", function()
+        if pending and (GetTime() - pendingSince) > REPLY_TIMEOUT then
+            pending = false
+            state.loaded = false
+            widgets.status:SetText(COLOR_BAD ..
+                "No answer from the server -- it may not have the group finder yet.|r")
+        end
+    end)
+
+    return frame
+end
+
+function LFG.UI.Refresh()
+    if not frame then return end
+
+    local queued = state.loaded and state.mapId ~= 0
+
+    widgets.level:SetText(COLOR_LABEL .. "Level to queue for  " ..
+        COLOR_VALUE .. "+" .. pickLevel .. "|r")
+
+    if queued then
+        local lines = {}
+        for i = 1, #state.members do
+            local m = state.members[i]
+            local mark = COLOR_DIM .. "waiting|r"
+            if m.ready == 1 then mark = COLOR_GOOD .. "ready|r"
+            elseif m.ready == 2 then mark = COLOR_BAD .. "declined|r" end
+            lines[#lines + 1] = "  " .. m.name .. "   " .. mark
+        end
+        widgets.roster:SetText(COLOR_LABEL .. "In the queue for +" .. state.level ..
+            "  (" .. state.count .. ")|r\n" .. table.concat(lines, "\n"))
+        widgets.leave:Enable()
+    else
+        widgets.roster:SetText(COLOR_DIM .. "You are not in a queue.|r")
+        widgets.leave:Disable()
+    end
+
+    -- Start is the leader's button and only means anything with company.
+    if queued and state.isLeader and state.count > 1 and not state.checking then
+        widgets.start:Enable()
+    else
+        widgets.start:Disable()
+    end
+
+    if state.checking then
+        widgets.accept:Enable()
+        widgets.decline:Enable()
+        widgets.status:SetText(COLOR_GOOD .. "Ready check running" ..
+            (state.secsLeft > 0 and ("  (" .. state.secsLeft .. "s)") or "") .. "|r")
+    else
+        widgets.accept:Disable()
+        widgets.decline:Disable()
+        if queued and not state.isLeader then
+            widgets.status:SetText(COLOR_DIM ..
+                "Waiting for the group's starter to begin.|r")
+        elseif queued and state.count <= 1 then
+            widgets.status:SetText(COLOR_DIM ..
+                "You're the only one here so far. Others queueing for +" ..
+                state.level .. " will show up.|r")
+        else
+            widgets.status:SetText("")
+        end
+    end
+end
+
+-- Same contract as UncappedKeystoneRun: EmbedInto returns a frame the Keystone
+-- tab re-anchors under its sub-tab strip, and Activate refreshes on the way in so
+-- switching to the tab never shows a stale roster.
+function LFG.UI.EmbedInto(parent)
+    local f = BuildFrame(parent)
+    f:Show()
+    return f
+end
+
+function LFG.UI.Activate()
+    if frame then frame:Show() end
+    Request()
+    if LFG.UI.Refresh then LFG.UI.Refresh() end
+end
+
+function LFG.UI.GetMinWidth()  return 360 end
+function LFG.UI.GetMinHeight() return 320 end
+
+--[[ ------------------------------------------------------------------------
+     Comms + slash command
+  -------------------------------------------------------------------------- ]]
+local comms = CreateFrame("Frame")
+comms:RegisterEvent("CHAT_MSG_ADDON")
+comms:SetScript("OnEvent", function(_, _, prefix, message)
+    if prefix ~= ADDON_PIPE_PREFIX then return end
+    HandleMessage(message)
+end)
+
+SLASH_UNCAPPEDMLFG1 = "/mlfg"
+SlashCmdList["UNCAPPEDMLFG"] = function(arg)
+    if arg and strlower(strtrim(arg)) == "sync" then
+        Request()
+        DEFAULT_CHAT_FRAME:AddMessage(COLOR_HEAD .. "[Mythic+ LFG]|r refreshing...")
+        return
+    end
+
+    local Dashboard = _G.UncappedDashboard
+    if not Dashboard then
+        DEFAULT_CHAT_FRAME:AddMessage(COLOR_HEAD ..
+            "[Mythic+ LFG]|r lives inside the Dashboard -- load UncappedDashboard to use it.")
+        return
+    end
+
+    Request()
+    if Dashboard.Open then Dashboard:Open("keystone") end
+end
