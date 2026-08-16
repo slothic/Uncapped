@@ -1010,8 +1010,8 @@ local AFFIX = {
     decay = {
         name = "Decay",
         tag  = "Decay and rot!",
-        desc = "Enemies leave pools of acid beneath whoever they are attacking.\nStanding in one stacks a rot that keeps eating after you leave.",
-        counter = "Move out. The pool grows -- it does not follow.",
+        desc = "Enemies leave pools of acid beneath whoever they are attacking.\nStanding in one burns 6% of your health every second.",
+        counter = "Move out and it stops. The pool grows -- it does not follow.",
         icon = "Spell_Shadow_DeathAndDecay", sound = "decay",
         color = { 0.55, 0.85, 0.30 },
     },
@@ -1034,7 +1034,7 @@ local AFFIX = {
     endlesstide = {
         name = "Endless Tide",
         tag  = "Break beneath the endless tide!",
-        desc = "Stone falls without end. A patch of ground is marked near you,\nand four seconds later it collapses for 80% of your health.",
+        desc = "Stone falls without end. A patch of ground is marked near you,\nand four seconds later it collapses -- burning anyone still standing\nin it for 10% of your health per second, for six seconds.",
         counter = "Walk out of the marked ground. Four seconds is plenty --\nif you are looking down.",
         icon = "Spell_Nature_Earthquake", sound = "endlesstide",
         color = { 0.40, 0.70, 0.95 },
@@ -1042,7 +1042,7 @@ local AFFIX = {
     bloodletting = {
         name = "Bloodletting",
         tag  = "Bleed, you filth!",
-        desc = "Every enemy you kill opens a wound. You bleed for 5% of your\nmaximum health over 5 seconds, and each kill adds another.",
+        desc = "Every enemy you kill opens a wound. You bleed for 5% of your\nmaximum health over 5 seconds, up to five wounds at once.",
         counter = "Stagger your kills instead of cleaving a whole pack down at once.",
         icon = "Ability_Rogue_Rupture", sound = "bloodletting",
         color = { 0.85, 0.15, 0.20 },
@@ -1050,7 +1050,7 @@ local AFFIX = {
     vengeance = {
         name = "Vengeance",
         tag  = "Vengeance!",
-        desc = "Each slain enemy sends a fast shade after one player. It cannot be\ntanked and it will not stop.",
+        desc = "Each slain enemy has a 12% chance to send a fast shade after one\nplayer. It cannot be tanked, and it leaves after twelve seconds.",
         counter = "Kite it, root it, or burst it down. It leaves on its own.",
         icon = "Ability_Warrior_Revenge", sound = "vengeance",
         color = { 0.95, 0.80, 0.25 },
@@ -1109,7 +1109,7 @@ local AFFIX = {
     frenzy = {
         name = "Frenzy",
         tag  = "You're almost not worth it.",   -- Taunt 0099
-        desc = "Past 60% of the run timer, bosses gain stacking haste and damage\nfor the rest of the fight.",
+        desc = "Past 60% of the run timer, bosses deal 50% more damage for the\nrest of the fight. Dungeons only -- raid keys are untimed.",
         counter = "A kill window, not a healing check. Hold burst for it.",
         icon = "Ability_Racial_BloodRage", sound = "frenzy",
         color = { 0.95, 0.30, 0.20 },
@@ -1125,7 +1125,7 @@ local AFFIX = {
     storm = {
         name = "Storm",
         tag  = "The storm breaks!",
-        desc = "Lightning marks a player, then strikes three seconds later.\nAnyone else within 8 yards is chained for 60% as much.",
+        desc = "Lightning marks a player, then strikes three seconds later for\n40% of their health. Anyone else within 8 yards is chained\nfor 60% as much.",
         counter = "Spread. You get the three seconds the mark is on you -- use them.",
         icon = "Spell_Nature_Lightning", sound = "storm",
         color = { 0.55, 0.75, 1.00 },
@@ -1135,10 +1135,15 @@ local AFFIX = {
 -- Fixed display order, so the strip never reshuffles between runs.
 -- Fixed display order, so the strip never reshuffles between runs. Roughly grouped:
 -- environmental hazards, then debuffs, then death-triggered, then boss-only.
+-- ⚠ "finecorpse" is deliberately absent. Fine Corpses is affixtype 21 and its row
+-- in mythic_plus_affix_pool carries enabled = 0, and the server loads the pool
+-- WHERE enabled = 1 -- so it cannot be drawn into any run. Its AFFIX entry above
+-- is kept so re-enabling it server-side needs no client release, but listing it
+-- here advertised a fifteenth affix players can never see.
 local ORDER = {
     "endlesstide", "storm", "wardingorbs",
     "sundered", "weakenedflesh", "cursed",
-    "bloodletting", "decay", "finecorpse", "thecycle", "duplicate", "vengeance",
+    "bloodletting", "decay", "thecycle", "duplicate", "vengeance",
     "frenzy", "bulwark", "hubris",
 }
 

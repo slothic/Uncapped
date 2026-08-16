@@ -778,6 +778,16 @@ local ERRORS = {
     max_rank         = "You are already at maximum rank in that stat.",
     not_enough_arena = "You do not have enough Anima for that.",
     parse            = "The server could not read that request.",
+    -- The Defence tree (Evasion / Deflection / Bulwark / Resolve) was retired on
+    -- 2026-08-12 and every rank refunded. The server refuses the purchase with
+    -- this token; without an entry here the lookup fell through to `ERRORS[err]
+    -- or err` below and printed the raw string "coming_soon" at the player.
+    --
+    -- ⚠ This makes the refusal readable, it does not stop the cards being drawn.
+    --   The server still sends all ten stats with maxRank 1000, so the retired
+    --   four still render as buyable -- fixing that properly means the server not
+    --   advertising them, which needs a build.
+    coming_soon      = "That stat has been retired. Your ranks in it were refunded.",
 }
 
 local function Print(msg)

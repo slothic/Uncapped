@@ -1807,8 +1807,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedAnima/UncappedAnima.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedAnima/UncappedAnima.lua",
-                      "sha256":  "902a3b43ac0f16e181c2b08f3078691d2e40fd5d063b296343eac0665c11f20d",
-                      "size":  39703
+                      "sha256":  "fe3fdc52e5508a6b00ca1f542d117ba0348051e42cd3476cd809f73af4d753d9",
+                      "size":  40411
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedForge/UncappedForge.lua",
@@ -1843,8 +1843,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedProgress/UncappedProgress.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedProgress/UncappedProgress.lua",
-                      "sha256":  "a314ad71d14cb6adb894adba6da1a2bf0f75ec4152457f094226e30cfb73a506",
-                      "size":  56555
+                      "sha256":  "933fd25c43d72cc02ccdda38b78104074543836feb267cb48644451b1e7d1546",
+                      "size":  56806
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedScrolls/UncappedScrolls.lua",
@@ -1969,8 +1969,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/UncappedMythic.lua",
-                      "sha256":  "d28367fefcfaba09b4c607bc7d168d9db58e4f466ef9737ba7e80b5d645f573b",
-                      "size":  78049
+                      "sha256":  "ff53e58daa30b4c6952eb330b340cbc635ac821cd4bec18083964aab29d74ef5",
+                      "size":  78582
                   },
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.toc",

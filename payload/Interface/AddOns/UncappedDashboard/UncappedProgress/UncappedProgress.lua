@@ -895,7 +895,10 @@ function Render()
          back on restores its sentence automatically, and switching one off
          retires it, with nothing here to remember.
     ]]
-    local pays = { string.format("+1%% out-of-combat speed per clear (up to +%d%%)", state.speedCap) }
+    -- ⚠ NOT "out-of-combat" any more. Owner ruling 2026-08-12 (report #641): the
+    -- speed persists in combat, because thirty-mob pulls are the core loop and
+    -- losing it the instant you engage removed it exactly when it mattered.
+    local pays = { string.format("+1%% movement speed per clear, in combat too (up to +%d%%)", state.speedCap) }
     if state.lootPct and state.lootPct > 0 then
         pays[#pays + 1] = string.format("x%.2f loot", 1 + state.lootPct / 100)
     end
