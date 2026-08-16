@@ -3048,7 +3048,9 @@
                               "UncappedQuests",
                               "UncappedBugReporter",
                               "UncappedShieldBar",
-                              "Uncapped64bitUI"
+                              "Uncapped64bitUI",
+                              "UncappedPanel",
+                              "UncappedLootFeed"
                           ],
     "forceDisableAddOns":  [
                                "QuestHelper",

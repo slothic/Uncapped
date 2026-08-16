@@ -657,7 +657,15 @@ $manifest = [ordered]@{
     # and it was in ownedPaths (so it installs) but not here -- so a player who ever
     # unticked it in the AddOns list stayed unticked forever, and every 64-bit number and
     # all of the combat-text controls silently died for them.
-    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests', 'UncappedBugReporter', 'UncappedShieldBar', 'Uncapped64bitUI')
+    # [#925] UncappedPanel added 2026-08-16 — reported as "the command bar with
+    # .reset .ds on has disappeared since the latest patch". It shipped and was in
+    # ownedPaths but was never force-ticked, so a client that unticked it once
+    # stayed unticked forever with nothing to restore it. Same failure as #766
+    # above, on a different addon.
+    # UncappedLootFeed added at the same time: it was in NEITHER list, so its
+    # Dashboard tab and /lootfeed silently did nothing for anyone who never
+    # enabled it by hand.
+    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests', 'UncappedBugReporter', 'UncappedShieldBar', 'Uncapped64bitUI', 'UncappedPanel', 'UncappedLootFeed')
 
     # Switched off in AddOns.txt on clients that already have them. Needed because dropping
     # an addon from the payload does not uninstall it - the launcher never deletes
