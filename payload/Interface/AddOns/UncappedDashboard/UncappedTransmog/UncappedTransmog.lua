@@ -1,6 +1,11 @@
 -- =====================================================================
 -- Uncapped Transmog -- the appearance collection.
 --
+-- ⚠ UIKit is resolved at FILE SCOPE. Every button here is a kit button as of
+--   2026-08-16, and a `local UIKit` declared partway down would leave the calls
+--   above it reading the nil GLOBAL of the same name -- which parses fine and
+--   errors only when the window is opened. Keep this at the top.
+--
 -- A retail-style wardrobe: slot tabs down the side, a searchable grid of
 -- every look in the game, and a live 3D preview of your character wearing
 -- the one under the cursor. Collected and uncollected appearances sit side
@@ -35,6 +40,10 @@
 -- transmoggable item on this realm is a stock entry, so previews always
 -- work offline.
 -- =====================================================================
+
+-- The in-house widget kit. See the ⚠ at the top of this file for why it lives
+-- up here rather than beside its first use.
+local UIKit = _G.UncappedUIKit
 
 local ADDON_PIPE_PREFIX = "UNC"          -- server -> client (replies arrive here)
 local TRANSPORT_PREFIX  = "REAGENTBANK"  -- client -> server (shared addon transport)
@@ -943,8 +952,7 @@ local function BuildFrame(parent)
     end)
 
     -- ---- action buttons under the preview ------------------------------
-    applyBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    applyBtn:SetWidth(74); applyBtn:SetHeight(22)
+    applyBtn = UIKit.CreateButton(frame, "Wear", 74, 22)
     applyBtn:SetPoint("TOPLEFT", modelFrame, "BOTTOMLEFT", 0, -6)
     applyBtn:SetText("Wear")
     applyBtn:SetScript("OnClick", ApplySelected)
@@ -963,8 +971,7 @@ local function BuildFrame(parent)
     end)
     applyBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    local hideBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    hideBtn:SetWidth(74); hideBtn:SetHeight(22)
+    local hideBtn = UIKit.CreateButton(frame, "Hide slot", 74, 22)
     hideBtn:SetPoint("LEFT", applyBtn, "RIGHT", 4, 0)
     hideBtn:SetText("Hide slot")
     hideBtn:SetScript("OnClick", HideSlot)
@@ -981,8 +988,7 @@ local function BuildFrame(parent)
     end)
     hideBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    local clearBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    clearBtn:SetWidth(74); clearBtn:SetHeight(22)
+    local clearBtn = UIKit.CreateButton(frame, "Reset", 74, 22)
     clearBtn:SetPoint("LEFT", hideBtn, "RIGHT", 4, 0)
     clearBtn:SetText("Reset")
     clearBtn:SetScript("OnClick", ClearSlot)
@@ -1184,8 +1190,7 @@ local function BuildFrame(parent)
     sourceText:SetHeight(60)
     sourceText:SetText("")
 
-    local outfitsBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    outfitsBtn:SetWidth(90); outfitsBtn:SetHeight(22)
+    local outfitsBtn = UIKit.CreateButton(frame, "Outfits", 90, 22)
     -- Bottom RIGHT, not bottom left: the slot-tab column runs the full height of
     -- the left edge and a button there sits on top of the last tab.
     outfitsBtn:SetPoint("BOTTOMRIGHT", -PAD - SCROLLBAR, PAD - 4)
@@ -1243,14 +1248,12 @@ function UncappedTransmogOutfits()
             label:SetJustifyH("LEFT")
             row.label = label
 
-            local use = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-            use:SetWidth(52); use:SetHeight(20)
+            local use = UIKit.CreateButton(row, "Wear", 52, 20)
             use:SetPoint("RIGHT", -58, 0)
             use:SetText("Wear")
             row.use = use
 
-            local del = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-            del:SetWidth(52); del:SetHeight(20)
+            local del = UIKit.CreateButton(row, "Delete", 52, 20)
             del:SetPoint("RIGHT", -2, 0)
             del:SetText("Delete")
             row.del = del
@@ -1265,8 +1268,7 @@ function UncappedTransmogOutfits()
         nameBox:SetMaxLetters(40)
         outfitFrame.nameBox = nameBox
 
-        local saveBtn = CreateFrame("Button", nil, outfitFrame, "UIPanelButtonTemplate")
-        saveBtn:SetWidth(80); saveBtn:SetHeight(22)
+        local saveBtn = UIKit.CreateButton(outfitFrame, "Save current", 80, 22)
         saveBtn:SetPoint("LEFT", nameBox, "RIGHT", 8, 0)
         saveBtn:SetText("Save current")
         saveBtn:SetScript("OnClick", function()

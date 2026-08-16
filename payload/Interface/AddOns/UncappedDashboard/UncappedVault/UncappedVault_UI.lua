@@ -46,7 +46,36 @@ local rows, catRows, gridSlots, gridHeaders = {}, {}, {}, {}
 local viewButtons = {}
 local qualityDD, slotDD, statDD, classOnlyCheck, gridSortBtn
 
-local GOLD = { 1.00, 0.82, 0.22 }
+--[[
+    ★★ THESE WERE PRIVATE FORKS OF UncappedUIKit, deleted 2026-08-16 after a UI
+       audit found them byte-identical to the kit they were extracted from.
+
+    This file carried its own GOLD/BLUE/GREEN/PURPLE/RED, Panel, Text, Button,
+    SetButtonActive and Dropdown. The colour literals matched DefaultTheme
+    exactly; Button's backdrop, insets, highlight and ADD blend matched
+    Controls/Button.lua exactly; SetButtonActive's gold matched exactly. It was
+    the reference implementation the kit was extracted FROM, left behind
+    un-deleted -- so the Vault alone never re-skinned on /uitheme, and it was the
+    one window that missed every later kit fix.
+
+    ⚠ The Vault's Dropdown was NOT a fork but a SUPERSET (function-valued choices
+      and a re-derived label). It was promoted INTO Controls/Dropdown.lua rather
+      than discarded -- aliasing without promoting first would have been a
+      silent downgrade for the slot filter, whose choices change on every
+      deposit.
+
+    ⚠ Kit Panel tints 1,1,1,0.95 where this file used 0,0,0,0.82. Panel() below
+      re-applies the darker tint so the Vault looks exactly as it did today; drop
+      that line when the whole suite moves onto the theme's panel colour.
+]]
+local UIKit = _G.UncappedUIKit
+-- Same guard idiom as DashboardButtons.lua:12. Not a new dependency: this file
+-- only ever draws a Dashboard TAB, and DashboardButtons already returns early
+-- without the kit, so there is no Dashboard to host the tab in that case. Bailing
+-- here turns what would be a nil-index error into a clean no-op.
+if not UIKit then return end
+
+local GOLD = UIKit.GetActiveTheme().colors.gold or { 1.00, 0.82, 0.22 }
 local BLUE = { 0.30, 0.62, 1.00 }
 local GREEN = { 0.32, 1.00, 0.20 }
 local PURPLE = { 0.68, 0.28, 1.00 }
@@ -55,53 +84,29 @@ local RED = { 0.72, 0.10, 0.06 }
 local function RGB(c) return c[1], c[2], c[3] end
 
 local function Panel(parent)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetBackdrop({
-        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left = 4, right = 4, top = 4, bottom = 4 },
-    })
-    f:SetBackdropColor(0, 0, 0, 0.82)
+    local f = UIKit.CreatePanel(parent)
+    f:SetBackdropColor(0, 0, 0, 0.82)   -- see the note above
     return f
 end
 
+-- The kit takes a style KEY where this file passed a raw font template. Mapped
+-- rather than rewriting ~19 call sites. ⚠ Hoisted out of Text() deliberately:
+-- this is called once per row per redraw over a list that can be thousands of
+-- items, and rebuilding a table per call is exactly the kind of cost that only
+-- shows up once someone has a big vault.
+local FONT_STYLE = {
+    GameFontNormal = "normal", GameFontNormalSmall = "normalSmall",
+    GameFontHighlight = "highlight", GameFontHighlightSmall = "highlightSmall",
+    GameFontDisableSmall = "disableSmall", GameFontNormalLarge = "title",
+}
+
 local function Text(parent, template, point, rel, relPoint, x, y, text)
-    local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontHighlightSmall")
-    fs:SetPoint(point, rel or parent, relPoint or point, x or 0, y or 0)
-    fs:SetText(text or "")
-    return fs
+    return UIKit.CreateText(parent, FONT_STYLE[template] or "highlightSmall",
+        point, rel or parent, relPoint or point, x or 0, y or 0, text)
 end
 
-local function Button(parent, label, width, height)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetWidth(width or 90)
-    b:SetHeight(height or 26)
-    b:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = false, edgeSize = 10,
-        insets = { left = 2, right = 2, top = 2, bottom = 2 },
-    })
-    b:SetBackdropColor(0.05, 0.05, 0.05, 0.88)
-    b:SetBackdropBorderColor(0.30, 0.27, 0.20, 0.95)
-    b.text = Text(b, "GameFontHighlightSmall", "CENTER", b, "CENTER", 0, 0, label)
-    b:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
-    if b:GetHighlightTexture() then b:GetHighlightTexture():SetBlendMode("ADD") end
-    return b
-end
-
-local function SetButtonActive(b, active)
-    if active then
-        b:SetBackdropColor(0.25, 0.18, 0.02, 0.92)
-        b:SetBackdropBorderColor(RGB(GOLD))
-        b.text:SetTextColor(RGB(GOLD))
-    else
-        b:SetBackdropColor(0.05, 0.05, 0.05, 0.88)
-        b:SetBackdropBorderColor(0.30, 0.27, 0.20, 0.95)
-        b.text:SetTextColor(0.85, 0.85, 0.85)
-    end
-end
+local Button = UIKit.CreateButton
+local SetButtonActive = UIKit.SetButtonActive
 
 local function ItemName(item)
     if not item then return "" end
@@ -128,51 +133,10 @@ local function QualityName(q)
     return Core.QUALITY_LABELS[q or 1] or "Common"
 end
 
--- `choices` may be a plain list or a function returning one. The equipment-slot
--- dropdown offers only the slots the vault currently holds, and that set moves
--- with every deposit, withdrawal and "my class only" toggle -- a list captured
--- once at build time would go stale the first time anything changed.
-local function Dropdown(parent, name, width, choices, get, set)
-    local function List()
-        if type(choices) == "function" then return choices() end
-        return choices
-    end
-
-    local dd = CreateFrame("Frame", name, parent, "UIDropDownMenuTemplate")
-    UIDropDownMenu_SetWidth(dd, width)
-    UIDropDownMenu_Initialize(dd, function()
-        for _, choice in ipairs(List()) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = choice.text
-            info.value = choice.value
-            info.checked = get() == choice.value
-            info.func = function()
-                set(choice.value)
-                UIDropDownMenu_SetSelectedValue(dd, choice.value)
-                -- The label is re-derived from get() rather than reused from the
-                -- clicked entry, because `set` can legitimately produce a
-                -- different one: picking the stat you are already sorted by
-                -- flips the direction and so changes the caret, and the slot
-                -- entries carry live counts. Falling back to choice.text keeps
-                -- the old behaviour whenever nothing re-derives.
-                UIDropDownMenu_SetText(dd, dd.CurrentText() or choice.text)
-            end
-            UIDropDownMenu_AddButton(info)
-        end
-    end)
-    dd.CurrentText = function()
-        for _, choice in ipairs(List()) do
-            if choice.value == get() then return choice.text end
-        end
-        return nil
-    end
-    local text = dd.CurrentText()
-    if text then
-        UIDropDownMenu_SetSelectedValue(dd, get())
-        UIDropDownMenu_SetText(dd, text)
-    end
-    return dd
-end
+-- Promoted into UncappedUI/Controls/Dropdown.lua on 2026-08-16 -- this file's
+-- version was a superset of the kit's, so the kit grew rather than this
+-- shrinking. Same signature, same behaviour, one copy.
+local Dropdown = UIKit.CreateDropdown
 
 -- Table columns used to sit at fixed pixel offsets tuned for a wide (~760px)
 -- standalone window; embedded in the Dashboard, tablePanel can end up

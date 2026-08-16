@@ -1,6 +1,12 @@
 -- UncappedLootFeed_Filters -- the filter bar, in the Vault's idiom, built once
 -- and used by both views.
 --
+-- ⚠ UIKit is resolved HERE, at file scope, not inside the builder. It used to be
+--   a local declared partway down and was then used ABOVE that line by a later
+--   edit -- which silently reads the nil GLOBAL of the same name rather than the
+--   local, and errors at call time. Keep it at the top.
+local UIKit = _G.UncappedUIKit
+--
 -- WHY IT LOOKS LIKE THE VAULT'S
 --   Asked for directly ("use same style of filters as the vault"), and it is the
 --   right call anyway: the Vault, the wardrobe and this feed are three windows
@@ -160,19 +166,19 @@ function Filters.Build(parent, opts)
     UIDropDownMenu_SetText(qualityDD, QualityText())
 
     -- ---- watched only -----------------------------------------------------
-    local watchedCheck = CreateFrame("CheckButton", NextName("Watched"), bar, "UICheckButtonTemplate")
+    -- Kit checkbox with a get/set binding (UI audit, 2026-08-16). The kit wraps
+    -- the same UICheckButtonTemplate, so SetChecked/GetChecked are unchanged --
+    -- the label just comes themed instead of hand-anchored.
+    local watchedCheck = UIKit.CreateCheckbox(bar, "Only watched",
+        function() return LF.GetFilter("watchedOnly") end,
+        function(on)
+            LF.SetFilter("watchedOnly", on)
+            onChange()
+        end,
+        NextName("Watched"))
     watchedCheck:SetWidth(22)
     watchedCheck:SetHeight(22)
     watchedCheck:SetPoint("TOPLEFT", bar, "TOPLEFT", x, ROW2)
-    watchedCheck:SetChecked(LF.GetFilter("watchedOnly") and true or false)
-    watchedCheck:SetScript("OnClick", function(btn)
-        LF.SetFilter("watchedOnly", btn:GetChecked() and true or false)
-        onChange()
-    end)
-
-    local watchedLabel = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    watchedLabel:SetPoint("LEFT", watchedCheck, "RIGHT", 2, 0)
-    watchedLabel:SetText("Only watched")
 
     local function Tip(widget, title, body)
         widget:SetScript("OnEnter", function(w)
@@ -194,7 +200,6 @@ function Filters.Build(parent, opts)
     -- what you just did" rather than as a permanent button whose effect nobody
     -- can guess.
     local reset
-    local UIKit = _G.UncappedUIKit
     if UIKit and UIKit.CreateButton then
         reset = UIKit.CreateButton(bar, "Show all", 74, 22)
     else

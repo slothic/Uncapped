@@ -1861,8 +1861,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedTransmog/UncappedTransmog.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedTransmog/UncappedTransmog.lua",
-                      "sha256":  "b2b3d037487c4880133972dc2500bd88d022409ea0e051cae4eefcf126167ba4",
-                      "size":  67009
+                      "sha256":  "11d6b9b3cf965ef63b13e021e96868c5724424989ee5c2a34cb626e599a241cd",
+                      "size":  65405
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedTransmog/UncappedTransmogData.lua",
@@ -1879,8 +1879,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault_UI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault_UI.lua",
-                      "sha256":  "bbaa8672c8edb7dd86907e6dd29eb2f60ee777d1e18d0cfb70a28a1f04917cfa",
-                      "size":  57863
+                      "sha256":  "24e3f27fd392bf62e91e475a504e4449d59114283b292bc1c7b572e322f3ebff",
+                      "size":  55816
                   },
                   {
                       "path":  "Interface/AddOns/UncappedGCD/UncappedGCD.lua",
@@ -1945,8 +1945,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedLootFeed/UncappedLootFeed_Filters.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedLootFeed/UncappedLootFeed_Filters.lua",
-                      "sha256":  "ceaa91dfbfa4771931e028734f8b2004f019949c926149bfb420494e14e226e1",
-                      "size":  9859
+                      "sha256":  "eea2e4e28919c62eee24c544a4c8a73149aae0dd8e864573f403ec147a5b5e24",
+                      "size":  10117
                   },
                   {
                       "path":  "Interface/AddOns/UncappedLootFeed/UncappedLootFeed_Popout.lua",
@@ -2239,14 +2239,14 @@
                   {
                       "path":  "Interface/AddOns/UncappedUI/Controls/Checkbox.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Controls/Checkbox.lua",
-                      "sha256":  "8d1c975bd4bf4ef38849984257d0423ce174b3dc6e2467713720a167d72e3667",
-                      "size":  620
+                      "sha256":  "7a614f3464e236d5197c033861a1a36940c0743d38ecc1c9ad9de07b3e9121b9",
+                      "size":  1659
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Controls/Dropdown.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Controls/Dropdown.lua",
-                      "sha256":  "c32b594e59e09d9adb4c9997571e349f0a2774a414f2b5db61e9d8f9fe515c5b",
-                      "size":  1531
+                      "sha256":  "2d3dfee95f18f5dd7c3cce474568abe5e3bcc63c407bb0ce05cce1b3aaa93650",
+                      "size":  2983
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Controls/EditBox.lua",
