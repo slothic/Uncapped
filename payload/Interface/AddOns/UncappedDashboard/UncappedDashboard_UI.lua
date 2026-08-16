@@ -33,6 +33,11 @@ local built = false
 -- Forge was (see UncappedSoulForge.lua's EmbedInto).
 local EMBEDDED_TABS = {
     soulforge   = "UncappedSoulForge",
+    -- ⚠ Extraction lives in the SAME FILE as Soul Forge (UncappedSoulForge.lua)
+    -- but must be its own global: this table maps one tab key to one global
+    -- name, and `soulforge` already claims UncappedSoulForge. See the
+    -- UncappedExtraction block at the bottom of that file.
+    extraction  = "UncappedExtraction",
     anima       = "UncappedAnima",
     forge       = "UncappedForge",
     vault       = "UncappedVault",

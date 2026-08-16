@@ -52,7 +52,14 @@ Core.TABS = {
     { key = "lootfeed", label = "Loot Feed", addon = "UncappedLootFeed", hint = "/lootfeed" },
     { key = "statfeed", label = "Statistics", addon = "StatFeed", hint = "/statfeed", disabled = true },
     { key = "questlog", label = "Quest Log", addon = "UncappedQuests", hint = "/uquests", disabled = true },
-    { key = "tutorial", label = "Tutorial", addon = "UncappedTutorial", disabled = true },
+    -- ★ THIS SLOT WAS "Tutorial" -- a disabled placeholder pointing at
+    -- `UncappedTutorial`, an addon that does not exist and never did. Taken for
+    -- Extraction 2026-08-16 rather than adding a SIXTEENTH tab, for exactly the
+    -- reason the block above spells out: at 16 the nav column needs ~700 units
+    -- and the window's zoom ceiling collapses to ~1.01, which ends zooming here
+    -- for everyone. Same trade the Beastiary slot took. If a tutorial is ever
+    -- built it needs the scrolling nav column first.
+    { key = "extraction", label = "Extraction", addon = "UncappedSoulForge", hint = "/extract" },
     { key = "utilities", label = "Utilities", addon = "UncappedOptions", hint = "/uncapped", disabled = true },
     -- ★ THIS SLOT WAS "Beastiary" -- a disabled placeholder with no addon behind
     -- it, never built. Taken rather than adding a SIXTEENTH tab, because the

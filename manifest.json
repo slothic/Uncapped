@@ -1795,14 +1795,14 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedDashboardConfig.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedDashboardConfig.lua",
-                      "sha256":  "1a539a4408eae4de57168d936eb109727fce9b1084d47eee78fa9551e40dad9f",
-                      "size":  7174
+                      "sha256":  "f993bc58bc9dfaa3c66839397b61d733e674440de72ab84a03a22c14fc9c7600",
+                      "size":  7718
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedDashboard_UI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedDashboard_UI.lua",
-                      "sha256":  "94e69771dcacc9fe8414bc373b5665a9e9ede42033159ae9d5abfdd882040b37",
-                      "size":  10424
+                      "sha256":  "663e84a5b389d028f63b01154c35afee39469cc8cb9f23da9fa0b0e7d414e17c",
+                      "size":  10760
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedAnima/UncappedAnima.lua",
@@ -1855,8 +1855,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedSoulForge/UncappedSoulForge.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedSoulForge/UncappedSoulForge.lua",
-                      "sha256":  "fab6ca917444305bdb32c1f46e60f817bd57d6bc69f721c76f74a45508730a22",
-                      "size":  139198
+                      "sha256":  "5f565e986f9e77bfa2ecee6e26a1cb03008cfb9213dc5c87d86a172dae43f611",
+                      "size":  143427
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedTransmog/UncappedTransmog.lua",

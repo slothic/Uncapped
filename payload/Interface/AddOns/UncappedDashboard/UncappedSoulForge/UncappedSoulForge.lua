@@ -1133,36 +1133,55 @@ local EXC_FILTERS = {
     end },
 }
 
-local function BuildExtractor()
+-- `parent` non-nil = build INTO the Dashboard's content group (owner request
+-- 2026-08-16, "add the extraction window to the dashboard"). nil = the old
+-- free-floating popup, which nothing calls any more but is kept working so a
+-- future caller is not silently broken.
+--
+-- ⚠ Embedded, the Dashboard supplies the frame, the border and the title bar, so
+--   this must NOT bring its own -- a second backdrop inside the content panel
+--   draws a box-in-a-box, and a second close button closes only the inner one.
+local function BuildExtractor(parent)
   if EXT then return EXT end
-  local f = CreateFrame("Frame", "UncappedExtractorFrame", UIParent)
-  f:SetSize(720, 500)
-  f:SetPoint("CENTER")
-  f:SetFrameStrata("HIGH")
-  f:SetBackdrop({
-    bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", tile = true, tileSize = 32, edgeSize = 32,
-    insets = { left = 11, right = 12, top = 12, bottom = 11 } })
-  f:SetBackdropBorderColor(0.55, 0.4, 0.9, 1)
-  f:EnableMouse(true); f:SetMovable(true); f:RegisterForDrag("LeftButton")
-  f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
-  f:SetClampedToScreen(true); f:Hide()
-  tinsert(UISpecialFrames, "UncappedExtractorFrame")   -- Esc closes it
-  if UncappedScale_Register then UncappedScale_Register(f, { group = "dashboard" }) end
+  local embedded = parent ~= nil
+  local f = CreateFrame("Frame", "UncappedExtractorFrame", parent or UIParent)
 
-  local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-  title:SetPoint("TOP", 0, -18); title:SetText("|cffb384ffExtraction|r")
+  if embedded then
+    f:SetAllPoints(parent)
+  else
+    f:SetSize(720, 500)
+    f:SetPoint("CENTER")
+    f:SetFrameStrata("HIGH")
+    f:SetBackdrop({
+      bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+      edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", tile = true, tileSize = 32, edgeSize = 32,
+      insets = { left = 11, right = 12, top = 12, bottom = 11 } })
+    f:SetBackdropBorderColor(0.55, 0.4, 0.9, 1)
+    f:EnableMouse(true); f:SetMovable(true); f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
+    f:SetClampedToScreen(true); f:Hide()
+    tinsert(UISpecialFrames, "UncappedExtractorFrame")   -- Esc closes it
+    if UncappedScale_Register then UncappedScale_Register(f, { group = "dashboard" }) end
 
-  local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-  close:SetPoint("TOPRIGHT", -8, -8)
+    local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOP", 0, -18); title:SetText("|cffb384ffExtraction|r")
+
+    local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", -8, -8)
+  end
+
+  -- Everything below hangs off yTop, so the two layouts share one set of
+  -- offsets: embedded starts at the top of the content group, floating leaves
+  -- room for its own title and close button.
+  local yTop = embedded and -6 or -40
 
   f.sub = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  f.sub:SetPoint("TOP", 0, -40)
+  f.sub:SetPoint("TOP", 0, yTop)
 
   -- ---- mode tabs --------------------------------------------------------
   local function ModeButton(text, mode, x)
     local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    b:SetSize(110, 22); b:SetPoint("TOPLEFT", x, -58); b:SetText(text)
+    b:SetSize(110, 22); b:SetPoint("TOPLEFT", x, yTop - 18); b:SetText(text)
     b:SetScript("OnClick", function()
       state.exMode = mode
       state.collSel = nil
@@ -1175,7 +1194,7 @@ local function BuildExtractor()
 
   -- ---- search -----------------------------------------------------------
   local search = CreateFrame("EditBox", "UncappedExtractSearch", f, "InputBoxTemplate")
-  search:SetSize(180, 20); search:SetPoint("TOPLEFT", 260, -58)
+  search:SetSize(180, 20); search:SetPoint("TOPLEFT", 260, yTop - 18)
   search:SetAutoFocus(false)
   search:SetScript("OnTextChanged", function(self)
     state.exSearch = (self:GetText() or ""):lower()
@@ -1191,7 +1210,7 @@ local function BuildExtractor()
   f.filterBtns = {}
   for i, fl in ipairs(EXC_FILTERS) do
     local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    b:SetSize(84, 20); b:SetPoint("TOPLEFT", 20 + (i - 1) * 88, -84); b:SetText(fl.label)
+    b:SetSize(84, 20); b:SetPoint("TOPLEFT", 20 + (i - 1) * 88, yTop - 44); b:SetText(fl.label)
     b:SetScript("OnClick", function()
       state.exFilter = fl.key
       EXT:Refresh()
@@ -1201,7 +1220,7 @@ local function BuildExtractor()
 
   -- ---- collection grid --------------------------------------------------
   local grid = CreateFrame("ScrollFrame", "UncappedExtractGrid", f, "FauxScrollFrameTemplate")
-  grid:SetPoint("TOPLEFT", 20, -110)
+  grid:SetPoint("TOPLEFT", 20, yTop - 70)
   grid:SetSize(EXC_COLS * EXC_CELL, EXC_ROWS * EXC_CELL)
   grid:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, EXC_CELL, function() if EXT then EXT:Refresh() end end)
@@ -1249,7 +1268,7 @@ local function BuildExtractor()
 
   -- ---- unlock list (same footprint as the grid; only one shows) ---------
   local ulist = CreateFrame("ScrollFrame", "UncappedExtractUnlock", f, "FauxScrollFrameTemplate")
-  ulist:SetPoint("TOPLEFT", 20, -110)
+  ulist:SetPoint("TOPLEFT", 20, yTop - 70)
   ulist:SetSize(EXC_COLS * EXC_CELL, EXC_ROWS * EXC_CELL)
   ulist:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, EXR_H, function() if EXT then EXT:Refresh() end end)
@@ -1303,17 +1322,17 @@ local function BuildExtractor()
   local DETAIL_X = 20 + EXC_COLS * EXC_CELL + 16
 
   f.detTitle = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  f.detTitle:SetPoint("TOPLEFT", DETAIL_X, -110)
-  f.detTitle:SetWidth(700 - DETAIL_X - 20); f.detTitle:SetJustifyH("LEFT")
+  f.detTitle:SetPoint("TOPLEFT", DETAIL_X, yTop - 70)
+  f.detTitle:SetPoint("RIGHT", f, "RIGHT", -14, 0); f.detTitle:SetJustifyH("LEFT")
 
   f.detSub = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  f.detSub:SetPoint("TOPLEFT", DETAIL_X, -128)
-  f.detSub:SetWidth(700 - DETAIL_X - 20); f.detSub:SetJustifyH("LEFT")
+  f.detSub:SetPoint("TOPLEFT", DETAIL_X, yTop - 88)
+  f.detSub:SetPoint("RIGHT", f, "RIGHT", -14, 0); f.detSub:SetJustifyH("LEFT")
 
   -- "Where does it drop?" reuses the existing USOURCE lookup rather than adding a
   -- second one -- the reply is handled by the shared USRC block further down.
   f.srcBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  f.srcBtn:SetSize(140, 20); f.srcBtn:SetPoint("TOPLEFT", DETAIL_X, -150)
+  f.srcBtn:SetSize(140, 20); f.srcBtn:SetPoint("TOPLEFT", DETAIL_X, yTop - 110)
   f.srcBtn:SetText("Where does it drop?")
   f.srcBtn:SetScript("OnClick", function()
     local e = state.collSel and state.collSel.src
@@ -1322,11 +1341,11 @@ local function BuildExtractor()
   end)
 
   f.tgtHead = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  f.tgtHead:SetPoint("TOPLEFT", DETAIL_X, -178)
+  f.tgtHead:SetPoint("TOPLEFT", DETAIL_X, yTop - 138)
   f.tgtHead:SetText("Apply to:")
 
   local tscroll = CreateFrame("ScrollFrame", "UncappedExtractTargets", f, "FauxScrollFrameTemplate")
-  tscroll:SetPoint("TOPLEFT", DETAIL_X, -196)
+  tscroll:SetPoint("TOPLEFT", DETAIL_X, yTop - 156)
   tscroll:SetSize(238, 6 * EXR_H)
   tscroll:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, EXR_H, function() if EXT then EXT:Refresh() end end)
@@ -1439,9 +1458,15 @@ local function BuildExtractor()
 
   function f:Refresh()
     local mode = state.exMode or "coll"
-    local scrolls = GetItemCount(500208) or 0
+    -- ⚠ The BALANCE, not GetItemCount. Scrolls became a held currency on
+    --   2026-08-16: the server absorbs any loose ones out of the bags, so
+    --   GetItemCount is normally 0 even for someone with hundreds banked.
+    --   state.scrolls is nil until the first ICSCROLLS arrives, and nil must not
+    --   read as "none" -- it reads as "not told yet", which is why the button
+    --   gating below tests `scrolls == 0` rather than `not scrolls`.
+    local scrolls = state.scrolls or 0
     self.sub:SetText("Unlock an effect once, then stamp it on anything.  "
-      .. "|cffffd100" .. scrolls .. "|r scroll" .. (scrolls == 1 and "" or "s"))
+      .. "|cffffd100" .. scrolls .. "|r scroll" .. (scrolls == 1 and "" or "s") .. " held")
 
     -- Tab highlight: the active one is disabled, which is the cheapest honest
     -- "you are here" this template gives us.
@@ -2471,7 +2496,17 @@ local function OnLine(body)
     if UI then UI:Ding() end
     send("ICINV"); send("ICSF")
   elseif cmd == "ICEXOPEN" then         -- the scroll was used -> open the picker
-    openExtractor()
+    -- Opens the Dashboard's Extraction tab. Falls back to the floating window if
+    -- the Dashboard is not loaded, so using a scroll always shows something.
+    if _G.UncappedDashboard and _G.UncappedDashboard.Buttons then
+      _G.UncappedDashboard.state.tab = "extraction"
+      if _G.UncappedDashboard.Buttons.Show then _G.UncappedDashboard.Buttons.Show() end
+      if _G.UncappedDashboard.UI and _G.UncappedDashboard.UI.Refresh then
+        _G.UncappedDashboard.UI.Refresh()
+      end
+    else
+      openExtractor()
+    end
   elseif cmd == "ICEXI" then            -- <bag>:<slot>:<entry>:<equipped>:<spell>:<trigger>
     local bag, slot, entry, eq, spell, trig = rest:match("^(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
     if bag then
@@ -2499,6 +2534,9 @@ local function OnLine(body)
     state.exDone = state.exDoneStaging or {}
     state.exDoneStaging = nil
     commitExtractItems()
+  elseif cmd == "ICSCROLLS" then        -- <balance>  scrolls held as currency
+    state.scrolls = tonumber(rest) or 0
+    if EXT and EXT:IsShown() then EXT:Refresh() end
   elseif cmd == "ICCOLLROW" then        -- <spell>:<trigger>:<sourceEntry>
     local sp, tr, src = rest:match("^(%d+):(%d+):(%d+)$")
     if sp then
@@ -3033,11 +3071,63 @@ end
 -- Dashboard tab now, opened via /dashboard, so a dedicated slash command would
 -- just duplicate that entry point.
 
+--[[
+  Extraction is its own Dashboard tab (owner request 2026-08-16).
+
+  ★ It is a SEPARATE global from UncappedSoulForge even though both live in this
+    file, because the Dashboard's EMBEDDED_TABS maps one tab key to one global
+    name and Soul Forge already owns `soulforge`. Two tabs, two globals.
+
+  ⚠ It took the dead `tutorial` slot rather than becoming a SIXTEENTH tab. That
+    is not tidiness: UncappedDashboardConfig.lua spells out that the nav column's
+    required height reaches ~700 units at 16 tabs, which collapses the window's
+    zoom ceiling to ~1.01 for everyone -- adding a tab would have cost the zoom
+    feature on this window. `UncappedTutorial` does not exist as an addon and
+    never did, so the slot was free. Same precedent as the Beastiary slot.
+]]
+local EXTRACT = _G.UncappedExtraction or {}
+_G.UncappedExtraction = EXTRACT
+EXTRACT.UI = {}
+
+function EXTRACT.UI.EmbedInto(parent)
+  BuildExtractor(parent)
+  EXT:Show()
+  return EXT
+end
+
+function EXTRACT.UI.Activate()
+  if not EXT then return end
+  state.exStaging = {}
+  state.exMode = state.exMode or "coll"
+  state.exFilter = state.exFilter or "all"
+  EXT:Refresh()
+  send("ICEXSRC"); send("ICCOLL"); send("ICWLIST")
+end
+
+-- The two columns plus their padding: 20 + (6 * 42 grid) + 16 gutter + 238
+-- target column + 20 right inset = 546, plus the embedded group's own 6px each
+-- side = 558. Below this the target list starts clipping.
+function EXTRACT.UI.GetMinWidth()
+  return 558
+end
+
 SLASH_EXTRACT1 = "/extract"
 SLASH_EXTRACT2 = "/ex"
 SlashCmdList["EXTRACT"] = function()
-  BuildExtractor()
-  if EXT:IsShown() then EXT:Hide() else openExtractor() end
+  -- Routes to the Dashboard tab rather than opening a second, floating copy --
+  -- the same choice Soul Forge made when it stopped having its own window.
+  if _G.UncappedDashboard and _G.UncappedDashboard.Buttons then
+    _G.UncappedDashboard.state.tab = "extraction"
+    if _G.UncappedDashboard.Buttons.Show then _G.UncappedDashboard.Buttons.Show() end
+    if _G.UncappedDashboard.UI and _G.UncappedDashboard.UI.Refresh then
+      _G.UncappedDashboard.UI.Refresh()
+    end
+  else
+    -- Dashboard missing (disabled, or an error earlier in load): fall back to the
+    -- floating window rather than doing nothing at all.
+    BuildExtractor()
+    if EXT:IsShown() then EXT:Hide() else openExtractor() end
+  end
 end
 
 SLASH_SOCKET1 = "/socket"
