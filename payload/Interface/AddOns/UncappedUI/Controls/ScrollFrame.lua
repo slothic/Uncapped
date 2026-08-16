@@ -30,8 +30,21 @@ end
 -- rowHeight/visibleRows: fixed per-row pixel height and pool size used to
 -- compute the scroll offset/range. onScroll() is called after the offset
 -- changes -- wire your row-render function in there.
-function UncappedUIKit.CreateFauxScrollFrame(parent, rowHeight, visibleRows, onScroll)
-    local scroll = CreateFrame("ScrollFrame", NextName("UncappedUIFauxScroll"), parent, "FauxScrollFrameTemplate")
+--
+-- ★★ `name` is optional but almost always wanted, and its absence is why this
+--    control had ZERO users outside the kit (UI audit, 2026-08-16).
+--
+--    FauxScrollFrameTemplate creates its scrollbar as a global named
+--    `<frameName>ScrollBar`. With a generated name the caller cannot predict
+--    that global, so it cannot reach the scrollbar -- and reaching it is how you
+--    wire mouse-wheel scrolling, which every list in this suite wants. Callers
+--    therefore skipped the kit and hand-rolled the frame purely to control the
+--    name; UncappedLootFeed_UI.lua says so in a comment.
+--
+--    Pass a name and the scrollbar is addressable. Omit it and you get the old
+--    generated-name behaviour, so existing callers are unaffected.
+function UncappedUIKit.CreateFauxScrollFrame(parent, rowHeight, visibleRows, onScroll, name)
+    local scroll = CreateFrame("ScrollFrame", name or NextName("UncappedUIFauxScroll"), parent, "FauxScrollFrameTemplate")
     scroll.rowHeight = rowHeight
     scroll.visibleRows = visibleRows
     scroll:SetScript("OnVerticalScroll", function(self, offset)

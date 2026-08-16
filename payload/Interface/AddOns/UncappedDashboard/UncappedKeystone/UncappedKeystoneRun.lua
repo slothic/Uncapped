@@ -149,8 +149,12 @@ end
       they are used. Order matters, so keep helpers above their callers.
 ]]
 local function SetButtonLabel(b, label)
-    -- Kit buttons carry their label on `b.text`; the Blizzard fallback uses SetText.
-    if b.text and b.text.SetText then b.text:SetText(label) else b:SetText(label) end
+    -- ★ Kept as a one-liner rather than deleted. As of 2026-08-16 the kit button
+    --   overrides SetText properly (it used to write to a font string it never
+    --   created, so relabelling silently did nothing), which means plain SetText
+    --   is now correct for BOTH kit and Blizzard buttons. This wrapper stays only
+    --   so its callers read the same either way -- there is no longer a fork.
+    b:SetText(label)
 end
 
 local function SetToggle(btn, on, label)
