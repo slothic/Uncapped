@@ -1086,12 +1086,57 @@ local function clampOffset(frame, count, rows)
   return offset
 end
 
+--[[ ===========================================================================
+     THE EXTRACTION WARDROBE  (owner ruling 2026-08-16)
+     ===========================================================================
+
+     REPLACES the old two-column "pull an effect off A, stamp it onto B" window.
+     That window is gone, not hidden -- the owner asked for a replacement, and
+     leaving both would mean two surfaces that can each half-do the job.
+
+     The model it drives (server side: ItemCustomization::UnlockProc /
+     ApplyCollectedProc):
+
+       UNLOCK  burn a gear piece + a Scroll of Extraction to learn its proc
+               PERMANENTLY and ACCOUNT-WIDE, exactly like an appearance.
+       APPLY   stamp anything you have unlocked onto a piece of gear, one
+               scroll a time, as often as you like.
+
+     So the window has two modes: a COLLECTION you browse (grid of icons, the
+     way the wardrobe works) and an UNLOCK list of gear you are carrying that
+     still has something to teach.
+
+     ⚠ Whitelisting lives here too. The Soulforge whitelist is what stops
+       auto-consume eating a piece, and the moment unlocking became a reason to
+       KEEP an item, "protect this from being melted" belonged on the same
+       screen as "this is the item I still need". It drives the existing
+       ICWLADD/ICWLREM list -- deliberately not a second, parallel list.
+]]
+
+-- Collection grid geometry. 6 x 4 cells of 42px, scrolled a ROW at a time
+-- (FauxScrollFrame's unit is one row, and one row here is six icons).
+local EXC_COLS, EXC_ROWS, EXC_CELL = 6, 4, 42
+
+-- The filter buttons across the top of the collection. `test` is handed the
+-- collection entry and answers "does this belong under that tab".
+--
+-- ★ Set bonuses are trigger 0 with a spell the server marked as a set bonus; we
+--   cannot see that flag from here, so the set filter matches on the NAME the
+--   server already renders, which is the same string the player is reading.
+local EXC_FILTERS = {
+  { key = "all",  label = "All",          test = function() return true end },
+  { key = "hit",  label = "On Hit",       test = function(e) return e.trigger ~= 0 end },
+  { key = "pass", label = "Passive",      test = function(e) return e.trigger == 0 end },
+  { key = "set",  label = "Set Bonuses",  test = function(e)
+      local n = procDisplayName({ spellId = e.spell }) or ""
+      return n:find("Bonus") ~= nil or n:find("[Ss]et ") ~= nil
+    end },
+}
+
 local function BuildExtractor()
   if EXT then return EXT end
   local f = CreateFrame("Frame", "UncappedExtractorFrame", UIParent)
-  -- 400 -> 440: EXR_H went 26 -> 30 across 9 rows (+36px). Without this the list
-  -- runs into the summary line and the Extract button.
-  f:SetSize(500, 440)
+  f:SetSize(720, 500)
   f:SetPoint("CENTER")
   f:SetFrameStrata("HIGH")
   f:SetBackdrop({
@@ -1103,125 +1148,455 @@ local function BuildExtractor()
   f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
   f:SetClampedToScreen(true); f:Hide()
   tinsert(UISpecialFrames, "UncappedExtractorFrame")   -- Esc closes it
-  -- UIParent-parented pop-out: owns its own zoom (see BuildWhitelist above).
   if UncappedScale_Register then UncappedScale_Register(f, { group = "dashboard" }) end
 
   local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-  title:SetPoint("TOP", 0, -18); title:SetText("|cffb384ffScroll of Extraction|r")
-
-  local sub = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  sub:SetPoint("TOP", 0, -40)
-  sub:SetText("Pull an effect from one item and stamp it onto another.")
+  title:SetPoint("TOP", 0, -18); title:SetText("|cffb384ffExtraction|r")
 
   local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
   close:SetPoint("TOPRIGHT", -8, -8)
 
-  local lh = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  lh:SetPoint("TOPLEFT", 20, -62); lh:SetText("1. Effect to pull")
-  local rh = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  rh:SetPoint("TOPLEFT", 258, -62); rh:SetText("2. Item to receive it")
+  f.sub = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  f.sub:SetPoint("TOP", 0, -40)
 
-  -- Build one FauxScrollFrame column of selectable rows.
-  local function buildColumn(name, x, rowStore, onClick)
-    local scroll = CreateFrame("ScrollFrame", "UncappedExtractor" .. name, f, "FauxScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", x, -82)
-    scroll:SetSize(210, EXR_ROWS * EXR_H)
-    scroll:SetScript("OnVerticalScroll", function(self, offset)
-      FauxScrollFrame_OnVerticalScroll(self, offset, EXR_H, function() if EXT then EXT:Refresh() end end)
+  -- ---- mode tabs --------------------------------------------------------
+  local function ModeButton(text, mode, x)
+    local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    b:SetSize(110, 22); b:SetPoint("TOPLEFT", x, -58); b:SetText(text)
+    b:SetScript("OnClick", function()
+      state.exMode = mode
+      state.collSel = nil
+      EXT:Refresh()
     end)
-    scroll.uncappedRowH = EXR_H
-    scroll:SetScript("OnMouseWheel", function(self, delta)
-      -- Clamped: see wheelScroll. This column had the same runaway as the socket list.
-      wheelScroll(self, delta, self.uncappedCount or 0, EXR_ROWS, EXR_H,
-        function() if EXT then EXT:Refresh() end end)
+    return b
+  end
+  f.tabColl   = ModeButton("Collection", "coll",   20)
+  f.tabUnlock = ModeButton("Unlock",     "unlock", 134)
+
+  -- ---- search -----------------------------------------------------------
+  local search = CreateFrame("EditBox", "UncappedExtractSearch", f, "InputBoxTemplate")
+  search:SetSize(180, 20); search:SetPoint("TOPLEFT", 260, -58)
+  search:SetAutoFocus(false)
+  search:SetScript("OnTextChanged", function(self)
+    state.exSearch = (self:GetText() or ""):lower()
+    EXT:Refresh()
+  end)
+  search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+  f.search = search
+
+  local sLabel = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  sLabel:SetPoint("BOTTOMLEFT", search, "TOPLEFT", -4, 1); sLabel:SetText("Search")
+
+  -- ---- filter buttons ---------------------------------------------------
+  f.filterBtns = {}
+  for i, fl in ipairs(EXC_FILTERS) do
+    local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    b:SetSize(84, 20); b:SetPoint("TOPLEFT", 20 + (i - 1) * 88, -84); b:SetText(fl.label)
+    b:SetScript("OnClick", function()
+      state.exFilter = fl.key
+      EXT:Refresh()
     end)
-    for i = 1, EXR_ROWS do
-      local r = CreateFrame("Button", nil, f); r:SetSize(206, EXR_H - 2)
-      if i == 1 then r:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, 0)
-      else r:SetPoint("TOPLEFT", rowStore[i-1], "BOTTOMLEFT", 0, -2) end
-      r.sel = r:CreateTexture(nil, "BACKGROUND")
-      r.sel:SetAllPoints(); r.sel:SetTexture(0.4, 0.3, 0.7, 0.5); r.sel:Hide()
-      local hl = r:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetTexture(1, 1, 1, 0.12)
-      r.icon = r:CreateTexture(nil, "ARTWORK"); r.icon:SetSize(EXR_H - 8, EXR_H - 8)
-      r.icon:SetPoint("LEFT", 2, 0)
-      r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-      r.name:SetPoint("LEFT", r.icon, "RIGHT", 4, 6); r.name:SetWidth(EXR_TEXT_W); r.name:SetJustifyH("LEFT")
-      r.sub = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-      r.sub:SetPoint("LEFT", r.icon, "RIGHT", 4, -7); r.sub:SetWidth(EXR_TEXT_W); r.sub:SetJustifyH("LEFT")
-      r:SetScript("OnClick", function() if r.data then onClick(r.data) end end)
-      r:Hide()
-      rowStore[i] = r
-    end
-    return scroll
+    f.filterBtns[i] = b
   end
 
-  f.srcScroll = buildColumn("SrcScroll", 20, exSrcRows, function(d) state.exSelSrc = d; EXT:Refresh() end)
-  f.tgtScroll = buildColumn("TgtScroll", 258, exTgtRows, function(d) state.exSelTgt = d; EXT:Refresh() end)
+  -- ---- collection grid --------------------------------------------------
+  local grid = CreateFrame("ScrollFrame", "UncappedExtractGrid", f, "FauxScrollFrameTemplate")
+  grid:SetPoint("TOPLEFT", 20, -110)
+  grid:SetSize(EXC_COLS * EXC_CELL, EXC_ROWS * EXC_CELL)
+  grid:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, EXC_CELL, function() if EXT then EXT:Refresh() end end)
+  end)
+  grid:SetScript("OnMouseWheel", function(self, delta)
+    -- Scrolls a ROW of icons at a time, so the count handed to the clamp is the
+    -- number of ROWS, not the number of procs. Passing the proc count here is
+    -- what would let the grid scroll far past its own content.
+    wheelScroll(self, delta, self.uncappedRows or 0, EXC_ROWS, EXC_CELL,
+      function() if EXT then EXT:Refresh() end end)
+  end)
+  f.grid = grid
 
+  f.cells = {}
+  for i = 1, EXC_COLS * EXC_ROWS do
+    local c = CreateFrame("Button", nil, f)
+    c:SetSize(EXC_CELL - 4, EXC_CELL - 4)
+    local col, row = (i - 1) % EXC_COLS, math.floor((i - 1) / EXC_COLS)
+    c:SetPoint("TOPLEFT", grid, "TOPLEFT", col * EXC_CELL, -row * EXC_CELL)
+    c.icon = c:CreateTexture(nil, "ARTWORK"); c.icon:SetAllPoints()
+    c.sel = c:CreateTexture(nil, "OVERLAY")
+    c.sel:SetAllPoints(); c.sel:SetTexture(0.4, 0.3, 0.7, 0.45); c.sel:Hide()
+    local hl = c:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetTexture(1, 1, 1, 0.2)
+    c:SetScript("OnEnter", function(self)
+      if not self.data then return end
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:SetHyperlink("spell:" .. self.data.spell)
+      GameTooltip:AddLine(triggerLabel(self.data.trigger), 0.7, 0.55, 1)
+      GameTooltip:Show()
+    end)
+    c:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    c:SetScript("OnClick", function(self)
+      if self.data then state.collSel = self.data; EXT:Refresh() end
+    end)
+    c:Hide()
+    f.cells[i] = c
+  end
+
+  -- Shown instead of the grid when nothing matches, so an empty collection
+  -- explains itself rather than looking broken.
+  f.empty = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  f.empty:SetPoint("TOPLEFT", grid, "TOPLEFT", 4, -8)
+  f.empty:SetWidth(EXC_COLS * EXC_CELL - 8); f.empty:SetJustifyH("LEFT")
+  f.empty:Hide()
+
+  -- ---- unlock list (same footprint as the grid; only one shows) ---------
+  local ulist = CreateFrame("ScrollFrame", "UncappedExtractUnlock", f, "FauxScrollFrameTemplate")
+  ulist:SetPoint("TOPLEFT", 20, -110)
+  ulist:SetSize(EXC_COLS * EXC_CELL, EXC_ROWS * EXC_CELL)
+  ulist:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, EXR_H, function() if EXT then EXT:Refresh() end end)
+  end)
+  ulist:SetScript("OnMouseWheel", function(self, delta)
+    wheelScroll(self, delta, self.uncappedCount or 0, EXR_ROWS, EXR_H,
+      function() if EXT then EXT:Refresh() end end)
+  end)
+  f.ulist = ulist
+
+  f.urows = {}
+  for i = 1, EXR_ROWS do
+    local r = CreateFrame("Button", nil, f); r:SetSize(EXC_COLS * EXC_CELL - 4, EXR_H - 2)
+    if i == 1 then r:SetPoint("TOPLEFT", ulist, "TOPLEFT", 0, 0)
+    else r:SetPoint("TOPLEFT", f.urows[i-1], "BOTTOMLEFT", 0, -2) end
+    r.sel = r:CreateTexture(nil, "BACKGROUND")
+    r.sel:SetAllPoints(); r.sel:SetTexture(0.4, 0.3, 0.7, 0.5); r.sel:Hide()
+    local hl = r:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetTexture(1, 1, 1, 0.12)
+    r.icon = r:CreateTexture(nil, "ARTWORK"); r.icon:SetSize(EXR_H - 8, EXR_H - 8)
+    r.icon:SetPoint("LEFT", 2, 0)
+    r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.name:SetPoint("LEFT", r.icon, "RIGHT", 4, 6); r.name:SetWidth(190); r.name:SetJustifyH("LEFT")
+    r.sub = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    r.sub:SetPoint("LEFT", r.icon, "RIGHT", 4, -7); r.sub:SetWidth(190); r.sub:SetJustifyH("LEFT")
+    -- A padlock, drawn when the item is on the Soulforge whitelist.
+    r.lock = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    r.lock:SetPoint("RIGHT", -4, 0); r.lock:SetText("|cffffd100*|r"); r.lock:Hide()
+    r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    r:SetScript("OnClick", function(self, button)
+      if not self.data then return end
+      if button == "RightButton" then
+        -- Right-click protects the item from auto-consume, using the same
+        -- whitelist the Soulforge window drives. Keyed on NAME, because that is
+        -- what ICWLADD takes.
+        local nm = itemDisplay(self.data.entry)
+        if nm then
+          if state.wlSet and state.wlSet[nm:lower()] then send("ICWLREM:" .. nm)
+          else send("ICWLADD:" .. nm) end
+          send("ICWLIST")
+        end
+        return
+      end
+      state.exSelSrc = self.data
+      EXT:Refresh()
+    end)
+    r:Hide()
+    f.urows[i] = r
+  end
+
+  -- ---- right-hand detail / target panel ---------------------------------
+  local DETAIL_X = 20 + EXC_COLS * EXC_CELL + 16
+
+  f.detTitle = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  f.detTitle:SetPoint("TOPLEFT", DETAIL_X, -110)
+  f.detTitle:SetWidth(700 - DETAIL_X - 20); f.detTitle:SetJustifyH("LEFT")
+
+  f.detSub = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  f.detSub:SetPoint("TOPLEFT", DETAIL_X, -128)
+  f.detSub:SetWidth(700 - DETAIL_X - 20); f.detSub:SetJustifyH("LEFT")
+
+  -- "Where does it drop?" reuses the existing USOURCE lookup rather than adding a
+  -- second one -- the reply is handled by the shared USRC block further down.
+  f.srcBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  f.srcBtn:SetSize(140, 20); f.srcBtn:SetPoint("TOPLEFT", DETAIL_X, -150)
+  f.srcBtn:SetText("Where does it drop?")
+  f.srcBtn:SetScript("OnClick", function()
+    local e = state.collSel and state.collSel.src
+    if e and e ~= 0 then send("USOURCE:" .. e)
+    else DEFAULT_CHAT_FRAME:AddMessage("|cffb384ff[Extraction]|r No source item recorded for this effect.") end
+  end)
+
+  f.tgtHead = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  f.tgtHead:SetPoint("TOPLEFT", DETAIL_X, -178)
+  f.tgtHead:SetText("Apply to:")
+
+  local tscroll = CreateFrame("ScrollFrame", "UncappedExtractTargets", f, "FauxScrollFrameTemplate")
+  tscroll:SetPoint("TOPLEFT", DETAIL_X, -196)
+  tscroll:SetSize(238, 6 * EXR_H)
+  tscroll:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, EXR_H, function() if EXT then EXT:Refresh() end end)
+  end)
+  tscroll:SetScript("OnMouseWheel", function(self, delta)
+    wheelScroll(self, delta, self.uncappedCount or 0, 6, EXR_H,
+      function() if EXT then EXT:Refresh() end end)
+  end)
+  f.tscroll = tscroll
+
+  f.trows = {}
+  for i = 1, 6 do
+    local r = CreateFrame("Button", nil, f); r:SetSize(234, EXR_H - 2)
+    if i == 1 then r:SetPoint("TOPLEFT", tscroll, "TOPLEFT", 0, 0)
+    else r:SetPoint("TOPLEFT", f.trows[i-1], "BOTTOMLEFT", 0, -2) end
+    r.sel = r:CreateTexture(nil, "BACKGROUND")
+    r.sel:SetAllPoints(); r.sel:SetTexture(0.4, 0.3, 0.7, 0.5); r.sel:Hide()
+    local hl = r:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetTexture(1, 1, 1, 0.12)
+    r.icon = r:CreateTexture(nil, "ARTWORK"); r.icon:SetSize(EXR_H - 8, EXR_H - 8)
+    r.icon:SetPoint("LEFT", 2, 0)
+    r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.name:SetPoint("LEFT", r.icon, "RIGHT", 4, 0); r.name:SetWidth(170); r.name:SetJustifyH("LEFT")
+    -- The "I am finished with this piece" tick.
+    r.tick = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    r.tick:SetPoint("RIGHT", -4, 0); r.tick:SetText("|cff40ff40v|r"); r.tick:Hide()
+    r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    r:SetScript("OnClick", function(self, button)
+      if not self.data then return end
+      if button == "RightButton" then
+        local key = self.data.bag .. ":" .. self.data.slot
+        local now = state.exDone and state.exDone[key]
+        send(string.format("ICDONE:%d:%d:%d", self.data.bag, self.data.slot, now and 0 or 1))
+        return
+      end
+      state.exSelTgt = self.data
+      EXT:Refresh()
+    end)
+    r:SetScript("OnEnter", function(self)
+      if not self.data then return end
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:SetText(itemDisplay(self.data.entry))
+      GameTooltip:AddLine("Right-click to mark this piece finished.", 0.7, 0.7, 0.7)
+      GameTooltip:Show()
+    end)
+    r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    r:Hide()
+    f.trows[i] = r
+  end
+
+  -- ---- summary + action --------------------------------------------------
   f.summary = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   f.summary:SetPoint("BOTTOMLEFT", 20, 44); f.summary:SetPoint("BOTTOMRIGHT", -20, 44)
   f.summary:SetJustifyH("CENTER"); f.summary:SetHeight(28)
 
-  local btn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  btn:SetSize(160, 26); btn:SetPoint("BOTTOM", 0, 14); btn:SetText("Extract")
-  btn:SetScript("OnClick", function()
-    local s, t = state.exSelSrc, state.exSelTgt
-    if not s or not t then return end
-    send(string.format("ICEXTRACT:%d:%d:%d:%d:%d:%d", s.bag, s.slot, s.spell, s.trigger, t.bag, t.slot))
-  end)
-  f.extractBtn = btn
-
-  local function fillRow(r, d, isSource)
-    r.data = d
-    local nm, tex, cr, cg, cb = itemDisplay(d.entry)
-    r.icon:SetTexture(tex)
-    -- ⚠ Every SetText here goes through fitText. A raw SetText on a width-limited
-    --   FontString wraps, and a wrapped row overdraws the one below it.
-    if isSource then
-      fitText(r.name, nm, EXR_TEXT_W); r.name:SetTextColor(cr, cg, cb)
-      fitText(r.sub, procDisplayName({ spellId = d.spell })
-        .. "  (" .. triggerLabel(d.trigger) .. ")", EXR_TEXT_W, "|cffb384ff")
+  f.actBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  f.actBtn:SetSize(170, 26); f.actBtn:SetPoint("BOTTOM", -92, 14)
+  f.actBtn:SetScript("OnClick", function()
+    if state.exMode == "unlock" then
+      local s = state.exSelSrc
+      if s then send(string.format("ICUNLOCK:%d:%d:%d:%d", s.bag, s.slot, s.spell, s.trigger)) end
     else
-      fitText(r.name, nm .. (d.equipped == 1 and "  [Worn]" or ""), EXR_TEXT_W)
-      r.name:SetTextColor(cr, cg, cb)
-      r.sub:SetText("")
+      local c, t = state.collSel, state.exSelTgt
+      if c and t then send(string.format("ICAPPLY:%d:%d:%d:%d", c.spell, c.trigger, t.bag, t.slot)) end
     end
-    local selData = isSource and state.exSelSrc or state.exSelTgt
-    if selData and selData.bag == d.bag and selData.slot == d.slot
-       and (not isSource or selData.spell == d.spell) then r.sel:Show() else r.sel:Hide() end
-    r:Show()
+  end)
+
+  f.wlBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  f.wlBtn:SetSize(170, 26); f.wlBtn:SetPoint("BOTTOM", 92, 14)
+  f.wlBtn:SetText("Protect from melting")
+  f.wlBtn:SetScript("OnClick", function()
+    local s = state.exSelSrc
+    if not s then return end
+    local nm = itemDisplay(s.entry)
+    if not nm then return end
+    if state.wlSet and state.wlSet[nm:lower()] then send("ICWLREM:" .. nm)
+    else send("ICWLADD:" .. nm) end
+    send("ICWLIST")
+  end)
+  f.wlBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:SetText("Soulforge whitelist")
+    GameTooltip:AddLine("Auto-consume will never melt an item on this list. "
+      .. "Worth setting on anything you still mean to unlock.", 0.8, 0.8, 0.8, true)
+    GameTooltip:Show()
+  end)
+  f.wlBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+  -- =======================================================================
+  -- Refresh
+  -- =======================================================================
+
+  -- The collection, filtered by the tab and the search box.
+  local function visibleCollection()
+    local out = {}
+    local flt
+    for _, fl in ipairs(EXC_FILTERS) do
+      if fl.key == (state.exFilter or "all") then flt = fl end
+    end
+    local q = state.exSearch or ""
+    for _, e in ipairs(state.collection or {}) do
+      local ok = (not flt) or flt.test(e)
+      if ok and q ~= "" then
+        local n = (procDisplayName({ spellId = e.spell }) or ""):lower()
+        ok = n:find(q, 1, true) ~= nil
+      end
+      if ok then out[#out + 1] = e end
+    end
+    return out
   end
 
   function f:Refresh()
-    local src, tgt = state.exSources, state.exTargets
-    self.srcScroll.uncappedCount = #src
-    self.tgtScroll.uncappedCount = #tgt
-    FauxScrollFrame_Update(self.srcScroll, #src, EXR_ROWS, EXR_H)
-    FauxScrollFrame_Update(self.tgtScroll, #tgt, EXR_ROWS, EXR_H)
-    local so = clampOffset(self.srcScroll, #src, EXR_ROWS)
-    local to = clampOffset(self.tgtScroll, #tgt, EXR_ROWS)
-    for i = 1, EXR_ROWS do
-      local ds = src[i + so]; if ds then fillRow(exSrcRows[i], ds, true) else exSrcRows[i].data = nil; exSrcRows[i]:Hide() end
-      local dt = tgt[i + to]; if dt then fillRow(exTgtRows[i], dt, false) else exTgtRows[i].data = nil; exTgtRows[i]:Hide() end
+    local mode = state.exMode or "coll"
+    local scrolls = GetItemCount(500208) or 0
+    self.sub:SetText("Unlock an effect once, then stamp it on anything.  "
+      .. "|cffffd100" .. scrolls .. "|r scroll" .. (scrolls == 1 and "" or "s"))
+
+    -- Tab highlight: the active one is disabled, which is the cheapest honest
+    -- "you are here" this template gives us.
+    if mode == "coll" then self.tabColl:Disable(); self.tabUnlock:Enable()
+    else self.tabColl:Enable(); self.tabUnlock:Disable() end
+
+    for i, fl in ipairs(EXC_FILTERS) do
+      if (state.exFilter or "all") == fl.key then self.filterBtns[i]:Disable()
+      else self.filterBtns[i]:Enable() end
+      -- Filters only mean anything over the collection.
+      if mode == "coll" then self.filterBtns[i]:Show() else self.filterBtns[i]:Hide() end
     end
-    -- summary + button state
-    local s, t = state.exSelSrc, state.exSelTgt
-    if s and t then
-      if s.bag == t.bag and s.slot == t.slot then
-        self.summary:SetText("|cffff8040Pick a different item to receive the effect.|r")
-        self.extractBtn:Disable()
-      else
-        local sn = itemDisplay(s.entry); local tn = itemDisplay(t.entry)
-        self.summary:SetText(string.format("Move |cffb384ff%s|r\nfrom |cffffffff%s|r  onto  |cffffffff%s|r",
-          spellName(s.spell), sn, tn))
-        self.extractBtn:Enable()
+
+    if mode == "coll" then
+      self.ulist:Hide()
+      for _, r in ipairs(self.urows) do r:Hide() end
+      self.grid:Show()
+
+      local list = visibleCollection()
+      local rows = math.ceil(#list / EXC_COLS)
+      self.grid.uncappedRows = rows
+      FauxScrollFrame_Update(self.grid, rows, EXC_ROWS, EXC_CELL)
+      local off = clampOffset(self.grid, rows, EXC_ROWS)
+
+      for i = 1, EXC_COLS * EXC_ROWS do
+        local c = self.cells[i]
+        local idx = off * EXC_COLS + i
+        local e = list[idx]
+        if e then
+          c.data = e
+          local _, _, icon = GetSpellInfo(e.spell)
+          c.icon:SetTexture(icon or QUESTION)
+          if state.collSel and state.collSel.spell == e.spell
+             and state.collSel.trigger == e.trigger then c.sel:Show() else c.sel:Hide() end
+          c:Show()
+        else
+          c.data = nil; c:Hide()
+        end
       end
-    elseif s then
-      self.summary:SetText("Now choose the item on the right to receive |cffb384ff" .. spellName(s.spell) .. "|r.")
-      self.extractBtn:Disable()
-    else
-      self.summary:SetText("Choose an effect on the left to pull.")
-      self.extractBtn:Disable()
+
+      if #list == 0 then
+        self.empty:Show()
+        self.empty:SetText((state.collection and #state.collection > 0)
+          and "|cff808080Nothing matches that filter.|r"
+          or "|cff808080You have not unlocked any effects yet.\n\nSwitch to Unlock, pick a piece of gear that carries an effect, and spend a Scroll of Extraction on it. The effect is yours permanently, on every character.|r")
+      else
+        self.empty:Hide()
+      end
+
+      -- detail
+      local c = state.collSel
+      if c then
+        self.detTitle:SetText("|cffb384ff" .. (procDisplayName({ spellId = c.spell }) or "?") .. "|r")
+        local from = (c.src and c.src ~= 0) and itemDisplay(c.src) or nil
+        self.detSub:SetText(triggerLabel(c.trigger)
+          .. (from and ("\nFirst pulled from |cffffffff" .. from .. "|r") or "\n|cff808080Origin not recorded|r"))
+        self.srcBtn:Show()
+      else
+        self.detTitle:SetText("")
+        self.detSub:SetText("|cff808080Pick an effect on the left.|r")
+        self.srcBtn:Hide()
+      end
+
+      -- targets
+      local tgt = state.exTargets or {}
+      self.tgtHead:Show(); self.tscroll:Show()
+      self.tscroll.uncappedCount = #tgt
+      FauxScrollFrame_Update(self.tscroll, #tgt, 6, EXR_H)
+      local to = clampOffset(self.tscroll, #tgt, 6)
+      for i = 1, 6 do
+        local r, d = self.trows[i], tgt[i + to]
+        if d then
+          r.data = d
+          local nm, tex, cr, cg, cb = itemDisplay(d.entry)
+          r.icon:SetTexture(tex)
+          fitText(r.name, nm .. (d.equipped == 1 and "  [Worn]" or ""), 160)
+          r.name:SetTextColor(cr, cg, cb)
+          if state.exDone and state.exDone[d.bag .. ":" .. d.slot] then r.tick:Show() else r.tick:Hide() end
+          if state.exSelTgt and state.exSelTgt.bag == d.bag and state.exSelTgt.slot == d.slot
+            then r.sel:Show() else r.sel:Hide() end
+          r:Show()
+        else
+          r.data = nil; r:Hide()
+        end
+      end
+
+      self.actBtn:SetText("Apply  (1 scroll)")
+      self.wlBtn:Hide()
+      if c and state.exSelTgt and scrolls > 0 then
+        self.actBtn:Enable()
+        self.summary:SetText(string.format("Stamp |cffb384ff%s|r onto |cffffffff%s|r.",
+          procDisplayName({ spellId = c.spell }) or "?", (itemDisplay(state.exSelTgt.entry))))
+      else
+        self.actBtn:Disable()
+        if scrolls == 0 then
+          self.summary:SetText("|cffff8040You have no Scrolls of Extraction.|r")
+        elseif not c then
+          self.summary:SetText("Choose an unlocked effect, then the piece to stamp it on.")
+        else
+          self.summary:SetText("Now choose the piece of gear to receive it.")
+        end
+      end
+
+    else   -- ---- unlock mode ----
+      self.grid:Hide()
+      for _, c in ipairs(self.cells) do c:Hide() end
+      self.empty:Hide()
+      self.tgtHead:Hide(); self.tscroll:Hide()
+      for _, r in ipairs(self.trows) do r:Hide() end
+      self.srcBtn:Hide()
+      self.ulist:Show()
+
+      local src = state.exSources or {}
+      self.ulist.uncappedCount = #src
+      FauxScrollFrame_Update(self.ulist, #src, EXR_ROWS, EXR_H)
+      local so = clampOffset(self.ulist, #src, EXR_ROWS)
+      for i = 1, EXR_ROWS do
+        local r, d = self.urows[i], src[i + so]
+        if d then
+          r.data = d
+          local nm, tex, cr, cg, cb = itemDisplay(d.entry)
+          r.icon:SetTexture(tex)
+          local known = state.collSet and state.collSet[d.spell .. ":" .. d.trigger]
+          fitText(r.name, nm, 180); r.name:SetTextColor(cr, cg, cb)
+          fitText(r.sub, (known and "already unlocked -- " or "")
+            .. (procDisplayName({ spellId = d.spell }) or "?")
+            .. "  (" .. triggerLabel(d.trigger) .. ")", 180,
+            known and "|cff808080" or "|cffb384ff")
+          if state.wlSet and state.wlSet[(nm or ""):lower()] then r.lock:Show() else r.lock:Hide() end
+          if state.exSelSrc and state.exSelSrc.bag == d.bag and state.exSelSrc.slot == d.slot
+             and state.exSelSrc.spell == d.spell then r.sel:Show() else r.sel:Hide() end
+          r:Show()
+        else
+          r.data = nil; r:Hide()
+        end
+      end
+
+      local s = state.exSelSrc
+      self.detTitle:SetText("|cffffd100Unlocking destroys the item.|r")
+      self.detSub:SetText("The effect becomes yours permanently and on every character. "
+        .. "Right-click a row, or use the button below, to protect a piece from auto-consume.")
+      self.actBtn:SetText("Unlock  (1 scroll)")
+      self.wlBtn:Show()
+
+      local known = s and state.collSet and state.collSet[s.spell .. ":" .. s.trigger]
+      if s and scrolls > 0 and not known then
+        self.actBtn:Enable()
+        self.summary:SetText(string.format("Destroy |cffffffff%s|r to learn |cffb384ff%s|r forever.",
+          (itemDisplay(s.entry)), procDisplayName({ spellId = s.spell }) or "?"))
+      else
+        self.actBtn:Disable()
+        if scrolls == 0 then self.summary:SetText("|cffff8040You have no Scrolls of Extraction.|r")
+        elseif known then self.summary:SetText("|cff808080You have already unlocked that effect.|r")
+        else self.summary:SetText("Choose a piece of gear to pull an effect from.") end
+      end
     end
   end
 
@@ -1259,9 +1634,13 @@ end
 local function openExtractor()
   BuildExtractor()
   state.exStaging = {}
+  state.exMode = state.exMode or "coll"
+  state.exFilter = state.exFilter or "all"
   EXT:Show()
   EXT:Refresh()
-  send("ICEXSRC")
+  send("ICEXSRC")   -- gear I carry, plus the ICEXD "finished" marks
+  send("ICCOLL")    -- everything this ACCOUNT has unlocked
+  send("ICWLIST")   -- the Soulforge whitelist, so the padlocks are right
 end
 
 -- ---- Scroll of Socket ----------------------------------------------------
@@ -1996,7 +2375,14 @@ local function OnLine(body)
   elseif cmd == "ICWLEND" then
     state.whitelist = state.wlStaging
     state.wlStaging = {}
+    -- ★ A lowercase SET beside the list. The extraction window asks "is this item
+    --   protected?" once per visible row on every refresh, and a linear scan of
+    --   the list per row per redraw is the kind of thing that only shows up as
+    --   lag once someone has a long whitelist.
+    state.wlSet = {}
+    for _, n in ipairs(state.whitelist) do state.wlSet[tostring(n):lower()] = true end
     if WLM then WLM:Update() end
+    if EXT and EXT:IsShown() then EXT:Refresh() end
   elseif cmd == "ICINAME" then          -- <name>  item-name search hit
     table.insert(state.wlSuggestStaging, rest)
   elseif cmd == "ICINAMEEND" then
@@ -2085,8 +2471,50 @@ local function OnLine(body)
         tinsert(it.procs, { spell = tonumber(spell), trigger = tonumber(trig) })
       end
     end
+  elseif cmd == "ICEXD" then            -- <bag>:<slot>  this piece is marked finished
+    -- Staged into a fresh table alongside the ICEXI sweep and committed at
+    -- ICEXIEND, so a piece that stops being marked actually disappears from the
+    -- set rather than lingering until relog.
+    local bag, slot = rest:match("^(%d+):(%d+)$")
+    if bag then
+      state.exDoneStaging = state.exDoneStaging or {}
+      state.exDoneStaging[bag .. ":" .. slot] = true
+    end
   elseif cmd == "ICEXIEND" then
+    state.exDone = state.exDoneStaging or {}
+    state.exDoneStaging = nil
     commitExtractItems()
+  elseif cmd == "ICCOLLROW" then        -- <spell>:<trigger>:<sourceEntry>
+    local sp, tr, src = rest:match("^(%d+):(%d+):(%d+)$")
+    if sp then
+      state.collStaging = state.collStaging or {}
+      tinsert(state.collStaging,
+        { spell = tonumber(sp), trigger = tonumber(tr), src = tonumber(src) })
+    end
+  elseif cmd == "ICCOLLEND" then
+    state.collection = state.collStaging or {}
+    state.collStaging = nil
+    -- Same reasoning as wlSet: the Unlock list asks "do I already know this?" for
+    -- every visible row on every redraw.
+    state.collSet = {}
+    for _, e in ipairs(state.collection) do
+      state.collSet[e.spell .. ":" .. e.trigger] = true
+    end
+    -- Sorted by name so the grid has a stable, readable order rather than
+    -- whatever order the rows happened to arrive in.
+    table.sort(state.collection, function(a, b)
+      local an = procDisplayName({ spellId = a.spell }) or ""
+      local bn = procDisplayName({ spellId = b.spell }) or ""
+      if an ~= bn then return an < bn end
+      return a.trigger < b.trigger
+    end)
+    if EXT and EXT:IsShown() then EXT:Refresh() end
+  elseif cmd == "ICUNLOCKED" then       -- <spell>:<trigger>
+    local sp = tonumber((rest:match("^(%d+)")))
+    msg("|cff9CC243Unlocked|r " .. (sp and spellName(sp) or "the effect")
+        .. " -- it is yours permanently, on every character.")
+    state.exSelSrc = nil
+    PlaySoundFile(SND_SEAL)
   elseif cmd == "ICEXOK" then           -- <spell>  extraction succeeded
     local sp = tonumber(rest)
     msg("|cff9CC243Extracted|r " .. (sp and spellName(sp) or "the effect")

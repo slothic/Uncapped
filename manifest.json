@@ -1855,8 +1855,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedSoulForge/UncappedSoulForge.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedSoulForge/UncappedSoulForge.lua",
-                      "sha256":  "af06e0a5437c7976379b44b5974496e32a97912f9662ba149d661b9839d523e4",
-                      "size":  121471
+                      "sha256":  "50f8f38cf56770c726f25471d6093c939e3f040b2eeffb1cc097926358d238ef",
+                      "size":  137715
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedTransmog/UncappedTransmog.lua",
