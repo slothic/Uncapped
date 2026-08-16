@@ -24,6 +24,18 @@ local UI = {}
 Core.RegisterUI(UI)
 
 local contentPanel, dashboardGroup, placeholderGroup, placeholderBody
+
+-- Module checkboxes, kept so they can be re-read when the Dashboard tab is
+-- shown. The content pane is built exactly once (BuildContent's `built` guard),
+-- so a tick set at build time would otherwise never notice the player toggling
+-- the same feature by its own slash command afterwards.
+local moduleChecks = {}
+
+local function RefreshModuleChecks()
+    for _, cb in ipairs(moduleChecks) do
+        if cb.RefreshFromModule then cb.RefreshFromModule() end
+    end
+end
 local built = false
 
 -- Tabs whose addon builds its own panel directly into the content group
@@ -88,16 +100,65 @@ local function BuildDashboardGroup(group)
     UncappedUIKit.CreateText(group, "title", "TOPLEFT", group, "TOPLEFT", PAD, y, "Modules")
     y = y - 30
 
-    -- Saved on/off preference only -- nothing actually toggles yet. See
-    -- Core.MODULES / db.modules in UncappedDashboard.lua.
-    local db = Core.GetDB()
+    -- These apply for real as of 2026-08-16 -- see the note on Core.MODULES.
+    -- Where a module can report its true state (mod.get), that wins over the
+    -- saved preference: the window may have been closed by its own slash command
+    -- since this was last ticked, and showing a stale tick is how a working
+    -- control still reads as broken.
     for _, mod in ipairs(Core.MODULES) do
         local cb = UncappedUIKit.CreateCheckbox(group, mod.label)
         cb:SetPoint("TOPLEFT", group, "TOPLEFT", PAD, y)
-        cb:SetChecked(db.modules[mod.key] ~= false)
+
+        -- Core.GetDB() is called fresh rather than captured once: this runs long
+        -- after build time, and a captured table would drift from the one OnClick
+        -- writes to if GetDB ever re-resolves it.
+        local function refresh()
+            if mod.get then
+                cb:SetChecked(mod.get() and true or false)
+            else
+                cb:SetChecked(Core.GetDB().modules[mod.key] ~= false)
+            end
+        end
+        refresh()
+
         cb:SetScript("OnClick", function(self)
-            Core.GetDB().modules[mod.key] = self:GetChecked() and true or false
+            local want = self:GetChecked() and true or false
+            -- Persist first so the preference survives even when the module is
+            -- momentarily unavailable (load order, addon disabled).
+            Core.GetDB().modules[mod.key] = want
+            if mod.set and not mod.set(want) then
+                -- Could not apply it -- put the tick back rather than leave the
+                -- player looking at a control that claims a state it never set.
+                refresh()
+            end
         end)
+        cb.RefreshFromModule = refresh
+        moduleChecks[#moduleChecks + 1] = cb
+
+        -- A toggle whose reach is wider than its label says gets that spelled
+        -- out next to it rather than left for the player to discover.
+        if mod.note then
+            local note = UncappedUIKit.CreateText(group, "disableSmall", "TOPLEFT", group, "TOPLEFT", PAD + 148, y - 4,
+                mod.note)
+            note:SetWidth(300)
+            note:SetJustifyH("LEFT")
+        end
+
+        y = y - 26
+    end
+
+    -- Features that must not be one-click. Rendered as a pointer to the command
+    -- rather than a checkbox; see Core.MODULE_NOTES for why.
+    for _, note in ipairs(Core.MODULE_NOTES or {}) do
+        local label = UncappedUIKit.CreateText(group, "highlightSmall", "TOPLEFT", group, "TOPLEFT", PAD + 4, y - 4,
+            note.label)
+        label:SetWidth(140)
+        label:SetJustifyH("LEFT")
+
+        local hint = UncappedUIKit.CreateText(group, "disableSmall", "TOPLEFT", group, "TOPLEFT", PAD + 148, y - 4,
+            "type |cffffd100" .. note.hint .. "|r -- destroys items, so it is not a one-click toggle")
+        hint:SetWidth(300)
+        hint:SetJustifyH("LEFT")
         y = y - 26
     end
 
@@ -208,6 +269,7 @@ function UI.Refresh()
         Core.Buttons.SetTitle("Dashboard")
         if Core.Buttons.SetMinContentWidth then Core.Buttons.SetMinContentWidth(0) end
         if Core.Buttons.SetMinContentHeight then Core.Buttons.SetMinContentHeight(0) end
+        RefreshModuleChecks()
         dashboardGroup:Show()
         return
     end

@@ -700,6 +700,12 @@ $manifest = [ordered]@{
         # [#522] Shield bar. Listed from its FIRST release, so it never joins the
         # group above that shipped unlisted and became impossible to prune.
         'Interface/AddOns/UncappedShieldBar',
+        # ⚠ Added 2026-08-16 -- UncappedLootFeed was the FOURTH addon to ship without
+        # being listed here, the same drift the three-addon note above records. It was
+        # in the payload and installing correctly, but nothing under its folder could
+        # ever be pruned: rename or drop a file in a future release and the old copy
+        # stays on every player's disk forever, loading alongside the new one.
+        'Interface/AddOns/UncappedLootFeed',
         # The Dashboard bundles Forge/Soulforge/Anima/Vault/Transmog/Scrolls as folders
         # inside itself, so it is the only one of them still installed as an addon.
         # The six standalone entries above are deliberately KEPT listed even though they

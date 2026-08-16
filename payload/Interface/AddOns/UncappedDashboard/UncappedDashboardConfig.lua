@@ -72,14 +72,72 @@ Core.TABS = {
     { key = "soulscrolls", label = "Soul Scrolls", addon = "UncappedScrolls", hint = "/dashboard" },
 }
 
--- Toggles shown in the Dashboard tab's "Modules" section. Purely a saved
--- on/off preference for now (UncappedDashboard_UI.lua persists it to
--- db.modules) -- nothing actually enables/disables these features yet.
+-- Sends a dot command as the player. Same route UncappedPanel uses: a dot
+-- command typed into SAY is intercepted by the server and never reaches chat.
+function Core.RunDotCommand(command)
+    if not command or command == "" then return false end
+    if not SendChatMessage then return false end
+    SendChatMessage(command, "SAY")
+    return true
+end
+
+-- Toggles shown in the Dashboard tab's "Modules" section.
+--
+-- ★ These DO something as of 2026-08-16. They previously wrote db.modules and
+--   nothing read it, so all four ticked, saved, and changed nothing -- a control
+--   that looks live and isn't, with no hint to the player that it was inert.
+--
+-- Each entry carries `set` (apply the state) and optionally `get` (read the real
+-- current state). Where `get` is absent the saved preference is the only record
+-- we have, which is correct for the server-side toggles: the client cannot query
+-- them, and both default ON server-side exactly as the checkbox defaults ticked.
 Core.MODULES = {
-    { key = "statfeed", label = "Stat Feed" },
-    { key = "autoloot", label = "Autoloot" },
-    { key = "aoeloot", label = "AoE Loot" },
-    { key = "autodisenchant", label = "Autodisenchant" },
+    {
+        key = "statfeed", label = "Stat Feed",
+        -- StatFeed exposes only a TOGGLE, never a setter, so read the real frame
+        -- and fire the toggle solely when it disagrees with the checkbox --
+        -- otherwise ticking an already-shown window would hide it.
+        get = function()
+            return StatFeedFrame ~= nil and StatFeedFrame:IsShown()
+        end,
+        set = function(on)
+            if not StatFeedFrame or not SlashCmdList or not SlashCmdList["STATFEED"] then
+                return false
+            end
+            local shown = StatFeedFrame:IsShown() and true or false
+            if shown ~= (on and true or false) then
+                SlashCmdList["STATFEED"]("")
+            end
+            return true
+        end,
+    },
+    {
+        -- ⚠ `.auto` is not just autolooting. Unit.cpp gates personal group loot
+        -- on it too: with it OFF, a recipient's roll is never banked at all
+        -- ("Each recipient's own .auto governs delivery"). Unticking this without
+        -- the note would quietly cut the player out of group loot, which is the
+        -- kind of surprise that arrives as a bug report weeks later.
+        key = "autoloot", label = "Autoloot",
+        note = "also gathering, and receiving group loot",
+        set = function(on) return Core.RunDotCommand(".auto " .. (on and "on" or "off")) end,
+    },
+    {
+        key = "aoeloot", label = "AoE Loot",
+        set = function(on) return Core.RunDotCommand(".aoeloot " .. (on and "on" or "off")) end,
+    },
+}
+
+-- ⚠ AUTODISENCHANT IS DELIBERATELY NOT A CHECKBOX.
+--
+-- It was one, and it did nothing, which was the only reason it was harmless.
+-- Wiring it up as written would have made a single click destroy items with no
+-- preview and no confirmation -- switching it on immediately sweeps bags AND
+-- unclaimed mail, and the command's whole consent model is that typing it out
+-- IS the confirmation. A checkbox cannot express its tier list (green/blue/
+-- purple/orange/all + an optional ilvl cap) either, so "on" has no honest
+-- meaning here. Shown as a pointer to the real command instead.
+Core.MODULE_NOTES = {
+    { label = "Autodisenchant", hint = ".autodisenchant" },
 }
 
 -- Returns Core.TABS resolved into the player's saved order (db.tabOrder, an

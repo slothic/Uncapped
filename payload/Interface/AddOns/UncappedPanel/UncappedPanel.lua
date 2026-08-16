@@ -492,8 +492,20 @@ local function BuildPanel()
     local db = CopyDefaults()
 
     frame = CreateFrame("Frame", "UncappedPanelFrame", UIParent)
-    -- UI audit 2026-08-16: siblings of this window had these and it did not.
-    tinsert(UISpecialFrames, "UncappedPanelFrame")   -- Escape closes it
+    --[[ ⚠ ESCAPE MUST NOT CLOSE THIS. Do not re-add UISpecialFrames here.
+
+         Added by the 2026-08-16 UI style audit on the reasoning that "siblings of
+         this window had these and it did not", and removed the same day for the
+         same reason StatFeedFrame was: this is a BAR, not a dialog. It is a
+         toolbar you position once and leave up while you play, so it belongs with
+         UncappedChat and the Loot Feed popout -- both deliberately off the list --
+         rather than with the bug reporter and the forge preview, which are opened,
+         used and dismissed.
+
+         Escape is pressed constantly for unrelated reasons (game menu, clearing a
+         target, stopping a cast) and every one of them was taking the bar away.
+
+         Close it with /upanel. ]]
     frame:SetWidth(BarWidth(db.visibleIcons))
     frame:SetHeight(HEIGHT)
     AnchorFrame()

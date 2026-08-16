@@ -754,8 +754,26 @@ local function BuildWindow()
     local db = GetDB()
 
     frame = CreateFrame("Frame", "StatFeedFrame", UIParent)
-    -- UI audit 2026-08-16: siblings of this window had these and it did not.
-    tinsert(UISpecialFrames, "StatFeedFrame")   -- Escape closes it
+    --[[ ⚠ ESCAPE MUST NOT CLOSE THIS. Do not re-add UISpecialFrames here.
+
+         The 2026-08-16 UI style audit added it on the reasoning that "siblings of
+         this window had these and it did not", and players reported it closing on
+         Escape the same day. The audit was right about the siblings and wrong
+         about the class: UISpecialFrames is for windows you open, use and dismiss
+         -- a vendor, a talent pane, the Dashboard. This is a FEED. It is placed
+         once and left up while you play, and Escape gets pressed constantly for
+         unrelated reasons: opening the game menu, clearing a target, stopping a
+         cast. Every one of those was taking the feed away.
+
+         ★ THE REALM HAS DECIDED THIS TWICE ALREADY, both times the same way.
+         UncappedChat came off the list ("Uchat keeps closing when pressing Esc
+         key meaning we have too constantly open it back up"), and the Loot Feed
+         popout was kept off it for report #384, four minutes after going live.
+         Blizzard's own chat frames are not on the list either. A feed and a
+         dialog are different frame classes and a consistency pass over the two
+         is how this got reintroduced.
+
+         Close it with /statfeed, or its own titlebar. ]]
     if UncappedScale_Register then UncappedScale_Register(frame, { group = "dashboard" }) end
     frame:SetWidth(db.width)
     frame:SetHeight(db.height)

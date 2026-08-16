@@ -1615,8 +1615,8 @@
                   {
                       "path":  "Interface/AddOns/StatFeed/StatFeed.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/StatFeed/StatFeed.lua",
-                      "sha256":  "4e0fd930bcbd74100740a0537d479737ae942b74be61fc8866ab965b31098574",
-                      "size":  46749
+                      "sha256":  "a430e2ab09aed62af042f1c77b905c4ff400a02848c18ba48cf3f3c19fbbe550",
+                      "size":  47889
                   },
                   {
                       "path":  "Interface/AddOns/StatFeed/StatFeed.toc",
@@ -1795,14 +1795,14 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedDashboardConfig.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedDashboardConfig.lua",
-                      "sha256":  "f993bc58bc9dfaa3c66839397b61d733e674440de72ab84a03a22c14fc9c7600",
-                      "size":  7718
+                      "sha256":  "c6f562f1adbd282f703cd0dd492f8b569ab84f655c634bba0ff60109a6f73581",
+                      "size":  10560
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedDashboard_UI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedDashboard_UI.lua",
-                      "sha256":  "663e84a5b389d028f63b01154c35afee39469cc8cb9f23da9fa0b0e7d414e17c",
-                      "size":  10760
+                      "sha256":  "ec435717ccb9857027d3199a6d490b078fd44d0516d2a0f47908776f3c4aa2fb",
+                      "size":  13566
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedAnima/UncappedAnima.lua",
@@ -2083,8 +2083,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedPanel/UncappedPanel.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedPanel/UncappedPanel.lua",
-                      "sha256":  "2834308e88de5b238625fd84d2936a5d5ca091f746181bfc91aa0a8794b96c07",
-                      "size":  30537
+                      "sha256":  "133ea7c8e2cb5d1dab1cfeaf34d6bc79be31b8332e5fc31a4c956633893e9b06",
+                      "size":  31186
                   },
                   {
                       "path":  "Interface/AddOns/UncappedPanel/UncappedPanel.toc",
@@ -3079,6 +3079,7 @@
                        "Interface/AddOns/UncappedQuests",
                        "Interface/AddOns/UncappedBugReporter",
                        "Interface/AddOns/UncappedShieldBar",
+                       "Interface/AddOns/UncappedLootFeed",
                        "Interface/AddOns/UncappedDashboard",
                        "Interface/AddOns/UncappedUI",
                        "Interface/AddOns/devUncapped64",
