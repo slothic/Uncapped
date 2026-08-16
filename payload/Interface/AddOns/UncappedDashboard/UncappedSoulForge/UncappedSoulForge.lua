@@ -1608,10 +1608,25 @@ end
 local function commitExtractItems()
   local sources, targets = {}, {}
   for _, it in pairs(state.exStaging) do
+    -- Worn gear is still a valid TARGET -- stamping onto it is non-destructive.
     tinsert(targets, { bag = it.bag, slot = it.slot, entry = it.entry, equipped = it.equipped })
-    for _, pr in ipairs(it.procs) do
-      tinsert(sources, { bag = it.bag, slot = it.slot, entry = it.entry, equipped = it.equipped,
-                         spell = pr.spell, trigger = pr.trigger })
+
+    --[[ ★★ BUT NEVER A SOURCE. Owner incident 2026-08-16: an equipped libram was
+         unlocked by accident and destroyed with everything invested in it.
+
+         Unlocking DESTROYS the item, and the list showed worn pieces looking
+         exactly like the spare ones in your bags -- so the most dangerous row in
+         the window was indistinguishable from the safe ones.
+
+         ⚠ The server refuses these too (ItemCustomization::UnlockProc and
+           ExtractProc both return "equipped"). This is the friendly half; that is
+           the real gate. Take the item off if you genuinely mean to burn it.
+    ]]
+    if it.equipped ~= 1 then
+      for _, pr in ipairs(it.procs) do
+        tinsert(sources, { bag = it.bag, slot = it.slot, entry = it.entry, equipped = it.equipped,
+                           spell = pr.spell, trigger = pr.trigger })
+      end
     end
   end
   local function byName(a, b) return (itemDisplay(a.entry)) < (itemDisplay(b.entry)) end
@@ -2616,7 +2631,18 @@ local function OnLine(body)
       e and (itemDisplay(e)) or "gem", n))
   elseif cmd == "ICERR" then
     local op, reason = rest:match("^(%a+):(.+)$")
-    if reason == "no_equipped_match" then
+    if reason == "equipped" then
+      -- The guard added after the 2026-08-16 incident. Worth its own branch rather
+      -- than a slug: this refusal is the one standing between a misclick and
+      -- someone's worn gear, and it should read like a reason.
+      msg("|cffff8040You are wearing that. Unlocking destroys the item -- take it off first if you really mean to.|r")
+    elseif reason == "already_known" then
+      msg("|cffff8040You have already unlocked that effect.|r")
+    elseif reason == "item_locked" then
+      msg("|cffff8040You marked that piece finished. Right-click it to unmark it first.|r")
+    elseif reason == "not_unlocked" then
+      msg("|cffff8040You have not unlocked that effect yet.|r")
+    elseif reason == "no_equipped_match" then
       msg("|cffff8040You can only soulbind a duplicate of an item you're wearing.|r")
     elseif reason == "nothing" then
       msg("|cffff8040No duplicates of your equipped gear were found.|r")
