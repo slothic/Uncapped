@@ -189,11 +189,12 @@ local function BuildFrame(parent)
     widgets.hint:SetPoint("RIGHT", frame, "RIGHT", -14, 0)
     widgets.hint:SetJustifyH("LEFT")
     widgets.hint:SetText(COLOR_DIM ..
-        "Queue for the dungeon you're standing at, at the level you want. " ..
+        "Pick a keystone level and queue. Everyone waiting on that level is in the " ..
+        "same queue, wherever they are -- the dungeon is chosen when it pops. " ..
         "Whoever's been waiting longest can start it with however many are there.|r")
 
-    -- Level stepper. The dungeon is "wherever you are" -- same rule the keystone
-    -- panel follows, so there is deliberately no map picker here either.
+    -- Level stepper, and it is the ENTIRE queue: you pick a level, the pop picks
+    -- the dungeon. No map picker here, deliberately.
     --
     -- -18 rather than -14: the hint above is two lines on most window widths and
     -- one on a wide one, and at -14 the readout sat tight against whichever it
@@ -214,12 +215,16 @@ local function BuildFrame(parent)
     widgets.plus:SetPoint("LEFT", widgets.minus, "RIGHT", 4, 0)
 
     widgets.queue = MakeButton(frame, "Queue", 120, function()
-        local map = GetCurrentMapAreaID and 0 or 0
-        -- The server resolves the map from the player's own position; we send the
-        -- instance map id we are standing in, which for the dashboard's purposes
-        -- is whatever GetInstanceInfo reports.
-        local _, _, _, _, _, _, _, instanceMapId = GetInstanceInfo()
-        Send("MLFJ:" .. tostring(instanceMapId or map) .. ":" .. tostring(pickLevel))
+        -- ★★ LEVEL ONLY. The pop picks the dungeon.
+        --
+        -- ⚠ This used to send `GetInstanceInfo()`'s map id -- "wherever you are
+        --   standing". Opened anywhere you would actually use a group finder (the
+        --   Mall, a city, anywhere outside an instance) that is not a Mythic Plus
+        --   map, so the server refused it with "That dungeon is not part of
+        --   Mythic Plus" and the button never worked. Do not reintroduce a map
+        --   here: there is no dungeon picker in this panel and there is not meant
+        --   to be one.
+        Send("MLFJ:" .. tostring(pickLevel))
     end)
     widgets.queue:SetPoint("LEFT", widgets.plus, "RIGHT", 12, 0)
 
@@ -260,7 +265,10 @@ end
 function LFG.UI.Refresh()
     if not frame then return end
 
-    local queued = state.loaded and state.mapId ~= 0
+    -- ⚠ Keyed on the LEVEL, not the map. The queue is level-only since 2026-08-16
+    -- and the server sends mapId 0 for every entry, so `state.mapId ~= 0` reported
+    -- every queued player as not queued.
+    local queued = state.loaded and state.level ~= 0
 
     widgets.level:SetText(COLOR_LABEL .. "Level to queue for  " ..
         COLOR_VALUE .. "+" .. pickLevel .. "|r")

@@ -411,6 +411,84 @@ local function DifficultyColor(recipe)
     return DIFFICULTY[DifficultyTier(recipe)]
 end
 
+--[[
+    [#697] 3D model preview of a recipe's product.
+
+    ★ Equippable only. `GetItemInfo`'s 9th return is the equip location, and it is
+      "" for every trade good, potion, gem and glyph -- which is most of what the
+      Forge makes. DressUpModel:TryOn on one of those does nothing at all, so the
+      button is hidden rather than left to click into silence.
+
+    ⚠ GetItemInfo answers only for items in the client's cache. A miss returns nil,
+      which is NOT "not equippable" -- so a miss hides the button for now and the
+      next RefreshDetail re-asks. This realm ships a prebuilt item cache, so the
+      miss window is small, but treating nil as "no" permanently would be wrong.
+
+    ⚠ TryOn WITHOUT SetUnit -- see the identical note in UncappedTransmog. SetUnit
+      reloads the model asynchronously and swallows a TryOn issued right after it.
+]]
+local previewFrame
+local function EquipLocOf(itemId)
+    if not itemId or itemId == 0 then return nil end
+    local _, _, _, _, _, _, _, _, equipSlot = GetItemInfo(itemId)
+    return equipSlot
+end
+
+function ShowModelPreview(itemId)
+    local equipSlot = EquipLocOf(itemId)
+    if not equipSlot or equipSlot == "" then return end
+
+    if not previewFrame then
+        previewFrame = CreateFrame("Frame", "UncappedForgePreview", UIParent)
+        previewFrame:SetWidth(240)
+        previewFrame:SetHeight(320)
+        previewFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        previewFrame:SetFrameStrata("DIALOG")
+        previewFrame:SetMovable(true)
+        previewFrame:EnableMouse(true)
+        previewFrame:RegisterForDrag("LeftButton")
+        previewFrame:SetScript("OnDragStart", function(self) self:StartMoving() end)
+        previewFrame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+        previewFrame:SetBackdrop({
+            bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
+            edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+            tile = true, tileSize = 32, edgeSize = 32,
+            insets = { left = 11, right = 12, top = 12, bottom = 11 },
+        })
+
+        previewFrame.title = previewFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        previewFrame.title:SetPoint("TOP", previewFrame, "TOP", 0, -16)
+        previewFrame.title:SetPoint("LEFT", previewFrame, "LEFT", 16, 0)
+        previewFrame.title:SetPoint("RIGHT", previewFrame, "RIGHT", -16, 0)
+
+        previewFrame.model = CreateFrame("DressUpModel", "UncappedForgePreviewModel", previewFrame)
+        previewFrame.model:SetPoint("TOPLEFT", previewFrame, "TOPLEFT", 16, -38)
+        previewFrame.model:SetPoint("BOTTOMRIGHT", previewFrame, "BOTTOMRIGHT", -16, 40)
+
+        previewFrame.close = CreateFrame("Button", nil, previewFrame, "UIPanelButtonTemplate")
+        previewFrame.close:SetWidth(80)
+        previewFrame.close:SetHeight(20)
+        previewFrame.close:SetPoint("BOTTOM", previewFrame, "BOTTOM", 0, 14)
+        previewFrame.close:SetText("Close")
+        previewFrame.close:SetScript("OnClick", function() previewFrame:Hide() end)
+    end
+
+    previewFrame.title:SetText(ItemName(itemId) or ("item " .. tostring(itemId)))
+
+    -- Reset to the player's own body, THEN dress. SetUnit is legitimate here (and
+    -- required) because this frame shows a different item each time it opens --
+    -- unlike the wardrobe, where every preview targets the same slot. The TryOn is
+    -- deferred to the next frame so the asynchronous reload cannot eat it.
+    previewFrame.model:SetUnit("player")
+    previewFrame:Show()
+
+    local pending = itemId
+    previewFrame:SetScript("OnUpdate", function(self)
+        self:SetScript("OnUpdate", nil)
+        self.model:TryOn(pending)
+    end)
+end
+
 -- How many of this recipe the stored materials support.
 --
 -- The server sends this per recipe in FRGREC, because working it out here would
@@ -464,11 +542,40 @@ local function SortRecipes()
             return (RecipeName(a) or "") < (RecipeName(b) or "")
         end)
     elseif db.sortMode == "difficulty" then
-        -- Hardest first (the ones still granting skill), then alphabetical inside
-        -- each tier so the order is stable rather than arbitrary within a colour.
+        --[[
+            Hardest first (the ones still granting skill).
+
+            ★★ [owner report 2026-08-16: "difficulty sorting is meh"] THE TIER
+               ALONE IS NEARLY USELESS ON THIS REALM, and the note above says why
+               without drawing the conclusion: every character is automatically
+               Grand Master, so 558 of 566 Jewelcrafting recipes are "trivial".
+               A four-bucket sort where everything lands in one bucket is not a
+               sort -- it fell straight through to the alphabetical tiebreak, which
+               is what made it feel like the mode did nothing.
+
+               So the tier is now only the FIRST key. Inside a tier -- which in
+               practice means inside the single enormous "trivial" bucket -- rows
+               are ordered by their GREY point descending: the recipe that stayed
+               useful the longest comes first. That is the closest thing to
+               "difficulty" that still varies once your skill is maxed, and it puts
+               the max-level cuts and the current-tier gear at the top where
+               someone sorting by difficulty is looking.
+
+            ⚠ Grey (`thigh`), not yellow (`tlow`), as the secondary key: grey is
+              the point the recipe stops granting skill at all, so it orders by
+              how advanced the recipe is even for rows whose yellow points tie.
+              Yellow is kept as a third key for the rows where grey ties too.
+        ]]
         table.sort(recipes, function(a, b)
             local ra, rb = DIFFICULTY_RANK[DifficultyTier(a)], DIFFICULTY_RANK[DifficultyTier(b)]
             if ra ~= rb then return ra < rb end
+
+            local ga, gb = a.thigh or 0, b.thigh or 0
+            if ga ~= gb then return ga > gb end
+
+            local ya, yb = a.tlow or 0, b.tlow or 0
+            if ya ~= yb then return ya > yb end
+
             return (RecipeName(a) or "") < (RecipeName(b) or "")
         end)
     else
@@ -585,6 +692,30 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
                 tlow = tonumber(tlow), thigh = tonumber(thigh), tool = tonumber(tool),
                 maxc = tonumber(maxc), target = tonumber(target) }
         end
+
+    --[[
+        FRGCNT / FRGCNTEND -- counts-only refresh (owner report 2026-08-16).
+
+        ★ Updates `maxc` IN PLACE on the existing recipe objects rather than
+          staging a new list. There is no staging buffer here on purpose: a counts
+          refresh must never be able to replace or reorder the recipe list, only
+          correct the numbers on it. If a spell is unknown (the player learned a
+          recipe since the last full fetch) the row is ignored -- FRGSYNC is what
+          notices the recipe COUNT changed and triggers a real re-fetch.
+    ]]
+    elseif body:find("^FRGCNT:") then
+        for spell, maxc in body:gmatch("(%d+),(%d+);") do
+            local recipe = recipesBySpell[tonumber(spell)]
+            if recipe then recipe.maxc = tonumber(maxc) end
+        end
+
+    elseif body:find("^FRGCNTEND:") then
+        -- ⚠ Both are needed. The craftable-only tick filters ON the count, and the
+        --   "craftable" sort mode ORDERS on it, so a changed count can change both
+        --   which rows show and what order they are in.
+        sortDirty = true
+        ApplyFilter()
+        RefreshDetail()
 
     elseif body:find("^FRGEND:") then
         professions = staging.profs
@@ -794,6 +925,14 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
         Send("FRGPROCLIST")
         Send("FRGSYNC")
 
+        -- ★ [owner report 2026-08-16] "after a craft the numbers available don't
+        --   update". FRGMATS above only refreshes the SELECTED recipe's reagent
+        --   rows; every other row in the list draws its number from `maxc`, which
+        --   arrives with FRGREC and was therefore frozen at whatever it was when
+        --   the window opened. A craft consumes material that other recipes share,
+        --   so one craft can change every count on screen.
+        Send("FRGCOUNTS")
+
         -- [Custom] Owner request: a Craft All that ends because the materials ran
         -- out leaves you on a recipe you can no longer make. Move to the next one
         -- you can, so a profession grind does not need a click between every
@@ -856,6 +995,9 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
             kinds or "?", Money(cost)))
         quote = nil
         if selectedSpell then Send("FRGMATS:" .. selectedSpell) end
+        -- Buying materials moves counts for every recipe sharing them, exactly as
+        -- a craft does. Same refresh.
+        Send("FRGCOUNTS")
 
     -- "Where do I farm this?" replies. These use the older RB* protocol rather
     -- than FRG*, because the server handler is shared with the reagent-bank
@@ -1217,6 +1359,7 @@ function RefreshDetail()
         detail.craft:Hide()
         detail.craftAll:Hide()
         detail.buy:Hide()
+        detail.preview:Hide()   -- [#697] processing view has no craftable product
         -- The bulk buttons occupy this row now; the amount box shares its anchor
         -- and would be drawn underneath them.
         if frame.amount then frame.amount:Hide() end
@@ -1318,12 +1461,23 @@ function RefreshDetail()
         detail.craft:Disable()
         detail.craftAll:Disable()
         detail.buy:Hide()
+        detail.preview:Hide()   -- [#697] nothing selected, nothing to model
         return
     end
 
     local name = RecipeName(recipe)
     detail.title:SetText(recipe.yield > 1 and (name .. " x" .. recipe.yield) or name)
     detail.productIcon:SetTexture(ItemIcon(recipe.item, prodIcon[recipe.spell]))
+
+    -- [#697] Only wearable products can be modelled. Re-evaluated on every refresh
+    -- rather than cached, because GetItemInfo may simply not have answered yet the
+    -- first time this recipe was drawn.
+    local equipSlot = EquipLocOf(recipe.item)
+    if equipSlot and equipSlot ~= "" then
+        detail.preview:Show()
+    else
+        detail.preview:Hide()
+    end
 
     local amount = RequestedAmount()
 
@@ -1764,8 +1918,34 @@ local function BuildFrame(parent)
 
     detail.title = detail:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     detail.title:SetPoint("LEFT", detail.productIcon, "RIGHT", 6, 0)
-    detail.title:SetPoint("RIGHT", detail, "RIGHT", -8, 0)
+    detail.title:SetPoint("RIGHT", detail, "RIGHT", -90, 0)
     detail.title:SetJustifyH("LEFT")
+
+    --[[
+        [#697] "Add a way to preview an item from the forge to see what it looks
+        like." Owner ruling: a full 3D model, not just an icon.
+
+        ★ IN ITS OWN FRAME, not inline in the detail pane. The pane's material
+          rows (AddLine) anchor off `detail`'s own RIGHT edge, so a model dropped
+          into the pane would sit underneath them at every window width. A
+          separate frame also means the preview can be bigger than the pane would
+          ever allow.
+
+        ⚠ Reuses the wardrobe's mechanism and its hard-won caveat: TryOn WITHOUT a
+          preceding SetUnit. SetUnit reloads the model asynchronously and discards
+          a TryOn issued immediately after it -- that is what made the wardrobe
+          preview silently do nothing, and it would do the same here.
+    ]]
+    detail.preview = CreateFrame("Button", nil, detail, "UIPanelButtonTemplate")
+    detail.preview:SetWidth(74)
+    detail.preview:SetHeight(20)
+    detail.preview:SetPoint("TOPRIGHT", detail, "TOPRIGHT", -8, 2)
+    detail.preview:SetText("Preview")
+    detail.preview:SetScript("OnClick", function()
+        local recipe = selectedSpell and recipesBySpell[selectedSpell]
+        if recipe then ShowModelPreview(recipe.item) end
+    end)
+    detail.preview:Hide()
 
     -- Amount + action buttons
     local amount = CreateFrame("EditBox", "UncappedForgeAmount", frame, "InputBoxTemplate")
