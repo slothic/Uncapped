@@ -1000,7 +1000,55 @@ end
 -- server moves the proc, consumes the source item and one scroll.
 local EXT
 local exSrcRows, exTgtRows = {}, {}
-local EXR_ROWS, EXR_H = 9, 26
+-- EXR_H raised 26 -> 30 alongside the wrap fix: two stacked lines at +4/-7 inside
+-- 24 usable pixels were already touching before anything wrapped, so trimming the
+-- text alone would have left the list cramped rather than wrong. 9 rows at 30 is
+-- 36px taller, absorbed by the frame height bump below.
+local EXR_ROWS, EXR_H = 9, 30
+
+-- The pixel budget a row's text actually has: row width 206, minus the icon and
+-- its padding. Kept as a constant so fitText and the FontString widths cannot
+-- drift apart -- that drift is what made the wrap invisible until a long name
+-- arrived.
+local EXR_TEXT_W = 160
+
+--[[
+  ★★ THE EXTRACTION LIST WAS DRAWING ROWS ON TOP OF EACH OTHER (owner screenshot,
+     2026-08-16). Both font strings in a row carry SetWidth(168), and a FontString
+     with a width WORD-WRAPS by default -- so "Icecrown 25 Heroic Slow Melee Weapon
+     Proc" became two or three lines inside a row only EXR_H (26px) tall and spilled
+     straight over its neighbours. Every long item name in the list did it, which is
+     why the window looked shredded rather than slightly off.
+
+  ⚠ 3.3.5a has no SetWordWrap and no SetMaxLines, so wrapping cannot be turned off.
+    The only reliable fix on this client is to shorten the STRING until it measures
+    narrower than the row, which is what this does: set it, measure it with
+    GetStringWidth, and trim until it fits.
+
+  ⚠ Trims the VISIBLE text only. Colour codes (|cff…|r) are re-applied around the
+    result rather than trimmed through -- cutting inside an escape sequence prints
+    the raw code to the player.
+]]
+local function fitText(fs, text, maxWidth, colour)
+  text = text or ""
+  fs:SetText(text)
+  if fs:GetStringWidth() <= maxWidth then
+    if colour then fs:SetText(colour .. text .. "|r") end
+    return
+  end
+
+  -- Binary search rather than a character-at-a-time walk: these lists redraw on
+  -- every scroll tick and a 60-character name would otherwise cost 60 measures.
+  local lo, hi = 0, #text
+  while lo < hi do
+    local mid = math.floor((lo + hi + 1) / 2)
+    fs:SetText(string.sub(text, 1, mid) .. "...")
+    if fs:GetStringWidth() <= maxWidth then lo = mid else hi = mid - 1 end
+  end
+
+  local cut = string.sub(text, 1, lo) .. "..."
+  fs:SetText(colour and (colour .. cut .. "|r") or cut)
+end
 
 local function itemDisplay(entry)
   local name, _, quality, _, _, _, _, _, _, tex = GetItemInfo(entry)
@@ -1041,7 +1089,9 @@ end
 local function BuildExtractor()
   if EXT then return EXT end
   local f = CreateFrame("Frame", "UncappedExtractorFrame", UIParent)
-  f:SetSize(500, 400)
+  -- 400 -> 440: EXR_H went 26 -> 30 across 9 rows (+36px). Without this the list
+  -- runs into the summary line and the Extract button.
+  f:SetSize(500, 440)
   f:SetPoint("CENTER")
   f:SetFrameStrata("HIGH")
   f:SetBackdrop({
@@ -1095,9 +1145,9 @@ local function BuildExtractor()
       r.icon = r:CreateTexture(nil, "ARTWORK"); r.icon:SetSize(EXR_H - 8, EXR_H - 8)
       r.icon:SetPoint("LEFT", 2, 0)
       r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-      r.name:SetPoint("LEFT", r.icon, "RIGHT", 4, 4); r.name:SetWidth(168); r.name:SetJustifyH("LEFT")
+      r.name:SetPoint("LEFT", r.icon, "RIGHT", 4, 6); r.name:SetWidth(EXR_TEXT_W); r.name:SetJustifyH("LEFT")
       r.sub = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-      r.sub:SetPoint("LEFT", r.icon, "RIGHT", 4, -7); r.sub:SetWidth(168); r.sub:SetJustifyH("LEFT")
+      r.sub:SetPoint("LEFT", r.icon, "RIGHT", 4, -7); r.sub:SetWidth(EXR_TEXT_W); r.sub:SetJustifyH("LEFT")
       r:SetScript("OnClick", function() if r.data then onClick(r.data) end end)
       r:Hide()
       rowStore[i] = r
@@ -1125,12 +1175,14 @@ local function BuildExtractor()
     r.data = d
     local nm, tex, cr, cg, cb = itemDisplay(d.entry)
     r.icon:SetTexture(tex)
+    -- ⚠ Every SetText here goes through fitText. A raw SetText on a width-limited
+    --   FontString wraps, and a wrapped row overdraws the one below it.
     if isSource then
-      r.name:SetText(nm); r.name:SetTextColor(cr, cg, cb)
-      r.sub:SetText("|cffb384ff" .. procDisplayName({ spellId = d.spell })
-        .. "|r  (" .. triggerLabel(d.trigger) .. ")")
+      fitText(r.name, nm, EXR_TEXT_W); r.name:SetTextColor(cr, cg, cb)
+      fitText(r.sub, procDisplayName({ spellId = d.spell })
+        .. "  (" .. triggerLabel(d.trigger) .. ")", EXR_TEXT_W, "|cffb384ff")
     else
-      r.name:SetText(nm .. (d.equipped == 1 and "  |cff40ff40[Worn]|r" or ""))
+      fitText(r.name, nm .. (d.equipped == 1 and "  [Worn]" or ""), EXR_TEXT_W)
       r.name:SetTextColor(cr, cg, cb)
       r.sub:SetText("")
     end

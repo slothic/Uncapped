@@ -876,26 +876,70 @@ local function BuildFrame(parent)
 
     -- Drag to spin, wheel to zoom. Both guarded: Model methods vary between
     -- 3.3.5a builds and a missing one would otherwise error every frame.
+    --[[
+        Left-drag spins, RIGHT-drag pans up and down, wheel zooms, middle-click
+        resets. The pan is the owner request (2026-08-16): the vertical position
+        was hard-coded to -0.15 in both SetPosition calls, so zooming in pushed
+        the camera into the chest and there was no way to raise it to the face.
+
+        ⚠ Height and zoom now live on the frame (self.height / self.zoom) and BOTH
+          SetPosition calls read both. Leaving a literal in either one is what
+          made zoom silently reset the pan.
+    ]]
     modelFrame.rotation = 0.35
-    modelFrame:SetScript("OnMouseDown", function(self)
-        self.dragging = true
-        self.lastX = GetCursorPosition()
+    modelFrame.zoom = 0
+    modelFrame.height = -0.15
+
+    local function ApplyCamera(self)
+        if self.SetPosition then self:SetPosition(self.zoom, 0, self.height) end
+    end
+
+    modelFrame:SetScript("OnMouseDown", function(self, button)
+        if button == "RightButton" then
+            self.panning = true
+            self.lastY = select(2, GetCursorPosition())
+        elseif button == "MiddleButton" then
+            -- Reset. Easy to find by accident, and there is no other way back
+            -- once someone has panned the head off the top of the frame.
+            self.zoom, self.height, self.rotation = 0, -0.15, 0.35
+            ApplyCamera(self)
+            if self.SetRotation then self:SetRotation(self.rotation) end
+        else
+            self.dragging = true
+            self.lastX = GetCursorPosition()
+        end
     end)
-    modelFrame:SetScript("OnMouseUp", function(self) self.dragging = false end)
+    modelFrame:SetScript("OnMouseUp", function(self)
+        self.dragging = false
+        self.panning = false
+    end)
     modelFrame:SetScript("OnUpdate", function(self)
-        if not self.dragging then return end
-        local x = GetCursorPosition()
-        local dx = x - (self.lastX or x)
-        self.lastX = x
-        if dx ~= 0 and self.SetRotation then
-            self.rotation = self.rotation + dx * 0.02
-            self:SetRotation(self.rotation)
+        if self.dragging then
+            local x = GetCursorPosition()
+            local dx = x - (self.lastX or x)
+            self.lastX = x
+            if dx ~= 0 and self.SetRotation then
+                self.rotation = self.rotation + dx * 0.02
+                self:SetRotation(self.rotation)
+            end
+        end
+
+        if self.panning then
+            local _, y = GetCursorPosition()
+            local dy = y - (self.lastY or y)
+            self.lastY = y
+            if dy ~= 0 then
+                -- Drag up, camera rises. Clamped so the model cannot be lost off
+                -- the frame entirely -- middle-click resets, but only if you can
+                -- still find the frame to click.
+                self.height = math.max(-2.5, math.min(2.5, self.height + dy * 0.004))
+                ApplyCamera(self)
+            end
         end
     end)
     modelFrame:SetScript("OnMouseWheel", function(self, delta)
-        if not self.SetPosition then return end
-        self.zoom = math.max(-1.5, math.min(2.5, (self.zoom or 0) + delta * 0.25))
-        self:SetPosition(self.zoom, 0, -0.15)
+        self.zoom = math.max(-1.5, math.min(4.0, (self.zoom or 0) + delta * 0.25))
+        ApplyCamera(self)
     end)
 
     -- ---- action buttons under the preview ------------------------------
