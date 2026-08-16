@@ -1,6 +1,6 @@
 ## Interface: 30300
 ## Title: Uncapped Alerts
-## Notes: Client extras for Uncapped: restart warnings with auto-close so the launcher can update you, and a Land Here button to cancel a flight path in progress.
+## Notes: Client extras for Uncapped: restart warnings with auto-close so the launcher can update you, a Land Here button to cancel a flight path in progress, and suppression of the client's AFK logout warning (this realm does not kick idle players).
 ## Author: Uncapped
 ## Version: 1.0
 ## OptionalDeps: UncappedOptions, UncappedUI
@@ -8,3 +8,4 @@
 
 UncappedAlerts.lua
 TaxiCancel.lua
+IdleLogout.lua

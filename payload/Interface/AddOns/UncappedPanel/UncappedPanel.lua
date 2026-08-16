@@ -43,6 +43,14 @@ local BASE_TOOL_BUTTONS = {
     { id = "solo",         label = "Solo",          command = ".solo",     icon = "Interface\\Icons\\Ability_Warrior_BattleShout" },
     { id = "aoeLoot",      label = "Aoe Loot",      toggle = "aoeLoot",    icon = "Interface\\Icons\\INV_Misc_Bag_08" },
     { id = "statFeed",     label = "Stat Feed",     command = "/statfeed", icon = "Interface\\Icons\\INV_Misc_Book_09" },
+    -- [#892] Both of these were already live on the server and neither was
+    -- reachable from anywhere a player looks. Two separate players got stuck in
+    -- the Ulduar tram trench -- in combat, so .reset and the hearthstone were
+    -- both refused -- and one of them said so in guild chat rather than knowing
+    -- there was a command for it. .dropcombat shipped for #856 and was never
+    -- surfaced; .unstuck has always existed and is not in COMMANDS.md either.
+    { id = "unstuck",      label = "Unstuck",       command = ".unstuck",  icon = "Interface\\Icons\\Spell_Nature_Astralrecal" },
+    { id = "dropCombat",   label = "Drop Combat",   command = ".dropcombat", icon = "Interface\\Icons\\Ability_Rogue_Feint" },
 }
 DEFAULTS.visibleIcons = #BASE_TOOL_BUTTONS
 

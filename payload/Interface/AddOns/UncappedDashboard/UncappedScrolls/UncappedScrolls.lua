@@ -32,7 +32,7 @@ local TRANSPORT_PREFIX  = "REAGENTBANK"  -- client -> server (shared addon trans
 -- ---------------------------------------------------------------------------
 local state = {
     gatherRange = 0,
-    yieldPct    = 0,
+    yieldTenths = 0,   -- tenths of a percent -- see the Bounty row in Render()
     delver      = 0,
     petDelver   = nil,  -- hunters only; nil means the server sent no pet line
     petMult     = 2,
@@ -130,7 +130,10 @@ local function Render()
 
     Head("Account-wide")
     Row("Scroll of Reach",  string.format("+%.0f yd gather / auto-loot range", state.gatherRange))
-    Row("Scroll of Bounty", string.format("+%d%% gathering yield", state.yieldPct))
+    -- ⚠ yieldTenths is TENTHS of a percent (#899): 250 means +25.0%. One decimal,
+    --   because the per-scroll grant is 2.5% and rounding to whole percent would
+    --   render the first four scrolls as "+2%", "+5%", "+7%", "+10%".
+    Row("Scroll of Bounty", string.format("+%.1f%% gathering yield", state.yieldTenths / 10))
     -- Delver moved up here from "This character" -- it is account-wide now.
     Row("Scroll of the Delver", string.format("+%d dungeon stat roll", state.delver))
     if state.petDelver then
@@ -228,14 +231,14 @@ comms:SetScript("OnEvent", function(_, event, a1, a2)
     -- replaces the old burst rather than merging with it.
     if not pending then
         pending = { professions = {}, fortune = {}, fortuneAll = 0,
-                    gatherRange = 0, yieldPct = 0, delver = 0, petDelver = nil, petMult = 2,
+                    gatherRange = 0, yieldTenths = 0, delver = 0, petDelver = nil, petMult = 2,
                     questCount = 0, questMult = 1 }
     end
 
     local range, yield = text:match("^SCRACC:([%d%.%-]+):(%d+)$")
     if range then
         pending.gatherRange = tonumber(range) or 0
-        pending.yieldPct    = tonumber(yield) or 0
+        pending.yieldTenths = tonumber(yield) or 0
         return
     end
 

@@ -12,7 +12,8 @@
 
      CLEAR SIZE is how much dungeon you kill, measured in Utgarde Keeps -- so a
      long instance pays more than a short one, and a raid pays exactly what a
-     dungeon of the same size pays. KEY BONUS doubles every few keystone levels.
+     dungeon of the same size pays. KEY BONUS rises linearly with keystone level
+     (it used to double; the 2026-08-14 progression reset made every curve linear).
 
      Both halves are legible on their own, and the whole point of this panel is
      that a player can SEE the second one compound. Pick a map, hold down [+],
@@ -113,12 +114,27 @@ local function Request()
     Send("MRWQ")
 end
 
--- The KEY BONUS, exactly as the server computes it.
+--[[ ------------------------------------------------------------------------
+     The KEY BONUS, exactly as the server computes it.
+
+     ★★ LINEAR, NOT EXPONENTIAL. This was `2 ^ ((lvl-1) / per)` and the server
+     went linear on 2026-08-14 with the progression reset. Nobody changed this
+     copy, so the Reward Preview has been promising numbers the server stopped
+     paying: at +21 it advertised 256x where the server pays 9x, a 28x
+     over-promise, and 315x at +31.
+
+     The server's own note on the constant (mythic_plus.cpp, GetRewardMultipliers)
+     spells the table out and ends "that mistake has been made once already; do
+     not make it again". It was made again, here, on the client side.
+
+     ⚠ `tuning.doubleEvery` keeps its name for wire compatibility, but it is no
+       longer a doubling period -- it is the number of keystone levels per +1.0x.
+  -------------------------------------------------------------------------- ]]
 local function KeyBonus(lvl)
     if not tuning then return 1 end
     local per = tuning.doubleEvery
     if not per or per <= 0 then per = 5 end
-    return 2 ^ ((math.max(lvl, 1) - 1) / per)
+    return 1 + (math.max(lvl, 1) - 1) / per
 end
 
 local function FilteredMaps()
@@ -249,8 +265,10 @@ function Keystone.Render()
 
     SetLine("size", string.format("%sClear size|r    %s%.2f|r  %s(1.00 = one Utgarde Keep)|r",
         COLOR_LABEL, COLOR_VALUE, m.size, COLOR_DIM))
-    SetLine("bonus", string.format("%sKey bonus|r     %sx%.1f|r  %s(doubles every %d levels)|r",
-        COLOR_LABEL, COLOR_VALUE, bonus, COLOR_DIM, math.floor(tuning.doubleEvery + 0.5)))
+    -- "+1.0x every N levels", not "doubles" -- the curve is linear since the
+    -- 2026-08-14 reset. See the note on KeyBonus above.
+    SetLine("bonus", string.format("%sKey bonus|r     %sx%.1f|r  %s(+1.0x every %.1f levels)|r",
+        COLOR_LABEL, COLOR_VALUE, bonus, COLOR_DIM, tuning.doubleEvery))
 
     SetLine("sacks", string.format("%sSacks|r         %s%s|r", COLOR_LABEL, COLOR_GOOD, Abbrev(sacks)))
     SetLine("anima", string.format("%sAnima|r         %s%s|r  %s(before quest / SoulRush bonuses)|r",
@@ -279,11 +297,31 @@ local function StepLevel(delta)
     Keystone.Render()
 end
 
+--[[ ------------------------------------------------------------------------
+     ⚠ USE THE HOUSE WIDGET KIT, NOT UIPanelButtonTemplate.
+
+     This is the same note UncappedKeystoneRun.lua carries, and it is here
+     because this file did not follow it. The sub-tab strip below already builds
+     through UncappedUIKit; the filter row did not, so All / Dungeons / Raids
+     rendered as red Blizzard buttons in the middle of a panel where every other
+     control is UncappedUI. That template also draws a border wider than the
+     width you set, so a row spaced for its logical width collides once it
+     renders.
+
+     ★ The fallback is deliberate and must stay: UncappedUI is a separate addon
+       in the payload, and if a player has it disabled this panel degrades to
+       plain buttons instead of erroring on a nil global. Ugly beats broken.
+  -------------------------------------------------------------------------- ]]
 local function MakeButton(parent, label, w, onClick)
-    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    b:SetWidth(w)
-    b:SetHeight(22)
-    b:SetText(label)
+    local b
+    if UncappedUIKit and UncappedUIKit.CreateButton then
+        b = UncappedUIKit.CreateButton(parent, label, w, 22)
+    else
+        b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+        b:SetWidth(w)
+        b:SetHeight(22)
+        b:SetText(label)
+    end
     b:SetScript("OnClick", onClick)
     return b
 end
@@ -410,33 +448,74 @@ local function BuildFrame(parent)
     Keystone.ShowSection = function(key) if ShowSection then ShowSection(key) end end
     Keystone.CurrentSection = function() return activeSection or "keystone" end
 
-    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", 8, -6 - SUBTAB_H)
+    --[[ ----------------------------------------------------------------------
+         ★ EVERY rewards-only region is parented HERE, not to `frame` (#895).
+
+         Hiding this section is then hiding ONE frame, so a region can never be
+         left out of a hand-maintained list again -- which is exactly what #895
+         was. The three filter buttons and the status line hung off `frame` and
+         were never added to sections["rewards"], so ShowSection() could not hide
+         them and they stayed painted on top of whichever sub-tab you were
+         actually looking at. The default sub-tab is `keystone`, so the very
+         first thing a player saw was the run panel's "Keystone level" and "Best
+         clear" lines sitting underneath the All / Dungeons / Raids row.
+
+         ⚠ If you add a rewards-only widget, parent it to `body`. If you parent
+         it to `frame` it will bleed onto the other sub-tabs and nothing will
+         warn you.
+      ------------------------------------------------------------------------ ]]
+    local body = CreateFrame("Frame", nil, frame)
+    body:SetPoint("TOPLEFT", 0, -SUBTAB_H)
+    body:SetPoint("BOTTOMRIGHT", 0, 0)
+
+    local title = body:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 8, -6)
     title:SetText("Mythic+ Reward Preview")
 
-    local formula = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local formula = body:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     formula:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
     formula:SetText(COLOR_DIM .. "reward = clear size x key bonus|r")
 
     -- ---- left: map list ----
-    local listBg = CreateFrame("Frame", nil, frame)
-    listBg:SetPoint("TOPLEFT", formula, "BOTTOMLEFT", 0, -28)
+    local listBg = CreateFrame("Frame", nil, body)
+    -- Anchored below, once the filter row exists, so the gap is derived from the
+    -- row rather than hand-computed. The old value was a literal -28 == 22px of
+    -- button + 2 + 4 slack, which silently ate the list the moment a label got
+    -- wider or a fourth filter appeared.
     listBg:SetWidth(210)
     listBg:SetHeight(ROWS * ROW_H + 8)
 
     local filterAll, filterDun, filterRaid
+    -- Which filter is on was previously not drawn at all -- the three buttons
+    -- looked identical whichever one you had picked, so the only way to know was
+    -- to read the list and infer it. The kit has an active state for exactly
+    -- this ("filter chips" in Controls/Button.lua), so use it.
+    local function PaintFilters()
+        if not (UncappedUIKit and UncappedUIKit.SetButtonActive) then return end
+        UncappedUIKit.SetButtonActive(filterAll,  filter == "all")
+        UncappedUIKit.SetButtonActive(filterDun,  filter == "dungeon")
+        UncappedUIKit.SetButtonActive(filterRaid, filter == "raid")
+    end
     local function SetFilter(f)
         filter = f
+        PaintFilters()
         FauxScrollFrame_SetOffset(listScroll, 0)
         if listScroll.ScrollBar then listScroll.ScrollBar:SetValue(0) end
         Keystone.Render()
     end
-    filterAll  = MakeButton(frame, "All", 56, function() SetFilter("all") end)
-    filterDun  = MakeButton(frame, "Dungeons", 76, function() SetFilter("dungeon") end)
-    filterRaid = MakeButton(frame, "Raids", 60, function() SetFilter("raid") end)
-    filterAll:SetPoint("TOPLEFT", formula, "BOTTOMLEFT", 0, -2)
+    filterAll  = MakeButton(body, "All", 56, function() SetFilter("all") end)
+    filterDun  = MakeButton(body, "Dungeons", 76, function() SetFilter("dungeon") end)
+    filterRaid = MakeButton(body, "Raids", 60, function() SetFilter("raid") end)
+    filterAll:SetPoint("TOPLEFT", formula, "BOTTOMLEFT", 0, -6)
     filterDun:SetPoint("LEFT", filterAll, "RIGHT", 2, 0)
     filterRaid:SetPoint("LEFT", filterDun, "RIGHT", 2, 0)
+
+    -- The list hangs off the FILTER ROW, so a taller or wider row pushes it down
+    -- instead of overlapping it. See the note at listBg's creation.
+    listBg:SetPoint("TOPLEFT", filterAll, "BOTTOMLEFT", 0, -6)
+
+    -- Paint the starting selection, or the panel opens with nothing lit.
+    PaintFilters()
 
     listScroll = CreateFrame("ScrollFrame", "UncappedKeystoneList", listBg, "FauxScrollFrameTemplate")
     listScroll:SetPoint("TOPLEFT", 0, -4)
@@ -480,7 +559,7 @@ local function BuildFrame(parent)
     end
 
     -- ---- right: the stepper and the readout ----
-    local right = CreateFrame("Frame", nil, frame)
+    local right = CreateFrame("Frame", nil, body)
     right:SetPoint("TOPLEFT", listBg, "TOPRIGHT", 18, 0)
     right:SetPoint("BOTTOMRIGHT", -8, 8)
 
@@ -497,7 +576,11 @@ local function BuildFrame(parent)
          partial install must degrade to "the preview still works", not to a Lua
          error on the Dashboard's most-used tab.
       ------------------------------------------------------------------------ ]]
-    sections["rewards"] = { title, formula, listBg, right }
+    -- ONE region (#895). Everything rewards-only is parented to `body`, so this
+    -- list cannot go stale the way the old
+    --     { title, formula, listBg, right }
+    -- did -- it silently omitted the three filter buttons and statusText.
+    sections["rewards"] = { body }
 
     if _G.UncappedKeystoneRun and _G.UncappedKeystoneRun.UI then
         local runFrame = _G.UncappedKeystoneRun.UI.EmbedInto(frame)
@@ -572,7 +655,9 @@ local function BuildFrame(parent)
         anchor = fs
     end
 
-    statusText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    -- `body`, not `frame` (#895): parented to the tab it would otherwise print
+    -- its "no reward preview yet" line across every sub-tab from.
+    statusText = body:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     statusText:SetPoint("BOTTOMLEFT", 8, 6)
 
     -- Timeout watcher. One unanswered request is enough to know this server has

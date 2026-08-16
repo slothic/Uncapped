@@ -154,11 +154,19 @@ end
 --[[ ------------------------------------------------------------------------
      UI
   -------------------------------------------------------------------------- ]]
+-- ⚠ House widget kit, not UIPanelButtonTemplate -- see the long note in
+-- UncappedKeystoneRun.lua. The fallback stays so a player with UncappedUI
+-- disabled gets plain buttons rather than a nil-global error.
 local function MakeButton(parent, label, w, onClick)
-    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    b:SetWidth(w or 120)
-    b:SetHeight(22)
-    b:SetText(label)
+    local b
+    if UncappedUIKit and UncappedUIKit.CreateButton then
+        b = UncappedUIKit.CreateButton(parent, label, w or 120, 22)
+    else
+        b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+        b:SetWidth(w or 120)
+        b:SetHeight(22)
+        b:SetText(label)
+    end
     b:SetScript("OnClick", onClick)
     return b
 end
@@ -173,24 +181,31 @@ local function BuildFrame(parent)
     title:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -12)
     title:SetText(COLOR_HEAD .. "Mythic+ Group Finder|r")
 
+    -- Wraps to the panel rather than to a hard 330px. The Dashboard is
+    -- resizable, so a fixed width either leaves a gutter on a wide window or
+    -- runs under the controls on a narrow one.
     widgets.hint = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     widgets.hint:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
+    widgets.hint:SetPoint("RIGHT", frame, "RIGHT", -14, 0)
     widgets.hint:SetJustifyH("LEFT")
-    widgets.hint:SetWidth(330)
     widgets.hint:SetText(COLOR_DIM ..
         "Queue for the dungeon you're standing at, at the level you want. " ..
         "Whoever's been waiting longest can start it with however many are there.|r")
 
     -- Level stepper. The dungeon is "wherever you are" -- same rule the keystone
     -- panel follows, so there is deliberately no map picker here either.
+    --
+    -- -18 rather than -14: the hint above is two lines on most window widths and
+    -- one on a wide one, and at -14 the readout sat tight against whichever it
+    -- happened to be.
     widgets.level = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    widgets.level:SetPoint("TOPLEFT", widgets.hint, "BOTTOMLEFT", 0, -14)
+    widgets.level:SetPoint("TOPLEFT", widgets.hint, "BOTTOMLEFT", 0, -18)
 
     widgets.minus = MakeButton(frame, "-", 26, function()
         if pickLevel > 1 then pickLevel = pickLevel - 1 end
         if LFG.UI.Refresh then LFG.UI.Refresh() end
     end)
-    widgets.minus:SetPoint("TOPLEFT", widgets.level, "BOTTOMLEFT", 0, -6)
+    widgets.minus:SetPoint("TOPLEFT", widgets.level, "BOTTOMLEFT", 0, -8)
 
     widgets.plus = MakeButton(frame, "+", 26, function()
         pickLevel = pickLevel + 1
@@ -212,9 +227,10 @@ local function BuildFrame(parent)
     widgets.leave:SetPoint("LEFT", widgets.queue, "RIGHT", 6, 0)
 
     widgets.roster = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    widgets.roster:SetPoint("TOPLEFT", widgets.minus, "BOTTOMLEFT", 0, -14)
+    widgets.roster:SetPoint("TOPLEFT", widgets.minus, "BOTTOMLEFT", 0, -16)
+    widgets.roster:SetPoint("RIGHT", frame, "RIGHT", -14, 0)
     widgets.roster:SetJustifyH("LEFT")
-    widgets.roster:SetWidth(330)
+    widgets.roster:SetJustifyV("TOP")
 
     widgets.start = MakeButton(frame, "Start the group", 150, function() Send("MLFS") end)
     widgets.start:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 14, 42)

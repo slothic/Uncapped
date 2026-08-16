@@ -856,14 +856,31 @@ function Render()
     -- [#533] Same note as the per-dungeon tooltip: speed effects do not add up, the
     -- biggest one wins. Stated here too because this is the line people read first.
     Note("Movement speed does not stack with other speed effects -- your largest applies.", 470)
-    Note(string.format(
-        "+1%% out-of-combat speed per clear (up to +%d%%), x%.2f loot and x%.2f Anima per clear%s",
-        state.speedCap,
-        1 + state.lootPct / 100,
-        1 + state.animaPct / 100,
-        state.clearsPerStat > 0
-            and string.format(", and +1 to your dungeon-stat roll every %d clears.", state.clearsPerStat)
-            or "."), 470)
+    --[[ --------------------------------------------------------------------
+         ★ ONLY NAME THE REWARDS THAT ARE ACTUALLY PAYING.
+
+         This used to state loot and Anima unconditionally. Both knobs are
+         currently 0 on the realm (SoulRush.LootPctPerClear,
+         SoulRush.ArenaPctPerClear), so it rendered "x1.00 loot and x1.00 Anima
+         per clear" -- advertising two rewards that do not exist as though they
+         were features, in the same breath as one that does.
+
+         Building the clause list from the live numbers means switching a knob
+         back on restores its sentence automatically, and switching one off
+         retires it, with nothing here to remember.
+    ]]
+    local pays = { string.format("+1%% out-of-combat speed per clear (up to +%d%%)", state.speedCap) }
+    if state.lootPct and state.lootPct > 0 then
+        pays[#pays + 1] = string.format("x%.2f loot", 1 + state.lootPct / 100)
+    end
+    if state.animaPct and state.animaPct > 0 then
+        pays[#pays + 1] = string.format("x%.2f Anima", 1 + state.animaPct / 100)
+    end
+    if state.clearsPerStat and state.clearsPerStat > 0 then
+        pays[#pays + 1] = string.format("+1 to your dungeon-stat roll every %d clears",
+            state.clearsPerStat)
+    end
+    Note(table.concat(pays, ", ") .. ".", 470)
 
     -- The gate, stated only when it is actually on. "You are not verified" and
     -- "verification is not required" are different sentences, and nagging someone
@@ -1228,9 +1245,16 @@ if UncappedUI then
 
     L:Header("Progress")
     L:Button("Open Progress", OpenInDashboard, 180)
+    -- ⚠ Static copy, written before `state` exists, so it cannot derive itself the
+    --   way the in-panel line does. It therefore names only what SoulRush pays that
+    --   is NOT currently switched off: loot, Anima and the wider stat roll are all
+    --   at 0 on the realm right now (SoulRush.LootPctPerClear / .ArenaPctPerClear /
+    --   .StatPctPerClear). Promising them here made the panel read as though three
+    --   rewards existed that do not. If any of those are turned back on, say so here
+    --   again -- and check the derived line in Render(), which handles it on its own.
     L:Note("SoulRush banks every dungeon clear forever and pays it back only inside that "
-        .. "dungeon: movement speed out of combat, more loot, more Anima on the clear, and a "
-        .. "wider dungeon-stat roll. This is where you read those numbers.", 48)
+        .. "dungeon: out-of-combat movement speed, and a bonus dungeon-stat point for "
+        .. "every ten clears. This is where you read those numbers.", 48)
     L:Note("Also shows how many bonus talent points you and your pet have earned against "
         .. "your class maximum, and the stat ledger you have banked from kills. "
         .. "Also available with /progress.", 48)

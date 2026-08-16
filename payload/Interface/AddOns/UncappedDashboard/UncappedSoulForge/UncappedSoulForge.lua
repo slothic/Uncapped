@@ -2188,7 +2188,11 @@ StaticPopupDialogs["UNCAPPED_SOCKET_REMOVE"] = {
 -- to it without ever understanding what they had switched on.
 StaticPopupDialogs["UNCAPPED_SF_AUTOCONSUME"] = {
   text = "|cffff2020This permanently destroys gear.|r\n\n"
-      .. "While Auto-consume is on, every |cffffffffuncommon, rare or epic|r weapon and armour "
+      -- ⚠ [#898] These tiers are not decoration -- this is the consent dialog for
+      -- an irreversible destruction, and it must name exactly what the server
+      -- will eat. "common" was added when Soulforge.SoulValue.Common went 0 -> 1.
+      -- If that config value ever changes again, this line changes with it.
+      .. "While Auto-consume is on, every |cffffffffcommon, uncommon, rare or epic|r weapon and armour "
       .. "piece you are |cffffffffnot wearing|r is rendered down for souls -- out of your bags "
       .. "|cffffffffand out of your Vault|r -- automatically, within seconds. It cannot be "
       .. "undone, and you are not asked again each time.\n\n"
