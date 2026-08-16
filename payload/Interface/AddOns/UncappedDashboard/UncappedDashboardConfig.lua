@@ -127,18 +127,17 @@ Core.MODULES = {
     },
 }
 
--- ⚠ AUTODISENCHANT IS DELIBERATELY NOT A CHECKBOX.
+-- ⚠ AUTODISENCHANT WAS REMOVED ENTIRELY (owner ruling 2026-08-16).
 --
--- It was one, and it did nothing, which was the only reason it was harmless.
--- Wiring it up as written would have made a single click destroy items with no
--- preview and no confirmation -- switching it on immediately sweeps bags AND
--- unclaimed mail, and the command's whole consent model is that typing it out
--- IS the confirmation. A checkbox cannot express its tier list (green/blue/
--- purple/orange/all + an optional ilvl cap) either, so "on" has no honest
--- meaning here. Shown as a pointer to the real command instead.
-Core.MODULE_NOTES = {
-    { label = "Autodisenchant", hint = ".autodisenchant" },
-}
+-- It was a dead checkbox here, then briefly a pointer to `.autodisenchant`. Both
+-- are wrong now: the command does not exist, and neither does the automatic
+-- disenchanting behind it. Bulk disenchanting is the FORGE and nowhere else.
+--
+-- The reason it went rather than being fixed: its protection predicate consulted
+-- only the Soulforge name whitelist and had no quest check at all, so quest
+-- turn-in gear -- including the Tier 0 pieces the FAQ named as protected -- was
+-- eligible for destruction the moment it dropped. Do not add it back here.
+Core.MODULE_NOTES = {}
 
 -- Returns Core.TABS resolved into the player's saved order (db.tabOrder, an
 -- array of tab keys) -- falls back to Core.TABS' own array order if nothing's

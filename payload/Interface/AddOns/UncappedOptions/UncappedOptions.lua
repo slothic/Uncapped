@@ -5,8 +5,9 @@
 --      build a settings page in a couple of lines instead of hand-placing frames.
 --   2. Register the parent "Uncapped" category in ESC > Interface > AddOns, so
 --      every addon's page nests under one heading (child.parent = "Uncapped").
---   3. Host the "Loot & Disenchant" page, which drives the server-side
---      .autodisenchant / .auto / .aoeloot commands.
+--   3. Host the "Looting" page, which drives the server-side .auto / .aoeloot
+--      commands. (It was "Loot & Disenchant" until 2026-08-16; the disenchant
+--      half drove `.autodisenchant`, which no longer exists.)
 --
 -- This addon loads before every addon that builds a page (they list it in
 -- ## OptionalDeps), so the parent category and the widget library exist before
@@ -408,12 +409,18 @@ do
 end
 
 -- ===========================================================================
--- Loot & Disenchant page (drives server-side .autodisenchant / .auto / .aoeloot).
+-- Looting page (drives the server-side .auto / .aoeloot commands).
+--
+-- ⚠ THE AUTO-DISENCHANT SECTION WAS REMOVED 2026-08-16 (owner ruling). It drove
+--   `.autodisenchant`, which no longer exists on the server -- bulk disenchanting
+--   lives in the Forge and nowhere else. Do not rebuild this UI: the command it
+--   sent is gone, and the point of removing it was that a background process
+--   which destroys gear had no quest check and ate quest turn-in items.
 -- ===========================================================================
 
 -- Runs a dot-command exactly as if the player had typed it into chat: the server
 -- intercepts the leading "." and executes it. Works for the SEC_PLAYER commands
--- .autodisenchant / .auto / .aoeloot.
+-- .auto / .aoeloot.
 local function RunDotCommand(cmd)
     local eb = DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.editBox
     if not eb then return end
@@ -427,7 +434,6 @@ end
 -- the server is the real source of truth (there's no clean way to read it back),
 -- which the page's note makes clear.
 local db = {
-    de = { green = false, blue = false, purple = false, orange = false, ilvl = 0 },
     auto = true,
     aoeloot = false,
 }
@@ -437,42 +443,10 @@ local function refreshLoot()
     for _, r in ipairs(refreshers) do r() end
 end
 
--- Build the .autodisenchant command from the checked qualities + ilvl cap.
-local function ApplyDisenchant()
-    local q = {}
-    if db.de.green  then q[#q + 1] = "green"  end
-    if db.de.blue   then q[#q + 1] = "blue"   end
-    if db.de.purple then q[#q + 1] = "purple" end
-    if db.de.orange then q[#q + 1] = "orange" end
-    if #q == 0 then
-        RunDotCommand(".autodisenchant off")
-        DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[Uncapped]|r auto-disenchant disabled.")
-        return
-    end
-    local cmd = ".autodisenchant " .. table.concat(q, ", ")
-    if db.de.ilvl and db.de.ilvl > 0 then cmd = cmd .. " " .. db.de.ilvl end
-    RunDotCommand(cmd)
-    DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[Uncapped]|r sent: |cffffd100" .. cmd .. "|r")
-end
-
 do
-    local panel, L = UI.CreatePanel("Loot & Disenchant",
-        "Automate looting and disenchanting. These options send the matching server commands for you.")
+    local panel, L = UI.CreatePanel("Looting",
+        "Automate looting. These options send the matching server commands for you.")
 
-    L:Header("Auto-Disenchant")
-    L:Note("Automatically breaks looted gear of the ticked qualities into materials (sent to your reagent bank). Tick the qualities and set an optional item-level cap, then press Apply.", 40)
-
-    local function deGet(k) return function() return db.de[k] end end
-    local function deSet(k) return function(v) db.de[k] = v end end
-    refreshers[#refreshers + 1] = L:Check("Disenchant |cff1eff00greens|r",  deGet("green"),  deSet("green")).uncappedRefresh
-    refreshers[#refreshers + 1] = L:Check("Disenchant |cff0070ddblues|r",   deGet("blue"),   deSet("blue")).uncappedRefresh
-    refreshers[#refreshers + 1] = L:Check("Disenchant |cffa335eepurples|r", deGet("purple"), deSet("purple")).uncappedRefresh
-    refreshers[#refreshers + 1] = L:Check("Disenchant |cffff8000legendaries|r", deGet("orange"), deSet("orange")).uncappedRefresh
-    refreshers[#refreshers + 1] = L:Slider("Item-level cap (0 = no cap)", 0, 300, 5,
-        function() return db.de.ilvl end, function(v) db.de.ilvl = v end, "%d").uncappedRefresh
-    L:Button("Apply auto-disenchant", ApplyDisenchant, 180)
-
-    L:Gap(6)
     L:Header("Looting")
     refreshers[#refreshers + 1] = L:Check("Auto-collect loot, mining, herbs & skinning",
         function() return db.auto end,
@@ -506,9 +480,9 @@ loader:SetScript("OnEvent", function(self, event, name)
     if name ~= "UncappedOptions" then return end
     if type(UncappedOptionsDB) == "table" then
         local s = UncappedOptionsDB
-        if type(s.de) == "table" then
-            for k, v in pairs(s.de) do db.de[k] = v end
-        end
+        -- s.de (the old auto-disenchant qualities/ilvl) is deliberately ignored:
+        -- the feature is gone, and a saved table from before 2026-08-16 must not
+        -- resurrect keys nothing reads.
         if s.auto ~= nil then db.auto = s.auto end
         if s.aoeloot ~= nil then db.aoeloot = s.aoeloot end
     end

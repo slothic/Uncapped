@@ -1795,8 +1795,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedDashboardConfig.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedDashboardConfig.lua",
-                      "sha256":  "c6f562f1adbd282f703cd0dd492f8b569ab84f655c634bba0ff60109a6f73581",
-                      "size":  10560
+                      "sha256":  "68f7a7b9a86a2c7decd43283825b52c96c9ab5b37faa654276d8da8297f465f1",
+                      "size":  10538
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedDashboard_UI.lua",
@@ -2071,8 +2071,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedOptions/UncappedOptions.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedOptions/UncappedOptions.lua",
-                      "sha256":  "d7b1e1d81c841760415fd2f833393dee538f1c8f7c7885436450a207d736da80",
-                      "size":  23573
+                      "sha256":  "a0047d9daf0fcf7f58968a0f628623ed8fa5cb9b949dbd43bc300dc269c7b4fa",
+                      "size":  22114
                   },
                   {
                       "path":  "Interface/AddOns/UncappedOptions/UncappedOptions.toc",
