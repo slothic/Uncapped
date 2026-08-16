@@ -58,6 +58,32 @@
 --   /progress        open it (switches the Dashboard to the Progress tab)
 --   /progress sync   force a refresh
 
+
+--[[
+    KitButton -- the in-house widget kit's button, with a guarded fall back to
+    the raw Blizzard template.
+
+    Guarded rather than calling UncappedUIKit directly because this addon lists
+    UncappedUI as an OPTIONAL dependency: if it is absent or errored during load,
+    an unguarded call is a nil index at build time and the whole window dies.
+    Same shape as the fallback in UncappedKeystoneRun.
+
+    ⚠ Resolved at FILE SCOPE on purpose. A `local UIKit` declared partway down
+      and used above that line silently reads the nil GLOBAL of the same name --
+      it parses fine and only errors when the window opens.
+]]
+local UIKit = _G.UncappedUIKit
+local function KitButton(parent, label, w, h)
+    if UIKit and UIKit.CreateButton then
+        return UIKit.CreateButton(parent, label or "", w, h)
+    end
+    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    if w then b:SetWidth(w) end
+    if h then b:SetHeight(h) end
+    b:SetText(label or "")
+    return b
+end
+
 local ADDON_PIPE_PREFIX = "UNC"          -- server -> client (replies arrive here)
 local TRANSPORT_PREFIX  = "REAGENTBANK"  -- client -> server (shared addon transport)
 
@@ -1002,10 +1028,10 @@ local function BuildPetUI(parent)
     ui.amount:SetMaxLetters(15)    -- the stat cap is 1e15
     ui.amount:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
-    ui.convert = CreateFrame("Button", nil, holder, "UIPanelButtonTemplate")
+    ui.convert = KitButton(holder, "", 74, 20)
     ui.convert:SetPoint("LEFT", ui.amount, "RIGHT", 10, -2)
-    ui.convert:SetWidth(74)
-    ui.convert:SetHeight(20)
+    
+    
     ui.convert:SetText("Convert")
 
     local function DoConvert()

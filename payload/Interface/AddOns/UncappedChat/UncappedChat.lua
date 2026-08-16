@@ -30,6 +30,32 @@
   to be there rather than in a message-event filter.
 ]]
 
+
+--[[
+    KitButton -- the in-house widget kit's button, with a guarded fall back to
+    the raw Blizzard template.
+
+    Guarded rather than calling UncappedUIKit directly because this addon lists
+    UncappedUI as an OPTIONAL dependency: if it is absent or errored during load,
+    an unguarded call is a nil index at build time and the whole window dies.
+    Same shape as the fallback in UncappedKeystoneRun.
+
+    ⚠ Resolved at FILE SCOPE on purpose. A `local UIKit` declared partway down
+      and used above that line silently reads the nil GLOBAL of the same name --
+      it parses fine and only errors when the window opens.
+]]
+local UIKit = _G.UncappedUIKit
+local function KitButton(parent, label, w, h)
+    if UIKit and UIKit.CreateButton then
+        return UIKit.CreateButton(parent, label or "", w, h)
+    end
+    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    if w then b:SetWidth(w) end
+    if h then b:SetHeight(h) end
+    b:SetText(label or "")
+    return b
+end
+
 local ADDON = "UncappedChat"
 local PIPE = "UNC"
 local WORLD_CHANNEL = "World"
@@ -208,8 +234,7 @@ local function buildUI()
   close:SetScript("OnClick", function() UC.Toggle() end)
 
   -- compact toggle: collapse to the last two lines
-  local compact = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  compact:SetWidth(60); compact:SetHeight(18)
+  local compact = KitButton(f, "", 60, 18)
   compact:SetPoint("TOPRIGHT", -34, -8)   -- clear of the close button
   compact:SetText(d.compact and "Expand" or "Compact")
   compact:SetScript("OnClick", function() UC.ToggleCompact() end)
@@ -268,8 +293,7 @@ local function buildUI()
   end)
   ui.input = eb
 
-  local send = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  send:SetWidth(44); send:SetHeight(20)
+  local send = KitButton(f, "", 44, 20)
   send:SetPoint("BOTTOMRIGHT", -14, 13)
   send:SetText("Send")
   send:SetScript("OnClick", function() eb:GetScript("OnEnterPressed")(eb) end)

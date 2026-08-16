@@ -492,6 +492,8 @@ local function BuildPanel()
     local db = CopyDefaults()
 
     frame = CreateFrame("Frame", "UncappedPanelFrame", UIParent)
+    -- UI audit 2026-08-16: siblings of this window had these and it did not.
+    tinsert(UISpecialFrames, "UncappedPanelFrame")   -- Escape closes it
     frame:SetWidth(BarWidth(db.visibleIcons))
     frame:SetHeight(HEIGHT)
     AnchorFrame()

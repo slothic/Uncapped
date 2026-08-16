@@ -19,6 +19,32 @@
 -- forge_comms_playerscript.cpp) -- the client is a renderer, and holds no
 -- authority over what can be crafted or spent.
 
+
+--[[
+    KitButton -- the in-house widget kit's button, with a guarded fall back to
+    the raw Blizzard template.
+
+    Guarded rather than calling UncappedUIKit directly because this addon lists
+    UncappedUI as an OPTIONAL dependency: if it is absent or errored during load,
+    an unguarded call is a nil index at build time and the whole window dies.
+    Same shape as the fallback in UncappedKeystoneRun.
+
+    ⚠ Resolved at FILE SCOPE on purpose. A `local UIKit` declared partway down
+      and used above that line silently reads the nil GLOBAL of the same name --
+      it parses fine and only errors when the window opens.
+]]
+local UIKit = _G.UncappedUIKit
+local function KitButton(parent, label, w, h)
+    if UIKit and UIKit.CreateButton then
+        return UIKit.CreateButton(parent, label or "", w, h)
+    end
+    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    if w then b:SetWidth(w) end
+    if h then b:SetHeight(h) end
+    b:SetText(label or "")
+    return b
+end
+
 local ADDON_PIPE_PREFIX = "UNC"           -- server replies arrive on this prefix
 local TRANSPORT_PREFIX  = "REAGENTBANK"   -- shared client->server transport
 
@@ -443,6 +469,15 @@ function ShowModelPreview(itemId)
         previewFrame:SetWidth(240)
         previewFrame:SetHeight(320)
         previewFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        -- Escape closes it, and it follows the Dashboard's zoom. Both were
+        -- missing when this frame was added earlier today; a UI audit found it
+        -- alongside six other pop-outs whose siblings had one or both. A
+        -- UIParent-parented window that ignores the zoom slider is the visible
+        -- symptom -- the suite half-scales and looks broken.
+        tinsert(UISpecialFrames, "UncappedForgePreview")
+        if UncappedScale_Register then
+            UncappedScale_Register(previewFrame, { group = "dashboard" })
+        end
         previewFrame:SetFrameStrata("DIALOG")
         previewFrame:SetMovable(true)
         previewFrame:EnableMouse(true)
@@ -465,9 +500,7 @@ function ShowModelPreview(itemId)
         previewFrame.model:SetPoint("TOPLEFT", previewFrame, "TOPLEFT", 16, -38)
         previewFrame.model:SetPoint("BOTTOMRIGHT", previewFrame, "BOTTOMRIGHT", -16, 40)
 
-        previewFrame.close = CreateFrame("Button", nil, previewFrame, "UIPanelButtonTemplate")
-        previewFrame.close:SetWidth(80)
-        previewFrame.close:SetHeight(20)
+        previewFrame.close = KitButton(previewFrame, "", 80, 20)
         previewFrame.close:SetPoint("BOTTOM", previewFrame, "BOTTOM", 0, 14)
         previewFrame.close:SetText("Close")
         previewFrame.close:SetScript("OnClick", function() previewFrame:Hide() end)
@@ -1936,9 +1969,7 @@ local function BuildFrame(parent)
           a TryOn issued immediately after it -- that is what made the wardrobe
           preview silently do nothing, and it would do the same here.
     ]]
-    detail.preview = CreateFrame("Button", nil, detail, "UIPanelButtonTemplate")
-    detail.preview:SetWidth(74)
-    detail.preview:SetHeight(20)
+    detail.preview = KitButton(detail, "", 74, 20)
     detail.preview:SetPoint("TOPRIGHT", detail, "TOPRIGHT", -8, 2)
     detail.preview:SetText("Preview")
     detail.preview:SetScript("OnClick", function()
@@ -1987,16 +2018,12 @@ local function BuildFrame(parent)
         RefreshProgress()
     end
 
-    detail.craft = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    detail.craft:SetWidth(90)
-    detail.craft:SetHeight(22)
+    detail.craft = KitButton(frame, "", 90, 22)
     detail.craft:SetPoint("LEFT", amount, "RIGHT", 8, 0)
     detail.craft:SetText("Craft")
     detail.craft:SetScript("OnClick", function() StartCraft(RequestedAmount()) end)
 
-    detail.craftAll = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    detail.craftAll:SetWidth(90)
-    detail.craftAll:SetHeight(22)
+    detail.craftAll = KitButton(frame, "", 90, 22)
     detail.craftAll:SetPoint("LEFT", detail.craft, "RIGHT", 4, 0)
     detail.craftAll:SetText("Craft All")
     detail.craftAll:SetScript("OnClick", function()
@@ -2007,9 +2034,7 @@ local function BuildFrame(parent)
         if possible and possible > 0 then StartCraft(possible) end
     end)
 
-    detail.buy = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    detail.buy:SetWidth(150)
-    detail.buy:SetHeight(22)
+    detail.buy = KitButton(frame, "", 150, 22)
     detail.buy:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 24, 60)
     detail.buy:SetText("Price missing mats")
     detail.buy:SetScript("OnClick", function(self)
@@ -2067,33 +2092,25 @@ local function BuildFrame(parent)
         RefreshProgress()
     end
 
-    detail.mill = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    detail.mill:SetWidth(100)
-    detail.mill:SetHeight(22)
+    detail.mill = KitButton(frame, "", 100, 22)
     detail.mill:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 400, 60)
     detail.mill:SetText("Mill All")
     detail.mill:SetScript("OnClick", function() StartProcess(0) end)
     detail.mill:Hide()
 
-    detail.prospect = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    detail.prospect:SetWidth(100)
-    detail.prospect:SetHeight(22)
+    detail.prospect = KitButton(frame, "", 100, 22)
     detail.prospect:SetPoint("LEFT", detail.mill, "RIGHT", 4, 0)
     detail.prospect:SetText("Prospect All")
     detail.prospect:SetScript("OnClick", function() StartProcess(1) end)
     detail.prospect:Hide()
 
-    detail.disenchant = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    detail.disenchant:SetWidth(100)
-    detail.disenchant:SetHeight(22)
+    detail.disenchant = KitButton(frame, "", 100, 22)
     detail.disenchant:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 400, 34)
     detail.disenchant:SetText("Disenchant All")
     detail.disenchant:SetScript("OnClick", function() StartProcess(2) end)
     detail.disenchant:Hide()
 
-    detail.render = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    detail.render:SetWidth(100)
-    detail.render:SetHeight(22)
+    detail.render = KitButton(frame, "", 100, 22)
     detail.render:SetPoint("LEFT", detail.disenchant, "RIGHT", 4, 0)
     detail.render:SetText("Render All")
     detail.render:SetScript("OnClick", function() StartProcess(3) end)
@@ -2135,9 +2152,7 @@ local function BuildFrame(parent)
 
     -- Parented to `progress`, not `frame`: a Stop button that outlived the
     -- progress bar would sit there cancelling a job that had already finished.
-    local cancel = CreateFrame("Button", nil, progress, "UIPanelButtonTemplate")
-    cancel:SetWidth(60)
-    cancel:SetHeight(18)
+    local cancel = KitButton(progress, "", 60, 18)
     cancel:SetPoint("RIGHT", progress, "RIGHT", 0, 0)
     cancel:SetText("Stop")
     cancel:SetScript("OnClick", function() Send("FRGCANCEL") end)

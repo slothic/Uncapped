@@ -1,6 +1,32 @@
 -- UncappedBugReporter_UI -- the /bug report window.
 -- Written for 3.3.5a: no BackdropTemplate and no modern C_ APIs.
 
+
+--[[
+    KitButton -- the in-house widget kit's button, with a guarded fall back to
+    the raw Blizzard template.
+
+    Guarded rather than calling UncappedUIKit directly because this addon lists
+    UncappedUI as an OPTIONAL dependency: if it is absent or errored during load,
+    an unguarded call is a nil index at build time and the whole window dies.
+    Same shape as the fallback in UncappedKeystoneRun.
+
+    ⚠ Resolved at FILE SCOPE on purpose. A `local UIKit` declared partway down
+      and used above that line silently reads the nil GLOBAL of the same name --
+      it parses fine and only errors when the window opens.
+]]
+local UIKit = _G.UncappedUIKit
+local function KitButton(parent, label, w, h)
+    if UIKit and UIKit.CreateButton then
+        return UIKit.CreateButton(parent, label or "", w, h)
+    end
+    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    if w then b:SetWidth(w) end
+    if h then b:SetHeight(h) end
+    b:SetText(label or "")
+    return b
+end
+
 local BR = UncappedBugReporter
 if not BR then return end
 
@@ -68,6 +94,9 @@ local function BuildFrame()
     if frame then return end
 
     frame = CreateFrame("Frame", "UncappedBugReporterFrame", UIParent)
+    -- UI audit 2026-08-16: siblings of this window had these and it did not.
+    tinsert(UISpecialFrames, "UncappedBugReporterFrame")   -- Escape closes it
+    if UncappedScale_Register then UncappedScale_Register(frame, { group = "dashboard" }) end
     frame:SetWidth(WIDTH)
     frame:SetHeight(HEIGHT)
     frame:SetFrameStrata("DIALOG")
@@ -199,14 +228,12 @@ local function BuildFrame()
     counter = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     counter:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 20, 46)
 
-    local submit = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    submit:SetWidth(100); submit:SetHeight(24)
+    local submit = KitButton(frame, "", 100, 24)
     submit:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 16)
     submit:SetText("Send")
     submit:SetScript("OnClick", Submit)
 
-    local cancel = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    cancel:SetWidth(80); cancel:SetHeight(24)
+    local cancel = KitButton(frame, "", 80, 24)
     cancel:SetPoint("RIGHT", submit, "LEFT", -8, 0)
     cancel:SetText("Cancel")
     cancel:SetScript("OnClick", function() frame:Hide() end)

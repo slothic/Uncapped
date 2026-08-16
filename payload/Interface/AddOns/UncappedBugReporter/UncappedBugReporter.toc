@@ -3,7 +3,7 @@
 ## Notes: /bug opens a proper multi-line bug report window (or send one straight from chat with /bug <message>). Goes out over the same World-channel pipe the !bug command already relays to Discord.
 ## Author: Uncapped
 ## Version: 1.0
-## OptionalDeps: UncappedOptions
+## OptionalDeps: UncappedOptions, UncappedUI
 ## SavedVariables: UncappedBugReporterDB
 
 UncappedBugReporter.lua

@@ -754,6 +754,9 @@ local function BuildWindow()
     local db = GetDB()
 
     frame = CreateFrame("Frame", "StatFeedFrame", UIParent)
+    -- UI audit 2026-08-16: siblings of this window had these and it did not.
+    tinsert(UISpecialFrames, "StatFeedFrame")   -- Escape closes it
+    if UncappedScale_Register then UncappedScale_Register(frame, { group = "dashboard" }) end
     frame:SetWidth(db.width)
     frame:SetHeight(db.height)
     frame:SetPoint(db.point, UIParent, db.point, db.x, db.y)

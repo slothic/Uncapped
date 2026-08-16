@@ -20,6 +20,32 @@
   /sbdebug   toggle verbose wire logging
 ]]
 
+
+--[[
+    KitButton -- the in-house widget kit's button, with a guarded fall back to
+    the raw Blizzard template.
+
+    Guarded rather than calling UncappedUIKit directly because this addon lists
+    UncappedUI as an OPTIONAL dependency: if it is absent or errored during load,
+    an unguarded call is a nil index at build time and the whole window dies.
+    Same shape as the fallback in UncappedKeystoneRun.
+
+    ⚠ Resolved at FILE SCOPE on purpose. A `local UIKit` declared partway down
+      and used above that line silently reads the nil GLOBAL of the same name --
+      it parses fine and only errors when the window opens.
+]]
+local UIKit = _G.UncappedUIKit
+local function KitButton(parent, label, w, h)
+    if UIKit and UIKit.CreateButton then
+        return UIKit.CreateButton(parent, label or "", w, h)
+    end
+    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    if w then b:SetWidth(w) end
+    if h then b:SetHeight(h) end
+    b:SetText(label or "")
+    return b
+end
+
 local SEND_PREFIX = "REAGENTBANK"
 local PIPE_PREFIX = "UNC"
 local QUESTION    = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -597,8 +623,8 @@ local function BuildUI(parent)
   -- would refuse. It drives its own cooldown countdown off a local deadline
   -- rather than waiting for pushes, because with the mode OFF there are no
   -- periodic pushes to drive it.
-  local openBtn = CreateFrame("Button", "UncappedSoulforgeSackOpen", f, "UIPanelButtonTemplate")
-  openBtn:SetSize(150, 22); openBtn:SetPoint("TOPLEFT", 8, -218)
+  local openBtn = KitButton(f, "", 150, 22)
+   openBtn:SetPoint("TOPLEFT", 8, -218)
   openBtn:SetScript("OnClick", function(self)
     if self.readyAt and GetTime() < self.readyAt then return end
     send("ICSACKOPEN")
@@ -626,12 +652,12 @@ local function BuildUI(parent)
   sackHint:SetJustifyH("LEFT")
   f.sackHint = sackHint
 
-  local sbBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  sbBtn:SetSize(170, 24); sbBtn:SetPoint("TOPLEFT", 6, -250); sbBtn:SetText("Soulbind Duplicates")
+  local sbBtn = KitButton(f, "", 170, 24)
+   sbBtn:SetPoint("TOPLEFT", 6, -250); sbBtn:SetText("Soulbind Duplicates")
   sbBtn:SetScript("OnClick", function() StaticPopup_Show("UNCAPPED_SF_SOULBIND_ALL") end)
 
-  local wlBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  wlBtn:SetSize(170, 24); wlBtn:SetPoint("LEFT", sbBtn, "RIGHT", 10, 0); wlBtn:SetText("Whitelist\226\128\166")
+  local wlBtn = KitButton(f, "", 170, 24)
+   wlBtn:SetPoint("LEFT", sbBtn, "RIGHT", 10, 0); wlBtn:SetText("Whitelist\226\128\166")
   wlBtn:SetScript("OnClick", function() if UI and UI.OpenWhitelist then UI:OpenWhitelist() end end)
 
   -- ---- second button row --------------------------------------------------
@@ -652,12 +678,12 @@ local function BuildUI(parent)
   --
   -- Same 170-wide geometry as the row above, so the panel's 374 min content width
   -- (see SF.UI.GetMinWidth) still holds and nothing overflows.
-  local sockBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  sockBtn:SetSize(170, 24); sockBtn:SetPoint("TOPLEFT", 6, -278); sockBtn:SetText("Sockets\226\128\166")
+  local sockBtn = KitButton(f, "", 170, 24)
+   sockBtn:SetPoint("TOPLEFT", 6, -278); sockBtn:SetText("Sockets\226\128\166")
   sockBtn:SetScript("OnClick", function() if UI and UI.OpenSockets then UI:OpenSockets() end end)
 
-  local bpBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  bpBtn:SetSize(170, 24); bpBtn:SetPoint("LEFT", sockBtn, "RIGHT", 10, 0); bpBtn:SetText("Banned Procs\226\128\166")
+  local bpBtn = KitButton(f, "", 170, 24)
+   bpBtn:SetPoint("LEFT", sockBtn, "RIGHT", 10, 0); bpBtn:SetText("Banned Procs\226\128\166")
   bpBtn:SetScript("OnClick", function() if UI and UI.OpenBannedProcs then UI:OpenBannedProcs() end end)
 
   -- ---- your soulbound gear ----
@@ -883,6 +909,11 @@ local function BuildWhitelist()
   -- window that opens it, so it inherits nothing and has to register itself.
   -- (Anything parented INTO the Dashboard must NOT -- SetScale compounds.)
   if UncappedScale_Register then UncappedScale_Register(f, { group = "dashboard" }) end
+  -- ⚠ Escape closes it. This was the ONLY one of SoulForge's four pop-outs
+  --   without it (the Extractor, Socket and Banned Procs windows all had it) --
+  --   a UI audit found the omission. A modal-looking window you cannot Escape
+  --   out of reads as stuck.
+  tinsert(UISpecialFrames, "UncappedSoulforgeWL")
 
   local title = f:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
   title:SetPoint("TOP",0,-16); title:SetText("Whitelist")
@@ -895,8 +926,8 @@ local function BuildWhitelist()
   local box = CreateFrame("EditBox", "UncappedSoulforgeWLBox", f, "InputBoxTemplate")
   box:SetPoint("TOPLEFT", 22, -54); box:SetSize(230, 20); box:SetAutoFocus(false)
   box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-  local add = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  add:SetSize(56, 22); add:SetPoint("LEFT", box, "RIGHT", 6, 0); add:SetText("Add")
+  local add = KitButton(f, "", 56, 22)
+   add:SetPoint("LEFT", box, "RIGHT", 6, 0); add:SetText("Add")
   local function doAdd()
     local t = box:GetText()
     if t and t ~= "" then send("ICWLADD:" .. t); box:SetText(""); state.wlSuggest = {}; if WLM then WLM:UpdateSuggest() end end
@@ -1180,8 +1211,8 @@ local function BuildExtractor(parent)
 
   -- ---- mode tabs --------------------------------------------------------
   local function ModeButton(text, mode, x)
-    local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    b:SetSize(110, 22); b:SetPoint("TOPLEFT", x, yTop - 18); b:SetText(text)
+    local b = KitButton(f, "", 110, 22)
+     b:SetPoint("TOPLEFT", x, yTop - 18); b:SetText(text)
     b:SetScript("OnClick", function()
       state.exMode = mode
       state.collSel = nil
@@ -1209,8 +1240,8 @@ local function BuildExtractor(parent)
   -- ---- filter buttons ---------------------------------------------------
   f.filterBtns = {}
   for i, fl in ipairs(EXC_FILTERS) do
-    local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    b:SetSize(84, 20); b:SetPoint("TOPLEFT", 20 + (i - 1) * 88, yTop - 44); b:SetText(fl.label)
+    local b = KitButton(f, "", 84, 20)
+     b:SetPoint("TOPLEFT", 20 + (i - 1) * 88, yTop - 44); b:SetText(fl.label)
     b:SetScript("OnClick", function()
       state.exFilter = fl.key
       EXT:Refresh()
@@ -1331,8 +1362,8 @@ local function BuildExtractor(parent)
 
   -- "Where does it drop?" reuses the existing USOURCE lookup rather than adding a
   -- second one -- the reply is handled by the shared USRC block further down.
-  f.srcBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  f.srcBtn:SetSize(140, 20); f.srcBtn:SetPoint("TOPLEFT", DETAIL_X, yTop - 110)
+  f.srcBtn = KitButton(f, "", 140, 20)
+   f.srcBtn:SetPoint("TOPLEFT", DETAIL_X, yTop - 110)
   f.srcBtn:SetText("Where does it drop?")
   f.srcBtn:SetScript("OnClick", function()
     local e = state.collSel and state.collSel.src
@@ -1400,8 +1431,8 @@ local function BuildExtractor(parent)
   f.summary:SetPoint("BOTTOMLEFT", 20, 44); f.summary:SetPoint("BOTTOMRIGHT", -20, 44)
   f.summary:SetJustifyH("CENTER"); f.summary:SetHeight(28)
 
-  f.actBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  f.actBtn:SetSize(170, 26); f.actBtn:SetPoint("BOTTOM", -92, 14)
+  f.actBtn = KitButton(f, "", 170, 26)
+   f.actBtn:SetPoint("BOTTOM", -92, 14)
   f.actBtn:SetScript("OnClick", function()
     if state.exMode == "unlock" then
       local s = state.exSelSrc
@@ -1412,8 +1443,8 @@ local function BuildExtractor(parent)
     end
   end)
 
-  f.wlBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  f.wlBtn:SetSize(170, 26); f.wlBtn:SetPoint("BOTTOM", 92, 14)
+  f.wlBtn = KitButton(f, "", 170, 26)
+   f.wlBtn:SetPoint("BOTTOM", 92, 14)
   f.wlBtn:SetText("Protect from melting")
   f.wlBtn:SetScript("OnClick", function()
     local s = state.exSelSrc
@@ -1766,8 +1797,8 @@ local function BuildSocketUI()
   end)
   filter:SetScript("OnEscapePressed", function(self) self:SetText(""); self:ClearFocus() end)
 
-  local scope = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  scope:SetSize(56, 21); scope:SetPoint("LEFT", filter, "RIGHT", 8, 0)
+  local scope = KitButton(f, "", 56, 21)
+   scope:SetPoint("LEFT", filter, "RIGHT", 8, 0)
   scope:SetScript("OnClick", function()
     local i = 1
     for k, v in ipairs(SOCK_FILTERS) do if v == state.sockScope then i = k end end
@@ -1857,8 +1888,8 @@ local function BuildSocketUI()
     r.count = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     r.count:SetPoint("RIGHT", -34, 0)
 
-    local minus = CreateFrame("Button", nil, r, "UIPanelButtonTemplate")
-    minus:SetSize(22, 20); minus:SetPoint("RIGHT", -4, 0); minus:SetText("-")
+    local minus = KitButton(r, "", 22, 20)
+     minus:SetPoint("RIGHT", -4, 0); minus:SetText("-")
     minus:SetScript("OnClick", function()
       local d, s = r.data, sockSel()
       if not d or not s then return end
@@ -1918,8 +1949,8 @@ local function BuildSocketUI()
   f.drop = drop
 
   -- ---- bottom: add sockets / fill ---------------------------------------
-  local addBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  addBtn:SetSize(150, 26); addBtn:SetPoint("BOTTOMLEFT", RX, 44); addBtn:SetText("+ Add Socket")
+  local addBtn = KitButton(f, "", 150, 26)
+   addBtn:SetPoint("BOTTOMLEFT", RX, 44); addBtn:SetText("+ Add Socket")
   addBtn:SetScript("OnClick", function()
     local s = sockSel()
     if s then send(string.format("ICSOCKADD:%d:%d:%d", s.bag, s.slot, 1)) end
@@ -1927,7 +1958,7 @@ local function BuildSocketUI()
   f.addBtn = addBtn
 
   local function smallBtn(parent, text, w, amount)
-    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    local b = KitButton(parent, "", nil, nil)
     b:SetSize(w, 20); b:SetText(text)
     b:SetScript("OnClick", function()
       local s = sockSel()
@@ -1938,8 +1969,8 @@ local function BuildSocketUI()
   f.add10 = smallBtn(f, "x10", 40, 10); f.add10:SetPoint("BOTTOMLEFT", RX, 18)
   f.addAll = smallBtn(f, "x all", 48, 0); f.addAll:SetPoint("LEFT", f.add10, "RIGHT", 4, 0)
 
-  local fillBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  fillBtn:SetSize(150, 26); fillBtn:SetPoint("BOTTOMRIGHT", -22, 44); fillBtn:SetText("Fill Empty")
+  local fillBtn = KitButton(f, "", 150, 26)
+   fillBtn:SetPoint("BOTTOMRIGHT", -22, 44); fillBtn:SetText("Fill Empty")
   fillBtn:SetScript("OnClick", function() sendFill(state.sockFillGem, 0) end)
   f.fillBtn = fillBtn
 
@@ -2798,6 +2829,9 @@ end
 local function buildSbTip()
   if sbTip then return sbTip end
   local f = CreateFrame("Frame", "UncappedSoulboundTip", UIParent)
+  -- UIParent-parented, so it follows the Dashboard zoom only if it registers.
+  -- Its four siblings all did; these two were missed (UI audit 2026-08-16).
+  if UncappedScale_Register then UncappedScale_Register(f, { group = "dashboard" }) end
   f:SetFrameStrata("TOOLTIP"); f:SetFrameLevel(100)
   f:SetWidth(288); f:SetHeight(TIP_ROWS * TIP_ROW_H + 40)
   f:SetBackdrop({
@@ -2847,6 +2881,9 @@ local function buildSbTip()
   f:SetScript("OnLeave", function() hideSbTip() end)
 
   sbWheel = CreateFrame("Frame", "UncappedSoulboundWheel", UIParent)
+  -- UIParent-parented, so it follows the Dashboard zoom only if it registers.
+  -- Its four siblings all did; these two were missed (UI audit 2026-08-16).
+  if UncappedScale_Register then UncappedScale_Register(sbWheel, { group = "dashboard" }) end
   sbWheel:SetAllPoints(UIParent)
   sbWheel:SetFrameStrata("TOOLTIP"); sbWheel:SetFrameLevel(90)
   sbWheel:EnableMouse(false); sbWheel:EnableMouseWheel(true)

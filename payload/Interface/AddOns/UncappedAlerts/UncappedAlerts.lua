@@ -37,6 +37,32 @@
 --   /alerts testsound  play the alert sound
 --   /alerts testquit   quit right now, to check it works on your client
 
+
+--[[
+    KitButton -- the in-house widget kit's button, with a guarded fall back to
+    the raw Blizzard template.
+
+    Guarded rather than calling UncappedUIKit directly because this addon lists
+    UncappedUI as an OPTIONAL dependency: if it is absent or errored during load,
+    an unguarded call is a nil index at build time and the whole window dies.
+    Same shape as the fallback in UncappedKeystoneRun.
+
+    ⚠ Resolved at FILE SCOPE on purpose. A `local UIKit` declared partway down
+      and used above that line silently reads the nil GLOBAL of the same name --
+      it parses fine and only errors when the window opens.
+]]
+local UIKit = _G.UncappedUIKit
+local function KitButton(parent, label, w, h)
+    if UIKit and UIKit.CreateButton then
+        return UIKit.CreateButton(parent, label or "", w, h)
+    end
+    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    if w then b:SetWidth(w) end
+    if h then b:SetHeight(h) end
+    b:SetText(label or "")
+    return b
+end
+
 local DEFAULT_COUNTDOWN = 45
 
 UncappedAlertsDB = UncappedAlertsDB or {}
@@ -273,14 +299,10 @@ local function BuildWindow()
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -6, -6)
 
-    f.primary = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    f.primary:SetWidth(130)
-    f.primary:SetHeight(22)
+    f.primary = KitButton(f, "", 130, 22)
     f.primary:SetPoint("BOTTOMLEFT", f, "BOTTOM", 6, 18)
 
-    f.secondary = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    f.secondary:SetWidth(130)
-    f.secondary:SetHeight(22)
+    f.secondary = KitButton(f, "", 130, 22)
     f.secondary:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -6, 18)
 
     -- Any hide while a countdown is live becomes a minimise, unless something

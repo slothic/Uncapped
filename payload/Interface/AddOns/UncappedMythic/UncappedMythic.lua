@@ -1268,6 +1268,8 @@ end
 -- offset compensation while it lasted. The card is a three-second flourish at
 -- screen centre, not a window a player places or reads at leisure.
 local card = CreateFrame("Frame", "UncappedMythicAffixCard", UIParent)
+-- UI audit 2026-08-16: siblings of this window had these and it did not.
+if UncappedScale_Register then UncappedScale_Register(card, { group = "mythic" }) end
 card:SetSize(340, 92)
 card:SetFrameStrata("DIALOG")
 card:SetPoint("CENTER", UIParent, "CENTER", 0, 140)

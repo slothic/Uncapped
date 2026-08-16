@@ -30,6 +30,45 @@
 -- handlers on some paths, and GetSpellInfo(id) is the only reliable way to get
 -- an icon path that is guaranteed to exist in this client's Spell.dbc.
 
+
+--[[
+    KitButton -- the in-house widget kit's button, with a guarded fall back to
+    the raw Blizzard template.
+
+    Guarded rather than calling UncappedUIKit directly because this addon lists
+    UncappedUI as an OPTIONAL dependency: if it is absent or errored during load,
+    an unguarded call is a nil index at build time and the whole window dies.
+    Same shape as the fallback in UncappedKeystoneRun.
+
+    ⚠ Resolved at FILE SCOPE on purpose. A `local UIKit` declared partway down
+      and used above that line silently reads the nil GLOBAL of the same name --
+      it parses fine and only errors when the window opens.
+]]
+local UIKit = _G.UncappedUIKit
+local function KitButton(parent, label, w, h)
+    if UIKit and UIKit.CreateButton then
+        return UIKit.CreateButton(parent, label or "", w, h)
+    end
+    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    if w then b:SetWidth(w) end
+    if h then b:SetHeight(h) end
+    b:SetText(label or "")
+    return b
+end
+
+-- Gold active state on a kit button; falls back to the Blizzard template's
+-- locked PUSHED look when the kit is absent. Split out because SetButtonActive
+-- indexes button.text, which the raw fallback above does not create.
+local function KitSetActive(b, on)
+    if UIKit and UIKit.SetButtonActive and b.text then
+        UIKit.SetButtonActive(b, on)
+    elseif on then
+        b:SetButtonState("PUSHED", true)
+    else
+        b:SetButtonState("NORMAL")
+    end
+end
+
 local ADDON_PIPE_PREFIX = "UNC"           -- server -> client replies
 local TRANSPORT_PREFIX  = "REAGENTBANK"   -- client -> server transport (shared)
 
@@ -332,9 +371,7 @@ local function BuildCard(parent, def)
     local buttons = {}
     local prev
     for i, amount in ipairs(AMOUNTS) do
-        local btn = CreateFrame("Button", nil, card, "UIPanelButtonTemplate")
-        btn:SetHeight(20)
-        btn:SetWidth(98)
+        local btn = KitButton(card, "", 98, 20)
         if prev then
             btn:SetPoint("LEFT", prev, "RIGHT", 4, 0)
         else
@@ -456,11 +493,11 @@ local function Relayout()
     end
 
     for _, tab in ipairs(tabButtons or {}) do
-        if tab.treeKey == db.tree then
-            tab:SetButtonState("PUSHED", true)
-        else
-            tab:SetButtonState("NORMAL")
-        end
+        -- House idiom (gold active state) rather than locking the Blizzard
+        -- template into PUSHED. ⚠ Guarded: SetButtonActive reaches into
+        -- `button.text`, which only kit buttons have -- on the raw fallback it
+        -- would be a nil index, so that path keeps the old behaviour.
+        KitSetActive(tab, tab.treeKey == db.tree)
     end
 
     if treeNote then
@@ -531,9 +568,7 @@ local function BuildFrame(parent)
     tabButtons = {}
     local prevTab
     for i, t in ipairs(TREES) do
-        local tab = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-        tab:SetHeight(22)
-        tab:SetWidth(110)
+        local tab = KitButton(frame, "", 110, 22)
         if prevTab then
             tab:SetPoint("LEFT", prevTab, "RIGHT", 4, 0)
         else
@@ -813,9 +848,7 @@ if UncappedUI then
     L:Header("Opening the window")
     L:Note("Type /dashboard, or click the button below. The window always refreshes from the server when it opens, so the ranks and prices you see are live.", 40)
 
-    local btn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    btn:SetWidth(160)
-    btn:SetHeight(22)
+    local btn = KitButton(panel, "", 160, 22)
     btn:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, L.y)
     btn:SetText("Open Anima")
     btn:SetScript("OnClick", function()

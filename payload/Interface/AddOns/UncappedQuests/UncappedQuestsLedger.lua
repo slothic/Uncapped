@@ -32,6 +32,32 @@
   list, so anything landing inside a run would take the player's list with it.
 ]]
 
+
+--[[
+    KitButton -- the in-house widget kit's button, with a guarded fall back to
+    the raw Blizzard template.
+
+    Guarded rather than calling UncappedUIKit directly because this addon lists
+    UncappedUI as an OPTIONAL dependency: if it is absent or errored during load,
+    an unguarded call is a nil index at build time and the whole window dies.
+    Same shape as the fallback in UncappedKeystoneRun.
+
+    ⚠ Resolved at FILE SCOPE on purpose. A `local UIKit` declared partway down
+      and used above that line silently reads the nil GLOBAL of the same name --
+      it parses fine and only errors when the window opens.
+]]
+local UIKit = _G.UncappedUIKit
+local function KitButton(parent, label, w, h)
+    if UIKit and UIKit.CreateButton then
+        return UIKit.CreateButton(parent, label or "", w, h)
+    end
+    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    if w then b:SetWidth(w) end
+    if h then b:SetHeight(h) end
+    b:SetText(label or "")
+    return b
+end
+
 local UQ = UncappedQuests
 local ADDON = "UncappedQuests"
 
@@ -723,9 +749,7 @@ local function BuildFrame()
     -- tabs
     ui.tabs = {}
     for i, t in ipairs(TABS) do
-        local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        b:SetWidth(90)
-        b:SetHeight(24)
+        local b = KitButton(f, "", 90, 24)
         b:SetPoint("TOPLEFT", f, "TOPLEFT", 20 + (i - 1) * 94, -44)
         b:SetText(t.label)
         b:SetScript("OnClick", function()
@@ -739,9 +763,7 @@ local function BuildFrame()
     -- sort: one button that cycles the key, and flips direction when you click
     -- the key it is already on. Cheaper on space than four headers, and the
     -- label always states the current state rather than implying it.
-    local sortBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    sortBtn:SetWidth(140)
-    sortBtn:SetHeight(24)
+    local sortBtn = KitButton(f, "", 140, 24)
     sortBtn:SetPoint("TOPLEFT", f, "TOPLEFT", 20 + #TABS * 94, -44)
     ui.sortBtn = sortBtn
 
@@ -809,9 +831,7 @@ local function BuildFrame()
     -- to hand the keyboard back. Same fix as the Vault's search box.
     f:SetScript("OnHide", function() searchBox:ClearFocus() end)
 
-    local blizz = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    blizz:SetWidth(110)
-    blizz:SetHeight(22)
+    local blizz = KitButton(f, "", 110, 22)
     blizz:SetPoint("TOPRIGHT", f, "TOPRIGHT", -118, -45)
     blizz:SetText("Blizzard log")
     blizz:SetScript("OnClick", function() UQ.OpenBlizzardQuestLog() end)
@@ -823,9 +843,7 @@ local function BuildFrame()
     end)
     blizz:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    local refresh = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    refresh:SetWidth(90)
-    refresh:SetHeight(22)
+    local refresh = KitButton(f, "", 90, 22)
     refresh:SetPoint("TOPRIGHT", f, "TOPRIGHT", -20, -45)
     refresh:SetText("Refresh")
     refresh:SetScript("OnClick", function() Send("QLGET") end)
@@ -1061,16 +1079,14 @@ local function BuildFrame()
     ui.txtDesc       = TextLine("GameFontHighlightSmall", 0.9, 0.9, 0.9)
     ui.txtNote       = TextLine("GameFontDisableSmall")              -- fetching / unavailable
 
-    ui.actionSlot = CreateFrame("Button", nil, detail, "UIPanelButtonTemplate")
-    ui.actionSlot:SetWidth(296); ui.actionSlot:SetHeight(24)
+    ui.actionSlot = KitButton(detail, "", 296, 24)
     ui.actionSlot:SetPoint("BOTTOM", detail, "BOTTOM", 0, 12)
     ui.actionSlot:SetText("Show in Quest Log")
     ui.actionSlot:SetScript("OnClick", function()
         if view.selected then Send("QLSLOT:" .. view.selected) end
     end)
 
-    ui.actionUnslot = CreateFrame("Button", nil, detail, "UIPanelButtonTemplate")
-    ui.actionUnslot:SetWidth(296); ui.actionUnslot:SetHeight(24)
+    ui.actionUnslot = KitButton(detail, "", 296, 24)
     ui.actionUnslot:SetPoint("BOTTOM", detail, "BOTTOM", 0, 12)
     ui.actionUnslot:SetText("Move to Ledger")
     ui.actionUnslot:SetScript("OnClick", function()
@@ -1080,8 +1096,7 @@ local function BuildFrame()
     -- Pin: opt this quest out of the automatic zone management, so it stays in
     -- the log wherever you walk. Sits above the slot/unslot button, which share
     -- one anchor because only one of them is ever shown.
-    ui.actionPin = CreateFrame("Button", nil, detail, "UIPanelButtonTemplate")
-    ui.actionPin:SetWidth(296); ui.actionPin:SetHeight(24)
+    ui.actionPin = KitButton(detail, "", 296, 24)
     ui.actionPin:SetPoint("BOTTOM", detail, "BOTTOM", 0, 40)
     ui.actionPin:SetScript("OnClick", function()
         local q = view.selected and ledger[view.selected]
@@ -1112,8 +1127,7 @@ local function BuildFrame()
     -- visible instead of the control silently vanishing), and the index shifts
     -- whenever the log changes, so it is resolved at the moment it is used and
     -- never cached on the row.
-    ui.actionTrack = CreateFrame("Button", nil, detail, "UIPanelButtonTemplate")
-    ui.actionTrack:SetWidth(296); ui.actionTrack:SetHeight(24)
+    ui.actionTrack = KitButton(detail, "", 296, 24)
     ui.actionTrack:SetPoint("BOTTOM", detail, "BOTTOM", 0, 68)
     ui.actionTrack:SetScript("OnClick", function()
         local q = view.selected and ledger[view.selected]
