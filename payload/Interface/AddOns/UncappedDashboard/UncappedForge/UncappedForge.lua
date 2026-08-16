@@ -55,7 +55,17 @@ local DEFAULTS = {
     replaceTradeSkill = true,   -- open the Forge instead of Blizzard's window
     autoIntermediates = true,   -- craft missing sub-components automatically
     craftableOnly     = false,  -- list filter
+    -- [owner request 2026-08-17] Widens craftableOnly to include recipes that are
+    -- not craftable now but whose every missing reagent is vendor-sold for gold.
+    -- Only meaningful while craftableOnly is on; with the filter off, everything
+    -- is listed anyway and this changes nothing.
+    buyableToo        = false,
     sortMode          = "name",  -- "name" or "difficulty"
+    -- [#922] The bulk-processing views keep their OWN sort and material filter.
+    -- Sharing sortMode with the recipe list is what caused the reported bug in the
+    -- first place: one control, two lists, and only one of them listening.
+    procSortMode      = "count", -- "count", "name" or "difficulty" (= disenchant skill)
+    procMaterial      = 0,       -- 0 = any; otherwise a material item id
     lastAmount        = 1,
     sourceRows        = 14,     -- "where to farm" visible rows
     sourceRowHeight   = 20,     -- "where to farm" row height (px)
@@ -83,6 +93,12 @@ InitDB()
 local professions = {}      -- ordered { skill=, rank=, max=, name= }
 local recipes = {}          -- ordered { spell=, item=, yield=, skill=, min=, tlow=, thigh=, tool= }
 local recipesBySpell = {}
+-- [owner request 2026-08-17] spellId -> true for recipes the server says are not
+-- craftable now but whose every missing reagent is vendor-sold for gold (FRGVEND).
+-- A SET rather than a field on the recipe, because it arrives on its own row type --
+-- see the FRGVEND note in forge_comms_playerscript.cpp for why it is not an 11th
+-- FRGREC field. Empty against an old server, which simply hides the extra rows.
+local buyableSet = {}
 local filtered = {}         -- current visible subset of `recipes`
 local filteredProc = {}     -- current visible subset of `processable`
 
@@ -223,6 +239,13 @@ local plan = { steps = {}, needs = {}, total = 0, feasible = true }
 local quote = nil           -- { cost=, buy=, tokenOnly=, unbuyable= }
 local processable = {}      -- { item=, count=, kinds= }
 local job = nil             -- { done=, total=, crafted= } while a job runs
+
+-- [#922] Disenchant-only attributes, arriving on their own row types so an
+-- un-updated client is unaffected. Empty against an old server, which is what makes
+-- the new sort and filter degrade to the old behaviour instead of erroring.
+local procAttr = {}         -- item -> { skill=, tier= }
+local tierMats = {}         -- tier -> { [materialItemId] = true }
+local matPresent = {}       -- materialItemId -> true, for building the dropdown
 
 --[[
     Report #737: "Forge moving on to a new recipe if there's no mats for current
@@ -548,7 +571,8 @@ end
 -- ===========================================================================
 -- Server comms
 -- ===========================================================================
-local staging = { profs = {}, recs = {}, steps = {}, needs = {}, proc = {} }
+local staging = { profs = {}, recs = {}, steps = {}, needs = {}, proc = {}, vend = {},
+                  pattr = {}, pmats = {} }
 local syncNeedsFull = false   -- a rank row for an unknown profession forces a full fetch
 
 -- Sorting is done once over the MASTER list, not once per filter pass. The
@@ -618,6 +642,48 @@ local function SortRecipes()
     end
 end
 
+--[[
+    [#922] Sort the BULK-PROCESSING list.
+
+    ★ THE BUG THIS EXISTS FOR. The window has one sort dropdown; it sorted `recipes`.
+      The Disenchant tab renders `processable`, which was ordered exactly once -- by
+      stack size, at FRGPROCEND -- and by nothing else, ever. The dropdown stayed on
+      screen there, accepted "Difficulty", relabelled itself and changed nothing.
+
+    Kept as its own function against its own db key rather than folded into
+    SortRecipes: the two lists have genuinely different sort axes ("difficulty" means
+    the skill-up colour ladder for a recipe and the required disenchant skill here),
+    and one setting driving both is what produced the original defect.
+
+    Unlike SortRecipes there is no dirty flag. This list is at most a few hundred rows
+    and is only re-sorted when it arrives or when the setting changes, not per
+    keystroke -- the expense SortRecipes' flag exists to avoid does not apply.
+]]
+local function SortProcessable()
+    local mode = db.procSortMode
+
+    if mode == "difficulty" then
+        table.sort(processable, function(a, b)
+            -- Hardest first, matching the recipe list's own direction. A row with no
+            -- attributes (millable, prospectable, or an old server that sends none)
+            -- has no skill to compare, so it sorts to the bottom rather than
+            -- interleaving at zero and looking like the sort is broken.
+            local sa = procAttr[a.item] and procAttr[a.item].skill or -1
+            local sb = procAttr[b.item] and procAttr[b.item].skill or -1
+            if sa ~= sb then return sa > sb end
+            return (ProcessName(a) or "") < (ProcessName(b) or "")
+        end)
+    elseif mode == "name" then
+        table.sort(processable, function(a, b)
+            return (ProcessName(a) or "") < (ProcessName(b) or "")
+        end)
+    else
+        -- "count", and the default: biggest pile first, which is what this list did
+        -- before and is still the most useful order for bulk work.
+        table.sort(processable, function(a, b) return a.count > b.count end)
+    end
+end
+
 local function ApplyFilter()
     SortRecipes()
 
@@ -634,6 +700,19 @@ local function ApplyFilter()
             -- Unknown (never asked) is kept: hiding recipes we simply have not
             -- fetched material counts for would make the list look broken.
             ok = (possible == nil) or possible > 0
+
+            -- [owner request 2026-08-17] "...or buyable" widens the tick above rather
+            -- than replacing it, so the two compose the way the search and the
+            -- profession dropdown already do.
+            --
+            -- ⚠ Read from buyableSet, NOT recomputed here. Whether a reagent is
+            --   vendor-sold for gold depends on ExtendedCost, stock limits, an
+            --   excluded vendor and BuyPrice -- none of which the client can see. The
+            --   server owns that rule (ForgeCraft::IsGoldBuyable) and a client-side
+            --   guess would quietly disagree with what the Buy button actually does.
+            if not ok and db.buyableToo then
+                ok = buyableSet[recipe.spell] and true or false
+            end
         end
 
         if ok then filtered[#filtered + 1] = recipe end
@@ -655,6 +734,24 @@ local function ApplyFilter()
         local kindOk = (not view)
             or (bit.band(entry.kinds or 0, view.mask) ~= 0)
 
+        --[[
+            [#922] "Only show me things that could give me Arcane Dust."
+
+            ⚠ Applied ONLY on the disenchant view. The material a row yields is a
+              disenchant concept -- milling and prospecting have their own outputs and
+              are sent no tier at all -- so letting this filter run on those tabs would
+              empty them for a reason the player cannot see. That is the same shape as
+              the bug being fixed here, one tab over.
+
+            The answer comes from the server's yield table, not from a guess: the
+            client has no way to know what an item breaks down into.
+        ]]
+        if kindOk and view and view.mask == KIND_DISENCHANT and db.procMaterial ~= 0 then
+            local attr = procAttr[entry.item]
+            local mats = attr and tierMats[attr.tier]
+            kindOk = (mats and mats[db.procMaterial]) and true or false
+        end
+
         if kindOk and MatchesSearch(ProcessNameLower(entry), entry.item) then
             filteredProc[#filteredProc + 1] = entry
         end
@@ -664,6 +761,10 @@ end
 -- Forward locals: the comms handler below fires before these are defined, and
 -- professions/recipes arrive asynchronously after the window is already open.
 local RefreshList, RefreshDetail, RefreshProgress, BuildProfessionTabs, ResetScroll
+-- [#922] Shows/hides and repopulates the controls that belong to one list or the
+-- other. Forward-declared because the FRGPROCEND handler calls it and the UI that
+-- defines it is built several hundred lines below.
+local RefreshProcControls
 
 -- Forward-declared for the same reason as the line above: the FRGDONE handler
 -- calls it and sits ~200 lines ABOVE where SelectRecipe (which it needs) is
@@ -736,6 +837,24 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
           recipe since the last full fetch) the row is ignored -- FRGSYNC is what
           notices the recipe COUNT changed and triggers a real re-fetch.
     ]]
+    --[[
+        FRGVEND -- the "...or buyable" set (owner request 2026-08-17).
+
+        Staged, never applied directly, and committed only at FRGEND / FRGCNTEND.
+        ★ The commit REPLACES the set rather than merging into it, which is what
+          makes "no longer buyable" expressible: the server sends only the spells
+          that ARE buyable, so a recipe that dropped out simply stops appearing in
+          the burst. Merging would make the set grow forever and never un-tick.
+        ⚠ Must be matched BEFORE FRGREC would be tried by any looser pattern -- it is
+          its own prefix, so order in this chain is not load-bearing today, but the
+          two share the FRG prefix and a future `find` without the `^` anchor would
+          make it matter.
+    ]]
+    elseif body:find("^FRGVEND:") then
+        for spell in body:gmatch("(%d+);") do
+            staging.vend[tonumber(spell)] = true
+        end
+
     elseif body:find("^FRGCNT:") then
         for spell, maxc in body:gmatch("(%d+),(%d+);") do
             local recipe = recipesBySpell[tonumber(spell)]
@@ -743,6 +862,11 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
         end
 
     elseif body:find("^FRGCNTEND:") then
+        -- A craft moves material, so a recipe the player never touched can start or
+        -- stop being buyable. Replaced wholesale for the same reason as at FRGEND.
+        buyableSet = staging.vend
+        staging.vend = {}
+
         -- ⚠ Both are needed. The craftable-only tick filters ON the count, and the
         --   "craftable" sort mode ORDERS on it, so a changed count can change both
         --   which rows show and what order they are in.
@@ -754,6 +878,11 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
         professions = staging.profs
         recipes = staging.recs
         staging.profs, staging.recs = {}, {}
+
+        -- Committed with the list it describes, in the same frame, so the filter can
+        -- never run against a buyable set belonging to a previous fetch.
+        buyableSet = staging.vend
+        staging.vend = {}
 
         recipesBySpell = {}
         for _, recipe in ipairs(recipes) do
@@ -1006,12 +1135,61 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
                 name = (name ~= "" and name) or nil }
         end
 
+    --[[
+        FRGPROCX / FRGDEMAT -- the Disenchant tab's own attributes ([#922]).
+
+        Staged like everything else and committed at FRGPROCEND, so the list and the
+        data describing it are never applied a burst apart. Both are absent from an
+        old server, which leaves the tables empty and the tab behaving exactly as it
+        did before.
+    ]]
+    elseif body:find("^FRGPROCX:") then
+        for item, skill, tier in body:gmatch("(%d+),(%d+),(%d+);") do
+            staging.pattr[tonumber(item)] = { skill = tonumber(skill), tier = tonumber(tier) }
+        end
+
+    elseif body:find("^FRGDEMAT:") then
+        for tier, mat in body:gmatch("(%d+),(%d+);") do
+            tier = tonumber(tier)
+            staging.pmats[tier] = staging.pmats[tier] or {}
+            staging.pmats[tier][tonumber(mat)] = true
+        end
+
     elseif body:find("^FRGPROCEND:") then
         processable = staging.proc
-        staging.proc = {}
-        table.sort(processable, function(a, b) return a.count > b.count end)
+        procAttr    = staging.pattr
+        tierMats    = staging.pmats
+        staging.proc, staging.pattr, staging.pmats = {}, {}, {}
+
+        -- Which materials are actually reachable from what this player is holding.
+        -- Rebuilt from scratch every burst so a material that is no longer reachable
+        -- stops being offered, rather than lingering as a filter that matches nothing.
+        matPresent = {}
+        for _, entry in ipairs(processable) do
+            local attr = procAttr[entry.item]
+            local mats = attr and tierMats[attr.tier]
+            if mats then
+                for mat in pairs(mats) do
+                    matPresent[mat] = true
+                    ItemName(mat)   -- warm the cache so the dropdown has names to show
+                end
+            end
+        end
+
+        -- ⚠ If the selected material has gone, fall back to "any" rather than leaving
+        --   a filter selected that can only ever produce an empty list.
+        if db.procMaterial ~= 0 and not matPresent[db.procMaterial] then
+            db.procMaterial = 0
+        end
+
+        SortProcessable()
         ApplyFilter()   -- rebuilds filteredProc against the current query
-        if frame and ProcView(frame.mode) then RefreshList() end
+        if frame and ProcView(frame.mode) then
+            -- Guarded like the mode switches: this is assigned when the window is
+            -- built, and a burst arriving before that would otherwise be a nil call.
+            if RefreshProcControls then RefreshProcControls() end
+            RefreshList()
+        end
 
     elseif body:find("^FRGQUOTED:") then
         local cost, buy, tokenOnly, unbuyable = body:match("^FRGQUOTED:(%d+):(%d+):(%d+):(%d+)$")
@@ -1661,6 +1839,10 @@ function BuildProfessionTabs()
             info.func = function()
                 frame.mode = "craft"
                 selectedSkill = prof.skill
+                -- [#922] Before ApplyFilter: the material filter only applies on the
+                -- disenchant view, and the controls have to agree with the list the
+                -- filter is about to build.
+                if RefreshProcControls then RefreshProcControls() end
                 ApplyFilter()
                 ResetScroll()
                 UpdateSearchHint()
@@ -1684,6 +1866,8 @@ function BuildProfessionTabs()
                 -- Re-asked per switch: the list is the player's VAULT, which the
                 -- job they just ran will have changed.
                 Send("FRGPROCLIST")
+                -- [#922] Same ordering reason as the craft branch above.
+                if RefreshProcControls then RefreshProcControls() end
                 ApplyFilter()   -- the query carries over to this list too
                 ResetScroll()
                 -- Selecting a row in one view and switching leaves a selection the
@@ -1777,44 +1961,131 @@ local function BuildFrame(parent)
     onlyCheck:SetHeight(22)
     onlyCheck:SetPoint("LEFT", search, "RIGHT", 8, 0)
     onlyCheck:SetChecked(db.craftableOnly)
-    onlyCheck:SetScript("OnClick", function(self)
-        db.craftableOnly = self:GetChecked() and true or false
-        ApplyFilter()
-        RefreshList()
-    end)
     local onlyLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     onlyLabel:SetPoint("LEFT", onlyCheck, "RIGHT", 2, 0)
     onlyLabel:SetText("Craftable only")
 
-    -- Sort mode. Difficulty sorts hardest first, in the same order as the colour
-    -- ladder (orange -> yellow -> green -> grey), which puts everything still
-    -- worth skill points at the top of the list.
-    local SORTS = {
+    --[[
+        "...or buyable" -- owner request 2026-08-17.
+
+        Widens the tick to its left rather than standing on its own, so it is shown
+        DISABLED whenever "Craftable only" is off. With that filter off every recipe
+        is listed already, so an enabled-looking tick that changed nothing would read
+        as broken -- which is precisely the complaint #922 was filed about, one tab
+        over.
+    ]]
+    local buyCheck = CreateFrame("CheckButton", "UncappedForgeBuyable", frame, "UICheckButtonTemplate")
+    buyCheck:SetWidth(22)
+    buyCheck:SetHeight(22)
+    buyCheck:SetPoint("LEFT", onlyLabel, "RIGHT", 10, 0)
+    buyCheck:SetChecked(db.buyableToo)
+    buyCheck:SetScript("OnClick", function(self)
+        db.buyableToo = self:GetChecked() and true or false
+        ApplyFilter()
+        ResetScroll()
+        RefreshList()
+    end)
+
+    local buyLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    buyLabel:SetPoint("LEFT", buyCheck, "RIGHT", 2, 0)
+    buyLabel:SetText("...or buyable")
+
+    -- Wired by hand rather than left to `self.tooltipText`: UICheckButtonTemplate
+    -- does not show that field on its own outside Blizzard's options frames, so
+    -- setting it would have looked like a tooltip and shown nothing.
+    buyCheck:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("...or buyable", 1, 0.82, 0)
+        GameTooltip:AddLine("Also lists recipes you cannot make yet whose missing "
+            .. "materials can all be bought for gold.", 1, 1, 1, true)
+        GameTooltip:AddLine("Needs \"Craftable only\" ticked -- with it off, "
+            .. "everything is listed anyway.", 0.7, 0.7, 0.7, true)
+        GameTooltip:Show()
+    end)
+    buyCheck:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    local function UpdateBuyableEnabled()
+        if db.craftableOnly then
+            buyCheck:Enable()
+            buyLabel:SetTextColor(1, 0.82, 0)
+        else
+            buyCheck:Disable()
+            buyLabel:SetTextColor(0.5, 0.5, 0.5)
+        end
+    end
+
+    onlyCheck:SetScript("OnClick", function(self)
+        db.craftableOnly = self:GetChecked() and true or false
+        UpdateBuyableEnabled()
+        ApplyFilter()
+        ResetScroll()
+        RefreshList()
+    end)
+
+    UpdateBuyableEnabled()
+
+    --[[
+        Sort mode. Two lists, two sets of options, ONE dropdown.
+
+        ★★ [#922] THE REPORTED BUG. This control used to offer the recipe options on
+           every tab and write only `db.sortMode`, which only the recipe list reads --
+           so on the Disenchant tab it accepted "Difficulty", relabelled itself, and
+           sorted nothing. It now asks which list is showing and drives that one.
+
+        "Difficulty" honestly means different things on the two: the orange/yellow/
+        green/grey skill-up ladder for a recipe, and the required disenchant skill for
+        an item being broken down. There is no colour ladder on the thing you feed in,
+        so the label is kept and the measure changes with the list -- which is what a
+        player means when they ask for it on either tab.
+    ]]
+    local RECIPE_SORTS = {
         { value = "name",       text = "Name" },
         { value = "level",      text = "Skill level" },   -- [#790]
         { value = "difficulty", text = "Difficulty" },
     }
+
+    -- Count first: it is the order this list has always used and the most useful one
+    -- for bulk work, so it stays the default rather than being quietly replaced.
+    local PROC_SORTS = {
+        { value = "count",      text = "Amount held" },
+        { value = "name",       text = "Name" },
+        { value = "difficulty", text = "Difficulty" },
+    }
+
+    local function ActiveSorts()
+        return ProcView(frame.mode) and PROC_SORTS or RECIPE_SORTS
+    end
+
+    local function ActiveSortValue()
+        return ProcView(frame.mode) and db.procSortMode or db.sortMode
+    end
 
     local sortDrop = CreateFrame("Frame", "UncappedForgeSortDrop", frame, "UIDropDownMenuTemplate")
     sortDrop:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 8, -10)
     frame.sortDrop = sortDrop
 
     local function sortText(value)
-        for _, entry in ipairs(SORTS) do
+        for _, entry in ipairs(ActiveSorts()) do
             if entry.value == value then return entry.text end
         end
-        return "Name"
+        return ActiveSorts()[1].text
     end
 
     UIDropDownMenu_Initialize(sortDrop, function(_, level)
-        for _, entry in ipairs(SORTS) do
+        local active = ActiveSortValue()
+        for _, entry in ipairs(ActiveSorts()) do
             local info = UIDropDownMenu_CreateInfo()
             info.text = entry.text
             info.value = entry.value
-            info.checked = (db.sortMode == entry.value)
+            info.checked = (active == entry.value)
             info.func = function()
-                db.sortMode = entry.value
-                sortDirty = true
+                if ProcView(frame.mode) then
+                    db.procSortMode = entry.value
+                    SortProcessable()
+                else
+                    db.sortMode = entry.value
+                    sortDirty = true
+                end
                 UIDropDownMenu_SetText(sortDrop, entry.text)
                 ApplyFilter()
                 ResetScroll()
@@ -1823,12 +2094,109 @@ local function BuildFrame(parent)
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    UIDropDownMenu_SetWidth(sortDrop, 90)
-    UIDropDownMenu_SetText(sortDrop, sortText(db.sortMode))
+    UIDropDownMenu_SetWidth(sortDrop, 100)
+    UIDropDownMenu_SetText(sortDrop, sortText(ActiveSortValue()))
 
     local sortLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     sortLabel:SetPoint("RIGHT", sortDrop, "LEFT", -2, 0)
     sortLabel:SetText("Sort")
+
+    --[[
+        [#922] Material filter -- "show me only the things that could give me Arcane
+        Dust". The reporter framed it as "pick TBC", and on this axis those are the
+        same request: each expansion's enchanting materials are distinct, so choosing
+        Arcane Dust IS choosing Burning Crusade gear. Filtering on the material is the
+        version that cannot drift, because it is read from the server's own yield
+        table rather than from a hand-kept expansion list.
+
+        Disenchant-only, and hidden everywhere else -- see the note in ApplyFilter.
+    ]]
+    local matDrop = CreateFrame("Frame", "UncappedForgeMatDrop", frame, "UIDropDownMenuTemplate")
+    matDrop:SetPoint("RIGHT", sortLabel, "LEFT", -8, 0)
+    frame.matDrop = matDrop
+
+    local function MaterialText()
+        if db.procMaterial == 0 then return "Any material" end
+        return ItemName(db.procMaterial) or ("item " .. db.procMaterial)
+    end
+
+    UIDropDownMenu_Initialize(matDrop, function(_, level)
+        local any = UIDropDownMenu_CreateInfo()
+        any.text = "Any material"
+        any.value = 0
+        any.checked = (db.procMaterial == 0)
+        any.func = function()
+            db.procMaterial = 0
+            UIDropDownMenu_SetText(matDrop, MaterialText())
+            ApplyFilter()
+            ResetScroll()
+            RefreshList()
+        end
+        UIDropDownMenu_AddButton(any, level)
+
+        -- Sorted by name so the menu is stable between openings; `pairs` order over
+        -- the material set is not, and a dropdown that reshuffles itself is its own
+        -- small bug report.
+        local ordered = {}
+        for mat in pairs(matPresent) do ordered[#ordered + 1] = mat end
+        table.sort(ordered, function(a, b)
+            return (ItemName(a) or tostring(a)) < (ItemName(b) or tostring(b))
+        end)
+
+        for _, mat in ipairs(ordered) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = ItemName(mat) or ("item " .. mat)
+            info.value = mat
+            info.checked = (db.procMaterial == mat)
+            info.func = function()
+                db.procMaterial = mat
+                UIDropDownMenu_SetText(matDrop, MaterialText())
+                ApplyFilter()
+                ResetScroll()
+                RefreshList()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    UIDropDownMenu_SetWidth(matDrop, 130)
+    UIDropDownMenu_SetText(matDrop, MaterialText())
+
+    --[[
+        Which controls belong to which list.
+
+        ★ The craftable ticks are recipe-only and were ALSO sitting on the processing
+          tabs doing nothing -- the same defect as the sort, just less noticed because
+          nobody had complained about them yet. They are hidden there now rather than
+          left as two more controls that lie.
+    ]]
+    function RefreshProcControls()
+        if not frame then return end
+
+        local view = ProcView(frame.mode)
+        local isDisenchant = view and view.mask == KIND_DISENCHANT
+
+        if view then
+            onlyCheck:Hide(); onlyLabel:Hide()
+            buyCheck:Hide();  buyLabel:Hide()
+        else
+            onlyCheck:Show(); onlyLabel:Show()
+            buyCheck:Show();  buyLabel:Show()
+            UpdateBuyableEnabled()
+        end
+
+        if isDisenchant then
+            matDrop:Show()
+            UIDropDownMenu_SetText(matDrop, MaterialText())
+        else
+            matDrop:Hide()
+        end
+
+        -- The sort dropdown stays on every tab -- it now has something real to do on
+        -- all of them -- but its options and its label follow the list being shown.
+        UIDropDownMenu_SetText(sortDrop, sortText(ActiveSortValue()))
+    end
+
+    RefreshProcControls()
 
     -- Recipe list -- fixed width, but stretches vertically with the window;
     -- ROWS (how many rows currently fit) is recomputed on resize, same

@@ -1813,8 +1813,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedForge/UncappedForge.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedForge/UncappedForge.lua",
-                      "sha256":  "c988c1ce2f4b580de844756b2d68f880ed7baf029c508b4c3a0a09a5ddc97275",
-                      "size":  115913
+                      "sha256":  "603bde0ace45c10f04539daa07621cf84e134309eac4f476ecd3d1b889bc5233",
+                      "size":  132956
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedKeystone/UncappedKeystone.lua",
@@ -3023,12 +3023,12 @@
                      }
                  ],
     "itemCache":  {
-                      "epoch":  "2026.08.16a",
-                      "url":  "http://152.53.115.249/patches/itemcache-2026.08.16a.wdb.gz",
-                      "sha256":  "cec7ae421a705de44bf45d7fc54fa5507292deb98deac2e8039edeab88d2f4fb",
-                      "size":  1814759,
-                      "contentSha256":  "c7ee3bd91ce0bfff370630686cc164b9a4f61ffcc4c8507a84047eda483e0687",
-                      "contentSize":  22011684,
+                      "epoch":  "2026.08.17a",
+                      "url":  "http://152.53.115.249/patches/itemcache-2026.08.17a.wdb.gz",
+                      "sha256":  "9ce03419b004927e3b1b9b604558a258d3bac080a4c393796e6f52e84850df52",
+                      "size":  1827750,
+                      "contentSha256":  "3bbd383249ca5aa4b0d15a8ed75f67bb7e81592c4145ec1671dc2a8071633610",
+                      "contentSize":  22011739,
                       "locales":  [
                                       "enUS"
                                   ]
