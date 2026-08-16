@@ -139,6 +139,10 @@ public static class Program
         await NotAWdbFallsBackToWiping();
         await DownloadFailureFallsBackToWiping();
         await IntegrityCheckIgnoresTheItemCache();
+
+        await StalePartialDoesNotWedgeOnA416();
+        await WrongLengthIsClassifiedAsAMismatch();
+        await StalePartialRecoversOnceTheHostCatchesUp();
     }
 
     // ---------- dialog rendering ----------
@@ -599,6 +603,180 @@ public static class Program
         Check("integrity: PLAY still allowed", report.CanPlay);
         Check("integrity: Cache\\ is not a checked root",
               !c.Baseline.CheckedRoots.Contains("Cache"));
+    }
+
+    // ---------- resumable download, against a CDN that is behind ----------
+
+    /*
+     * ★★ WHY THESE THREE EXIST
+     *
+     * 2026-08-16: two players, independently, spent over an hour unable to finish an update.
+     * Their logs were one line repeating — "416 (Range Not Satisfiable)" — five attempts per
+     * launch, unchanged across a dozen relaunches, for the same one file.
+     *
+     * manifest.json and the payload files are separate URLs on the same CDN and expire
+     * independently, so a player can hold a manifest describing release N while an edge still
+     * answers with release N-1's bytes. The download then came out the wrong LENGTH, which
+     * (a) threw IOException, which SyncService does not classify as a stale host, so the
+     * wait-and-resync gate built for exactly this never fired; and (b) left the partial on
+     * disk. Every later attempt resumed from the end of that stale body, which is precisely
+     * where the stale body ends, so the host answered 416 — forever, because nothing in the
+     * loop ever changed `have`.
+     *
+     * The three cases below pin the three properties that fix it: a 416 discards the partial,
+     * a wrong length reads as a mismatch rather than a transport error, and the whole thing
+     * heals by itself once the CDN catches up.
+     */
+
+    private const int StaleBytes = 137_715;
+    private const int FreshBytes = 144_411;
+
+    /// <summary>
+    /// The wedge itself. A partial exactly as long as the body the host is still serving must
+    /// not produce the same 416 on every attempt until the attempts run out.
+    /// </summary>
+    private static async Task StalePartialDoesNotWedgeOnA416()
+    {
+        using var c = new Fixture();
+        var host = new RangeHost(Fill(StaleBytes, (byte)'s'));
+        var destination = Path.Combine(c.Root, "SoulForge.lua");
+
+        // What the player had on disk: a full copy of the PREVIOUS release, parked as a temp
+        // by the length check that rejected it.
+        File.WriteAllBytes(ResilientDownload.TempFor(destination), Fill(StaleBytes, (byte)'s'));
+
+        var thrown = await CatchAsync(() => new ResilientDownload(new HttpClient(host))
+            .FetchAsync("http://cdn/SoulForge.lua", destination, FreshBytes,
+                        Sha256Of(Fill(FreshBytes, (byte)'f')), "SoulForge.lua", null, default,
+                        attempts: 2));
+
+        Check("416: the partial was discarded, not retried into",
+              host.FullRequests > 0, $"full={host.FullRequests} ranged={host.RangedRequests}");
+        Check("416: did not fail with the 416 itself",
+              thrown?.Message.Contains("Range") != true, thrown?.Message ?? "(nothing thrown)");
+        Check("416: reported as a content mismatch", thrown is InvalidDataException,
+              thrown?.GetType().Name ?? "(nothing thrown)");
+        Check("416: left no temp behind",
+              !File.Exists(ResilientDownload.TempFor(destination)));
+    }
+
+    /// <summary>
+    /// A short body must surface as InvalidDataException. That type is the whole input to
+    /// SyncOutcome.Mismatched → LooksLikeStaleHost → the publish gate's wait-and-resync; as an
+    /// IOException it was indistinguishable from a dropped connection and the gate stayed shut.
+    /// </summary>
+    private static async Task WrongLengthIsClassifiedAsAMismatch()
+    {
+        using var c = new Fixture();
+        var host = new RangeHost(Fill(StaleBytes, (byte)'s'));
+        var destination = Path.Combine(c.Root, "Forge.lua");
+
+        var thrown = await CatchAsync(() => new ResilientDownload(new HttpClient(host))
+            .FetchAsync("http://cdn/Forge.lua", destination, FreshBytes,
+                        Sha256Of(Fill(FreshBytes, (byte)'f')), "Forge.lua", null, default,
+                        attempts: 5));
+
+        Check("short body: reported as a mismatch", thrown is InvalidDataException,
+              thrown?.GetType().Name ?? "(nothing thrown)");
+        // :N0 groups with whatever the machine's locale uses — a comma here, a dot on the
+        // German box this first failed on — so compare against the same formatting, not a
+        // literal. The message is a player-facing diagnostic; it only has to name both sizes.
+        Check("short body: says what the sizes were",
+              thrown?.Message.Contains($"{FreshBytes:N0}") == true &&
+              thrown?.Message.Contains($"{StaleBytes:N0}") == true, thrown?.Message ?? "");
+
+        // Downloaded whole and still wrong is the host, not the link — one attempt, not five.
+        // Five would turn the gate's measured wait into a crawl across ~480 files.
+        Check("short body: not retried five times", host.FullRequests == 1,
+              $"full={host.FullRequests}");
+        Check("short body: left no temp behind",
+              !File.Exists(ResilientDownload.TempFor(destination)));
+    }
+
+    /// <summary>
+    /// The end state that matters to the player: once the CDN serves the new bytes, the next
+    /// launch finishes on its own with no intervention and no manual cache clearing.
+    ///
+    /// Note this needs TWO attempts and is right to. The resume succeeds and reaches the
+    /// correct LENGTH, but the first 137,715 bytes are the old release, so only the end-to-end
+    /// hash catches it — which is exactly the property the class docs refuse to trade away.
+    /// </summary>
+    private static async Task StalePartialRecoversOnceTheHostCatchesUp()
+    {
+        using var c = new Fixture();
+        var fresh = Fill(FreshBytes, (byte)'f');
+        var host = new RangeHost(fresh);
+        var destination = Path.Combine(c.Root, "Transmog.lua");
+
+        File.WriteAllBytes(ResilientDownload.TempFor(destination), Fill(StaleBytes, (byte)'s'));
+
+        var thrown = await CatchAsync(() => new ResilientDownload(new HttpClient(host))
+            .FetchAsync("http://cdn/Transmog.lua", destination, FreshBytes,
+                        Sha256Of(fresh), "Transmog.lua", null, default, attempts: 5));
+
+        Check("caught-up host: succeeded", thrown is null, thrown?.Message ?? "");
+        Check("caught-up host: file is in place", File.Exists(destination));
+        Check("caught-up host: bytes are the new release",
+              File.Exists(destination) && File.ReadAllBytes(destination).SequenceEqual(fresh));
+        Check("caught-up host: stitched copy was not accepted", host.FullRequests == 1,
+              $"full={host.FullRequests} ranged={host.RangedRequests}");
+        Check("caught-up host: left no temp behind",
+              !File.Exists(ResilientDownload.TempFor(destination)));
+    }
+
+    private static byte[] Fill(int count, byte value) => Enumerable.Repeat(value, count).ToArray();
+
+    private static string Sha256Of(byte[] body) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(body)).ToLowerInvariant();
+
+    /// <summary>Runs an action that is expected to throw, and hands back what it threw.</summary>
+    private static async Task<Exception?> CatchAsync(Func<Task> action)
+    {
+        try { await action(); return null; }
+        catch (Exception ex) { return ex; }
+    }
+
+    /// <summary>
+    /// A static host that honours Range the way nginx and GitHub's CDN do — including the part
+    /// that caused the outage: a first-byte offset at or past the end of the body is 416, not
+    /// an empty 206.
+    /// </summary>
+    private sealed class RangeHost : HttpMessageHandler
+    {
+        private readonly byte[] _body;
+
+        public int FullRequests { get; private set; }
+        public int RangedRequests { get; private set; }
+
+        public RangeHost(byte[] body) => _body = body;
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var from = request.Headers.Range?.Ranges.FirstOrDefault()?.From;
+
+            if (from is null)
+            {
+                FullRequests++;
+                return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(_body),
+                });
+            }
+
+            RangedRequests++;
+
+            // RFC 9110: the first-byte-pos must be strictly less than the current length.
+            if (from.Value >= _body.Length)
+                return Task.FromResult(
+                    new HttpResponseMessage(System.Net.HttpStatusCode.RequestedRangeNotSatisfiable));
+
+            var tail = _body[(int)from.Value..];
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.PartialContent)
+            {
+                Content = new ByteArrayContent(tail),
+            });
+        }
     }
 
     /// <summary>A published item cache, built in memory so the hashes are right by construction.</summary>

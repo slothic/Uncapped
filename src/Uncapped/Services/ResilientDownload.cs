@@ -104,11 +104,12 @@ public sealed class ResilientDownload
             ct.ThrowIfCancellationRequested();
 
             /*
-             * ★ A WRONG HASH IS NOT A CONNECTION PROBLEM, AND MUST NOT BE RETRIED LIKE ONE.
+             * ★ WRONG BYTES ARE NOT A CONNECTION PROBLEM, AND MUST NOT BE RETRIED LIKE ONE.
              *
-             * If the whole file arrived from scratch and still hashes wrong, the host is
-             * serving bytes that are not what we asked for, and asking again gets the same
-             * bytes. Retrying would be pure delay -- and in SyncService it would be actively
+             * If the whole file arrived from scratch and still comes out the wrong LENGTH or
+             * the wrong HASH, the host is serving bytes that are not what we asked for, and
+             * asking again gets the same bytes. Retrying would be pure delay -- and in
+             * SyncService it would be actively
              * harmful: during a publish window GitHub's CDN serves the PREVIOUS release, so
              * every payload file mismatches at once. Backing off five times per file would turn
              * the CDN gate's careful wait-and-resync into a crawl and hide the real diagnosis.
@@ -145,8 +146,30 @@ public sealed class ResilientDownload
                     have = await TransferAsync(url, temp, have, expectedSize, label, progress, attempt, attempts, ct);
 
                 var length = new FileInfo(temp).Length;
+
+                /*
+                 * ★★ A WRONG LENGTH IS THE SAME CLASS OF FAULT AS A WRONG HASH, AND MUST BE
+                 * TREATED IDENTICALLY. It used to throw a bare IOException and leave the temp
+                 * where it was, and both halves of that were wrong:
+                 *
+                 *   * IOException is not what SyncService classifies as Mismatched, so a stale
+                 *     CDN whose file CHANGED SIZE -- the common case, since an addon rarely
+                 *     edits to the same byte count -- never set LooksLikeStaleHost and never
+                 *     engaged the wait-and-resync gate. The player got a hard "Update failed"
+                 *     during a publish window instead of the pause that exists for it.
+                 *   * Keeping the temp meant the next attempt resumed from the end of a body we
+                 *     had already proven was not the file we wanted. That is what produced the
+                 *     unrecoverable 416 loop handled in TransferAsync below.
+                 */
                 if (expectedSize > 0 && length != expectedSize)
-                    throw new IOException($"expected {expectedSize:N0} bytes, got {length:N0}");
+                {
+                    try { File.Delete(temp); } catch { /* best effort */ }
+
+                    // Downloaded whole and still the wrong length: the host, not the connection.
+                    fatal = startedEmpty;
+
+                    throw new InvalidDataException($"expected {expectedSize:N0} bytes, got {length:N0}");
+                }
 
                 if (!string.IsNullOrEmpty(expectedSha256))
                 {
@@ -197,7 +220,7 @@ public sealed class ResilientDownload
         }
 
         /*
-         * ★★ A CHECKSUM MISMATCH MUST KEEP ITS TYPE ALL THE WAY OUT.
+         * ★★ A CONTENT MISMATCH -- LENGTH OR CHECKSUM -- MUST KEEP ITS TYPE ALL THE WAY OUT.
          *
          * SyncService classifies a stale host by CATCHING InvalidDataException -- that is what
          * populates SyncOutcome.Mismatched, which is what makes LooksLikeStaleHost true, which
@@ -221,10 +244,66 @@ public sealed class ResilientDownload
         string url, string temp, long have, long expectedSize, string label,
         IProgress<DownloadProgress>? progress, int attempt, int attempts, CancellationToken ct)
     {
+        var response = await SendAsync(url, have, ct);
+
+        try
+        {
+            /*
+             * ★★ 416 IS THE ONE FAILURE THAT NEVER CLEARS ITSELF, SO IT HAS TO BE CAUGHT HERE.
+             *
+             * "Requested Range Not Satisfiable" means our first-byte offset is at or past the
+             * end of the body the host currently has: the partial on disk is at least as long
+             * as the file being served. That is a real, reachable state, not a broken host.
+             * manifest.json and every payload file are separate URLs on the same CDN and expire
+             * independently, so a player can hold a manifest that says 144,411 bytes while the
+             * edge still answers with the 137,715-byte previous release. The length check fails,
+             * and (before the fix above) left the temp behind at exactly the stale body's size.
+             *
+             * From there nothing moves. `have` never changes, so the request never changes, so
+             * the answer never changes -- through all five attempts, and through every relaunch
+             * after that, because the temp is on disk. Two players hit exactly this on
+             * 2026-08-16 and sat in it for over an hour across a dozen restarts; the log is a
+             * single line repeating, which is the signature to look for.
+             *
+             * The partial is the only thing on our side of it, so discard it and ask again from
+             * zero. Worst case we re-fetch a file that still mismatches -- an error that RESOLVES
+             * when the CDN catches up, instead of one that cannot.
+             */
+            if (have > 0 && response.StatusCode == System.Net.HttpStatusCode.RequestedRangeNotSatisfiable)
+            {
+                Log.Write($"download: {label} — host has nothing past our partial ({have:N0} bytes), discarding it and restarting");
+
+                response.Dispose();
+                try { File.Delete(temp); } catch { /* FileMode.Create below truncates anyway */ }
+                have = 0;
+
+                response = await SendAsync(url, have, ct);
+            }
+
+            return await ReceiveAsync(
+                response, temp, have, expectedSize, label, progress, attempt, attempts, ct);
+        }
+        finally
+        {
+            response.Dispose();
+        }
+    }
+
+    /// <summary>One GET, asking for the tail of the file when there is already something on disk.</summary>
+    private async Task<HttpResponseMessage> SendAsync(string url, long have, CancellationToken ct)
+    {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         if (have > 0) request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(have, null);
 
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        return await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+    }
+
+    /// <summary>Streams an accepted response onto the temp.</summary>
+    /// <returns>Total bytes on the temp when the stream ended.</returns>
+    private static async Task<long> ReceiveAsync(
+        HttpResponseMessage response, string temp, long have, long expectedSize, string label,
+        IProgress<DownloadProgress>? progress, int attempt, int attempts, CancellationToken ct)
+    {
         response.EnsureSuccessStatusCode();
 
         /*
