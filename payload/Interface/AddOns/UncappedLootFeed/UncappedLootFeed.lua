@@ -594,6 +594,32 @@ SlashCmdList["UNCAPPEDLOOTFEED"] = function(msg)
     cmd = (cmd or ""):lower()
 
     if cmd == "" then
+        --[[ Bare /lootfeed opens the POP-OUT, not the Dashboard tab.
+             Owner ruling 2026-08-16, following the "Escape closes the loot feed"
+             reports.
+
+             The popout was never the problem -- it carries escapeClose = false
+             and has since #384. The tab was: Escape closes the DASHBOARD, which
+             is deliberate and correct for a panel you open and dismiss, and it
+             took the feed down with it. So the fix is which of the two the bare
+             command reaches for, not the Escape behaviour of either.
+
+             The tab is still one click away inside the Dashboard, and
+             `/lootfeed tab` asks for it by name.
+
+             ⚠ Falls back to the tab SILENTLY when the popout cannot be built
+             (UncappedUI or _Popout.lua missing) rather than calling
+             LF.TogglePopout, which prints an error and opens nothing. A bare
+             command has to open something. ]]
+        if LF.Popout and LF.Popout.Toggle then
+            LF.Popout.Toggle()
+        else
+            LF.ToggleTab()
+        end
+        return
+    end
+
+    if cmd == "tab" then
         LF.ToggleTab()
         return
     end
@@ -658,7 +684,7 @@ SlashCmdList["UNCAPPEDLOOTFEED"] = function(msg)
         return
     end
 
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Loot Feed]|r /lootfeed | window | want <item> | unwant <item> | list | clear | all | reset  -- all of these are in the Dashboard's Loot Feed tab too.")
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffd100[Loot Feed]|r /lootfeed (pop-out) | tab | want <item> | unwant <item> | list | clear | all | reset  -- all of these are in the Dashboard's Loot Feed tab too.")
 end
 
 -- ---------------------------------------------------------------------------

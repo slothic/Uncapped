@@ -1915,8 +1915,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedLootFeed/UncappedLootFeed.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedLootFeed/UncappedLootFeed.lua",
-                      "sha256":  "78dd2b135a5734af6f86ddb613f251900bbce0ed6077ecf4cc22ae0a72c95990",
-                      "size":  29818
+                      "sha256":  "9891e87586e9dd25a6a49a78db9ef594ebc0c7ebd3acfd7d708815fea3eb385a",
+                      "size":  30968
                   },
                   {
                       "path":  "Interface/AddOns/UncappedLootFeed/UncappedLootFeed.toc",
