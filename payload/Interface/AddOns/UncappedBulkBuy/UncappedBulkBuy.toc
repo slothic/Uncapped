@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: Uncapped Bulk Buy
+## Notes: Buy many of a vendor item at once, including things that cost a currency.
+## Author: Uncapped
+## Version: 1.0
+## SavedVariables: UncappedBulkBuyDB
+
+UncappedBulkBuy.lua

@@ -7,6 +7,11 @@
       little (forever). Auto-consume (ICAC) and Auto-melt (ICAO), both off by
       default, feed it as you play; the whitelist protects named items from
       being picked up by either. There is no manual single-item feed.
+      [#812] "Render junk gear" (ICVRENDER) is the ON-DEMAND bulk door: one
+      press renders every GREY and WHITE weapon/armour piece out of your Vault
+      in one go, without turning the all-quality standing sweep on. Preview
+      first, confirm second -- the server arms the confirmation, exactly as it
+      does for Auto-consume.
     * Soulbinding -- feed an EXACT DUPLICATE of an item you're WEARING onto it to
       extract (the current multiplier) of its stats and ramp its procs. "Soulbind
       Duplicates" does it in bulk from your bags + vault.
@@ -348,6 +353,27 @@ local SND_SEAL = "Sound\\Spells\\SoulstoneResurrection_Base.wav"
      ========================================================================== ]]
 local serverKeepOk = false
 
+--[[ ==========================================================================
+     [#812] THE RENDER BUTTON'S OWN "is this server new enough?" -- AND WHY IT
+     IS A SOFT TIMEOUT RATHER THAN THE HARD GATE ABOVE.
+
+     serverKeepOk exists because an OLD server MISREADS the new value: ICAO's
+     mode 2 parses as `!= 0` there, i.e. as MELT, so sending it during the
+     client-first deploy window destroys gear. That is a hard gate because the
+     failure is silent and irreversible.
+
+     ICVRENDER has no such twin. It is a brand-new verb, and an old server drops
+     an unrecognised verb on the floor (`return false` -- "not one of ours"). The
+     worst an old server can do with it is nothing at all. So the only real
+     problem is a button that appears dead for a few minutes, and the honest fix
+     for that is to SAY SO after a moment rather than to lock the control.
+
+     Nil means "not waiting". Set to GetTime() on send, cleared by any ICVR, and
+     the button's OnUpdate turns a long silence into a sentence.
+     ========================================================================== ]]
+local renderWaitSince = nil
+local RENDER_WAIT_TIMEOUT = 5
+
 -- 211972 -> "211,972". BreakUpLargeNumbers does not exist in 3.3.5a, and the
 -- top sack holder on this realm is carrying six figures of them -- an unbroken
 -- run of digits there is genuinely hard to read at a glance.
@@ -373,6 +399,11 @@ local state = {
   -- stale the first time either is retuned with `.reload config`.
   sf = { mult = 0.1, fill = 0, completions = 0, autoconsume = false, autoopen = 0,
          sackHeld = 0, sackPerTick = 25, sackBurstMax = 250, sackBurstCd = 10 },  -- soulforge status
+  -- [#812] The last vault-junk forecast the server sent (ICVR). Never a
+  -- client-side estimate: the client cannot see the Vault's quest reserves, the
+  -- account whitelist or which rows duplicate worn gear, so every number the
+  -- confirmation dialog quotes has to come from the server that will act on it.
+  vr = { stacks = 0, pieces = 0, souls = 0 },
   whitelist = {},        -- current whitelist item names
   wlStaging = {},
   wlSuggest = {},        -- item-name search suggestions (server ICINAME search)
@@ -686,21 +717,94 @@ local function BuildUI(parent)
    bpBtn:SetPoint("LEFT", sockBtn, "RIGHT", 10, 0); bpBtn:SetText("Banned Procs\226\128\166")
   bpBtn:SetScript("OnClick", function() if UI and UI.OpenBannedProcs then UI:OpenBannedProcs() end end)
 
+  --[[ ---- third button row: [#812] render the Vault's junk gear -------------
+
+    THE REQUEST: "render down junk grey items and junk white items in vault via
+    bulk processing to turn it into soul forge food".
+
+    ★ WHY IT LIVES HERE AND NOT IN THE FORGE'S "Bulk processing" TAB, WHICH IS
+      WHAT THE REPORTER CALLED IT.
+
+      That tab is a CRAFTING pipeline: mill / prospect / disenchant / render,
+      four spells that consume a stack and produce another ITEM (junk meat ->
+      Rendered Tallow). It reads the Vault through SnapshotCommodities, which by
+      definition returns only random_prop_id 0 rows -- so half of grey and white
+      GEAR, the half that rolled a suffix, is invisible to it. And "souls" is not
+      an item it could ever produce.
+
+      Junk gear -> souls is the Soulforge's own operation. It already has the
+      whitelist that protects a name from it, the quest reserves that hold turn-
+      ins back, and the consent gate that stands in front of every destruction on
+      this realm. Rebuilding any of those beside the milling UI would have been a
+      second, subtly different set of rules for the same act. The Forge tab gets a
+      pointer to this button instead (see UncappedForge.lua).
+
+    ⚠ TWO PRESSES, ALWAYS. The first asks and shows the forecast; the SERVER arms
+      a 60s confirmation and the popup below is the only thing that answers it.
+      That is the same arm-then-answer path Auto-consume uses, deliberately reused
+      rather than reinvented -- one consent mechanism, one place it can be wrong.
+  ]]
+  local renderBtn = KitButton(f, "", 170, 24)
+   renderBtn:SetPoint("TOPLEFT", 6, -306); renderBtn:SetText("Render junk gear\226\128\166")
+  renderBtn:SetScript("OnClick", function()
+    -- Always a fresh ASK. The forecast in state.vr is only ever a label; nothing
+    -- here can act on a stale one, because the confirm the popup sends is
+    -- refused by the server unless its own arm is still live.
+    renderWaitSince = GetTime()
+    if UI and UI.RefreshRender then UI:RefreshRender() end
+    send("ICVRENDER")
+  end)
+  renderBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:AddLine("Render junk gear")
+    GameTooltip:AddLine("Turns every |cffffffffgrey|r and |cffffffffwhite|r weapon and armour piece in your "
+      .. "Vault into souls, in one go. Shows you the count first and asks before it does anything.",
+      1, 1, 1, true)
+    GameTooltip:AddLine(" ")
+    -- ⚠ THE GOLD TRADE, SAID OUT LOUD. Greys are the quality the realm otherwise
+    --   auto-SELLS for gold as you loot them; anything sitting in the Vault got
+    --   past that, but a player is still choosing souls over a vendor price here
+    --   and should be told so before, not after.
+    GameTooltip:AddLine("Greys would be worth a little gold at a vendor instead. This spends them on the "
+      .. "forge, not the merchant.", 1, 0.82, 0, true)
+    GameTooltip:AddLine("Never touched: quest turn-ins, anything on your |cffffffffWhitelist|r, and exact "
+      .. "copies of the gear you are wearing.", 0.6, 1, 0.6, true)
+    GameTooltip:AddLine("Green and better gear is left alone -- that is what Auto-consume is for.",
+      0.6, 0.6, 0.6, true)
+    GameTooltip:Show()
+  end)
+  renderBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  -- Throttled to ~4Hz, exactly like the sack burst button: this only ever
+  -- redraws a label and times out a silent server.
+  renderBtn:SetScript("OnUpdate", function(self, elapsed)
+    self.acc = (self.acc or 0) + elapsed
+    if self.acc < 0.25 then return end
+    self.acc = 0
+    if UI and UI.RefreshRender then UI:RefreshRender() end
+  end)
+  f.renderBtn = renderBtn
+
+  local renderHint = f:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
+  renderHint:SetPoint("TOPLEFT", 184, -310); renderHint:SetPoint("TOPRIGHT", -6, -310)
+  renderHint:SetJustifyH("LEFT")
+  f.renderHint = renderHint
+
   -- ---- your soulbound gear ----
-  -- Everything below here moved down 28 to make room for the second button row.
+  -- Everything below here moved down 28 to make room for the second button row,
+  -- and a further 28 for the third ([#812]).
   -- The gear list is anchored BOTTOMRIGHT and recomputes how many rows fit on
-  -- OnSizeChanged, so it simply shows two fewer rows rather than overflowing.
+  -- OnSizeChanged, so it simply shows fewer rows rather than overflowing.
   local eqHdr = f:CreateFontString(nil,"OVERLAY","GameFontNormal")
-  eqHdr:SetPoint("TOPLEFT", 6, -312); eqHdr:SetText("|cff40c0f0Your soulbound gear|r")
+  eqHdr:SetPoint("TOPLEFT", 6, -340); eqHdr:SetText("|cff40c0f0Your soulbound gear|r")
   local dLine = f:CreateTexture(nil,"ARTWORK"); dLine:SetTexture("Interface\\Buttons\\WHITE8X8")
   dLine:SetGradientAlpha("HORIZONTAL", 0.25,0.60,0.90,0.6, 0.25,0.60,0.90,0.0)
-  dLine:SetHeight(2); dLine:SetPoint("TOPLEFT", 6, -328); dLine:SetPoint("TOPRIGHT", -6, -328)
+  dLine:SetHeight(2); dLine:SetPoint("TOPLEFT", 6, -356); dLine:SetPoint("TOPRIGHT", -6, -356)
 
   -- Stretches to fill whatever's left of the panel below the divider; a pool
   -- of EQ_ROWS_MAX row frames is pre-built, but only however many actually
   -- fit (recomputed on OnSizeChanged, see below) are ever shown at once.
   local scroll = CreateFrame("ScrollFrame", "UncappedSoulforgeEqScroll", f, "FauxScrollFrameTemplate")
-  scroll:SetPoint("TOPLEFT", 8, -336); scroll:SetPoint("BOTTOMRIGHT", -23, 8)
+  scroll:SetPoint("TOPLEFT", 8, -364); scroll:SetPoint("BOTTOMRIGHT", -23, 8)
   scroll:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, EQ_H, function() if UI then UI:RefreshEquipped() end end)
   end)
@@ -766,6 +870,47 @@ local function attachMethods()
     self.sfExtract:SetText(string.format("Extraction: |cff9CC243+%.2f%%|r of stats per soulbind", sf.mult))
     self.acCheck:SetChecked(sf.autoconsume)
     self:RefreshSacks()
+    self:RefreshRender()
+  end
+
+  -- [#812] The junk-render button's label and its one line of hint.
+  --
+  -- Driven from state.vr, which ONLY the server writes. There is deliberately no
+  -- client-side count here: the client can see its own bags, but the Vault's
+  -- quest reserves, the account whitelist and "is this a copy of what I'm
+  -- wearing" are all server-side, so any number this addon computed for itself
+  -- would be a different number from the one that is about to be destroyed.
+  function UI:RefreshRender()
+    if not self.renderBtn then return end
+
+    -- A press in flight. Say it, and time it out into an explanation rather than
+    -- leaving a button that looks broken (see renderWaitSince).
+    if renderWaitSince then
+      if (GetTime() - renderWaitSince) < RENDER_WAIT_TIMEOUT then
+        self.renderBtn:SetText("Checking\226\128\166")
+        self.renderHint:SetText("|cff808080Looking through your Vault\226\128\166|r")
+        return
+      end
+      -- ⚠ Cleared and RETURNED from in the same breath. Falling through to the
+      --   forecast below would immediately overwrite this sentence with the stale
+      --   count, which is precisely the state the silence means we cannot trust.
+      renderWaitSince = nil
+      self.renderBtn:SetText("Render junk gear\226\128\166")
+      self.renderHint:SetText("|cffffd100This realm is still finishing its update \226\128\148 try again "
+        .. "in a few minutes.|r")
+      return
+    end
+
+    self.renderBtn:SetText("Render junk gear\226\128\166")
+
+    local vr = state.vr
+    if (vr.stacks or 0) > 0 then
+      self.renderHint:SetText(string.format(
+        "|cff808080%s grey/white piece(s) in your Vault \226\128\148 %s souls.|r",
+        groupDigits(vr.pieces), groupDigits(vr.souls)))
+    else
+      self.renderHint:SetText("|cff808080Grey and white gear only. Nothing else in the Vault is touched.|r")
+    end
   end
 
   -- Everything in the sack block. Split out because ICSACKS arrives on its own
@@ -2438,6 +2583,44 @@ local function OnLine(body)
     -- it would send.
     StaticPopupDialogs["UNCAPPED_SF_AUTOCONSUME"].timeout = tonumber(rest) or 60
     StaticPopup_Show("UNCAPPED_SF_AUTOCONSUME")
+  elseif cmd == "ICVR" then             -- [#812] <stacks>:<pieces>:<souls>:<armSeconds>
+    -- The forecast, and the ONLY thing that raises the confirmation. `arm` is the
+    -- server's own confirmation window in seconds, 0 meaning "there is nothing to
+    -- agree to" -- so a reply of zeroes silences the dialog without any client-side
+    -- rule about when the button should be inert.
+    --
+    -- ⚠ The popup's timeout is set FROM the server's arm, never hardcoded, for the
+    --   same reason ICACWARN does it: a dialog that outlives the arm behind it
+    --   sends a confirm that is refused, and the player is told "that expired" by
+    --   a box that was still on their screen.
+    local st, pc, sl, arm = rest:match("^(%d+):(%d+):(%d+):(%d+)$")
+    if st then
+      renderWaitSince = nil
+      state.vr.stacks = tonumber(st) or 0
+      state.vr.pieces = tonumber(pc) or 0
+      state.vr.souls  = tonumber(sl) or 0
+      if UI and UI.RefreshRender then UI:RefreshRender() end
+
+      local secs = tonumber(arm) or 0
+      if secs > 0 then
+        StaticPopupDialogs["UNCAPPED_SF_RENDER_JUNK"].timeout = secs
+        StaticPopup_Show("UNCAPPED_SF_RENDER_JUNK",
+          groupDigits(state.vr.pieces), groupDigits(state.vr.souls))
+      end
+    end
+  elseif cmd == "ICVRDONE" then         -- [#812] <stacks>:<pieces>:<souls>
+    -- The server already spoke the full summary in chat (destruction is never
+    -- silent -- #134), so this only clears the forecast and redraws. Adding a
+    -- second sentence here would be the same event reported twice, and the
+    -- Ding()/sound cue belongs to ICSFDING alone -- it means "the forge levelled",
+    -- not "something was eaten", and firing it on every press would make the one
+    -- moment worth noticing indistinguishable from the ordinary one.
+    local st, pc, sl = rest:match("^(%d+):(%d+):(%d+)$")
+    if st then
+      state.vr.stacks, state.vr.pieces, state.vr.souls = 0, 0, 0
+      if UI and UI.RefreshRender then UI:RefreshRender() end
+      dbg("rendered", st, pc, sl)
+    end
   elseif cmd == "ICSFDING" then         -- <levelsGained>
     if UI then UI:Ding() end
     msg("|cff9CC243The Soulforge grows stronger!|r Extraction is now higher.")
@@ -2774,6 +2957,37 @@ StaticPopupDialogs["UNCAPPED_SF_AUTOCONSUME"] = {
       .. "Only the |cffffffffWhitelist|r protects an item.\n\nTurn Auto-consume on?",
   button1 = "Yes, destroy my spare gear", button2 = CANCEL,
   OnAccept = function() send("ICAC:1:CONFIRM") end,
+  timeout = 60, whileDead = 1, hideOnEscape = 1, showAlert = 1,
+}
+
+-- ---- StaticPopup: confirm the [#812] vault junk render --------------------
+--
+-- ⚠⚠ THIS IS A CONSENT DIALOG FOR AN IRREVERSIBLE DESTRUCTION, so it obeys the
+--    same rule the Auto-consume one carries: it names EXACTLY what the server
+--    will eat, and if the server's rule ever changes this text changes with it.
+--
+--    The qualities named here are grey and white and nothing else, because that
+--    is precisely what ItemCustomization::JunkRenderValue prices. It is NOT the
+--    same set as Auto-consume's -- that one is common through epic and this one
+--    stops at white -- and the difference is the entire reason this button
+--    exists, so both dialogs have to keep saying their own truth.
+--
+-- ★ The COUNTS come from the server as %s arguments, never from a client-side
+--   tally: the Vault's quest reserves, the account whitelist and the worn-copy
+--   check are all server-side, so a locally computed number could promise a
+--   destruction different from the one about to happen.
+--
+-- ⚠ `timeout` is overwritten from the server's arm on every raise (see the ICVR
+--   handler). The 60 here is only what it is before the first one lands.
+StaticPopupDialogs["UNCAPPED_SF_RENDER_JUNK"] = {
+  text = "|cffff2020This permanently destroys gear.|r\n\n"
+      .. "Render |cffffffff%s|r |cffffffffgrey and white|r weapon and armour piece(s) out of your "
+      .. "|cffffffffVault|r into |cffffffff%s|r souls?\n\n"
+      .. "Green and better gear is |cffffffffnot|r touched. Quest turn-ins, anything on your Whitelist "
+      .. "and exact copies of the gear you are wearing are all held back.\n\n"
+      .. "Greys would sell to a vendor for a little gold instead. This cannot be undone.",
+  button1 = "Yes, render them down", button2 = CANCEL,
+  OnAccept = function() send("ICVRENDER:CONFIRM") end,
   timeout = 60, whileDead = 1, hideOnEscape = 1, showAlert = 1,
 }
 

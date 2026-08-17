@@ -89,6 +89,7 @@ local InitSavedVars
 local RefreshOptionsPanel
 local ApplyStatusTextDefaults
 local ApplyCameraZoomDefaults
+local ApplyFloatingCombatTextRepair
 
 -- ---------------------------------------------------------------------------
 -- Bar text: wrap Blizzard's formatter instead of overlaying it.
@@ -777,6 +778,9 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         -- overwrite us (see the note on ApplyStatusTextDefaults).
         if ApplyStatusTextDefaults then ApplyStatusTextDefaults() end
         if ApplyCameraZoomDefaults then ApplyCameraZoomDefaults() end
+        -- [#926] Same timing requirement as the two above: the client's own CVar load
+        -- must have finished, or it overwrites the repair on the way in.
+        if ApplyFloatingCombatTextRepair then ApplyFloatingCombatTextRepair() end
     end
 
     if event == "PLAYER_ENTERING_WORLD" or event == "PARTY_MEMBERS_CHANGED" then
@@ -1073,6 +1077,43 @@ end
 
 -- One-time camera-zoom migration (report #616, "allow camera to zoom out even more").
 --
+-- One-time repair of the engine floater CVars (report #926, "Custom Battle text not
+-- working -- the dmg numbers etc not working or showing at all").
+--
+-- ★★ THIS ADDON IS WHAT TURNED THEM OFF, WHICH IS WHY IT HAS TO TURN THEM BACK ON.
+--
+-- Until 2026-08-08 CT_ApplyBlizzardSurfaces forced floatingCombatTextCombatDamage,
+-- ...Healing and ...State to "0" on every load, because back then the addon drew its own
+-- scrolling numbers and the engine floaters could only ever show the pinned 32-bit value.
+-- That retirement stopped FORCING them off and left them "deliberately untouched" -- which
+-- is right for a fresh install and wrong for every player who already had them.
+--
+-- A CVar is persisted client-side. "Untouched" therefore means "still 0, forever" for
+-- anyone who ever ran an older build: the addon no longer draws, Blizzard's scroll region
+-- is deliberately off, and UncappedCT.dll hooks the ENGINE floater emit -- which never
+-- fires while the CVar is 0. All three renderers are off at once and the player sees no
+-- combat numbers at all. That is exactly the report, and it will have hit everyone who
+-- played before the retirement rather than a handful of unlucky clients.
+--
+-- Done ONCE, behind its own migration flag, rather than forced every load: switching them
+-- on at every login would take the choice away from anyone who genuinely wants floaters
+-- off. This is repairing our own damage, not setting a policy.
+--
+-- ⚠ The flag name must stay unique for the same reason recorded on ApplyStatusTextDefaults
+--   -- reusing an existing one would permanently skip precisely the players who still need
+--   the repair to run.
+ApplyFloatingCombatTextRepair = function()
+    local db = Uncapped64bitUIDB
+    if not db or db.fctCVarRepaired1 then return end
+    db.fctCVarRepaired1 = true
+
+    for _, cv in ipairs({ "floatingCombatTextCombatDamage",
+                          "floatingCombatTextCombatHealing",
+                          "floatingCombatTextCombatState" }) do
+        pcall(SetCVar, cv, "1")
+    end
+end
+
 -- Same shape and same reasoning as ApplyStatusTextDefaults directly above: driven by
 -- PLAYER_ENTERING_WORLD rather than ADDON_LOADED, because the client finishes loading
 -- its own saved CVars after ADDON_LOADED and would overwrite us; and gated on a

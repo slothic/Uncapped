@@ -38,6 +38,12 @@ local state = {
     petMult     = 2,
     questCount  = 0,
     questMult   = 1,
+    contagion   = 0,    -- [#882] per CHARACTER, unlike everything above it
+    contagionMax = 10,
+    -- [#902] extra targets granted by the CLASS, on top of contagion. Priests only;
+    -- the server omits the line entirely for everyone else, so 0 is the correct
+    -- default and not a "no data" sentinel.
+    contagionInnate = 0,
     professions = {},   -- { name, cur, max }
     fortune     = {},   -- { mapName, bonus }
     fortuneAll  = 0,    -- total server-side, may exceed #fortune (list is capped)
@@ -54,7 +60,7 @@ local COLOR_DIM   = "|cff888888"
 -- ---------------------------------------------------------------------------
 -- Window
 -- ---------------------------------------------------------------------------
-local WIDTH, HEIGHT = 360, 440
+local WIDTH, HEIGHT = 360, 454
 local ROW_H         = 14
 local FORTUNE_ROWS  = 8
 
@@ -151,6 +157,34 @@ local function Render()
     Row("Quest bonus",      string.format("x%.1f Anima  %s(%d quests)|r",
         state.questMult, COLOR_DIM, state.questCount))
 
+    -- [#882] Contagion sits under "This character" because it is the one scroll
+    -- spent per character rather than per account. Shown at zero on purpose --
+    -- two players reported this window precisely because they could not tell
+    -- whether they had any.
+    --
+    -- [#902] Priests carry a class grant on top of any scrolls, so the two halves get
+    -- named separately on their own line. A priest shown one combined number would
+    -- read their scrolls as having done nothing -- which is the same invisibility bug
+    -- #882 was reported for, one level up.
+    local innate = state.contagionInnate or 0
+    local reach  = state.contagion + innate
+    if reach > 0 then
+        Row("Scroll of Contagion", string.format("+%d nearby %s hit by your DoTs",
+            reach, reach == 1 and "enemy" or "enemies"))
+        if innate > 0 then
+            -- "your own spells" is load-bearing: the grant is gated on the priest spell
+            -- family server-side, so a trinket proc or a bomb still spreads by scrolls
+            -- alone. Saying only "+3 innate" would promise more than it pays.
+            Note(string.format("   %d innate on your own spells + %d of %d scrolls applied",
+                innate, state.contagion, state.contagionMax))
+        else
+            Note(string.format("   %d of %d scrolls applied", state.contagion, state.contagionMax))
+        end
+    else
+        Row("Scroll of Contagion", string.format("%snone applied  (0 of %d)|r",
+            COLOR_DIM, state.contagionMax))
+    end
+
     if #state.professions > 0 then
         for n = 1, #state.professions do
             local p = state.professions[n]
@@ -232,7 +266,8 @@ comms:SetScript("OnEvent", function(_, event, a1, a2)
     if not pending then
         pending = { professions = {}, fortune = {}, fortuneAll = 0,
                     gatherRange = 0, yieldTenths = 0, delver = 0, petDelver = nil, petMult = 2,
-                    questCount = 0, questMult = 1 }
+                    questCount = 0, questMult = 1, contagion = 0, contagionMax = 10,
+                    contagionInnate = 0 }
     end
 
     local range, yield = text:match("^SCRACC:([%d%.%-]+):(%d+)$")
@@ -264,6 +299,23 @@ comms:SetScript("OnEvent", function(_, event, a1, a2)
     if qcount then
         pending.questCount = tonumber(qcount) or 0
         pending.questMult  = tonumber(qmult) or 1
+        return
+    end
+
+    -- [#882] Per character, and sent even at zero -- "I have none" is a real answer
+    -- here, and the absence of a row was the whole report.
+    local contagion, contagionMax = text:match("^SCRCON:(%d+):(%d+)$")
+    if contagion then
+        pending.contagion    = tonumber(contagion) or 0
+        pending.contagionMax = tonumber(contagionMax) or 10
+        return
+    end
+
+    -- [#902] Class grant, sent only to classes that have one (priests today). Its
+    -- absence is the answer "none", so nothing here needs a not-received sentinel.
+    local innate = text:match("^SCRCIN:(%d+)$")
+    if innate then
+        pending.contagionInnate = tonumber(innate) or 0
         return
     end
 
@@ -327,7 +379,11 @@ end
 -- (title/banner + margins) that a standalone window didn't have to account
 -- for, ~72px.
 function Scrolls.UI.GetMinHeight()
-    return 512
+    -- +14 for the Scroll of Contagion row added by #882.
+    -- +14 for the detail line under it added by #902 ("n innate + m of 10 scrolls").
+    -- Reserved unconditionally: this is a fixed number, and a priest opening the tab
+    -- must not be the case that overflows it.
+    return 540
 end
 
 -- Switches the Dashboard to the Soul Scrolls tab, opening it if it's closed.

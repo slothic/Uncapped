@@ -82,6 +82,165 @@ local frame, listScroll, listButtons, statusText
 local previewTexts = {}
 local levelText
 
+--[[ ------------------------------------------------------------------------
+     [#708] COLLAPSIBLE GROUPS FOR THE MAP LIST.
+
+     "almost impossible too find anything due too all being jumbled up" -- and
+     that is an accurate description rather than a complaint about taste. The
+     list is 74 maps in an 18-row window, sorted by CLEAR SIZE descending, so
+     Deadmines sits between two raids and there is no order the eye can follow.
+
+     ★ WHY THE EXPANSION IS A CLIENT-SIDE TABLE AND NOT A WIRE FIELD.
+
+       The server's row format is `<id>,<size>,<raid>,<name>` and the pattern
+       that reads it (see HandleMessage) captures the NAME GREEDILY AS THE LAST
+       FIELD -- `(.*)$` -- because a map name may itself contain a comma. So a
+       new field inserted BEFORE the name breaks every client already deployed,
+       and a new field AFTER it is swallowed by the name capture and can never
+       be read. Neither half of that is worth a wire break for a label.
+
+       Map ids are frozen WotLK content: 3.3.5a will not ship a 75th instance,
+       so this table cannot rot the way a copied CONSTANT can. And anything it
+       does not recognise lands in "Other" rather than vanishing -- a map the
+       server starts advertising that this table has never heard of must still
+       be pickable.
+  -------------------------------------------------------------------------- ]]
+local MAP_EXPANSION = {
+    -- Classic
+    [33]  = "classic",  -- Shadowfang Keep
+    [34]  = "classic",  -- The Stockade
+    [36]  = "classic",  -- The Deadmines
+    [43]  = "classic",  -- Wailing Caverns
+    [47]  = "classic",  -- Razorfen Kraul
+    [48]  = "classic",  -- Blackfathom Deeps
+    [70]  = "classic",  -- Uldaman
+    [90]  = "classic",  -- Gnomeregan
+    [109] = "classic",  -- Sunken Temple
+    [129] = "classic",  -- Razorfen Downs
+    [189] = "classic",  -- Scarlet Monastery
+    [209] = "classic",  -- Zul'Farrak
+    [229] = "classic",  -- Blackrock Spire
+    [230] = "classic",  -- Blackrock Depths
+    [249] = "classic",  -- Onyxia's Lair (raid)
+    [289] = "classic",  -- Scholomance
+    [309] = "classic",  -- Zul'Gurub (raid)
+    [329] = "classic",  -- Stratholme
+    [349] = "classic",  -- Maraudon
+    [389] = "classic",  -- Ragefire Chasm
+    [409] = "classic",  -- Molten Core (raid)
+    [429] = "classic",  -- Dire Maul
+    [469] = "classic",  -- Blackwing Lair (raid)
+    [509] = "classic",  -- Ruins of Ahn'Qiraj (raid)
+    [531] = "classic",  -- Temple of Ahn'Qiraj (raid)
+
+    -- The Burning Crusade
+    [269] = "tbc",      -- The Black Morass
+    [532] = "tbc",      -- Karazhan (raid)
+    [534] = "tbc",      -- Hyjal Summit (raid)
+    [540] = "tbc",      -- The Shattered Halls
+    [542] = "tbc",      -- The Blood Furnace
+    [543] = "tbc",      -- Hellfire Ramparts
+    [544] = "tbc",      -- Magtheridon's Lair (raid)
+    [545] = "tbc",      -- The Steamvault
+    [546] = "tbc",      -- The Underbog
+    [547] = "tbc",      -- The Slave Pens
+    [548] = "tbc",      -- Serpentshrine Cavern (raid)
+    [550] = "tbc",      -- Tempest Keep (raid)
+    [552] = "tbc",      -- The Arcatraz
+    [553] = "tbc",      -- The Botanica
+    [554] = "tbc",      -- The Mechanar
+    [555] = "tbc",      -- Shadow Labyrinth
+    [556] = "tbc",      -- Sethekk Halls
+    [557] = "tbc",      -- Mana-Tombs
+    [558] = "tbc",      -- Auchenai Crypts
+    [560] = "tbc",      -- Old Hillsbrad Foothills
+    [564] = "tbc",      -- Black Temple (raid)
+    [565] = "tbc",      -- Gruul's Lair (raid)
+    [568] = "tbc",      -- Zul'Aman (raid)
+    [580] = "tbc",      -- Sunwell Plateau (raid)
+    [585] = "tbc",      -- Magisters' Terrace
+
+    -- Wrath of the Lich King. Naxxramas (533) is filed here, not under Classic:
+    -- the 3.3.5 client's map 533 IS the Northrend re-issue, which is what a
+    -- player on this realm actually walks into.
+    [533] = "wrath",    -- Naxxramas (raid)
+    [574] = "wrath",    -- Utgarde Keep
+    [575] = "wrath",    -- Utgarde Pinnacle
+    [576] = "wrath",    -- The Nexus
+    [578] = "wrath",    -- The Oculus
+    [595] = "wrath",    -- The Culling of Stratholme
+    [599] = "wrath",    -- Halls of Stone
+    [600] = "wrath",    -- Drak'Tharon Keep
+    [601] = "wrath",    -- Azjol-Nerub
+    [602] = "wrath",    -- Halls of Lightning
+    [603] = "wrath",    -- Ulduar (raid)
+    [604] = "wrath",    -- Gundrak
+    [608] = "wrath",    -- Violet Hold
+    [615] = "wrath",    -- The Obsidian Sanctum (raid)
+    [616] = "wrath",    -- The Eye of Eternity (raid)
+    [619] = "wrath",    -- Ahn'kahet: The Old Kingdom
+    [624] = "wrath",    -- Vault of Archavon (raid)
+    [631] = "wrath",    -- Icecrown Citadel (raid)
+    [632] = "wrath",    -- The Forge of Souls
+    [649] = "wrath",    -- Trial of the Crusader (raid)
+    [650] = "wrath",    -- Trial of the Champion
+    [658] = "wrath",    -- Pit of Saron
+    [668] = "wrath",    -- Halls of Reflection
+    [724] = "wrath",    -- The Ruby Sanctum (raid)
+}
+
+-- Six groups (expansion x dungeon/raid) plus the catch-all. Order here is the
+-- order they appear in the list; a group with no maps under the current filter
+-- emits NO header at all, so picking "Raids" does not paint three empty
+-- "... Dungeons" titles.
+local GROUPS = {
+    { key = "classic_dungeon", expac = "classic", label = "Classic Dungeons" },
+    { key = "classic_raid",    expac = "classic", label = "Classic Raids" },
+    { key = "tbc_dungeon",     expac = "tbc",     label = "Burning Crusade Dungeons" },
+    { key = "tbc_raid",        expac = "tbc",     label = "Burning Crusade Raids" },
+    { key = "wrath_dungeon",   expac = "wrath",   label = "Wrath Dungeons" },
+    { key = "wrath_raid",      expac = "wrath",   label = "Wrath Raids" },
+    { key = "other",           expac = "other",   label = "Other" },
+}
+
+local function GroupKeyFor(m)
+    local expac = MAP_EXPANSION[m.id]
+    if not expac then return "other" end
+    return expac .. (m.raid and "_raid" or "_dungeon")
+end
+
+-- ---------------------------------------------------------------------------
+-- SavedVariables -- the collapsed/expanded state of those groups.
+--
+-- ⚠ UncappedKeystoneDB is ALREADY declared in UncappedDashboard.toc and was
+--   used by nothing: a free registered slot, so this needs no .toc change.
+--
+-- ⚠ NIL MEANS COLLAPSED, and that is the whole point. Six header rows is the
+--   answer to "impossible to find anything"; opening on 74 rows with headers
+--   added is the same complaint plus decoration. Reading the default off nil
+--   (rather than writing `true` for every key at init) also means a group key
+--   added to GROUPS later starts collapsed for players who already have a
+--   saved table, instead of springing open on them.
+-- ---------------------------------------------------------------------------
+local collapsed = {}
+
+local function InitDB()
+    if type(UncappedKeystoneDB) ~= "table" then UncappedKeystoneDB = {} end
+    if type(UncappedKeystoneDB.collapsed) ~= "table" then
+        UncappedKeystoneDB.collapsed = {}
+    end
+    collapsed = UncappedKeystoneDB.collapsed
+end
+
+InitDB()
+
+local function IsCollapsed(key)
+    return collapsed[key] ~= false
+end
+
+-- Session-only, deliberately NOT saved: see the auto-expand in HandleMessage.
+local autoExpanded = false
+
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
@@ -161,6 +320,17 @@ local function HandleMessage(msg)
             return (a.name or "") < (b.name or "")
         end)
         if not selected and #maps > 0 then selected = 1 end
+        -- [#708] Everything starts collapsed, so the ONE group holding the
+        -- auto-selected map is opened on the first sync of the session --
+        -- otherwise the readout on the right describes a map that is nowhere
+        -- on screen, which is a worse first impression than the jumble was.
+        -- Once per session only: after that the player's own collapses are
+        -- what the panel is for, and re-opening the biggest map's group on
+        -- every tab visit would quietly undo them.
+        if not autoExpanded and maps[selected] then
+            autoExpanded = true
+            collapsed[GroupKeyFor(maps[selected])] = false
+        end
         if Keystone.Render then Keystone.Render() end
         return
     end
@@ -171,9 +341,12 @@ local function HandleMessage(msg)
         if a then
             tuning = {
                 anchor      = tonumber(a) or 24,
-                animaRate   = tonumber(r) or 175,
+                -- [#910] Offline fallbacks, only used if the server never sends a
+                -- header. Both were stale: the anima rate was halved to 87.5 on
+                -- 2026-08-15b and the hotzone multiplier is 5, not 2.
+                animaRate   = tonumber(r) or 87.5,
                 doubleEvery = tonumber(d) or 5,
-                hotzone     = tonumber(h) or 2,
+                hotzone     = tonumber(h) or 5,
             }
             -- A fresh header means a fresh table; without this a second sync
             -- would append every map a second time.
@@ -204,26 +377,108 @@ end
 -- ---------------------------------------------------------------------------
 local ROW_H, ROWS = 16, 18
 
+--[[ ------------------------------------------------------------------------
+     [#708] The flat DISPLAY-ROW array: group headers and map rows interleaved,
+     in the order they are painted.
+
+     Flattening is what keeps the change contained. The FauxScrollFrame goes on
+     counting rows exactly as it did, the 18 list buttons go on being 18 list
+     buttons, and nothing outside this function has to learn that grouping
+     exists -- a row is either a header or a map, and that is the whole model.
+
+     ⚠ Sorted ALPHABETICALLY inside a group, but only in these throwaway
+       buckets. `maps` itself keeps the size-descending sort MRWE applies,
+       because `selected` is an index INTO `maps` and the default selection is
+       "the biggest instance" -- re-sorting the real array would silently point
+       the selection at a different map.
+  -------------------------------------------------------------------------- ]]
+local function BuildDisplayRows()
+    local buckets = {}
+    for _, m in ipairs(FilteredMaps()) do
+        local key = GroupKeyFor(m)
+        if not buckets[key] then buckets[key] = {} end
+        buckets[key][#buckets[key] + 1] = m
+    end
+
+    local rows = {}
+    for _, g in ipairs(GROUPS) do
+        local bucket = buckets[g.key]
+        -- No maps under the current filter means NO header -- otherwise the
+        -- "Raids" filter shows three empty "... Dungeons" titles.
+        if bucket and #bucket > 0 then
+            rows[#rows + 1] = { header = true, key = g.key, label = g.label, count = #bucket }
+            if not IsCollapsed(g.key) then
+                table.sort(bucket, function(a, b) return (a.name or "") < (b.name or "") end)
+                for _, m in ipairs(bucket) do
+                    rows[#rows + 1] = { map = m }
+                end
+            end
+        end
+    end
+    return rows
+end
+
 local function RenderList()
     if not listButtons then return end
-    local list = FilteredMaps()
+    local rows = BuildDisplayRows()
     local offset = FauxScrollFrame_GetOffset(listScroll) or 0
 
-    FauxScrollFrame_Update(listScroll, #list, ROWS, ROW_H)
+    --[[ ⚠ CLAMP BEFORE THE FAUX UPDATE, NOT AFTER.
+
+         Collapsing a group shortens the list, and a stale offset then scrolls
+         past the end and paints eighteen empty rows.
+
+         It is NOT enough to let FauxScrollFrame_Update's SetMinMaxValues clamp
+         it for us: that fires the scrollbar's OnValueChanged, which re-enters
+         RenderList through OnVerticalScroll, and when that inner render
+         finishes the OUTER call carries on painting from its own stale local
+         `offset` -- so the correct render is immediately overwritten by the
+         wrong one. Clamping here means both renders agree.
+
+         FauxScrollFrame_SetOffset only writes frame.offset (no scrollbar, no
+         re-entry), so this is safe to call from inside the render.
+      ]]
+    local maxOffset = math.max(0, #rows - ROWS)
+    if offset > maxOffset then
+        offset = maxOffset
+        FauxScrollFrame_SetOffset(listScroll, offset)
+    end
+
+    FauxScrollFrame_Update(listScroll, #rows, ROWS, ROW_H)
 
     for i = 1, ROWS do
         local btn = listButtons[i]
-        local idx = i + offset
-        local m = list[idx]
-        if m then
-            local tag = m.raid and (COLOR_DIM .. "[R]|r ") or ""
+        local row = rows[i + offset]
+        btn.text:ClearAllPoints()
+        if row and row.header then
+            -- [+] / [-] plus the label and how many maps are under it. The old
+            -- dim "[R]" raid tag is gone: raids have their own sections now, so
+            -- it only repeated the header once per row.
+            btn.text:SetPoint("LEFT", 4, 0)
+            btn.text:SetWidth(182)
+            btn.text:SetText(string.format("%s[%s] %s|r %s(%d)|r",
+                COLOR_HEAD, IsCollapsed(row.key) and "+" or "-", row.label,
+                COLOR_DIM, row.count))
+            btn.groupKey = row.key
+            btn.mapRef = nil
+            btn.hl:Hide()
+            btn:Show()
+        elseif row then
+            local m = row.map
             local isSel = (maps[selected] == m)
-            btn.text:SetText(string.format("%s%s%s|r", tag,
+            -- Indented, so a map reads as sitting UNDER its header rather than
+            -- as another entry in the same column.
+            btn.text:SetPoint("LEFT", 16, 0)
+            btn.text:SetWidth(170)
+            btn.text:SetText(string.format("%s%s|r",
                 isSel and COLOR_VALUE or COLOR_LABEL, m.name))
+            btn.groupKey = nil
             btn.mapRef = m
             btn:Show()
             if isSel then btn.hl:Show() else btn.hl:Hide() end
         else
+            btn.text:SetPoint("LEFT", 4, 0)
+            btn.groupKey = nil
             btn.mapRef = nil
             btn:Hide()
         end
@@ -271,7 +526,10 @@ function Keystone.Render()
         COLOR_LABEL, COLOR_VALUE, bonus, COLOR_DIM, tuning.doubleEvery))
 
     SetLine("sacks", string.format("%sSacks|r         %s%s|r", COLOR_LABEL, COLOR_GOOD, Abbrev(sacks)))
-    SetLine("anima", string.format("%sAnima|r         %s%s|r  %s(before quest / SoulRush bonuses)|r",
+    -- [#910] SoulRush no longer affects Anima -- SoulRush.ArenaPctPerClear has been 0
+    -- since the 2026-08-14 reset, so ArenaMultiplier returns exactly 1.0 and this line
+    -- was naming a bonus that does not exist. The reporter spotted that himself.
+    SetLine("anima", string.format("%sAnima|r         %s%s|r  %s(before your quest bonus)|r",
         COLOR_LABEL, COLOR_GOOD, Abbrev(anima), COLOR_DIM))
 
     -- The comparison IS the feature. A number on its own does not tell anyone
@@ -500,7 +758,13 @@ local function BuildFrame(parent)
         filter = f
         PaintFilters()
         FauxScrollFrame_SetOffset(listScroll, 0)
-        if listScroll.ScrollBar then listScroll.ScrollBar:SetValue(0) end
+        -- ⚠ THE GLOBAL, NOT A FIELD. FauxScrollFrameTemplate exposes its
+        --   scrollbar as _G["<frameName>ScrollBar"]; there is no `.ScrollBar`
+        --   member on the scroll frame, so the old `if listScroll.ScrollBar`
+        --   was always false and this line had never once fired. The offset
+        --   above was reset while the scrollbar thumb stayed where it was.
+        local sb = _G["UncappedKeystoneListScrollBar"]
+        if sb then sb:SetValue(0) end
         Keystone.Render()
     end
     filterAll  = MakeButton(body, "All", 56, function() SetFilter("all") end)
@@ -549,6 +813,24 @@ local function BuildFrame(parent)
         b.text = t
 
         b:SetScript("OnClick", function(self)
+            -- A header row toggles its group and repaints; it never touches the
+            -- selection, so collapsing the group you are reading does not throw
+            -- away the readout on the right.
+            if self.groupKey then
+                -- ⚠ Written out rather than as `a and false or nil`: that idiom
+                --   collapses to nil for BOTH branches, because `true and false`
+                --   is false and `false or nil` is nil. Storing nil for the
+                --   collapsed case is deliberate -- nil IS collapsed (see
+                --   IsCollapsed), so the saved table only ever holds the groups
+                --   the player deliberately opened.
+                if IsCollapsed(self.groupKey) then
+                    collapsed[self.groupKey] = false
+                else
+                    collapsed[self.groupKey] = nil
+                end
+                RenderList()
+                return
+            end
             if not self.mapRef then return end
             for idx, m in ipairs(maps) do
                 if m == self.mapRef then selected = idx; break end
@@ -715,10 +997,27 @@ end
 -- ---------------------------------------------------------------------------
 local comms = CreateFrame("Frame")
 comms:RegisterEvent("CHAT_MSG_ADDON")
+comms:RegisterEvent("ADDON_LOADED")
 comms:SetScript("OnEvent", function(self, event, a1, a2)
     event = event or _G.event
     a1 = a1 or _G.arg1
     a2 = a2 or _G.arg2
+
+    if event == "ADDON_LOADED" then
+        -- ⚠ "UncappedDashboard", not "UncappedKeystone": this file SHIPS INSIDE
+        --   the Dashboard and is not an addon in its own right, so that is the
+        --   addon whose SavedVariables load.
+        --
+        -- ⚠ And it must re-run at all: the main chunk's InitDB() above runs
+        --   BEFORE SavedVariables are loaded, so without this `collapsed` stays
+        --   pointed at the throwaway table it built and every group the player
+        --   opens is silently forgotten at logout.
+        if a1 == "UncappedDashboard" then
+            InitDB()
+            RenderList()
+        end
+        return
+    end
 
     if event ~= "CHAT_MSG_ADDON" then return end
     if a1 ~= ADDON_PIPE_PREFIX or not a2 then return end

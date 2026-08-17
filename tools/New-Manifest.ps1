@@ -665,7 +665,13 @@ $manifest = [ordered]@{
     # UncappedLootFeed added at the same time: it was in NEITHER list, so its
     # Dashboard tab and /lootfeed silently did nothing for anyone who never
     # enabled it by hand.
-    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests', 'UncappedBugReporter', 'UncappedShieldBar', 'Uncapped64bitUI', 'UncappedPanel', 'UncappedLootFeed')
+    # UncappedBulkBuy added 2026-08-17 (#846/#833 bulk vendor buy). New addon this release,
+    # and it went into BOTH lists in the same edit as its first publish -- the three notes
+    # above are all the same bug found three times, always because a new addon shipped in
+    # one list or neither. It is standalone (no LoadOnDemand, no dependencies), so without
+    # a force-tick it installs and simply never loads, and the vendor bulk-buy UI would be
+    # invisible to everyone who did not enable it by hand.
+    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests', 'UncappedBugReporter', 'UncappedShieldBar', 'Uncapped64bitUI', 'UncappedPanel', 'UncappedLootFeed', 'UncappedBulkBuy')
 
     # Switched off in AddOns.txt on clients that already have them. Needed because dropping
     # an addon from the payload does not uninstall it - the launcher never deletes
@@ -693,6 +699,7 @@ $manifest = [ordered]@{
         'Interface/AddOns/UncappedHotzones',
         'Interface/AddOns/Uncapped64bitUI',
         'Interface/AddOns/UncappedOptions',
+        'Interface/AddOns/UncappedBulkBuy',
         'Interface/AddOns/UncappedVault',
         'Interface/AddOns/UncappedTransmog',
         'Interface/AddOns/UncappedForge',

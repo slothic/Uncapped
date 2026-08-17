@@ -381,6 +381,28 @@ local function BuildCard(parent, def)
         btn.amount = amount
         btn.statIndex = def.index
 
+        --[[ [#816] KEEP THE TOOLTIP ALIVE WHILE THE BUTTON IS DISABLED.
+             RefreshCard disables a buy button whenever the rank is maxed, the
+             cost is zero, or you cannot afford it -- and a disabled Button in
+             3.3.5a fires NO OnEnter/OnLeave at all unless motion scripts are
+             explicitly kept on. So the two most useful branches of the handler
+             below (the "already at maximum rank" line, and the red cost + your
+             balance for an unaffordable rank) were UNREACHABLE from the day
+             they were written: not skipped by a test, simply never entered,
+             because the mouse never reached the script. It reads as working
+             code, which is why nobody found it until a player reported the
+             grey buttons being silent.
+
+             ⚠ Guarded even though this client's Button method table does have
+               SetMotionScriptsWhileDisabled: KitButton has a fallback path to
+               the raw Blizzard template, and a nil call here would error in
+               the middle of a card build and take the whole window with it.
+               Degrading to "grey buttons stay silent" costs one tooltip.
+        ]]
+        if btn.SetMotionScriptsWhileDisabled then
+            btn:SetMotionScriptsWhileDisabled(true)
+        end
+
         btn:SetScript("OnClick", function(self)
             Send(string.format("ANIMABUY:%d:%d", self.statIndex, self.amount.count))
             db.lastAmount = self.amount.count
@@ -402,7 +424,16 @@ local function BuildCard(parent, def)
                         string.format("Cost: %s Anima", Comma(cost)),
                         affordable and 0.4 or 1, affordable and 1 or 0.3, affordable and 0.4 or 0.3)
                     if not affordable then
-                        GameTooltip:AddLine(string.format("You have %s.", Comma(arenaPoints)), 1, 0.3, 0.3)
+                        -- The SHORTFALL, not just the balance. #816 asked for
+                        -- "how much more anima you have to farm", and two
+                        -- seven-digit numbers side by side leave the player
+                        -- doing the subtraction in their head -- which is the
+                        -- one thing a panel that already knows both figures
+                        -- should never make them do.
+                        GameTooltip:AddLine(
+                            string.format("You have %s -- %s short.",
+                                Comma(arenaPoints), Comma(cost - arenaPoints)),
+                            1, 0.3, 0.3)
                     end
                 end
             end

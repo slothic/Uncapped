@@ -443,6 +443,90 @@ local function refreshLoot()
     for _, r in ipairs(refreshers) do r() end
 end
 
+-- ---------------------------------------------------------------------------
+-- [#833] The auto-sell list.
+--
+-- Vendor trash has always been sold for you. This is the player-editable half:
+-- anything else you always want turned into gold the moment it drops.
+--
+-- ⚠ THE SERVER OWNS THE LIST AND EVERY RULE ABOUT IT. This page never decides
+--   what may be added, never keeps its own copy between sessions, and never
+--   treats its confirmation dialog as the safety step -- the server arms that
+--   confirmation and refuses an unarmed answer. A settings page can be stale,
+--   disabled or replaced; the thing that destroys items must not depend on it.
+--
+-- Unlike the two toggles above (which fire a dot-command and hope), this talks
+-- over the addon pipe and redraws from whatever the server sends back, so it is
+-- correct even when another character on the same account edits the list --
+-- which it can, because the list is account-wide.
+-- ---------------------------------------------------------------------------
+local AS_TRANSPORT = "REAGENTBANK"   -- client -> server (shared addon transport)
+local AS_PIPE      = "UNC"           -- server -> client (replies arrive here)
+local AS_MAX       = 100             -- server's own ceiling; mirrored for the header
+local AS_ROW_H     = 22
+
+local AS = {
+    rows    = {},    -- reusable row frames, index 1..n
+    entries = {},    -- what the server last told us the list is
+    pending = nil,   -- burst accumulator between ASLBEG and ASLEND
+    confirm = nil,   -- the add currently sitting in the confirmation popup
+}
+
+local function ASSend(body)
+    if SendAddonMessage then
+        SendAddonMessage(AS_TRANSPORT, body, "WHISPER", UnitName("player"))
+    end
+end
+
+-- Plain-English versions of the server's refusal codes. Every one of these is a
+-- rule the server enforces whether or not this page exists; the text only
+-- explains it.
+local AS_ERRORS = {
+    DUP     = "That is already on your list.",
+    QUEST   = "That item is used by a quest, so it can never be auto-sold.",
+    KEEP    = "That is always kept in your bags (hearthstone, keystone, reagents, ammo, dungeon keys) and cannot be auto-sold.",
+    BAG     = "Bags cannot be auto-sold -- destroying one destroys everything inside it.",
+    WORTH   = "That sells for nothing, so adding it would delete it rather than sell it.",
+    FULL    = "Your list is full. Remove something first.",
+    NOCONF  = "That confirmation expired. Add the item again.",
+    UNKNOWN = "The server did not recognise that item.",
+}
+
+local function ASPrint(msg)
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[Auto-sell]|r " .. msg)
+end
+
+-- The confirmation for anything that is not vendor trash. Its timeout is set
+-- from the window the server reports, never hardcoded: a dialog that outlives
+-- the arm behind it sends an answer that is refused, and the player is told
+-- "that expired" by a box still sitting on their screen.
+StaticPopupDialogs["UNCAPPED_AUTOSELL_CONFIRM"] = {
+    text = "%s",
+    button1 = ACCEPT,
+    button2 = CANCEL,
+    OnAccept = function()
+        if AS.confirm then
+            ASSend("ASLADDC:" .. AS.confirm.entry)
+            AS.confirm = nil
+        end
+    end,
+    OnCancel = function() AS.confirm = nil end,
+    timeout = 60,
+    whileDead = 1,
+    hideOnEscape = 1,
+    showAlert = 1,
+}
+
+StaticPopupDialogs["UNCAPPED_AUTOSELL_CLEAR"] = {
+    text = "Empty your auto-sell list?\n\nVendor trash will still be sold for you; nothing else will.",
+    button1 = ACCEPT,
+    button2 = CANCEL,
+    OnAccept = function() ASSend("ASLCLR") end,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+}
+
 do
     local panel, L = UI.CreatePanel("Looting",
         "Automate looting. These options send the matching server commands for you.")
@@ -457,6 +541,224 @@ do
 
     L:Gap(6)
     L:Note("|cff808080These toggles send server commands and remember your last choice here. If you change them with a chat command instead, this page won't know -- reopen it after /reload to resync.|r", 40)
+
+    -- =======================================================================
+    -- Auto-sell
+    -- =======================================================================
+    L:Gap(10)
+    L:Header("Auto-sell")
+    L:Note("Grey vendor trash is always sold for you automatically. Anything you put on the list below is sold the same way, the moment it drops -- on every character on this account.", 44)
+    L:Note("|cffff8080Items on this list are sold and destroyed without asking. Quest items, your hearthstone, keystone, reagents, ammo, dungeon keys and bags can never be added, and anything that is not grey asks you to confirm first. Nothing you are already carrying or wearing is ever touched -- the list only acts on new loot.|r", 56)
+
+    -- The drop target. Pick an item up from your bags and either drop it here or
+    -- click the button while holding it.
+    local drop = L:Button("Drop an item here to add it", function() end, 240)
+
+    local function ASAddFromCursor()
+        local kind, id = GetCursorInfo()
+        if kind ~= "item" or not id then
+            ASPrint("Pick an item up from your bags first, then drop it here (or type its ID below).")
+            return
+        end
+        ClearCursor()
+        ASSend("ASLADD:" .. id)
+    end
+
+    drop:SetScript("OnClick", ASAddFromCursor)
+    drop:SetScript("OnReceiveDrag", ASAddFromCursor)
+
+    -- ...and the typed route, which is the one that still works when the item is
+    -- not in your bags to pick up. Accepts a pasted item link or a bare item ID.
+    local box = CreateFrame("EditBox", "UncappedAutoSellEntryBox", L.panel, "InputBoxTemplate")
+    box:SetPoint("TOPLEFT", L.panel, "TOPLEFT", 20, L.y)
+    box:SetWidth(160)
+    box:SetHeight(20)
+    box:SetAutoFocus(false)
+
+    local function ASAddFromBox()
+        local text = box:GetText() or ""
+        -- An item link carries "item:<id>:"; a bare number is the id itself.
+        local id = text:match("|Hitem:(%d+):") or text:match("^%s*(%d+)%s*$")
+        if not id then
+            ASPrint("Type an item ID, or paste an item link.")
+            return
+        end
+        box:SetText("")
+        box:ClearFocus()
+        ASSend("ASLADD:" .. id)
+    end
+
+    box:SetScript("OnEnterPressed", ASAddFromBox)
+    box:SetScript("OnEscapePressed", function(self) self:SetText(""); self:ClearFocus() end)
+
+    local addBtn = CreateFrame("Button", nil, L.panel, "UIPanelButtonTemplate")
+    addBtn:SetPoint("LEFT", box, "RIGHT", 8, 0)
+    addBtn:SetWidth(70)
+    addBtn:SetHeight(22)
+    addBtn:SetText("Add")
+    addBtn:SetScript("OnClick", ASAddFromBox)
+    L:Gap(30)
+
+    L:Note("|cff808080You can also use |cffffffff.autosell add|cff808080 in chat and shift-click the item straight into the command. |cffffffff.autosell|cff808080 on its own lists everything.|r", 36)
+
+    local clearBtn = L:Button("Clear the whole list", function()
+        StaticPopup_Show("UNCAPPED_AUTOSELL_CLEAR")
+    end, 180)
+    clearBtn:Disable()
+
+    L:Gap(8)
+    local heading = L:Header("On the list")
+
+    -- Everything above this point is fixed height, so the list is built last and
+    -- is the only thing that has to grow the scroll body. `listTop` is where it
+    -- starts; the rows are laid out downward from there and the scroll child is
+    -- resized to match after every redraw.
+    local listTop = L.y
+
+    local function ASGrow(rowCount)
+        local host = panel.uncappedContent
+        if not (host and host.uncappedIsScrollContent) then return end
+        host:SetHeight(-listTop + (rowCount * AS_ROW_H) + 24)
+    end
+
+    local function ASRow(i)
+        local row = AS.rows[i]
+        if row then return row end
+
+        row = CreateFrame("Button", nil, L.panel)
+        row:SetPoint("TOPLEFT", L.panel, "TOPLEFT", 20, listTop - (i - 1) * AS_ROW_H)
+        row:SetPoint("RIGHT", L.panel, "RIGHT", -20, 0)
+        row:SetHeight(AS_ROW_H - 2)
+
+        row.icon = row:CreateTexture(nil, "ARTWORK")
+        row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
+        row.icon:SetWidth(16)
+        row.icon:SetHeight(16)
+
+        row.label = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        row.label:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
+        row.label:SetJustifyH("LEFT")
+
+        row.price = row:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+        row.price:SetPoint("LEFT", row.label, "RIGHT", 8, 0)
+        row.price:SetJustifyH("LEFT")
+
+        row.remove = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        row.remove:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        row.remove:SetWidth(70)
+        row.remove:SetHeight(18)
+        row.remove:SetText("Remove")
+        row.remove:SetScript("OnClick", function()
+            if row.entry then ASSend("ASLDEL:" .. row.entry) end
+        end)
+
+        -- The tooltip is the honest answer to "what exactly did I add" -- the
+        -- name alone is not, on a realm with re-skinned and customised items.
+        row:SetScript("OnEnter", function(self)
+            if not self.entry then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetHyperlink("item:" .. self.entry)
+            GameTooltip:Show()
+        end)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+        AS.rows[i] = row
+        return row
+    end
+
+    local function ASRedraw()
+        local n = #AS.entries
+
+        for i = 1, n do
+            local e = AS.entries[i]
+            local row = ASRow(i)
+            row.entry = e.entry
+
+            local colour = (ITEM_QUALITY_COLORS[e.quality] and ITEM_QUALITY_COLORS[e.quality].hex) or "|cffffffff"
+            row.label:SetText(colour .. e.name .. "|r")
+            row.price:SetText(GetCoinTextureString and GetCoinTextureString(e.sell) or (e.sell .. "c"))
+            row.icon:SetTexture(GetItemIcon and GetItemIcon(e.entry) or "Interface\\Icons\\INV_Misc_QuestionMark")
+            row:Show()
+        end
+
+        for i = n + 1, #AS.rows do
+            AS.rows[i]:Hide()
+            AS.rows[i].entry = nil
+        end
+
+        if n > 0 then
+            heading:SetText("|cffffd100On the list (" .. n .. " of " .. AS_MAX .. ")|r")
+            clearBtn:Enable()
+        else
+            heading:SetText("|cffffd100On the list -- nothing yet|r")
+            clearBtn:Disable()
+        end
+
+        ASGrow(n)
+    end
+
+    -- ---------------------------------------------------------------------
+    -- Comms. The list is never patched locally: every accepted edit is answered
+    -- by a fresh full burst, so this page cannot drift away from the server.
+    -- ---------------------------------------------------------------------
+    local comms = CreateFrame("Frame")
+    comms:RegisterEvent("CHAT_MSG_ADDON")
+    comms:SetScript("OnEvent", function(_, _, prefix, text)
+        if prefix ~= AS_PIPE or not text then return end
+        if text:sub(1, 3) ~= "ASL" then return end
+
+        if text:sub(1, 7) == "ASLBEG:" then
+            AS.pending = {}
+            return
+        end
+
+        if text == "ASLEND" then
+            AS.entries = AS.pending or {}
+            AS.pending = nil
+            ASRedraw()
+            return
+        end
+
+        local entry, quality, sell, name = text:match("^ASLROW:(%d+):(%d+):(%d+):(.*)$")
+        if entry then
+            if not AS.pending then AS.pending = {} end
+            AS.pending[#AS.pending + 1] = {
+                entry = tonumber(entry), quality = tonumber(quality),
+                sell = tonumber(sell) or 0, name = name,
+            }
+            return
+        end
+
+        local cEntry, cQuality, cSell, cArm, cName = text:match("^ASLCONF:(%d+):(%d+):(%d+):(%d+):(.*)$")
+        if cEntry then
+            AS.confirm = { entry = tonumber(cEntry) }
+            local colour = (ITEM_QUALITY_COLORS[tonumber(cQuality)] and ITEM_QUALITY_COLORS[tonumber(cQuality)].hex)
+                or "|cffffffff"
+            StaticPopupDialogs["UNCAPPED_AUTOSELL_CONFIRM"].timeout = tonumber(cArm) or 60
+            StaticPopup_Show("UNCAPPED_AUTOSELL_CONFIRM",
+                colour .. cName .. "|r is not vendor trash.\n\nEvery copy you loot from now on will be sold "
+                .. "for " .. ((GetCoinTextureString and GetCoinTextureString(tonumber(cSell) or 0))
+                    or ((cSell or 0) .. "c")) .. " each and destroyed, on every character on this account.\n\n"
+                .. "Nothing you are carrying or wearing right now is touched.")
+            return
+        end
+
+        local eEntry, code = text:match("^ASLERR:(%d+):(%a+)$")
+        if eEntry then
+            ASPrint(AS_ERRORS[code] or ("That item was refused (" .. code .. ")."))
+            return
+        end
+    end)
+
+    -- Ask on login and every time the page is opened. Cheap, and it is the only
+    -- thing that keeps this honest when the list was edited from chat or by
+    -- another character on the account.
+    local waker = CreateFrame("Frame")
+    waker:RegisterEvent("PLAYER_LOGIN")
+    waker:SetScript("OnEvent", function() ASSend("ASLGET") end)
+    panel:HookScript("OnShow", function() ASSend("ASLGET") end)
+
+    ASRedraw()
 
     UncappedLootPanel = panel
 end

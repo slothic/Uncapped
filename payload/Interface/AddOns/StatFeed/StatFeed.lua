@@ -8,6 +8,11 @@
         You received <n> <StatName> for killing <Creature>.
         Your pet also received <n> <StatName>.
 
+    Ruling #620 adds an optional trailing " (HOTZONE)" to the first form when the
+    kill happened inside a live hotzone. It sits AFTER the full stop on purpose, so
+    it lands in the trailing capture and neither parser below had to change; the
+    display code splits it back out and colours it separately.
+
     On top of the raw feed this tracks what you have earned THIS SESSION: a
     running total, a per-hour pace, and a per-stat breakdown. Pet mirror lines
     are shown in the feed but never counted -- they are the pet's stats, not
@@ -171,7 +176,16 @@ local C_AMOUNT = "|cff9CC243"   -- the server's own green
 local C_TARGET = "|cff5af304"
 local C_GAIN   = "|cff00e5ff"
 local C_OFF    = "|cff808080"
+local C_HOT    = "|cffff4040"   -- matches the server's own hotzone red
 local C_RESET  = "|r"
+
+-- Ruling #620: the server appends this marker to a stat line when the kill happened
+-- inside a live hotzone. It is deliberately placed AFTER the full stop so it lands
+-- inside the trailing "(.*)" capture of the feed pattern below -- which keeps both
+-- that pattern and the session-total pattern matching unchanged, but means the
+-- marker arrives glued to the creature's NAME and has to be split back out.
+local HOTZONE_PATTERN = "%s*%(HOTZONE%)%s*$"
+local HOTZONE_LABEL   = "(HOTZONE)"
 
 -- Locals for the hot paths (upvalue lookups beat globals in 5.1).
 local floor, min, max, abs, format, gsub, match, lower = math.floor, math.min, math.max,
@@ -558,9 +572,21 @@ local function FormatFeedLine(clean)
     local prefix, amount, stat, middle, target =
         match(clean, "^([Yy]ou received )(%d[%d,]*)%s+([%a%s]+)( for killing )(.*)$")
     if prefix then
+        -- Ruling #620: split the hotzone marker back out of the creature-name
+        -- capture and colour it on its own. Leaving it in would paint it in the
+        -- target colour, i.e. as though the creature were called
+        -- "Svala Sorrowgrave. (HOTZONE)" -- which reads as a bug, not a bonus.
+        -- Parenthesised so gsub's second return (the count) cannot slide into the
+        -- next expression.
+        local hot = ""
+        if match(target, HOTZONE_PATTERN) then
+            target = (gsub(target, HOTZONE_PATTERN, ""))
+            hot = " " .. C_HOT .. HOTZONE_LABEL .. C_RESET
+        end
+
         return C_LABEL .. prefix .. C_RESET .. C_AMOUNT .. amount .. C_RESET
             .. " " .. C_GAIN .. (NormalizeStat(stat) or Trim(stat)) .. C_RESET
-            .. C_LABEL .. middle .. C_RESET .. C_TARGET .. target .. C_RESET
+            .. C_LABEL .. middle .. C_RESET .. C_TARGET .. target .. C_RESET .. hot
     end
 
     prefix, amount, stat = match(clean, "^([Yy]our pet a?l?s?o? ?received )(%d[%d,]*)%s+([%a%s]+%.?)$")

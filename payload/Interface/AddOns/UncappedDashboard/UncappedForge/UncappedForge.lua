@@ -171,8 +171,33 @@ local PROC_VIEWS = {
         label = "Rendering",
         mask  = KIND_RENDER,
         hint  = "Search things to render...",
+        --[[
+            ⚠ [#812] THE THIRD LINE IS A SIGNPOST, NOT FILLER.
+
+            The report that asked for grey/white junk gear to be renderable in
+            bulk from the Vault used the words "via bulk processing" -- i.e. it
+            asked for it HERE, on this tab, which is the obvious place to look
+            for it. It is not here, and it is not here for a reason:
+
+              * this tab drives CRAFTING conversions -- mill, prospect,
+                disenchant, render -- each of which is a real spell that turns a
+                stack into another ITEM. "Souls" is not an item any of them can
+                produce.
+              * its rows come from the server's commodity snapshot, which is
+                random_prop_id 0 only. Gear that rolled a suffix is invisible to
+                it, so half of the grey and white gear in a Vault could never
+                appear on this list at all.
+
+            The Soulforge panel owns junk-gear-to-souls, along with the whitelist,
+            the quest reserves and the consent dialog that guard it. So the answer
+            to "why isn't my grey gear in the Rendering list" is one line, in the
+            place the player is already looking, rather than a second half-copy of
+            those rules bolted on here.
+        ]]
         blurb = { "Everything in your Vault that renders down into something else.",
-                  "Pick a row, then Render All." },
+                  "Pick a row, then Render All.",
+                  "Junk GEAR is not here: grey and white weapons and armour render into "
+                  .. "souls, from Soul Forge \226\134\146 Render junk gear." },
     },
 }
 
