@@ -29,3 +29,7 @@ UncappedKeystone\UncappedLFG.lua
 UncappedKeystone\UncappedKeystone.lua
 UncappedTransmog\UncappedTransmogData.lua
 UncappedTransmog\UncappedTransmog.lua
+## Loads LAST, and after UncappedLFG in particular: it retires the stock Dungeon
+## Finder and points its button and keybind at /mlfg, so the handler it calls has
+## to be registered before anyone can press anything. Owner ruling 2026-08-18.
+UncappedNoDungeonFinder.lua
