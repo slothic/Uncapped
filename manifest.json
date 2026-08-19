@@ -2189,6 +2189,24 @@
                       "size":  266
                   },
                   {
+                      "path":  "Interface/AddOns/UncappedShards/UncappedShards.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedShards/UncappedShards.lua",
+                      "sha256":  "df347cb6d38b725fb0deaff02fcf61e9854bcdf2ce97accbcf9b760b5319b5f2",
+                      "size":  35262
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedShards/UncappedShards.toc",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedShards/UncappedShards.toc",
+                      "sha256":  "a6e7e7f2a8645dc1fedeb3044022fe75e1565b2412f79ba2eace553285d005f8",
+                      "size":  317
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedShards/UncappedShardsHUD.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedShards/UncappedShardsHUD.lua",
+                      "sha256":  "a3ffce2faf2cf1b716e0c9d33cd347ad0ba67fdc2aa2e217ec14438ea684bc76",
+                      "size":  33245
+                  },
+                  {
                       "path":  "Interface/AddOns/UncappedShieldBar/UncappedShieldBar.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedShieldBar/UncappedShieldBar.lua",
                       "sha256":  "f34217caad7e43f516f10d783279792521ac74a454c198dfaf44f82045d3057f",
@@ -3012,9 +3030,9 @@
                   },
                   {
                       "path":  "Data/enUS/patch-enUS-U.MPQ",
-                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.08.18a.MPQ",
-                      "sha256":  "41b43c2153e0bfd3f6469c54575c4d5a311fc97347d109b5ed7add6266b20547",
-                      "size":  43836105
+                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.08.19a.MPQ",
+                      "sha256":  "091fc855e996181634a65371aa07b937dd700ff1370c54f4489adf3107205e06",
+                      "size":  48401487
                   },
                   {
                       "path":  "UncappedClient.dat",
@@ -3069,7 +3087,8 @@
                               "Uncapped64bitUI",
                               "UncappedPanel",
                               "UncappedLootFeed",
-                              "UncappedBulkBuy"
+                              "UncappedBulkBuy",
+                              "UncappedShards"
                           ],
     "forceDisableAddOns":  [
                                "QuestHelper",
@@ -3102,6 +3121,7 @@
                        "Interface/AddOns/UncappedBugReporter",
                        "Interface/AddOns/UncappedShieldBar",
                        "Interface/AddOns/UncappedLootFeed",
+                       "Interface/AddOns/UncappedShards",
                        "Interface/AddOns/UncappedDashboard",
                        "Interface/AddOns/UncappedUI",
                        "Interface/AddOns/devUncapped64",

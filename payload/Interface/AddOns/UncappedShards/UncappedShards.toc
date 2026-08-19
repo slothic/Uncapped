@@ -1,0 +1,10 @@
+## Interface: 30300
+## Title: Uncapped Shards
+## Notes: Shards of the Seven -- the three shard slots, the collection ledger, and the end-of-run rank-up rite.
+## Author: Uncapped
+## Version: 1.0
+## OptionalDeps: UncappedOptions, UncappedUI
+## SavedVariables: UncappedShardsDB
+
+UncappedShards.lua
+UncappedShardsHUD.lua

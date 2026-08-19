@@ -671,7 +671,7 @@ $manifest = [ordered]@{
     # one list or neither. It is standalone (no LoadOnDemand, no dependencies), so without
     # a force-tick it installs and simply never loads, and the vendor bulk-buy UI would be
     # invisible to everyone who did not enable it by hand.
-    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests', 'UncappedBugReporter', 'UncappedShieldBar', 'Uncapped64bitUI', 'UncappedPanel', 'UncappedLootFeed', 'UncappedBulkBuy')
+    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests', 'UncappedBugReporter', 'UncappedShieldBar', 'Uncapped64bitUI', 'UncappedPanel', 'UncappedLootFeed', 'UncappedBulkBuy', 'UncappedShards')
 
     # Switched off in AddOns.txt on clients that already have them. Needed because dropping
     # an addon from the payload does not uninstall it - the launcher never deletes
@@ -721,6 +721,10 @@ $manifest = [ordered]@{
         # ever be pruned: rename or drop a file in a future release and the old copy
         # stays on every player's disk forever, loading alongside the new one.
         'Interface/AddOns/UncappedLootFeed',
+        # Shards of the Seven. Listed from its FIRST release, deliberately -- four
+        # addons have now shipped unlisted and became impossible to prune, and the
+        # only cost of getting it right up front is this line.
+        'Interface/AddOns/UncappedShards',
         # The Dashboard bundles Forge/Soulforge/Anima/Vault/Transmog/Scrolls as folders
         # inside itself, so it is the only one of them still installed as an addon.
         # The six standalone entries above are deliberately KEPT listed even though they
