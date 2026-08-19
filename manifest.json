@@ -3030,9 +3030,9 @@
                   },
                   {
                       "path":  "Data/enUS/patch-enUS-U.MPQ",
-                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.08.19a.MPQ",
-                      "sha256":  "091fc855e996181634a65371aa07b937dd700ff1370c54f4489adf3107205e06",
-                      "size":  48401487
+                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.08.19b.MPQ",
+                      "sha256":  "7063ccbc42a8ad1d0534aa85aa458deef862814f322ef51664377158da4352b6",
+                      "size":  52967870
                   },
                   {
                       "path":  "UncappedClient.dat",
