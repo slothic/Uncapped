@@ -69,6 +69,11 @@ Keystone.UI = {}
 -- render path checks it -- that is what makes the no-answer case a message
 -- rather than an arithmetic error on nil.
 local tuning            -- { anchor, animaRate, doubleEvery, hotzone }
+--[[ [#942] Which map ids are hotzones RIGHT NOW, as a set, from MRWZ.
+     `tuning.hotzone` has always carried the MULTIPLIER; this is the missing
+     half that says what to apply it to. Eight maps are live at any moment, so
+     this is a set rather than a single id, and empty is a normal answer. ]]
+local hotMaps = {}
 local maps = {}         -- array of { id, size, raid, name }
 local pending = false   -- a request is in flight
 local requestedAt = 0
@@ -352,6 +357,23 @@ local function HandleMessage(msg)
             -- would append every map a second time.
             maps = {}
             selected = nil
+            -- [#942] Cleared with the map table, not on MRWZ: a server that has
+            -- no hotzones sends an EMPTY MRWZ, and a server too old to send MRWZ
+            -- at all sends none. Both must end up with an empty set rather than
+            -- with the previous sync's hotzones still marked.
+            hotMaps = {}
+        end
+        return
+    end
+
+    -- [#942] MRWZ:<id>,<id>,... -- the maps that are hot right now. Its own
+    -- message id on purpose: appending a field to MRWH or MRWM would break
+    -- their anchored patterns on an un-updated client instead of degrading.
+    local hot = string.match(msg, "^MRWZ:(.*)$")
+    if hot then
+        hotMaps = {}
+        for id in string.gmatch(hot, "%d+") do
+            hotMaps[tonumber(id)] = true
         end
         return
     end
@@ -500,20 +522,27 @@ function Keystone.Render()
 
     if not tuning then
         SetLine("map", COLOR_DIM .. (answered and "No map data." or "Loading...") .. "|r")
-        for _, k in ipairs({ "size", "bonus", "sacks", "anima", "note", "compare" }) do SetLine(k, "") end
+        for _, k in ipairs({ "size", "bonus", "hot", "sacks", "anima", "note", "compare" }) do SetLine(k, "") end
         return
     end
 
     local m = maps[selected]
     if not m then
         SetLine("map", COLOR_DIM .. "Pick a dungeon or raid on the left.|r")
-        for _, k in ipairs({ "size", "bonus", "sacks", "anima", "note", "compare" }) do SetLine(k, "") end
+        for _, k in ipairs({ "size", "bonus", "hot", "sacks", "anima", "note", "compare" }) do SetLine(k, "") end
         return
     end
 
     local bonus = KeyBonus(level)
-    local sacks = math.max(1, math.floor(tuning.anchor * m.size * bonus + 0.5))
-    local anima = math.max(1, math.floor(tuning.animaRate * m.size * bonus + 0.5))
+    --[[ [#942] The hotzone multiplies the SAME base the payout multiplies
+         (mult.base = size x key x hotzone), so it belongs inside these two
+         numbers rather than printed alongside them as an afterthought. The
+         report was "SSC isn't getting the hotzone buff at all" from a player
+         whose every SSC run recorded hotzone = 1 -- the buff applied, this
+         panel just quoted a figure with no hotzone in it and was believed. ]]
+    local hotMult = (m.id and hotMaps[m.id]) and (tuning.hotzone or 1) or 1
+    local sacks = math.max(1, math.floor(tuning.anchor * m.size * bonus * hotMult + 0.5))
+    local anima = math.max(1, math.floor(tuning.animaRate * m.size * bonus * hotMult + 0.5))
 
     SetLine("map", string.format("%s%s|r  %s", COLOR_HEAD, m.name,
         m.raid and (COLOR_DIM .. "(raid)|r") or (COLOR_DIM .. "(dungeon)|r")))
@@ -524,6 +553,16 @@ function Keystone.Render()
     -- 2026-08-14 reset. See the note on KeyBonus above.
     SetLine("bonus", string.format("%sKey bonus|r     %sx%.1f|r  %s(+1.0x every %.1f levels)|r",
         COLOR_LABEL, COLOR_VALUE, bonus, COLOR_DIM, tuning.doubleEvery))
+
+    -- Says "already counted" out loud. A multiplier printed next to a total is
+    -- ambiguous about whether the total includes it, and guessing wrong in
+    -- either direction produces a reward report.
+    if hotMult > 1 then
+        SetLine("hot", string.format("%sHOTZONE|r       %sx%g|r  %s(live now -- already in the numbers below)|r",
+            COLOR_GOOD, COLOR_VALUE, hotMult, COLOR_DIM))
+    else
+        SetLine("hot", "")
+    end
 
     SetLine("sacks", string.format("%sSacks|r         %s%s|r", COLOR_LABEL, COLOR_GOOD, Abbrev(sacks)))
     -- [#910] SoulRush no longer affects Anima -- SoulRush.ArenaPctPerClear has been 0
@@ -924,9 +963,9 @@ local function BuildFrame(parent)
     plus1:SetPoint("LEFT", levelText, "RIGHT", 10, 0)
     plus10:SetPoint("LEFT", plus1, "RIGHT", 3, 0)
 
-    local order = { "map", "size", "bonus", "sacks", "anima", "compare", "note" }
+    local order = { "map", "size", "bonus", "hot", "sacks", "anima", "compare", "note" }
     local anchor = minus10
-    local gaps = { map = -16, size = -10, bonus = -2, sacks = -12, anima = -2, compare = -14, note = -8 }
+    local gaps = { map = -16, size = -10, bonus = -2, hot = -8, sacks = -12, anima = -2, compare = -14, note = -8 }
     for _, key in ipairs(order) do
         local style = (key == "map") and "GameFontNormalLarge" or "GameFontHighlightSmall"
         local fs = right:CreateFontString(nil, "OVERLAY", style)
