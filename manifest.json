@@ -3042,9 +3042,9 @@
                   },
                   {
                       "path":  "UncappedCT.dll",
-                      "url":  "http://152.53.115.249/patches/UncappedCT-2026.08.14a.dll",
-                      "sha256":  "80fb8054f1db9385244e20da3da5e58078567d894e5b8c8474a31de73f20f394",
-                      "size":  453632
+                      "url":  "http://152.53.115.249/patches/UncappedCT-2026.08.21a.dll",
+                      "sha256":  "55ea5f6efde9bc0ac924e2fc91f96472353855da78d70302ffdfed7a3e7df8b6",
+                      "size":  454656
                   }
               ],
     "archives":  [
