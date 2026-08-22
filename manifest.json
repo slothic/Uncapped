@@ -1615,13 +1615,13 @@
                   {
                       "path":  "Interface/AddOns/StatFeed/StatFeed.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/StatFeed/StatFeed.lua",
-                      "sha256":  "0e76a42593a69d83ca3bb9958608d5731ed15e7d17ceb184483b8aa354c2fcab",
-                      "size":  49387
+                      "sha256":  "ba8a64854ff8de4d6d046e31b721f2f0b6d5bd4ec5cb27acb2e7bb7fc0d8adb6",
+                      "size":  50887
                   },
                   {
                       "path":  "Interface/AddOns/StatFeed/StatFeed.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/StatFeed/StatFeed.toc",
-                      "sha256":  "b18c11da55b16e4032f2dd7545b92740d28e3e5ebd95551aeec08e12d9fe51d5",
+                      "sha256":  "3ee35d6b8b6732d722afbdb16b8e934cc3faecf25ce3980353bbd018e573fc03",
                       "size":  279
                   },
                   {
@@ -2347,7 +2347,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "b6b48cdd2b731d35cab6503000a25f6ef2228653d0a4f2e137ae5ec772564ca9",
+                      "sha256":  "c82e11df73bb8db47cdbb91511deb747dfd13850794ee736b20fdc42b9cf3681",
                       "size":  3593
                   },
                   {
@@ -3030,9 +3030,9 @@
                   },
                   {
                       "path":  "Data/enUS/patch-enUS-U.MPQ",
-                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.08.19b.MPQ",
-                      "sha256":  "7063ccbc42a8ad1d0534aa85aa458deef862814f322ef51664377158da4352b6",
-                      "size":  52967870
+                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.08.22a.MPQ",
+                      "sha256":  "0b679d0672bf6cae9a349e3889a4150a24ef04020d1b086f5b7497d355e1d291",
+                      "size":  57539242
                   },
                   {
                       "path":  "UncappedClient.dat",

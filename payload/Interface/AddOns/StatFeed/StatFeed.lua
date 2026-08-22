@@ -1272,3 +1272,36 @@ end
 
 
 
+
+
+-- ---------------------------------------------------------------------------
+-- ★ [#952] Blizzard bug: Enter in a gossip code box throws the number away.
+--
+-- Interface/FrameXML/StaticPopup.lua, GOSSIP_ENTER_CODE:
+--     EditBoxOnEnterPressed = function(self, data)
+--         local parent = self:GetParent();
+--         SelectGossipOption(data, parent.editBox:GetText());   -- no `true`
+--         parent:Hide();
+--     end,
+--
+-- OnAccept, twelve lines above, passes a THIRD argument -- confirmed = true.
+-- The Enter handler does not, so the client treats it as the FIRST click on a
+-- coded option, re-arms the popup instead of sending the code, and then
+-- parent:Hide() closes it. Net effect: Enter behaves exactly like Cancel and
+-- the typed amount is discarded. Reported as "when you have the box open too
+-- type the amount in if u press enter it closes it".
+--
+-- This is realm-wide, not just Dungeon Stats -- the other coded-gossip user is
+-- the transmog item search.
+--
+-- SelectGossipOption is NOT protected in 3.3.5, so a plain table override is
+-- enough: no taint, no hardware-event requirement.
+-- ---------------------------------------------------------------------------
+local gossipCode = StaticPopupDialogs and StaticPopupDialogs["GOSSIP_ENTER_CODE"]
+if gossipCode then
+    gossipCode.EditBoxOnEnterPressed = function(self, data)
+        local parent = self:GetParent()
+        SelectGossipOption(data, parent.editBox:GetText(), true)
+        parent:Hide()
+    end
+end
