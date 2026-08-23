@@ -6,11 +6,18 @@
 -- purpose: there is no Uncapped-branded art yet, so this theme currently
 -- resolves to an exact copy of Default.
 --
+-- ⚠ [AN-06] BECAUSE OF THAT, THIS FILE IS NOT IN UncappedUI.toc. Registering a
+-- theme that resolves to an identical copy of Default put an "Uncapped" entry in
+-- /uitheme that reported success and changed nothing -- a setting players could
+-- pick and then wonder what it did.
+--
 -- To bring a piece of it online:
 --   1. Drop the finished texture under WIP\UI\Assets\Buttons, \Frames, or
 --      \Icons (matching the live path Interface\AddOns\UncappedUIKit\Assets\...
 --      once synced).
 --   2. Uncomment/add the matching key below pointing at that path.
+--   3. ★ Re-add the `Themes\UncappedTheme.lua` line to UncappedUI.toc, or none
+--      of this runs.
 -- ThemeManager re-resolves and every widget built through UncappedUIKit
 -- re-skins itself immediately -- no other code changes needed.
 

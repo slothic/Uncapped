@@ -1,0 +1,20 @@
+## Interface: 30300
+## Title: Uncapped Quests (giver data)
+## Notes: Generated quest-giver table. Loaded on demand by Uncapped Quests; not at login.
+## Author: Uncapped
+## Version: 1.2.0
+## LoadOnDemand: 1
+## DefaultState: Enabled
+
+# [MQ-05] LoadOnDemand is the whole point of this addon existing. 640 KB of
+# generated table used to sit at the top of UncappedQuests.toc and was therefore
+# parsed by every player at every login and every /reload, for a feature that is
+# opt-in and default OFF. It is pulled in by UQ.EnsureQuestData() on first use.
+#
+# /!\ DefaultState: Enabled is LOAD-BEARING. A LoadOnDemand addon that is
+#     DISABLED in the character's addon list cannot be loaded by LoadAddOn() at
+#     all -- it returns nil, "DISABLED" -- and the pick-up arrow would then
+#     silently find nothing. It must also be listed in the launcher manifest's
+#     forceEnableAddOns for the same reason.
+
+UncappedQuestGiverData.lua

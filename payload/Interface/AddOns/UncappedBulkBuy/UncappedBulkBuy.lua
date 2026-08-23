@@ -89,6 +89,16 @@ local quote = {}
 local pending = nil                         -- index we are mid-burst on
 local incoming = nil                        -- the quote being assembled
 
+-- Attaches the driver's OnUpdate. Forward-declared because every site that arms
+-- one of the three timers it watches lives above the driver frame itself.
+--
+-- The driver used to carry a permanently-installed OnUpdate that ran for the
+-- whole session, accumulating a 0.2s tick to check three timers that can only be
+-- armed by actually using the bulk-buy UI -- which most sessions never do. It is
+-- now attached when a timer is armed and detached by the tick itself once none
+-- is outstanding.
+local ArmDriverTimer
+
 -- ---------------------------------------------------------------------------
 -- small helpers
 -- ---------------------------------------------------------------------------
@@ -261,6 +271,7 @@ local function AskForQuote(index)
     if not entry or not entry.itemId then return end
 
     pending = index
+    ArmDriverTimer()                        -- the quote-timeout watchdog
     incoming = { index = index, costs = {} }
     quote[index] = quote[index] or {}
     quote[index].asked = GetTime()
@@ -560,6 +571,7 @@ local function DoBuy()
         -- bug than the one this is preventing.
         ui.buyButton:Disable()
         ui.buyLockedUntil = GetTime() + ANSWER_TIMEOUT
+        ArmDriverTimer()
     end)
 end
 
@@ -911,6 +923,7 @@ local function OnResult(msg)
         view.quantity = 1
         if ui.quantity then ui.quantity:SetText("1") end
         ui.pendingRequote = GetTime() + 2.2      -- clear of the server's buy cooldown
+        ArmDriverTimer()
     end
 
     RebuildList()
@@ -926,7 +939,10 @@ local function OnError(msg)
         -- lock is released because a throttled request never reached a purchase
         -- -- nothing was spent, so the button must not stay dead.
         ui.buyLockedUntil = nil
-        if view.selected then ui.pendingRequote = GetTime() + 1.5 end
+        if view.selected then
+            ui.pendingRequote = GetTime() + 1.5
+            ArmDriverTimer()
+        end
         Render()
         return
     end
@@ -1023,8 +1039,12 @@ end)
 -- One timer, on the driver rather than on the panel, so a deferred re-quote
 -- still fires while the window is closed and the answer is waiting when it
 -- reopens. Throttled to 5/sec; there is nothing here that needs a frame.
+--
+-- ATTACHED ON DEMAND. All three timers below are armed only by using the
+-- bulk-buy UI, so for a session that never opens a vendor panel this script now
+-- costs nothing at all instead of running every frame until logout.
 local elapsedSince = 0
-driver:SetScript("OnUpdate", function(self, elapsed)
+local function DriverTick(self, elapsed)
     elapsedSince = elapsedSince + elapsed
     if elapsedSince < 0.2 then return end
     elapsedSince = 0
@@ -1047,7 +1067,17 @@ driver:SetScript("OnUpdate", function(self, elapsed)
         pending = nil
         Render()
     end
-end)
+
+    -- Nothing outstanding: stand the script down until something arms it again.
+    if not (pending or ui.pendingRequote or ui.buyLockedUntil) then
+        self:SetScript("OnUpdate", nil)
+    end
+end
+
+ArmDriverTimer = function()
+    elapsedSince = 0
+    driver:SetScript("OnUpdate", DriverTick)
+end
 
 SLASH_UNCAPPEDBULKBUY1 = "/bulkbuy"
 SlashCmdList["UNCAPPEDBULKBUY"] = function()

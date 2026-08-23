@@ -5,8 +5,9 @@
 -- pops a shiny frame with a gold screen-flash, your rank + clear time, and a
 -- SCROLLABLE list of everything you won (mouse wheel to scroll).
 --
--- Rides the player's personal channel like the other addons, and filters the
--- UCHEST / URANK lines out of chat so only the window shows them.
+-- Transport: CHAT_MSG_ADDON on the shared "UNC" prefix. The client never renders
+-- an addon message, so nothing needs filtering out of chat. The reward list is
+-- chunked (UCHEST / UCHEST+) because it routinely outruns the 255-byte cap.
 
 local VISIBLE = 10   -- reward rows visible at once (rest reached by scrolling); driven by db.rows
 local MAXROWS = 20   -- font strings pre-created so "rows shown" can change live
@@ -277,6 +278,30 @@ local function Show(level, list)
     end
 end
 
+-- "<name>x<count>|<name>x<count>|..." -> { {name=, count=}, ... }
+-- Counts stay STRINGS on purpose: they are uint64 server-side and tonumber
+-- would round anything past 2^53.
+local function ParseRewards(rest)
+    local list = {}
+    for chunk in rest:gmatch("[^|]+") do
+        local name, count = chunk:match("^(.-)x(%d+)$")
+        if name then
+            list[#list + 1] = { name = name, count = count }
+        end
+    end
+    return list
+end
+
+-- Append a continuation chunk (UCHEST+) to the window already on screen.
+-- Deliberately NOT a second Show(): that would reset the scroll, re-flash the
+-- screen and re-play the fanfare once per chunk.
+local function Append(list)
+    for i = 1, #list do
+        entries[#entries + 1] = list[i]
+    end
+    RenderList()
+end
+
 local function SetRank(level, rank, total, durationMs, bestMs)
     if shownLevel ~= level then return end
     local line = string.format("Cleared in |cffffffff%s|r  --  rank |cffffd100#%d|r of %d", fmtMs(durationMs), rank, total)
@@ -286,19 +311,10 @@ local function SetRank(level, rank, total, durationMs, bestMs)
     frame.rank:SetText(line)
 end
 
--- Hide the protocol lines from chat.
-ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and (msg:find("^UCHEST:") or msg:find("^URANK:")) then
-        return true
-    end
-    return false
-end)
-
 -- Prefix for the whole server->client pipe (see the transport note below).
 local ADDON_PIPE_PREFIX = "UNC"
 
 local listener = CreateFrame("Frame")
-listener:RegisterEvent("CHAT_MSG_CHANNEL")
 listener:RegisterEvent("CHAT_MSG_ADDON")
 listener:RegisterEvent("ADDON_LOADED")
 listener:SetScript("OnEvent", function(self, event, a1, a2)
@@ -332,51 +348,48 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
             ApplyFlashColor()
             ApplyPosition()
             if refreshPanel then refreshPanel() end
-
-            JoinChannelByName(UnitName("player"))
         end
         return
     end
 
-    -- Two transports, on purpose.
+    -- ONE transport. The per-player chat channel this used to also listen on was
+    -- retired when the server moved the whole UNC pipe to CHAT_MSG_ADDON
+    -- (ReagentBankChannelProtocol.cpp:79-96 -- SendResponse is now the only
+    -- sender and it never Say()s). The channel branch, its JoinChannelByName and
+    -- the CHAT_MSG_CHANNEL chat filter are gone: they cost every real World-chat
+    -- line a pass through a dead filter, and the join burned one of the client's
+    -- ten channel slots on a channel nothing publishes to.
     --
-    -- CHAT_MSG_ADDON is where the pipe is moving: the client never renders it,
-    -- so the protocol can no longer leak into chat when an addon fails to load.
-    -- CHAT_MSG_CHANNEL is the old transport, kept because one payload serves
-    -- both realms and a realm still running the previous worldserver would go
-    -- silent otherwise. Drop the channel branch once every realm is converted.
-    --
-    --   CHAT_MSG_ADDON   : a1 = prefix, a2 = body
-    --   CHAT_MSG_CHANNEL : a1 = body,   a2 = author (our own name on the pipe)
-    local msg
-    if event == "CHAT_MSG_ADDON" then
-        if a1 ~= ADDON_PIPE_PREFIX then return end
-        msg = a2
-    else
-        if a2 ~= UnitName("player") then return end
-        msg = a1
-    end
+    --   CHAT_MSG_ADDON : a1 = prefix, a2 = body
+    if a1 ~= ADDON_PIPE_PREFIX then return end
+    local msg = a2
     if not msg then
         return
     end
-    a1 = msg  -- parsers below read a1; keep it pointing at the normalised body
 
     -- UCHEST:<level>:<name>x<count>|<name>x<count>|...
+    --
+    -- CHUNKED. The pipe truncates at 255 bytes INCLUDING the "UNC\t" prefix, so
+    -- only about 240 bytes of list fit per line -- roughly ten rewards, against
+    -- the fifty-odd a full clear can pay. The first "UCHEST:" opens the window,
+    -- each following "UCHEST+:" appends to it. Same shape as UHOT/UHOT+.
     local level, rest = msg:match("^UCHEST:(%d+):(.*)$")
     if level then
-        local list = {}
-        for chunk in rest:gmatch("[^|]+") do
-            local name, count = chunk:match("^(.-)x(%d+)$")
-            if name then
-                table.insert(list, { name = name, count = count })
-            end
+        Show(tonumber(level) or 0, ParseRewards(rest))
+        return
+    end
+
+    local morelevel, more = msg:match("^UCHEST%+:(%d+):(.*)$")
+    if morelevel then
+        -- The level is carried so a stale chunk cannot land on the next window.
+        if shownLevel == (tonumber(morelevel) or 0) then
+            Append(ParseRewards(more))
         end
-        Show(tonumber(level) or 0, list)
         return
     end
 
     -- URANK:<map>:<level>:<rank>:<total>:<durationMs>:<bestMs>
-    local rmap, rlevel, rrank, rtotal, rms, rbest = a1:match("^URANK:(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
+    local rmap, rlevel, rrank, rtotal, rms, rbest = msg:match("^URANK:(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
     if rlevel then
         SetRank(tonumber(rlevel), tonumber(rrank), tonumber(rtotal), tonumber(rms), tonumber(rbest))
         return

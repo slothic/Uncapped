@@ -291,7 +291,6 @@ public sealed class SyncService
         Directory.CreateDirectory(targetDir);
 
         using var zip = ZipFile.OpenRead(archivePath);
-        var root = Path.GetFullPath(targetDir);
 
         foreach (var entry in zip.Entries)
         {
@@ -300,10 +299,32 @@ public sealed class SyncService
 
             var destination = Path.GetFullPath(Path.Combine(targetDir, entry.FullName));
 
-            // Zip-slip guard: an entry named ..\..\something must not write outside the target.
-            // This archive comes from a third-party host, so the check is load-bearing here in
-            // a way it is not for our own payload.
-            if (!destination.StartsWith(root, StringComparison.OrdinalIgnoreCase)) continue;
+            /*
+             * Zip-slip guard: an entry named ..\..\something must not write outside the target.
+             * This archive comes from a third-party host, so the check is load-bearing here in a
+             * way it is not for our own payload.
+             *
+             * ★ The sha256 pin above is NOT a substitute for it. The pin proves the host served
+             * the bytes we reviewed; it says nothing about whether those bytes are harmless. An
+             * upstream addon author whose account is taken over publishes a new version, and the
+             * very next thing that happens on our side is somebody re-pinning its hash.
+             *
+             * ⚠ The test is SafePath.IsInside, never a StartsWith on the target. targetDir here
+             * is …\Interface\AddOns, and a raw string prefix also accepts …\Interface\AddOnsX.
+             *
+             * Throwing rather than skipping the entry: SyncArchivesAsync records the message
+             * against this archive and carries on, so one hostile addon zip costs that addon and
+             * nothing else, and the failure is visible instead of silent.
+             */
+            if (!SafePath.IsInside(targetDir, destination))
+            {
+                Log.Write($"sync: REFUSED escaping zip entry '{entry.FullName}' -> " +
+                          $"{destination} (target {targetDir})");
+
+                throw new InvalidDataException(
+                    $"'{entry.FullName}' would be written outside {targetDir}; " +
+                    "the archive was refused and nothing more from it installed.");
+            }
 
             var dir = Path.GetDirectoryName(destination);
             if (dir is not null) Directory.CreateDirectory(dir);
@@ -399,8 +420,13 @@ public sealed class SyncService
         while (!string.IsNullOrEmpty(dir))
         {
             var full = Path.GetFullPath(dir);
+            // ⚠ Order matters. The equality test must stay FIRST: SafePath.IsInside deliberately
+            // reports the root as not inside itself, and this loop has to stop AT the root rather
+            // than walk past it. Not reachable from attacker input (the input is already
+            // NormalizeRelative-cleaned), but the string-prefix shape is the LA-01 bug and it is
+            // not left standing anywhere in this file.
             if (full.Equals(root, StringComparison.OrdinalIgnoreCase)) return;
-            if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return;
+            if (!SafePath.IsInside(stopAt, full)) return;
             if (!Directory.Exists(full)) return;
             if (Directory.EnumerateFileSystemEntries(full).Any()) return;
 

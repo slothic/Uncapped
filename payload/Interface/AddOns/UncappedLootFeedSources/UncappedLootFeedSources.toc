@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: Uncapped Loot Feed (source data)
+## Notes: Generated "where does it drop" table for Uncapped Loot Feed. Loaded on demand the first time something asks where an item comes from.
+## Author(s): Slothic, MentalMonk
+## Version: 0.4
+## LoadOnDemand: 1
+
+UncappedLootFeedSourceData.lua

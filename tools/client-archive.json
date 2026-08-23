@@ -1,0 +1,9 @@
+[
+  {
+    "_comment": "The stock 3.3.5a client archive the HTTP fallback downloads when BitTorrent fails or is blocked. Mirrored onto our own host on 2026-08-13 after a player's install failed four times running against archive.org. * The sha256 is the ONLY thing standing between a first-time installer and whatever the network hands them: the patch host serves port 80 with no TLS listener and the url is a bare IP, so there is no certificate to check. New-Manifest.ps1 downloads these bytes, proves they are a zip, hashes them, and REFUSES TO WRITE A MANIFEST if the result disagrees with the pin below. WARNING: changing the file on the host means changing this pin in the same commit -- a re-upload with a stale pin here is a hard stop at the next release, which is the intended failure and not a bug.",
+    "_seed": "SEED VALUE, NOT YET PROVEN ON THE WIRE. Computed 2026-08-22 with sha256sum on /srv/patches/3.3.5-12340_enUS.zip inside the uncapped-files container, so it proves the file on the host's DISK, not the bytes the host SERVES. The first New-Manifest run re-derives it from a real download and hard-fails if they disagree. Delete this _seed line once that run has passed.",
+    "url": "http://152.53.115.249/patches/3.3.5-12340_enUS.zip",
+    "name": "3.3.5-12340_enUS.zip",
+    "sha256": "cfa1ea3766559f3a05a1a158aec48ea262d5210358ec151eca91da383de90547"
+  }
+]

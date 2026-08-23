@@ -77,6 +77,16 @@ end
 local countdown = nil
 local elapsed = 0
 
+-- The countdown ticker is ATTACHED only while a countdown is running, and torn
+-- down the moment it ends. `frame` below is parented to UIParent and shown, so a
+-- permanently-installed OnUpdate would run every single frame for the whole
+-- session just to evaluate "if not countdown then return end" -- and `countdown`
+-- is non-nil only for the few seconds before a realm restart. Same
+-- self-cancelling shape UncappedChat.lua uses for its login retry.
+-- Forward-declared: the ticker needs helpers defined further down, but the
+-- window's "Quit now" button (above it) has to be able to stop it.
+local StartCountdown, StopCountdown
+
 -- Set when the settings page is built (below). Lets the /alerts commands repaint
 -- an already-open page so the checkbox/slider never show a stale value.
 local RefreshAlertsPanel = nil
@@ -349,7 +359,7 @@ local function ApplyPopupMode()
         restartWindow.primary:SetText("Quit now")
         restartWindow.primary:Show()
         restartWindow.primary:SetScript("OnClick", function()
-            countdown = nil
+            StopCountdown()
             CloseRestartUI()
             QuitGame()
         end)
@@ -399,8 +409,7 @@ local function Warn()
         PlayAlertSound()
     end
 
-    countdown = Setting("countdown", DEFAULT_COUNTDOWN)
-    elapsed = 0
+    StartCountdown(Setting("countdown", DEFAULT_COUNTDOWN))
 
     if not restartWindow then
         restartBar = BuildBar()
@@ -443,8 +452,11 @@ frame:SetScript("OnEvent", function(self, event, msg)
     end
 end)
 
-frame:SetScript("OnUpdate", function(self, delta)
+local function CountdownTick(self, delta)
     if not countdown then
+        -- Belt and braces: StopCountdown detaches this, so this branch should be
+        -- unreachable. Keeping it means a missed detach degrades to the old
+        -- always-on behaviour rather than an error.
         return
     end
 
@@ -457,7 +469,7 @@ frame:SetScript("OnUpdate", function(self, delta)
     countdown = countdown - 1
 
     if countdown <= 0 then
-        countdown = nil
+        StopCountdown()
         -- Clear the UI in BOTH modes. The old code only hid it on the noupdate
         -- path, because in update mode the client was about to vanish anyway --
         -- but QuitGame() can legitimately do nothing (no quit function on this
@@ -476,7 +488,18 @@ frame:SetScript("OnUpdate", function(self, delta)
     -- minimised to the bar. Neither hiding route cancels anything: the
     -- update-mode quit still lands above.
     RefreshPopup()
-end)
+end
+
+StartCountdown = function(seconds)
+    countdown = seconds
+    elapsed = 0
+    frame:SetScript("OnUpdate", CountdownTick)
+end
+
+StopCountdown = function()
+    countdown = nil
+    frame:SetScript("OnUpdate", nil)
+end
 
 -- Server -> client lines on the addon channel:
 --   UMODE:U / UMODE:N   sent when a countdown starts; says whether this
@@ -487,39 +510,23 @@ end)
 --                         built-in countdown which the client renders itself
 --                         from a localised string.
 --
--- Filtered out of chat so they are never visible.
-ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and (msg:find("^UQUIT:") or msg:find("^UMODE:")) then
-        return true
-    end
-    return false
-end)
-
 -- Prefix for the whole server->client pipe (see the transport note below).
 local ADDON_PIPE_PREFIX = "UNC"
 
 local quitListener = CreateFrame("Frame")
-quitListener:RegisterEvent("CHAT_MSG_CHANNEL")
 quitListener:RegisterEvent("CHAT_MSG_ADDON")
 quitListener:SetScript("OnEvent", function(self, event, a1, a2)
-    -- Two transports, on purpose.
+    -- ONE transport. The per-player chat channel this used to also listen on was
+    -- retired when the server moved the whole UNC pipe to CHAT_MSG_ADDON
+    -- (ReagentBankChannelProtocol.cpp:79-96 -- SendResponse is now the only
+    -- sender and it never Say()s). The channel branch and the CHAT_MSG_CHANNEL
+    -- chat filter are gone: an addon message is never rendered, so there is
+    -- nothing left to filter, and the dead filter was running on every real
+    -- World-chat line.
     --
-    -- CHAT_MSG_ADDON is where the pipe is moving: the client never renders it,
-    -- so the protocol can no longer leak into chat when an addon fails to load.
-    -- CHAT_MSG_CHANNEL is the old transport, kept because one payload serves
-    -- both realms and a realm still running the previous worldserver would go
-    -- silent otherwise. Drop the channel branch once every realm is converted.
-    --
-    --   CHAT_MSG_ADDON   : a1 = prefix, a2 = body
-    --   CHAT_MSG_CHANNEL : a1 = body,   a2 = author (our own name on the pipe)
-    local text
-    if event == "CHAT_MSG_ADDON" then
-        if a1 ~= ADDON_PIPE_PREFIX then return end
-        text = a2
-    else
-        if a2 ~= UnitName("player") then return end
-        text = a1
-    end
+    --   CHAT_MSG_ADDON : a1 = prefix, a2 = body
+    if a1 ~= ADDON_PIPE_PREFIX then return end
+    local text = a2
     if not text then
         return
     end
@@ -538,7 +545,7 @@ quitListener:SetScript("OnEvent", function(self, event, a1, a2)
         return
     end
 
-    countdown = nil
+    StopCountdown()
     CloseRestartUI()
 
     if Setting("sound", true) then
@@ -571,8 +578,7 @@ SlashCmdList["UNCAPPEDALERTS"] = function(arg)
         -- a short countdown. The only honest way to check the wording, the
         -- position and the minimise behaviour without waiting for a deploy --
         -- and in noupdate mode nothing closes at the end, so it is safe.
-        countdown = 15
-        elapsed = 0
+        StartCountdown(15)
         if not restartWindow then
             restartBar = BuildBar()
             restartWindow = BuildWindow()

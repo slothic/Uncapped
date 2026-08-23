@@ -36,7 +36,14 @@ local BUNDLE_ADDON_NAME = "Uncapped"
 local ADDON_PREFIX = "DSTATS"
 local TICK_SECONDS = 1        -- how often the clock/pace repaint while shown
 local STARTUP_DELAY_SECONDS = 5
-local BASELINE_RETRY_SECONDS = 8
+-- Long enough to outlast the server's UALL heartbeat. The stat feed is a 1 Hz
+-- change-check with a 10 s forced resend (MythicPlus.HpFeed.HeartbeatMs), and a
+-- /reload wipes the addon's cache while the server still thinks nothing changed
+-- -- so the real numbers can be up to 10 s away. 5 s of startup delay plus this
+-- clears that with room. Give up sooner and the session baseline locks onto the
+-- capped fallback for good. (A fresh login is never affected: the server drops
+-- its per-player cache at logout, so the first line lands inside a second.)
+local BASELINE_RETRY_SECONDS = 14
 local BASELINE_RETRY_INTERVAL = 0.5
 
 -- ---------------------------------------------------------------------------
@@ -109,13 +116,16 @@ local DEFAULTS = {
 -- Stat display order, matched to what dungeonstats.lua can award. Each entry
 -- carries its accent colour and how to read the player's current value, so the
 -- update loop is a table walk instead of a chain of comparisons.
+-- `real` / `realAlt` name the field in the server's UALL feed that carries the
+-- SAME quantity this row does, uncapped. See CurrentStat for why Defense Rating
+-- and Expertise deliberately have none.
 local STATS = {
-    { key = "Strength",       r = 1.00, g = 0.45, b = 0.38, unitStat = 1 },
-    { key = "Agility",        r = 0.58, g = 0.90, b = 0.45, unitStat = 2 },
-    { key = "Stamina",        r = 0.98, g = 0.72, b = 0.36, unitStat = 3 },
-    { key = "Intellect",      r = 0.45, g = 0.72, b = 1.00, unitStat = 4 },
-    { key = "Spirit",         r = 0.82, g = 0.74, b = 1.00, unitStat = 5 },
-    { key = "Spell Power",    r = 1.00, g = 0.55, b = 0.92, spellPower = true },
+    { key = "Strength",       r = 1.00, g = 0.45, b = 0.38, unitStat = 1, real = "str" },
+    { key = "Agility",        r = 0.58, g = 0.90, b = 0.45, unitStat = 2, real = "agi" },
+    { key = "Stamina",        r = 0.98, g = 0.72, b = 0.36, unitStat = 3, real = "sta" },
+    { key = "Intellect",      r = 0.45, g = 0.72, b = 1.00, unitStat = 4, real = "int" },
+    { key = "Spirit",         r = 0.82, g = 0.74, b = 1.00, unitStat = 5, real = "spi" },
+    { key = "Spell Power",    r = 1.00, g = 0.55, b = 0.92, spellPower = true, real = "sp", realAlt = "heal" },
     { key = "Defense Rating", r = 0.66, g = 0.82, b = 0.95, rating = "CR_DEFENSE_SKILL" },
     { key = "Expertise",      r = 1.00, g = 0.86, b = 0.45, rating = "CR_EXPERTISE" },
 }
@@ -206,6 +216,14 @@ local baselineCorrectionPending = false
 local baselineCorrectionStarted = 0
 local baselineRetryElapsed = 0
 local lastStatBlockWidth = 0
+
+-- ★ [AN-16] The startup/baseline ticker is ATTACHED only while one of the two
+-- flags above is actually pending. It used to sit on the events frame for the
+-- whole session to service a 5-second startup delay and an 8-second baseline
+-- retry -- an every-frame call, forever, whose first statement was a return.
+-- Forward-declared because ResetSession and StartStartupDelay (above the frame)
+-- have to arm it.
+local ArmTicker
 
 -- ---------------------------------------------------------------------------
 -- Saved variables
@@ -313,7 +331,11 @@ end
 -- ---------------------------------------------------------------------------
 local function Commas(value)
     local n = floor((tonumber(value) or 0) + 0.5)
-    local text = tostring(abs(n))
+    -- format("%.0f"), not tostring(): tostring is "%.14g", so from 1e15 up it
+    -- emits "1e+15" and the comma loop below cannot match a digit run at all --
+    -- the number would reach the tooltip in exponent form. Live code: the "At
+    -- login" / "Now" / "Earned" lines and the session total both come through here.
+    local text = format("%.0f", abs(n))
     while true do
         local count
         text, count = gsub(text, "^(%d+)(%d%d%d)", "%1,%2")
@@ -324,11 +346,29 @@ local function Commas(value)
 end
 
 -- Compact form for the per-stat column, where totals can run long.
+--
+-- ★ [AN-08] Delegates to the suite-wide Abbrev exported by Uncapped64bitUI, so
+-- this window and the character sheet spell the same number the same way. They
+-- did not: 7,358,432 read "7.36m" here and "7.36M" there -- the visible half of
+-- "two Uncapped windows disagree about one character", and the one part of it a
+-- player can see at today's magnitudes. The local ladder also stopped at "m", so
+-- a billion rendered "1000.00m" and the 2e9 stat wall rendered "2000.00m".
+--
+-- The local ladder stays as the fallback for a client running without that addon,
+-- and has grown the missing tiers so it can no longer print a four-digit "m".
 local function Short(value)
     local n = floor((tonumber(value) or 0) + 0.5)
+    if UncappedFCT_Abbrev then return UncappedFCT_Abbrev(n) end
+
     local a = abs(n)
     local sign = (n < 0) and "-" or ""
-    if a >= 1000000 then
+    if a >= 1e15 then
+        return sign .. format("%.2fQa", a / 1e15)
+    elseif a >= 1e12 then
+        return sign .. format("%.2fT", a / 1e12)
+    elseif a >= 1e9 then
+        return sign .. format("%.2fB", a / 1e9)
+    elseif a >= 1000000 then
         return sign .. format("%.2fm", a / 1000000)
     elseif a >= 10000 then
         return sign .. floor(a / 1000) .. "k"
@@ -397,11 +437,60 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Reading the player's live stats (for the row totals and the tooltip)
+--
+-- ★ THE CLIENT'S OWN STAT APIS ARE CAPPED. UnitStat, GetSpellBonusDamage and
+-- GetCombatRating all read int32 wire fields the server deliberately SATURATES
+-- at MAX_STAT_VALUE = 2,000,000,000 (Unit.h:63; Unit/StatSystem.cpp:121 and :192,
+-- Player/Player.cpp:5399). Past that the number pins and stops moving. That is
+-- exactly why the server also pushes the UALL feed -- the real 64-bit totals --
+-- which Uncapped64bitUI parses and paints onto the character sheet.
+--
+-- Reading only the capped field here meant this window and the character sheet
+-- would eventually quote different Strengths for the same character, with this
+-- one frozen and the "+earned" column still climbing against a dead base. So:
+-- prefer the feed, fall back to the client field.
+--
+-- ⚠ The fallback is load-bearing, not decoration. It covers the seconds after a
+-- /reload (the feed is a 1 Hz change-check with a 10 s forced heartbeat, and an
+-- unchanged line is suppressed), a player who has Uncapped64bitUI switched off,
+-- and any realm without the feed. A silent feed must leave a CAPPED number on
+-- screen -- never a blank row and never a zero.
+--
+-- ⚠ Defense Rating and Expertise are deliberately NOT mapped to the feed. UALL's
+-- `def` is the defence SKILL (base skill plus the rating converted into skill)
+-- and its `exp` is expertise POINTS -- neither is the RATING these two rows name
+-- and the Dungeon Stats awards actually grant. Both awards are
+-- SPELL_AURA_MOD_RATING: 7511/13390/24774/... carry rating mask 1<<1
+-- (CR_DEFENSE_SKILL) and 41730/61317 carry 1<<23 (CR_EXPERTISE) -- read out of
+-- Spell.dbc, not assumed. Substituting them would change a number every player
+-- can read today and put the base column in different units from the "+earned"
+-- column beside it. They stay on GetCombatRating until the feed carries the real
+-- RATINGS as well.
+--
+-- Returns value, fromFeed.
 -- ---------------------------------------------------------------------------
+local function FeedStat(info)
+    if not info.real or not UncappedFCT_RealStat then return nil end
+    local v = UncappedFCT_RealStat(info.real)
+    if v and v > 0 then return v end
+    -- Healing-only gear sets the heal field and leaves spell damage at zero, so
+    -- the feed gets the same "best of the two" treatment the client read below has.
+    if info.realAlt then
+        local alt = UncappedFCT_RealStat(info.realAlt)
+        if alt and alt > 0 then return alt end
+    end
+    -- A feed that HAS arrived and honestly says zero is still an answer; only a
+    -- missing feed is a nil, and only a nil falls through to the capped read.
+    return v
+end
+
 local function CurrentStat(info)
+    local fed = FeedStat(info)
+    if fed then return fed, true end
+
     if info.unitStat then
         local _, effective = UnitStat("player", info.unitStat)
-        return effective or 0
+        return effective or 0, false
     elseif info.spellPower then
         local best = 0
         if GetSpellBonusDamage then
@@ -413,14 +502,14 @@ local function CurrentStat(info)
         if best == 0 and GetSpellBonusHealing then
             best = GetSpellBonusHealing() or 0
         end
-        return best
+        return best, false
     elseif info.rating then
         local index = _G[info.rating]
         if GetCombatRating and index then
-            return GetCombatRating(index) or 0
+            return GetCombatRating(index) or 0, false
         end
     end
-    return 0
+    return 0, false
 end
 
 -- ---------------------------------------------------------------------------
@@ -431,12 +520,13 @@ local function ResetSession(correctOnNextWorld)
     for i = 1, #STATS do
         local info = STATS[i]
         earned[info.key]    = 0
-        info.startValue     = CurrentStat(info)
+        info.startValue, info.startReal = CurrentStat(info)
     end
     sessionStart = GetTime()
     baselineCorrectionPending = correctOnNextWorld and true or false
     baselineCorrectionStarted = baselineCorrectionPending and sessionStart or 0
     baselineRetryElapsed = 0
+    if baselineCorrectionPending and ArmTicker then ArmTicker() end
     dirty = true
 end
 
@@ -447,12 +537,25 @@ local function CaptureBaseline()
     local waitingForStats = false
     for i = 1, #STATS do
         local info = STATS[i]
-        if not info.startValue or info.startValue == 0 then
-            local current = CurrentStat(info)
+        -- ★ A FALLBACK READING IS PROVISIONAL, NOT A BASELINE.
+        --
+        -- UnitStat answers instantly at login; the UALL feed can be a heartbeat
+        -- behind after a /reload. Accepting the first non-zero number would pin
+        -- "At login" to the CAPPED value for the whole session and leave every
+        -- "+earned" figure measured against it -- which is the exact failure this
+        -- retry loop already exists to prevent, just one wall further out. So a
+        -- provisional value paints immediately (better than a zero row) and is
+        -- UPGRADED IN PLACE the moment the real one arrives.
+        local haveReal = info.startValue and info.startValue ~= 0
+                         and (info.startReal or not info.real)
+        if not haveReal then
+            local current, fromFeed = CurrentStat(info)
             if current ~= 0 then
                 info.startValue = current
+                info.startReal  = fromFeed
                 changed = true
-            else
+            end
+            if current == 0 or (info.real and not fromFeed) then
                 waitingForStats = true
             end
         end
@@ -474,6 +577,7 @@ local function StartStartupDelay()
         local info = STATS[i]
         earned[info.key] = 0
         info.startValue = 0
+        info.startReal  = false
     end
     sessionStart = GetTime()
     startupDelayPending = true
@@ -481,6 +585,7 @@ local function StartStartupDelay()
     baselineCorrectionPending = false
     baselineCorrectionStarted = 0
     baselineRetryElapsed = 0
+    if ArmTicker then ArmTicker() end
     dirty = true
 end
 
@@ -961,7 +1066,9 @@ local function BuildWindow()
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetText(s.key, s.r, s.g, s.b)
             GameTooltip:AddLine("At login: " .. Commas(s.startValue or 0), 1, 1, 1)
-            GameTooltip:AddLine("Now: " .. Commas(CurrentStat(s)), 0, 0.9, 1)
+            -- Extra parens pin CurrentStat's two returns to one: Commas ignores the
+            -- second today, but a future second parameter would silently get `true`.
+            GameTooltip:AddLine("Now: " .. Commas((CurrentStat(s))), 0, 0.9, 1)
             GameTooltip:AddLine("Earned this session: +" .. Commas(earned[s.key] or 0), 0.35, 1, 0.2)
             GameTooltip:Show()
         end)
@@ -1036,7 +1143,11 @@ events:RegisterEvent("CHAT_MSG_ADDON")
 -- when either of these fires -- see ApplyResizeCeiling. #126.
 events:RegisterEvent("UI_SCALE_CHANGED")
 events:RegisterEvent("DISPLAY_SIZE_CHANGED")
-events:SetScript("OnUpdate", function(self, elapsed)
+-- ★ [AN-16] Attached by ArmTicker, and it takes itself back off the frame the
+-- moment neither the startup delay nor the baseline retry is still outstanding --
+-- which for a settled session is within about twenty seconds of login, and then
+-- never again.
+local function StartupTick(self, elapsed)
     if startupDelayPending then
         startupDelayElapsed = startupDelayElapsed + (elapsed or arg1 or 0)
         if startupDelayElapsed >= STARTUP_DELAY_SECONDS then
@@ -1045,12 +1156,20 @@ events:SetScript("OnUpdate", function(self, elapsed)
         return
     end
 
-    if not baselineCorrectionPending then return end
-    baselineRetryElapsed = baselineRetryElapsed + (elapsed or arg1 or 0)
-    if baselineRetryElapsed < BASELINE_RETRY_INTERVAL then return end
-    baselineRetryElapsed = 0
-    if CaptureBaseline() then Repaint(true) end
-end)
+    if baselineCorrectionPending then
+        baselineRetryElapsed = baselineRetryElapsed + (elapsed or arg1 or 0)
+        if baselineRetryElapsed < BASELINE_RETRY_INTERVAL then return end
+        baselineRetryElapsed = 0
+        if CaptureBaseline() then Repaint(true) end
+        return
+    end
+
+    self:SetScript("OnUpdate", nil)
+end
+
+ArmTicker = function()
+    events:SetScript("OnUpdate", StartupTick)
+end
 -- Both conventions work on 3.3.5: handlers set via SetScript receive
 -- (self, event, ...), and the older `event` / `arg1` / `argN` globals are also
 -- still populated -- those were not dropped until Cataclysm.

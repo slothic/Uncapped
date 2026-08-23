@@ -149,9 +149,25 @@ local function fmtRemaining(sec)
     return "<1m"
 end
 
+-- Last string actually handed to the FontString, and the screen width it was
+-- laid out against.
+--
+-- fmtRemaining has MINUTE granularity ("2h05m", "43m", "<1m"), so 59 of every 60
+-- once-a-second rebuilds produce a BYTE-IDENTICAL cycle. Re-setting it cost two
+-- full text layouts (the cycle, then up to 12 copies of it -- ~1,750 characters)
+-- plus a GetStringWidth(), twice a second, for every player, forever. That is the
+-- always-on repaint work that has taken a client from 178 to 23 FPS elsewhere in
+-- this project. Now the layout only happens when the text really changed.
+--
+-- ScreenWidth() is part of the key because it feeds `copies`: a UI-scale or
+-- resolution change must re-measure even though the text is the same.
+local lastCycle = nil
+local lastScreenW = nil
+
 local function BuildText()
     if #zones == 0 then
         bar.text:SetText("")
+        lastCycle = nil
         bar:Hide()
         return
     end
@@ -177,21 +193,32 @@ local function BuildText()
     -- until it comfortably outruns the screen; the OnUpdate wrap then advances by
     -- exactly one cycle width and the seam never shows.
     local cycle = table.concat(parts)
-    bar.text:SetText(cycle)
+    local screenW = ScreenWidth()
 
-    local w = bar.text:GetStringWidth()
-    if not w or w <= 10 then
-        -- Measured before layout. Keep the last good width and try again next
-        -- rebuild rather than caching a bogus 0 and wrapping instantly.
-        if db.enabled then bar:Show() else bar:Hide() end
-        return
-    end
+    -- Nothing to re-lay-out unless the visible string or the screen changed.
+    -- The Show/Hide below still runs every call: BuildText is also how the
+    -- settings page turns the bar back on, and that must not be cached away.
+    if cycle ~= lastCycle or screenW ~= lastScreenW then
+        bar.text:SetText(cycle)
 
-    cycleWidth = w
-    local copies = math.ceil((ScreenWidth() + w) / w) + 1
-    if copies > MAX_CYCLE_COPIES then copies = MAX_CYCLE_COPIES end
-    if copies > 1 then
-        bar.text:SetText(string.rep(cycle, copies))
+        local w = bar.text:GetStringWidth()
+        if not w or w <= 10 then
+            -- Measured before layout. Keep the last good width and try again next
+            -- rebuild rather than caching a bogus 0 and wrapping instantly.
+            lastCycle = nil
+            if db.enabled then bar:Show() else bar:Hide() end
+            return
+        end
+
+        lastCycle = cycle
+        lastScreenW = screenW
+
+        cycleWidth = w
+        local copies = math.ceil((screenW + w) / w) + 1
+        if copies > MAX_CYCLE_COPIES then copies = MAX_CYCLE_COPIES end
+        if copies > 1 then
+            bar.text:SetText(string.rep(cycle, copies))
+        end
     end
 
     -- Only reveal the bar if the player hasn't disabled it on the settings page.
@@ -264,19 +291,10 @@ local function OnData(payload, append)
     BuildText()
 end
 
--- Keep the protocol line out of chat.
-ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and msg:find("^UHOT") then
-        return true
-    end
-    return false
-end)
-
 -- Prefix for the whole server->client pipe (see the transport note below).
 local ADDON_PIPE_PREFIX = "UNC"
 
 local listener = CreateFrame("Frame")
-listener:RegisterEvent("CHAT_MSG_CHANNEL")
 listener:RegisterEvent("CHAT_MSG_ADDON")
 listener:RegisterEvent("ADDON_LOADED")
 listener:SetScript("OnEvent", function(self, event, a1, a2)
@@ -295,30 +313,21 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
             db = s
             ApplyBar()                                   -- apply on load
             for _, r in ipairs(panelRefreshers) do r() end  -- resync the page
-
-            JoinChannelByName(UnitName("player"))
         end
         return
     end
 
-    -- Two transports, on purpose.
+    -- ONE transport. The per-player chat channel this used to also listen on was
+    -- retired when the server moved the whole UNC pipe to CHAT_MSG_ADDON
+    -- (ReagentBankChannelProtocol.cpp:79-96 -- SendResponse is now the only
+    -- sender and it never Say()s). The channel branch, its JoinChannelByName and
+    -- the CHAT_MSG_CHANNEL chat filter are gone: they cost every real World-chat
+    -- line a pass through a dead filter, and the join burned one of the client's
+    -- ten channel slots on a channel nothing publishes to.
     --
-    -- CHAT_MSG_ADDON is where the pipe is moving: the client never renders it,
-    -- so the protocol can no longer leak into chat when an addon fails to load.
-    -- CHAT_MSG_CHANNEL is the old transport, kept because one payload serves
-    -- both realms and a realm still running the previous worldserver would go
-    -- silent otherwise. Drop the channel branch once every realm is converted.
-    --
-    --   CHAT_MSG_ADDON   : a1 = prefix, a2 = body
-    --   CHAT_MSG_CHANNEL : a1 = body,   a2 = author (our own name on the pipe)
-    local msg
-    if event == "CHAT_MSG_ADDON" then
-        if a1 ~= ADDON_PIPE_PREFIX then return end
-        msg = a2
-    else
-        if a2 ~= UnitName("player") then return end
-        msg = a1
-    end
+    --   CHAT_MSG_ADDON : a1 = prefix, a2 = body
+    if a1 ~= ADDON_PIPE_PREFIX then return end
+    local msg = a2
     if not msg then
         return
     end

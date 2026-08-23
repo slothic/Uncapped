@@ -27,7 +27,10 @@ UncappedKeystone\UncappedKeystoneRun.lua
 ## caches it, so load order decides which sub-tabs exist for the session.
 UncappedKeystone\UncappedLFG.lua
 UncappedKeystone\UncappedKeystone.lua
-UncappedTransmog\UncappedTransmogData.lua
+## The 797 KB generated appearance table is NOT here any more: it moved to the
+## top-level UncappedTransmogData addon (## LoadOnDemand) and is pulled in by
+## EnsureData() when the Transmog panel is first built. ~17,270 generated
+## strings that were parsed at every login whether or not the tab was opened.
 UncappedTransmog\UncappedTransmog.lua
 ## Loads LAST, and after UncappedLFG in particular: it retires the stock Dungeon
 ## Finder and points its button and keybind at /mlfg, so the handler it calls has

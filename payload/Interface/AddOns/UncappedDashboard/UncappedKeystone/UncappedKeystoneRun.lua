@@ -366,6 +366,10 @@ local comms = CreateFrame("Frame")
 comms:RegisterEvent("CHAT_MSG_ADDON")
 comms:SetScript("OnEvent", function(_, _, prefix, message)
     if prefix ~= ADDON_PIPE_PREFIX then return end
+    -- [DP-12] Cheap prefix reject FIRST -- every verb this file handles is
+    -- MKS*. Without it HandleMessage paid two strsub allocations per message
+    -- before rejecting the other panels' share of a very busy shared pipe.
+    if strsub(message or "", 1, 3) ~= "MKS" then return end
     HandleMessage(message)
 end)
 

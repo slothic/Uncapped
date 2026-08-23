@@ -56,18 +56,48 @@ local HEALTH_PROXY_BUDGET = 2000000000
 -- ---------------------------------------------------------------------------
 -- Number formatting
 -- ---------------------------------------------------------------------------
--- Truncated/abbreviated: 1234 -> 1.2k, 2.8m, 4.53b, 9.99t. Shared by HP,
--- damage, and stat displays so everything reads the same way.
+-- Truncated/abbreviated: 1234 -> 1.23K, 2.80M, 4.53B, 9.99T, 5.17Qa, 9.22Qi.
+-- Shared by HP, damage and stat displays so everything reads the same way.
+--
+-- ★★ [audit 2026-08-22 NC-04] THIS MIRRORS FormatMagnitude IN UncappedCT.dll,
+--    AND MUST KEEP DOING SO. The DLL rewrites the number the ENGINE draws over a
+--    mob's body; this formats the same number everywhere Lua paints it --
+--    scrolling combat text, the chat log, health bars, the character sheet.
+--
+--    They disagreed. The DLL had Qa and Qi and truncated to two decimals; this
+--    stopped at T, printed no decimals there, and ROUNDED. So a 9.22e18 hit read
+--    "9.22Qi" on the body floater and "9223231T" in the chat log AT THE SAME
+--    INSTANT, and 1,999,999,999 read "1.99B" in one place and "2.00B" in the
+--    other. One hit, two numbers, on screen together.
+--
+--    Truncated and not rounded for the DLL's reason: 999.999T reads as 999.99T
+--    rather than 1000.00T. The fraction is dropped entirely when it is zero, so
+--    a flat two billion is "2B" and not "2.00B".
+--
+--    The fraction is floor(n / (scale/100)) % 100 rather than a subtraction of
+--    the whole part -- the same expression the DLL uses, so the two cannot drift
+--    apart on a rounding edge. And `whole` is always under 1000 within its own
+--    tier, which matters: this client's Lua is a 32-bit build, so
+--    string.format("%d", 9.2e18) would not survive the trip.
 local function Abbrev(n)
-    -- No decimals from trillions up. At that scale the fraction is noise: nobody
-    -- acts differently on 522.44T than on 522T, and the extra characters cost
-    -- width on a health bar that is already tight. Below T they still earn their
-    -- place, because 1.2B vs 1.9B is a real difference to read at a glance.
-    if n >= 1e12 then return string.format("%dT", math.floor(n / 1e12 + 0.5)) end
-    if n >= 1e9  then return string.format("%.2fB", n / 1e9)  end
-    if n >= 1e6  then return string.format("%.2fM", n / 1e6)  end
-    if n >= 1e3  then return string.format("%.1fK", n / 1e3)  end
-    return string.format("%d", math.floor(n + 0.5))
+    n = tonumber(n) or 0
+    if n < 0 then return string.format("%d", math.ceil(n)) end
+
+    local scale, suffix
+    if     n >= 1e18 then scale, suffix = 1e18, "Qi"
+    elseif n >= 1e15 then scale, suffix = 1e15, "Qa"
+    elseif n >= 1e12 then scale, suffix = 1e12, "T"
+    elseif n >= 1e9  then scale, suffix = 1e9,  "B"
+    elseif n >= 1e6  then scale, suffix = 1e6,  "M"
+    elseif n >= 1e3  then scale, suffix = 1e3,  "K"
+    else return string.format("%d", math.floor(n)) end
+
+    local whole = math.floor(n / scale)
+    local frac  = math.floor(n / (scale / 100)) % 100
+    if frac > 0 then
+        return string.format("%d.%02d%s", whole, frac, suffix)
+    end
+    return string.format("%d%s", whole, suffix)
 end
 
 -- Forward declaration: the real-damage floater lives in the FCT section (bottom
@@ -210,12 +240,21 @@ local function RememberTargetHp(d)
     hpCacheByGuid[g] = d
 end
 
--- Player GUIDs carry no high bits, so the full 0x-hex string parses to the low
--- counter -- the same number the server sends in UHP:U.
+-- The low 32 bits of a unit's GUID -- the same number the server sends in UHP:U.
+--
+-- ★ [audit 2026-08-22 AN-10] TAKE THE LAST EIGHT HEX DIGITS, NEVER ALL SIXTEEN.
+-- This used to parse the whole 16-digit string. Lua 5.1's based tonumber is
+-- strtoul, and unsigned long is 32 bits in this client's build, so ANY guid with
+-- a non-zero high half came back saturated at 4294967295 -- one value, shared by
+-- every such unit. Player guids happen to carry no high bits, which is the only
+-- reason it never misfired; the assumption was stated in a comment and defended
+-- by nothing. Slicing the last eight digits is what the server actually computes
+-- (GetRawValue() & 0xFFFFFFFF) and is what CT_Low already does, so the two key
+-- derivations in this file now agree by construction instead of by luck.
 local function GuidLow(unit)
     local g = UnitGUID(unit)
     if not g then return nil end
-    return tonumber(string.sub(g, 3), 16)
+    return tonumber(g:sub(-8), 16)
 end
 
 -- Unit tokens that can be showing another player from the UHP:U feed. Used to
@@ -283,13 +322,16 @@ end
 -- client's own field is already the real number because the unit sits below the
 -- proxy budget. Returning nil is what lets Blizzard's own text stand unmodified.
 local function RealHealthPair(unit)
-    local rmax, stacks, visMax = HpInfoFor(unit)
+    -- [audit 2026-08-22 AN-05] The <stacks> banked-HP-overflow branch that used
+    -- to sit here has been removed. It was unreachable in production: the only
+    -- producer of the field hardcodes a literal 0 (mythic_plus_worldscript.cpp),
+    -- and UHP:S / UHP:U carry no stacks field at all -- creatures hold a true
+    -- 64-bit pool now, which is what the header comment at the top of this file
+    -- means by "retired". The field is still parsed and still ignored, so a line
+    -- from an older worldserver is accepted rather than rejected; only /dev64's
+    -- smoke line ever put a non-zero value in it.
+    local rmax = HpInfoFor(unit)
     if not rmax then return nil end
-
-    if stacks and stacks > 0 and visMax then
-        local phase = math.floor(visMax / 2)
-        return UnitHealth(unit) + stacks * phase, visMax + stacks * phase
-    end
 
     local nmax = UnitHealthMax(unit)
     local frac = (nmax > 0) and (UnitHealth(unit) / nmax) or 0
@@ -511,9 +553,15 @@ local function OnLine(msg)
 
     -- Spell tooltip damage, answering a USPELLDMG request. Cached until gear
     -- changes; no reply at all is a valid answer and leaves the tooltip bare.
-    local dmgSpell, dmgMin = msg:match("^USPELLDMGR:(%d+):(%d+):(%d+)$")
+    -- ★ [audit 2026-08-22 NC-14] THREE CAPTURES, THREE VARIABLES. The pattern
+    --   always had three and only two were bound, so the top of the range was
+    --   matched and then silently thrown away. The server happens to send
+    --   min == max today (spell_tooltip_comms_playerscript.cpp writes `total`
+    --   twice), so nothing was visibly lost -- but the moment it sends a real
+    --   range the tooltip would have shown the low end and called it the answer.
+    local dmgSpell, dmgMin, dmgMax = msg:match("^USPELLDMGR:(%d+):(%d+):(%d+)$")
     if dmgSpell then
-        spellDmgCache[tonumber(dmgSpell)] = tonumber(dmgMin)
+        spellDmgCache[tonumber(dmgSpell)] = { tonumber(dmgMin), tonumber(dmgMax) }
         return
     end
 
@@ -826,8 +874,21 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
     end
     if not msg then return end
 
+    -- ★★ EVERY PREFIX OnLine PARSES MUST BE LISTED HERE. This is the only real
+    -- call site (the definition is above; /dev64 below injects test lines), so a
+    -- prefix missing from this list is a feed that arrives, is dropped, and
+    -- leaves no trace anywhere: the server keeps sending, the parse branch never
+    -- runs, and nothing on either end ever reports a fault.
+    --
+    -- UABS: and USPELLDMGR: were both omitted, and both features were dead from
+    -- the day they shipped -- the shield suffix on the unit-frame bars never
+    -- rendered once, and "Approx. N with your stats" was requested, computed,
+    -- replied and binned on every single hover.
+    --
+    -- ⚠ Adding a branch to OnLine? Add its prefix here IN THE SAME EDIT.
     if msg:find("^UHP:") or msg:find("^UALL") or msg:find("^UDMG:")
-        or msg:find("^UHEAL:") or msg:find("^UCT:") then
+        or msg:find("^UHEAL:") or msg:find("^UCT:")
+        or msg:find("^UABS:") or msg:find("^USPELLDMGR:") then
         OnLine(msg)
     elseif msg:find("^ICBAN") then
         OnBanLine(msg)
@@ -959,6 +1020,29 @@ local FCT_ADDON_DRAWS = false
 local CT_BAND_BASE_MIN = 2145386496   -- WireMagnitude::BAND_BASE
 local CT_BAND_BASE_MAX = 2147483647   -- INT32_MAX
 
+-- ★ [audit 2026-08-22 AN-14] The digits every encoded value necessarily starts
+-- with ("214" today), used as a PLAIN-find rejection gate on the chat rewriter.
+--
+-- Every chat line the client prints -- guild, whisper, say, the lot -- passes
+-- through CT_RewriteChatLine, and its first test was a Lua PATTERN find for a
+-- ten-digit run. That runs the pattern engine over the whole line every time. A
+-- plain find is a memchr-style scan with no engine at all, and since the whole
+-- point of the band is that it sits just under INT32_MAX, any line carrying an
+-- encoded number MUST contain this substring. So ordinary chat is rejected for a
+-- fraction of the old cost and the pattern test only sees the few lines that
+-- could plausibly match.
+--
+-- Derived from the two bounds rather than written as a literal, so widening the
+-- band can never silently turn this gate into a filter that drops real lines.
+-- Computed once at load; nil (gate disabled) if the bounds ever share no prefix.
+local CT_BAND_DIGIT_HINT
+do
+    local lo, hi = tostring(CT_BAND_BASE_MIN), tostring(CT_BAND_BASE_MAX)
+    local n = 0
+    while n < #lo and n < #hi and lo:byte(n + 1) == hi:byte(n + 1) do n = n + 1 end
+    CT_BAND_DIGIT_HINT = (#lo == #hi and n > 0) and lo:sub(1, n) or nil
+end
+
 -- ---------------------------------------------------------------------------
 -- Decoding the wire band
 -- ---------------------------------------------------------------------------
@@ -1045,6 +1129,30 @@ InitSavedVars = function()
     if RefreshOptionsPanel then RefreshOptionsPanel() end
 end
 
+-- ★★ A ONE-SHOT MIGRATION MUST VERIFY, NOT ASSUME. [audit 2026-08-22 AN-02]
+--
+-- pcall(SetCVar, ...) proves only that the call did not raise, and every migration below
+-- is guarded by a SavedVariables flag that never runs again. An unverified write plus an
+-- eagerly-set flag is therefore a repair that marks itself successful while doing nothing,
+-- on every account, permanently. That is exactly what happened to the #926 floater repair
+-- (three CVars this client does not have, flag set on the way IN, pcall's answer thrown
+-- away), and to two earlier attempts at the status-text one -- which is why its flag is
+-- already at version 3.
+--
+-- So: write it, READ IT BACK, and let the caller decide what to do with the answer. The
+-- read-back is what catches the case pcall cannot -- a name the client does not know
+-- (GetCVar returns nil) and a value the client refuses and quietly leaves alone.
+--
+-- ⚠ Placement is load-bearing: ApplyFloatingCombatTextRepair captures this as an upvalue,
+--   so a definition BELOW the call site would silently resolve to a global nil.
+local function SetCVarVerified(name, want)
+    if not pcall(SetCVar, name, want) then return false end
+    local ok, got = pcall(GetCVar, name)
+    if not ok or got == nil then return false end   -- no such CVar on this client
+    return tostring(got) == tostring(want)
+end
+
+
 -- One-time status-text migration. Runs on PLAYER_ENTERING_WORLD, NOT ADDON_LOADED.
 --
 -- Bar text now rides on Blizzard's own status text rather than an overlay drawn
@@ -1075,42 +1183,105 @@ ApplyStatusTextDefaults = function()
     pcall(SetCVar, "statusTextPercentage", "0")
 end
 
--- One-time camera-zoom migration (report #616, "allow camera to zoom out even more").
---
 -- One-time repair of the engine floater CVars (report #926, "Custom Battle text not
 -- working -- the dmg numbers etc not working or showing at all").
 --
--- ★★ THIS ADDON IS WHAT TURNED THEM OFF, WHICH IS WHY IT HAS TO TURN THEM BACK ON.
+-- ★★ THE ENGINE FLOATERS ARE THE ONLY RENDERER LEFT, SO ONE CVAR AT 0 IS A BLANK SCREEN.
 --
--- Until 2026-08-08 CT_ApplyBlizzardSurfaces forced floatingCombatTextCombatDamage,
--- ...Healing and ...State to "0" on every load, because back then the addon drew its own
--- scrolling numbers and the engine floaters could only ever show the pinned 32-bit value.
--- That retirement stopped FORCING them off and left them "deliberately untouched" -- which
--- is right for a fresh install and wrong for every player who already had them.
+-- Since 2026-08-08 this addon does not draw combat text (FCT_ADDON_DRAWS is false) and
+-- CT_ApplyBlizzardSurfaces pins SHOW_COMBAT_TEXT to "0", so Blizzard's scrolling region is
+-- off on purpose. Everything the player sees comes from UncappedCT.dll -- which detours
+-- sub_7E6030, the world-text choke point, and therefore only ever rewrites a floater the
+-- engine has ALREADY decided to emit. The decision is made upstream in sub_722340, which
+-- reads CombatDamage / PetMeleeDamage / CombatHealing (NativeCT/notes/CLIENT_MAP.md:41-47,
+-- :124-132). With one of those at 0 the engine emits nothing, the DLL has nothing to
+-- correct, and the player has no combat numbers at all. That is exactly the report.
 --
--- A CVar is persisted client-side. "Untouched" therefore means "still 0, forever" for
--- anyone who ever ran an older build: the addon no longer draws, Blizzard's scroll region
--- is deliberately off, and UncappedCT.dll hooks the ENGINE floater emit -- which never
--- fires while the CVar is 0. All three renderers are off at once and the player sees no
--- combat numbers at all. That is exactly the report, and it will have hit everyone who
--- played before the retirement rather than a handful of unlucky clients.
+-- ⚠⚠ THE NAMES, AND THE MISTAKE THIS REPLACES. This client is 3.3.5a and has NO
+--   floatingCombatText* CVars at all. The first attempt at this repair -- shipped
+--   2026-08-18 as the answer to #926 -- set floatingCombatTextCombatDamage / ...Healing /
+--   ...State, so it did nothing whatsoever. Those are the same three names the retired
+--   DisableBlizzardFCT used, which means the premise the first attempt was written on --
+--   "this addon turned them off, so it must turn them back on" -- was ALSO wrong: that
+--   code never switched anything off either. Verified from the binary, not remembered:
+--       grep -a -o -E "floatingCombatText[A-Za-z]*" Client\...\UncappedClient.dat
+--   returns nothing, while CombatDamage / CombatHealing / PetMeleeDamage / PetSpellDamage
+--   / CombatLogPeriodicSpells are all present with their description strings; and the
+--   client's own options table -- Interface\FrameXML\InterfaceOptionsPanels.lua:1244-1247
+--   -- names the same four as its Combat panel checkboxes. UncappedPerf.lua already had
+--   them right. [audit 2026-08-22 AN-02 / NC-11]
 --
--- Done ONCE, behind its own migration flag, rather than forced every load: switching them
--- on at every login would take the choice away from anyone who genuinely wants floaters
--- off. This is repairing our own damage, not setting a policy.
+-- ⚠ fctCombatState IS a real CVar on this client, and it is NOT the fix. It is the Lua
+--   scrolling system's, not the engine's, and we pin that system off deliberately -- so
+--   setting it either does nothing or drags back the second renderer 2026-08-08 removed.
+--   Renaming the third name was the obvious move and it is the wrong one; it is DROPPED.
+--   CombatLogPeriodicSpells is left alone too: a player with only that at 0 still sees
+--   direct hits, so it is not the "nothing at all" case, and the /uperf checkbox does not
+--   own it -- turning it on here would make the repair and the control disagree.
 --
--- ⚠ The flag name must stay unique for the same reason recorded on ApplyStatusTextDefaults
---   -- reusing an existing one would permanently skip precisely the players who still need
---   the repair to run.
+-- ★★ THE FLAG NOW RECORDS THE OUTCOME, NOT THE ATTEMPT, and that is the part worth
+--   copying everywhere. Version 1 set its flag on the FIRST line and threw pcall's answer
+--   away, so a repair that did nothing marked itself done on every account that logged in
+--   -- and correcting the names alone would still have reached nobody. Each write is now
+--   read back through SetCVarVerified, and the flag is set only once every one of them is
+--   proven to have stuck. A repair that fails stays armed and tries again next login.
+--
+-- ⚠ The flag is versioned for the reason recorded on ApplyStatusTextDefaults: every
+--   account that has logged in since 2026-08-18 already carries fctCVarRepaired1 from the
+--   attempt that did nothing, so reusing that name would permanently skip precisely the
+--   players who still have no numbers.
 ApplyFloatingCombatTextRepair = function()
     local db = Uncapped64bitUIDB
-    if not db or db.fctCVarRepaired1 then return end
-    db.fctCVarRepaired1 = true
+    if not db or db.fctCVarRepaired2 then return end
 
-    for _, cv in ipairs({ "floatingCombatTextCombatDamage",
-                          "floatingCombatTextCombatHealing",
-                          "floatingCombatTextCombatState" }) do
-        pcall(SetCVar, cv, "1")
+    -- ★ A player who has actually used the /uperf checkbox has made this choice out loud.
+    --   Record the repair as not-needed rather than leaving it armed to override them.
+    if db.perf and db.perf.fctChoice then
+        db.fctCVarRepaired2 = true
+        return
+    end
+
+    -- The four the /uperf checkbox owns, so the repair and the control agree about what
+    -- "damage numbers" means. PetSpellDamage has no checkbox anywhere in the stock client
+    -- UI, which is exactly why it needs setting here.
+    local GATES = { "CombatDamage", "CombatHealing", "PetMeleeDamage", "PetSpellDamage" }
+
+    local changed, allTook = false, true
+    for _, cv in ipairs(GATES) do
+        local ok, before = pcall(GetCVar, cv)
+        if ok and before == "0" then changed = true end
+        if not SetCVarVerified(cv, "1") then allTook = false end
+    end
+
+    if not allTook then
+        -- ⚠ DO NOT SET THE FLAG. This is the whole point of the rewrite: a repair that did
+        --   not work must not claim it did. Count the failures so a later session finds
+        --   evidence instead of silence -- version 1 left none.
+        db.fctCVarRepairFailures = (db.fctCVarRepairFailures or 0) + 1
+        -- Bounded on purpose. Retrying is right while it might yet work; retrying FOREVER
+        -- would re-force these on every zone-in and take the choice away from a player who
+        -- turned them off. Three logins covers a transient; after that we stop and SAY SO,
+        -- because a silent give-up is how this bug survived a fix in the first place.
+        if db.fctCVarRepairFailures >= 3 then
+            db.fctCVarRepaired2 = true
+            if DEFAULT_CHAT_FRAME then
+                DEFAULT_CHAT_FRAME:AddMessage("|cffff4040[Uncapped]|r couldn't switch your combat "
+                    .. "numbers back on -- this client refused the setting. Please report that, "
+                    .. "and try Interface options -> Uncapped -> Performance in the meantime.")
+            end
+        end
+        return
+    end
+
+    db.fctCVarRepaired2      = true
+    db.fctCVarRepaired1      = nil   -- set by the attempt that did nothing; it means nothing
+    db.fctCVarRepairFailures = nil
+
+    if changed and DEFAULT_CHAT_FRAME then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[Uncapped]|r Your combat numbers were switched "
+            .. "off in the client's own settings, so nothing was drawing them. Turned back on. "
+            .. "If that was on purpose, the switch is Interface options -> Uncapped -> "
+            .. "Performance -> \"Show damage numbers over enemies\".")
     end
 end
 
@@ -1169,20 +1340,14 @@ local MISS_TEXT = {
     RESIST = "Resist", EVADE = "Evade", REFLECT = "Reflect",
 }
 
-local function Commafy(n)
-    n = math.floor(n + 0.5)
-    local s = tostring(n)
-    local rev = s:reverse():gsub("(%d%d%d)", "%1,")
-    s = rev:reverse()
-    if s:sub(1, 1) == "," then s = s:sub(2) end
-    return s
-end
-
-local SCHOOL_COLOR = {
-    [1]  = { 1.0, 1.0, 0.6 }, [2]  = { 1.0, 0.9, 0.5 }, [4]  = { 1.0, 0.5, 0.2 },
-    [8]  = { 0.3, 1.0, 0.3 }, [16] = { 0.5, 0.8, 1.0 }, [32] = { 0.6, 0.4, 1.0 },
-    [64] = { 1.0, 0.6, 1.0 },
-}
+-- [audit 2026-08-22 AN-03] Commafy() and SCHOOL_COLOR were removed here. Both
+-- were file-locals with no reader anywhere in the addon -- nothing outside the
+-- file could ever have reached them. Commafy was also wrong above 1e15, where
+-- tostring() (%.14g) emits scientific notation its comma loop cannot match, so
+-- it would have printed "9.2233720368548e+18" untouched the first time a real
+-- number reached it. Everything on screen goes through Abbrev(), which mirrors
+-- the DLL's FormatMagnitude. If a grouped-digits format is ever wanted, write it
+-- against that contract rather than restoring this.
 
 local fctHost = CreateFrame("Frame", nil, UIParent)
 -- Blizzard-style anchoring: outgoing floats up over the TARGET (its nameplate
@@ -1249,6 +1414,14 @@ end
 
 local fctPool, fctActive = {}, {}
 
+-- ★ [audit 2026-08-22 AN-16] Forward declaration for the animator, so the spawn
+-- function below can ARM it. The frame is left with no OnUpdate at load and only
+-- carries one while fctActive is non-empty. It used to run every frame for the
+-- whole session, walking an empty list -- and since FCT_ADDON_DRAWS is false the
+-- list is empty except during the options preview, so it was a per-frame call to
+-- do nothing, on every client, forever.
+local fctAnimate
+
 -- Apply the current combat font at a given size, ALWAYS leaving a usable font set.
 -- SetFont returns false (without setting anything) when the font file can't be
 -- loaded -- most commonly a bundled font that was added while the client was
@@ -1288,6 +1461,10 @@ local function FctSpawnText(text, big, r, g, b, outgoing, heal)
     fctActive[#fctActive + 1] = { fs = fs, x = x, y0 = y, t = 0, dur = big and 1.6 or 1.2,
         rise = big and 95 or 70, wiggle = true, phase = math.random() * 6.2832,
         pop = big or false, base = base }
+    -- ★ [AN-16] Arm on the transition from empty to one; the animator disarms
+    -- itself on the way back. Re-setting an already-set OnUpdate every spawn
+    -- would be harmless but pointless, so it is gated on the count.
+    if #fctActive == 1 then fctHost:SetScript("OnUpdate", fctAnimate) end
 end
 
 -- Assigns the forward-declared handler: the server feeds real (trillion-scale)
@@ -1318,7 +1495,7 @@ ShowRealHeal = function(real)
     FctSpawnText("+" .. Abbrev(real), true, 0.4, 1.0, 0.4, true, true)
 end
 
-fctHost:SetScript("OnUpdate", function(self, dt)
+fctAnimate = function(self, dt)
     for i = #fctActive, 1, -1 do
         local a = fctActive[i]
         a.t = a.t + dt
@@ -1349,7 +1526,9 @@ fctHost:SetScript("OnUpdate", function(self, dt)
             if p > 0.55 then a.fs:SetAlpha(1 - (p - 0.55) / 0.45) end
         end
     end
-end)
+    -- ★ [AN-16] Nothing left to animate: stop being called. FctSpawnText re-arms.
+    if #fctActive == 0 then self:SetScript("OnUpdate", nil) end
+end
 
 local fctPlayerGUID
 
@@ -1452,6 +1631,14 @@ local CT_MAX_PENDING = 64
 local ctPending = {}   -- FIFO; oldest first
 local ctSelfLow        -- low 32 bits of the player's own GUID
 
+-- ★ [audit 2026-08-22 AN-16] Arms the combat-text driver's OnUpdate. Forward
+-- declared because the ingest below runs long before the driver frame is
+-- created, and the driver must only be running while there is something for it
+-- to do -- a queued line to draw next frame, or a correction still inside its
+-- TTL. It used to hold an OnUpdate for the whole session to service a purge that
+-- fires once a second and, out of combat, has nothing to purge.
+local CT_ArmDriver = function() end
+
 -- A SECOND copy of every correction, consumed independently.
 --
 -- The combat-log chat tab and the floating number describe the same hit, so if
@@ -1495,6 +1682,8 @@ CT_Ingest = function(body)
             -- removes it from one list or the other.
             if #ctPendingChat >= CT_MAX_PENDING then table.remove(ctPendingChat, 1) end
             ctPendingChat[#ctPendingChat + 1] = rec
+
+            CT_ArmDriver()   -- [AN-16] there is now something to purge
         end
     end
 end
@@ -1680,6 +1869,7 @@ local function CT_Enqueue(rec)
     if #ctQueue >= CT_MAX_QUEUE then table.remove(ctQueue, 1) end
     rec.frame = ctFrame
     ctQueue[#ctQueue + 1] = rec
+    CT_ArmDriver()   -- [AN-16] there is now something to draw next frame
 end
 
 -- Draw one of our own (combat-log driven) lines, correction applied.
@@ -1715,7 +1905,7 @@ local function CT_DrawBlizzard(rec)
     end
 end
 
-ctDriver:SetScript("OnUpdate", function(self, dt)
+local function CT_Drive(self, dt)
     ctPurgeAccum = ctPurgeAccum + dt
     if ctPurgeAccum >= 1.0 then
         ctPurgeAccum = 0
@@ -1738,7 +1928,23 @@ ctDriver:SetScript("OnUpdate", function(self, dt)
     end
 
     ctFrame = ctFrame + 1
-end)
+
+    -- ★ [AN-16] Nothing queued and nothing to purge: stop being called. Both
+    -- fill points (CT_Enqueue, CT_Ingest) re-arm. ctFrame stops advancing while
+    -- idle, which is harmless -- the queue's one-frame delay is measured against
+    -- the value stamped at enqueue time, and the first tick after re-arming
+    -- still sees rec.frame == ctFrame and waits, exactly as before.
+    if #ctQueue == 0 and #ctPending == 0 and #ctPendingChat == 0 then
+        self:SetScript("OnUpdate", nil)
+    end
+end
+
+CT_ArmDriver = function()
+    if not ctDriver:GetScript("OnUpdate") then
+        ctPurgeAccum = 0
+        ctDriver:SetScript("OnUpdate", CT_Drive)
+    end
+end
 
 -- Wrap CombatText_AddMessage so anything Blizzard (or another addon) pushes into
 -- the scrolling region gets the same treatment. Installed separately from the
@@ -1822,9 +2028,15 @@ end
 local function CT_RewriteChatLine(msg)
     if type(msg) ~= "string" then return msg end
 
-    -- Cheap gate first. Every chat line on the client passes through here, and
-    -- only a ten-digit run can possibly be a pinned combat number -- so ordinary
-    -- chat costs one failed find and nothing else.
+    -- Cheapest gate first: a PLAIN find (no pattern engine) for the digits every
+    -- encoded value must begin with. See CT_BAND_DIGIT_HINT above -- on this
+    -- realm the saturated band is the common case in the combat-log tab, so the
+    -- ten-digit pattern test below was being paid on every guild line, whisper
+    -- and emote to catch it. This rejects all of those first.
+    if CT_BAND_DIGIT_HINT and not msg:find(CT_BAND_DIGIT_HINT, 1, true) then return msg end
+
+    -- Second gate. Only a ten-digit run can possibly be a pinned combat number,
+    -- so a line that merely mentions "214" costs one failed pattern find.
     if not msg:find("%d%d%d%d%d%d%d%d%d%d") then return msg end
 
     -- ⚠ NO `#ctPendingChat == 0` EARLY-OUT ANY MORE.
@@ -2117,6 +2329,35 @@ fctEv:SetScript("OnEvent", function(self, event, ...)
     -- login, a zone change, a worldserver restart the client did not notice.
     -- Idempotent, and one message.
     CT_PushHideUnder()
+
+    --[[ ★ ONE-TIME NOTICE, and it is not optional politeness.
+         [audit 2026-08-22 NC-02, client half]
+
+         The DLL-side filter compared the threshold against the ABBREVIATED label
+         ("3.20B"), so it could not judge anything at or above a million -- which
+         on this realm is every hit. Anyone who set a threshold weeks ago has been
+         carrying a live setting that did nothing, and the build that fixes NC-02
+         makes it bite for the first time. Being told beats rediscovering it as
+         "my auto-attacks vanished and I don't know why".
+
+         ⚠ SHIP THIS WITH THE DLL, NOT AFTER IT. Without the notice the fix takes
+           numbers away from people who never asked again.
+
+         Versioned flag, like statusTextMigrated3 above: reusing a name would
+         permanently skip exactly the people who need to be told. Top-level on
+         `db`, not under `db.fct`, so InitSavedVars' `for k in pairs(Cfg)` loop
+         never touches it. ]]
+    local db = Uncapped64bitUIDB
+    if db and not db.hideUnderFixNotice1 then
+        db.hideUnderFixNotice1 = true
+        local m = Cfg.minFloat or 0
+        if m > 0 then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[Uncapped]|r your |cffffff00/hideunder|r "
+                .. "threshold is " .. Abbrev(m) .. ", and it now hides auto-attacks too -- "
+                .. "it had been failing on anything over a million. "
+                .. "|cffffff00/hideunder 0|r shows everything again.")
+        end
+    end
 end)
 
 -- Nameplates power the over-target / over-ally combat text: a unit's on-screen
@@ -2353,32 +2594,61 @@ local function fmtCd(n)
     if n == math.floor(n) then return string.format("%d", n) end
     return string.format("%.2f", n)
 end
+-- ★ [audit 2026-08-22 AN-15] The guard finds are PLAIN finds (`, 1, true`) and
+-- the substitution chain is split into a haste half and a speed half, each run
+-- only when the line actually contains that word.
+--
+-- Every pattern below contains the literal "haste" or the literal "speed", so a
+-- line with neither could not have matched any of them -- skipping them is a
+-- cost saving with no behaviour change. The relative ORDER of the surviving
+-- gsubs is unchanged, which is what matters: the chain runs most-specific first
+-- ("20% melee haste" must become "20% critical strike damage", not "20% melee
+-- critical strike damage"), so it must not be reordered or collapsed.
+--
+-- ⚠ Deliberately NOT "bail after the first substitution", which is what the
+-- audit line suggested. One line can legitimately need two of these -- "increases
+-- haste rating by 300 and attack speed by 5%" needs the first gsub AND one from
+-- the speed half -- so an early bail would silently leave half of it relabelled.
+-- The substituted text ("critical strike damage") contains neither guard word,
+-- so the two flags stay valid for the whole chain.
 local function rewriteHasteLine(t)
     local low = t:lower()
-    if low:find("movement speed") or low:find("run speed") then return t end
-    if low:find("reduc") or low:find("slow") or low:find("decreas") or low:find("lower")
-       or low:find("cast time") or low:find("casting time") then return t end   -- slow -> leave
-    if not (low:find("increas") or low:find("improv") or low:find("grant") or low:find("gain")
-            or low:find("provid") or low:find("boost") or low:find("haste rating")) then return t end
+    if low:find("movement speed", 1, true) or low:find("run speed", 1, true) then return t end
+    if low:find("reduc", 1, true) or low:find("slow", 1, true) or low:find("decreas", 1, true)
+       or low:find("lower", 1, true) or low:find("cast time", 1, true)
+       or low:find("casting time", 1, true) then return t end   -- slow -> leave
+    if not (low:find("increas", 1, true) or low:find("improv", 1, true) or low:find("grant", 1, true)
+            or low:find("gain", 1, true) or low:find("provid", 1, true) or low:find("boost", 1, true)
+            or low:find("haste rating", 1, true)) then return t end
+
+    local hasHaste = low:find("haste", 1, true) ~= nil
+    local hasSpeed = low:find("speed", 1, true) ~= nil
+
     local s = t
-    s = s:gsub("[Hh]aste [Rr]ating by (%d+)", function(n) return CDMG .. " by " .. fmtCd(tonumber(n)/1000) .. "%" end)
-    s = s:gsub("(%d+)%s+[Hh]aste [Rr]ating", function(n) return fmtCd(tonumber(n)/1000) .. "% " .. CDMG end)
-    s = s:gsub("(%d+%%)%s*[Mm]elee [Hh]aste", "%1 " .. CDMG)
-    s = s:gsub("(%d+%%)%s*[Ss]pell [Hh]aste",  "%1 " .. CDMG)
-    s = s:gsub("(%d+%%)%s*[Rr]anged [Hh]aste", "%1 " .. CDMG)
-    s = s:gsub("(%d+%%)%s*[Hh]aste",           "%1 " .. CDMG)
-    s = s:gsub("[Mm]elee, ranged, and spell casting speed", CDMG)
-    s = s:gsub("[Mm]elee and ranged attack speed", CDMG)
-    s = s:gsub("[Aa]ttack and casting speed", CDMG)
-    s = s:gsub("[Mm]elee attack speed", CDMG)
-    s = s:gsub("[Rr]anged attack speed", CDMG)
-    s = s:gsub("[Aa]ttack speed", CDMG)
-    s = s:gsub("[Cc]asting speed", CDMG)
-    s = s:gsub("[Ss]pell [Hh]aste", CDMG)
-    s = s:gsub("[Mm]elee [Hh]aste", CDMG)
-    s = s:gsub("[Rr]anged [Hh]aste", CDMG)
-    s = s:gsub("[Hh]aste [Rr]ating", CDMG)
-    s = s:gsub("[Hh]aste", CDMG)
+    if hasHaste then
+        s = s:gsub("[Hh]aste [Rr]ating by (%d+)", function(n) return CDMG .. " by " .. fmtCd(tonumber(n)/1000) .. "%" end)
+        s = s:gsub("(%d+)%s+[Hh]aste [Rr]ating", function(n) return fmtCd(tonumber(n)/1000) .. "% " .. CDMG end)
+        s = s:gsub("(%d+%%)%s*[Mm]elee [Hh]aste", "%1 " .. CDMG)
+        s = s:gsub("(%d+%%)%s*[Ss]pell [Hh]aste",  "%1 " .. CDMG)
+        s = s:gsub("(%d+%%)%s*[Rr]anged [Hh]aste", "%1 " .. CDMG)
+        s = s:gsub("(%d+%%)%s*[Hh]aste",           "%1 " .. CDMG)
+    end
+    if hasSpeed then
+        s = s:gsub("[Mm]elee, ranged, and spell casting speed", CDMG)
+        s = s:gsub("[Mm]elee and ranged attack speed", CDMG)
+        s = s:gsub("[Aa]ttack and casting speed", CDMG)
+        s = s:gsub("[Mm]elee attack speed", CDMG)
+        s = s:gsub("[Rr]anged attack speed", CDMG)
+        s = s:gsub("[Aa]ttack speed", CDMG)
+        s = s:gsub("[Cc]asting speed", CDMG)
+    end
+    if hasHaste then
+        s = s:gsub("[Ss]pell [Hh]aste", CDMG)
+        s = s:gsub("[Mm]elee [Hh]aste", CDMG)
+        s = s:gsub("[Rr]anged [Hh]aste", CDMG)
+        s = s:gsub("[Hh]aste [Rr]ating", CDMG)
+        s = s:gsub("[Hh]aste", CDMG)
+    end
     return s
 end
 -- Abbreviate any large number embedded in a line of tooltip text.
@@ -2391,39 +2661,77 @@ end
 -- Deliberately conservative about what it matches. Item level, required level,
 -- durability, stack sizes and every other small integer fall under the threshold
 -- and are left exactly alone, so this cannot quietly rewrite "Requires Level 80".
+--
+-- ★ [audit 2026-08-22 AN-15] The gsub callback is a FILE-LOCAL, not a closure
+-- built on every call. This runs per line per column of every tooltip -- an
+-- auction list or a full bag re-runs it for each item hovered -- and the old
+-- shape allocated a fresh function object each time, straight into the string
+-- and garbage churn the realm's FPS profile is dominated by.
+local function AbbrevBigNumber(n)
+    local v = tonumber(n)
+    if v and v >= 100000 then return Abbrev(v) end
+    return n
+end
+
 local function AbbrevNumbersIn(s)
-    return (s:gsub("%d+%.?%d*", function(n)
-        local v = tonumber(n)
-        if v and v >= 100000 then return Abbrev(v) end
-        return n
-    end))
+    -- ★ Reject first, with one pattern find, before running a gsub with a
+    -- callback over the whole string. The threshold is 100000, so nothing
+    -- without six consecutive digits can ever be substituted -- and the vast
+    -- majority of tooltip lines ("Binds when picked up", "Requires Level 80")
+    -- have none. The test can only ever be a FALSE POSITIVE (leading zeros), so
+    -- it cannot skip a line the gsub would have changed.
+    if not s:find("%d%d%d%d%d%d") then return s end
+    return (s:gsub("%d+%.?%d*", AbbrevBigNumber))
 end
 
 -- One pass over a tooltip's lines doing both jobs: the haste -> crit-damage
 -- relabel (only on lines that mention it) and large-number abbreviation (on every
 -- line, including the right-hand column, where item tooltips put armour values,
 -- damage ranges and stat totals).
+--
+-- ★ [audit 2026-08-22 AN-15] Two allocations per line were removed here: the
+-- `{ "TextLeft", "TextRight" }` table, which was built fresh for EVERY line of
+-- EVERY tooltip and handed to ipairs, and one of the two name concatenations,
+-- now hoisted so the frame-name prefix is built once per tooltip instead of
+-- twice per line. The two columns are unrolled because they do different work
+-- anyway -- only the left one carries prose the haste relabel can apply to.
 local function RewriteTooltipLines(tt)
     if not tt or not tt.GetName then return end
     local name = tt:GetName()
     if not name then return end
+
+    local leftPrefix  = name .. "TextLeft"
+    local rightPrefix = name .. "TextRight"
+
     for i = 1, tt:NumLines() do
-        for _, side in ipairs({ "TextLeft", "TextRight" }) do
-            local fs = _G[name .. side .. i]
-            local t = fs and fs:GetText()
-            if t and t ~= "" then
-                local nt = t
-                -- Haste relabel is left-column only: it rewrites prose, and the
-                -- right column carries bare values, never sentences.
-                if side == "TextLeft" then
-                    local low = t:lower()
-                    if low:find("haste") or low:find("attack speed") or low:find("casting speed") then
-                        nt = rewriteHasteLine(nt)
-                    end
+        -- Left column: prose. Haste relabel then abbreviation.
+        local fs = _G[leftPrefix .. i]
+        local t = fs and fs:GetText()
+        if t and t ~= "" then
+            local nt = t
+            -- ★ Two PLAIN finds on the raw text before paying for :lower().
+            -- "aste"/"peed" are the case-insensitive tails of Haste/Speed, so
+            -- anything the guard below could match contains one of them; almost
+            -- no tooltip line does, and those lines now allocate no lowercase
+            -- copy at all.
+            if t:find("aste", 1, true) or t:find("peed", 1, true) then
+                local low = t:lower()
+                if low:find("haste", 1, true) or low:find("attack speed", 1, true)
+                   or low:find("casting speed", 1, true) then
+                    nt = rewriteHasteLine(nt)
                 end
-                nt = AbbrevNumbersIn(nt)
-                if nt ~= t then fs:SetText(nt) end
             end
+            nt = AbbrevNumbersIn(nt)
+            if nt ~= t then fs:SetText(nt) end
+        end
+
+        -- Right column: bare values (armour, damage ranges, stat totals). Never
+        -- a sentence, so no haste relabel -- abbreviation only.
+        fs = _G[rightPrefix .. i]
+        t = fs and fs:GetText()
+        if t and t ~= "" then
+            local nt = AbbrevNumbersIn(t)
+            if nt ~= t then fs:SetText(nt) end
         end
     end
 end
@@ -2485,7 +2793,13 @@ local function AppendSpellDamage(tt)
         end
     end
 
-    tt:AddLine("Approx. " .. Abbrev(dmg) .. " with your stats", 1, 0.82, 0)
+    -- One figure when the server sent one, a range when it sent two. [NC-14]
+    if dmg[2] and dmg[2] > dmg[1] then
+        tt:AddLine("Approx. " .. Abbrev(dmg[1]) .. " - " .. Abbrev(dmg[2])
+                   .. " with your stats", 1, 0.82, 0)
+    else
+        tt:AddLine("Approx. " .. Abbrev(dmg[1]) .. " with your stats", 1, 0.82, 0)
+    end
     tt:Show()   -- re-fit; the tooltip has grown by a line
 end
 
@@ -3073,6 +3387,28 @@ end
 
 function UncappedFCT_ParseAbbrev(s) return ParseAbbrev(s) end
 function UncappedFCT_Abbrev(n)      return Abbrev(n)      end
+
+-- ★ The real, uncapped stat totals from the UALL feed, for the rest of the suite.
+--
+-- Any addon that reads UnitStat / GetSpellBonusDamage / GetCombatRating is reading
+-- an int32 wire field the server deliberately SATURATES at MAX_STAT_VALUE =
+-- 2,000,000,000 (Unit.h:63) -- which is the whole reason this feed exists. Two
+-- Uncapped windows quoting different Strengths for the same character is a worse
+-- failure than one of them being capped, so the cache is published rather than
+-- left private to the character sheet.
+--
+-- Keys are the UALL field names: str agi sta int spi map rap sp heal armor def
+-- exp mmin mmax rmin rmax critdmg. ⚠ `def` is the defence SKILL and `exp` is
+-- expertise POINTS -- neither is the RATING of the same name. Callers wanting a
+-- rating must not use these two.
+--
+-- Returns nil -- never 0 -- when the feed has not arrived, so a caller can tell
+-- "no feed yet" from "genuinely zero" and fall back instead of painting a blank.
+function UncappedFCT_RealStat(key)
+    local v = realStats[key]
+    if type(v) ~= "number" then return nil end
+    return v
+end
 
 -- Hide combat text below a threshold: /hideunder 500m   (/hideunder 0 = show all)
 --

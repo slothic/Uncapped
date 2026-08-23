@@ -55,8 +55,15 @@ local caught, absent = {}, {}
 
 -- Open the realm's own noticeboard. Deliberately routed through the /mlfg slash
 -- handler rather than reaching into UncappedLFG's internals: that handler already
--- does the Request() + Dashboard:Open("keystone") pair, and if it ever changes
--- this follows it for free.
+-- does the whole open -- SetTab("keystone"), show the window, then drop onto the
+-- Group Finder sub-tab -- and if it ever changes this follows it for free.
+--
+-- ⚠ IT CHANGED ONCE AND SAID NOTHING. Until 2026-08-22 that handler ended in
+--   `if Dashboard.Open then Dashboard:Open("keystone") end`, and the Dashboard has
+--   never had an Open(). The guard turned a missing function into a silent no-op,
+--   so this button, the I key and /mlfg itself opened nothing for six days and
+--   nothing anywhere said so. Routing all three through one handler was still the
+--   right call: one dead call broke three doors, and one edit fixes all three.
 local function OpenOurs()
     local run = SlashCmdList and SlashCmdList["UNCAPPEDMLFG"]
     if run then

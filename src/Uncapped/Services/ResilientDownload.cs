@@ -74,6 +74,92 @@ public sealed class ResilientDownload
     /// <summary>The temp a transfer accumulates into. Deterministic, which is what makes resume possible.</summary>
     public static string TempFor(string destination) => destination + ".uncapped-tmp";
 
+    /// <summary>The suffix, once, so the sweeper and TempFor cannot drift apart.</summary>
+    public const string TempSuffix = ".uncapped-tmp";
+
+    /// <summary>
+    /// How long a partial with no finished destination is left alone before it is treated as
+    /// abandoned rather than resumable. Long enough to cover a player who starts a 2.6 GB
+    /// install on Friday and comes back to it after the weekend.
+    /// </summary>
+    private static readonly TimeSpan StaleAfter = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// Reclaims orphaned <c>.uncapped-tmp</c> partials.
+    ///
+    /// ★★ NOTHING ELSE WILL EVER DO IT. The pattern is in baseline.json's toleratedPatterns
+    /// precisely so an interrupted run is not accused of being a corrupt install — which also
+    /// means IntegrityVerifier never mentions one, PruneOrphans never touches one, and REPAIR
+    /// walks straight past. A cancelled repair of common.MPQ leaves up to 2.88 GB on disk that
+    /// nothing reports, nothing explains and nothing reclaims; after LA-02 an abandoned first
+    /// install can leave 2.6 GB the same way.
+    ///
+    /// ⚠ Deliberately NOT "delete every tmp". Resume across launches is the whole point of the
+    /// deterministic name, so a live partial has to survive. Two things are safe to remove:
+    ///
+    ///   * a partial whose destination already exists — the transfer finished by some route
+    ///     (a resume completed, a repair re-fetched it, the player reinstalled), so those
+    ///     bytes can never be resumed into anything; and
+    ///   * a partial untouched for <see cref="StaleAfter"/> — nothing is coming back for it.
+    ///
+    /// Call it only when no download is in flight. The clean-verification path is the right
+    /// moment: sync has finished, every hash agreed, so anything still sitting in a temp is by
+    /// definition not part of the install we just certified.
+    /// </summary>
+    /// <returns>Bytes reclaimed. Zero on any enumeration failure — this is best-effort.</returns>
+    public static long SweepOrphans(params string[] roots)
+    {
+        long reclaimed = 0;
+        var cutoff = DateTime.UtcNow - StaleAfter;
+
+        foreach (var root in roots)
+        {
+            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) continue;
+
+            IEnumerable<string> partials;
+            try
+            {
+                partials = Directory.EnumerateFiles(root, "*" + TempSuffix, SearchOption.AllDirectories);
+            }
+            catch (Exception ex)
+            {
+                // A permissions or long-path fault must not take down the launch path. This is
+                // housekeeping; the worst outcome of skipping it is the disk usage we started with.
+                Log.Write($"sweep: could not enumerate {root} — {ex.Message}");
+                continue;
+            }
+
+            foreach (var partial in partials)
+            {
+                try
+                {
+                    var info = new FileInfo(partial);
+                    if (!info.Exists) continue;
+
+                    var destination = partial[..^TempSuffix.Length];
+                    var finished = File.Exists(destination);
+                    var stale = info.LastWriteTimeUtc < cutoff;
+
+                    if (!finished && !stale) continue;
+
+                    var bytes = info.Length;
+                    File.Delete(partial);
+                    reclaimed += bytes;
+
+                    Log.Write($"sweep: reclaimed {bytes / (1024 * 1024)} MB from " +
+                              $"{partial} ({(finished ? "destination already complete" : "abandoned")})");
+                }
+                catch (Exception ex)
+                {
+                    // In use by another launcher instance, or read-only. Leave it; next time.
+                    Log.Write($"sweep: left {partial} in place — {ex.Message}");
+                }
+            }
+        }
+
+        return reclaimed;
+    }
+
     /// <param name="expectedSize">
     /// Size the finished file must have. Pass 0 when it is genuinely unknown: the length check
     /// is then skipped and so is resumption, since there is no way to tell a partial file from

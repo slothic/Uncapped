@@ -336,6 +336,12 @@ local function HandleMessage(msg)
             autoExpanded = true
             collapsed[GroupKeyFor(maps[selected])] = false
         end
+        -- [DP-04] Clear the timeout line. It is written in exactly one place
+        -- (the OnUpdate watcher) and nothing else ever resets it, so a single
+        -- 6s stall -- typically the very first open of the session -- used to
+        -- latch "this realm build has no reward preview yet" underneath
+        -- correct, freshly-synced numbers for the rest of the session.
+        if statusText then statusText:SetText("") end
         if Keystone.Render then Keystone.Render() end
         return
     end

@@ -662,11 +662,23 @@ end
 --   screen -- and on a 30-second window that leaves the number a waiting group
 --   is staring at disagreeing with the server's authoritative timeout. This is
 --   the shape UncappedMythic's HUD already uses (`limit - (GetTime() - start)`).
+--
+-- ⚠ ...and only when the displayed SECOND actually changes. The value ticks
+--   once a second, so formatting it and calling SetText on every frame was
+--   sixty string allocations and sixty font-string repaints per second for one
+--   visible change -- and this window opens in the one moment four other
+--   players are sitting waiting on it.
+local riteShownSec = -1
+
 rrite:SetScript("OnUpdate", function(self)
     if not rite or not rite.baseAt then return end
     local left = rite.remainingMs - (GetTime() - rite.baseAt) * 1000
     if left < 0 then left = 0 end
-    self.timer:SetText(string.format("0:%02d", math.floor(left / 1000)))
+    local sec = math.floor(left / 1000)
+    if sec ~= riteShownSec then
+        riteShownSec = sec
+        self.timer:SetText(string.format("0:%02d", sec))
+    end
 end)
 
 -- ---------------------------------------------------------------------------
@@ -741,12 +753,14 @@ local function OnRite(payload)
 
     if claimed == 0 then
         rite = nil
+        riteShownSec = -1
         rrite:Hide()
         return
     end
 
     local prev = rite
     rite = { keyLevel = 0, remainingMs = 30000, baseAt = GetTime(), offers = {} }
+    riteShownSec = -1
 
     for i = 2, #lines do
         local line = lines[i]

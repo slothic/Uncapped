@@ -46,10 +46,15 @@ public sealed class Credentials
         return new Credentials();
     }
 
+    /// <summary>
+    /// ⚠ Atomic, not File.WriteAllText — same reason as LauncherState.Save. Load() treats an
+    /// unreadable file as "nothing saved", so a truncated write silently forgets the account
+    /// name and password and the player is handed an empty login form with no explanation.
+    /// </summary>
     public void Save()
     {
         Directory.CreateDirectory(AppPaths.DataDir);
-        File.WriteAllText(Path, JsonSerializer.Serialize(this, Options));
+        AtomicFile.WriteAllText(Path, JsonSerializer.Serialize(this, Options));
     }
 
     public static void Delete()

@@ -197,8 +197,12 @@ hf:SetScript("OnEnter", function(self)
     GameTooltip:AddLine("Shards", GOLD[1], GOLD[2], GOLD[3])
 
     if hud.momentum > 0 then
+        -- hud.dmgPct, not stacks x perStack. The server sends the finished
+        -- number; multiplying it out here is the "copy of a curve that will
+        -- disagree the first time it is retuned" this file's own header warns
+        -- against, and the field was being parsed and thrown away.
         GameTooltip:AddLine(string.format("Momentum x%d  --  %+.1f%% damage",
-            hud.momentum, hud.momentum * hud.perStack), PALE[1], PALE[2], PALE[3])
+            hud.momentum, hud.dmgPct), PALE[1], PALE[2], PALE[3])
         GameTooltip:AddLine(string.format(
             "The window is %.1fs. Kill inside it or Momentum leaves you.",
             hud.windowSec), 0.62, 0.62, 0.68, true)
@@ -410,11 +414,28 @@ end
 
 local driver = CreateFrame("Frame")
 local sinceText = 0
+local targetAuraDirty, sinceTarget = false, 0
 
 driver:SetScript("OnUpdate", function(_, elapsed)
     if not db then return end
 
     local now = GetTime()
+
+    -- Target debuffs, coalesced. 3.3.5 has no RegisterUnitEvent, so UNIT_AURA
+    -- arrives for EVERY unit, and "target" on a raid boss carries every raider's
+    -- debuffs -- many events a second, each of which used to run a 40-slot
+    -- UnitDebuff scan and then repaint unconditionally. The event now only
+    -- raises a flag: the scan runs at most 10 Hz, and the repaint only when one
+    -- of the three numbers this HUD actually draws has moved.
+    sinceTarget = sinceTarget + elapsed
+    if targetAuraDirty and sinceTarget >= 0.1 then
+        sinceTarget, targetAuraDirty = 0, false
+        local d, a, t = ReadTarget()
+        if d ~= tDread or a ~= tAgony or t ~= tTrembling then
+            tDread, tAgony, tTrembling = d, a, t
+            RedrawTarget()
+        end
+    end
 
     if hud.stamp > 0 and now - hud.stamp > STALE_AFTER then
         hud.momentum, hud.falsehoods, hud.reflect = 0, 0, 0
@@ -531,13 +552,17 @@ local function Redraw()
     Shown(hf.momTime, showMom)
     Shown(hf.momText, showMom)
     if showMom then
-        if rampage then
+        -- Either source may say rampage is up: `rampage` is the player's own
+        -- aura as scanned here, hud.rampage is flags bit 16 as the server sees
+        -- it. They agree in practice, and taking both means neither a missed
+        -- aura event nor a coalesced push can drop the word off the HUD.
+        if rampage or hud.rampage then
             hf.momText:SetText(string.format(
                 "MOMENTUM  |cffffdd40x%d|r  |cffff6020RAMPAGE|r", hud.momentum))
         else
             hf.momText:SetText(string.format(
                 "MOMENTUM  |cffffdd40x%d|r  |cff909090%+.0f%%|r",
-                hud.momentum, hud.momentum * hud.perStack))
+                hud.momentum, hud.dmgPct))
         end
     end
 
@@ -675,15 +700,18 @@ ev:SetScript("OnEvent", function(_, event, arg1)
 
     if event == "PLAYER_TARGET_CHANGED" then
         plate, plateName = nil, nil
+        -- Immediate: a new target has to paint at once, and any scan the
+        -- throttle below was still holding is about the OLD one.
+        targetAuraDirty, sinceTarget = false, 0
         tDread, tAgony, tTrembling = ReadTarget()
         RedrawTarget()
         return
     end
 
-    -- UNIT_AURA
+    -- UNIT_AURA. Flag only -- the driver does the scan, at most 10 Hz, and only
+    -- repaints on a real change. See the note there.
     if arg1 == "target" then
-        tDread, tAgony, tTrembling = ReadTarget()
-        RedrawTarget()
+        targetAuraDirty = true
     elseif arg1 == "player" then
         local was = rampage
         rampage = ReadPlayer()
@@ -742,7 +770,14 @@ SlashCmdList["UNCAPPEDSHARDSHUD"] = function(msg)
         DEFAULT_CHAT_FRAME:AddMessage("|cffffdd40Shards:|r HUD unlocked -- drag it, then /shardhud lock.")
         -- Shown with sample values so there is something to grab when nothing is
         -- actually running. Cleared by the next real frame, or by /shardhud lock.
-        OnHud("3\nMOM:24:3400:2600:400\nFAL:3:10\nMAE:2200:2600\n")
+        --
+        -- ⚠ NINE MOM fields, matching the parser. This sample was left at the
+        --   four it was born with, so it failed the anchored match, set
+        --   hud.momMalformed, and left the momentum icon/bar/text hidden -- the
+        --   one part of the HUD you most need to see in order to place it. It
+        --   also made /shardhud diag announce in red that the addon was out of
+        --   date, which was never true. Widen this WITH the parser.
+        OnHud("3\nMOM:24:3400:2600:400:9600:0:0:5:3\nFAL:3:10\nMAE:2200:2600\n")
 
     elseif msg == "lock" then
         db.locked = true

@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: Uncapped Transmog (appearance data)
+## Notes: Generated name/quality/class/subclass/ilvl table for every transmoggable look. Loaded on demand the first time the Transmog panel is built.
+## Author(s): Slothic, MentalMonk
+## Version: 0.4
+## LoadOnDemand: 1
+
+UncappedTransmogData.lua

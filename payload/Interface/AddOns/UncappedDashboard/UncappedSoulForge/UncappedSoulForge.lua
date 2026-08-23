@@ -409,7 +409,31 @@ local state = {
   wlSuggest = {},        -- item-name search suggestions (server ICINAME search)
   wlSuggestStaging = {},
   equipped = {},         -- rendered rows: your equipped items that carry bonuses
-  exItems = {},          -- extraction picker: key "bag:slot" -> {bag,slot,entry,equipped,procs={}}
+
+  --[[ ★ [DE-09] Client-side pacing for "Soulbind Duplicates".
+
+       One press is ~1,500 un-batched DB writes server-side (IC-11) against a
+       measured ceiling of ~85 commits/sec -- about 17x over in one click --
+       and the ICBOUNDALL reply then fires ICINV + ICSF, stacking a full
+       inventory rescan on top. It was the ONLY bulk button in this file with
+       no guard at all: the sack burst twenty lines up drives its own readyAt,
+       and the junk render uses a server arm/confirm.
+
+       ⚠ The server has no limit of its own -- ICSBALL calls
+         SoulbindAllDuplicates straight through. This is a courtesy, not a
+         limit; a hand-edited addon still gets through. The real cap belongs
+         next to the handler.
+
+       Kept in `state` rather than as file locals because the button and its
+       confirm popup are ~2,400 lines apart and this chunk is already near
+       Lua 5.1's 200-locals-per-chunk ceiling. ]]
+  sbReadyAt  = 0,        -- GetTime() before which another press is refused
+  sbInflight = false,    -- a burst is out; cleared by ICBOUNDALL
+  sbCooldown = 30,       -- seconds between bursts
+
+  -- [DE-16] `exItems` lived here with a descriptive comment and was never read
+  -- or written: the two-column extraction picker it belonged to was replaced by
+  -- the Extraction Wardrobe, which uses exStaging/exSources/exTargets.
   exStaging = {},        -- accumulates ICEXI lines until ICEXIEND
   exSources = {},        -- flattened source rows: one per (item, proc)
   exTargets = {},        -- one row per gear item (any -- with or without a proc)
@@ -428,6 +452,8 @@ local state = {
   sockFilter = "",       -- gear list name filter
   sockGemOffset = 0,     -- first visible gem row (the gem list is windowed, not a scrollframe)
   sockTally = { meta = 0, red = 0, yellow = 0, blue = 0 },  -- current gem colour counts
+  sockScrolls = nil,     -- ICSOCKSCROLLS: spendable Scrolls of Socket, Vault included.
+                         -- nil is "the server has not told us yet", never "none".
 }
 
 local function send(body)
@@ -453,14 +479,9 @@ local eqRows = {}
 local EQ_ROWS_MAX, EQ_H = 20, 34
 local eqVisibleRows = 6
 
-local function isWhitelistedName(name)
-  if not name then return false end
-  name = name:lower()
-  for _, w in ipairs(state.whitelist) do
-    if w and name:find(w:lower(), 1, true) then return true end
-  end
-  return false
-end
+-- [DE-15] `isWhitelistedName` was here: a linear scan over state.whitelist with
+-- no callers anywhere in client_addons/. It was superseded by the lowercase
+-- `state.wlSet` built at ICWLEND, for exactly the reason its own comment gave.
 
 local function BuildUI(parent)
   if UI then return UI end
@@ -685,7 +706,23 @@ local function BuildUI(parent)
 
   local sbBtn = KitButton(f, "", 170, 24)
    sbBtn:SetPoint("TOPLEFT", 6, -250); sbBtn:SetText("Soulbind Duplicates")
-  sbBtn:SetScript("OnClick", function() StaticPopup_Show("UNCAPPED_SF_SOULBIND_ALL") end)
+  -- [DE-09] Refuse at the BUTTON as well as at the popup, so the confirm never
+  -- even appears during a cooldown -- a dialog that answers "no" is worse than
+  -- one that does not open. The arm itself lives in the popup's OnAccept,
+  -- because that is the only thing that actually sends.
+  sbBtn:SetScript("OnClick", function()
+    if state.sbInflight then
+      msg("Still soulbinding the last batch \226\128\148 give it a moment.")
+      return
+    end
+    local left = (state.sbReadyAt or 0) - (GetTime() or 0)
+    if left > 0 then
+      msg(string.format("Soulbind Duplicates is ready again in %d second%s.",
+        math.ceil(left), math.ceil(left) == 1 and "" or "s"))
+      return
+    end
+    StaticPopup_Show("UNCAPPED_SF_SOULBIND_ALL")
+  end)
 
   local wlBtn = KitButton(f, "", 170, 24)
    wlBtn:SetPoint("LEFT", sbBtn, "RIGHT", 10, 0); wlBtn:SetText("Whitelist\226\128\166")
@@ -1040,6 +1077,87 @@ local wlRows, sugRows = {}, {}
 local WL_ROWS, WL_H = 6, 24
 local SUG_ROWS, SUG_H = 6, 22
 
+--[[ ★★ [DE-04] THE WHITELIST SEARCH IS THE MOST EXPENSIVE KEYSTROKE ON THE REALM.
+
+     `send("ICISEARCH:...")` is not a local filter. The server answers it with a
+     leading-wildcard LIKE over the whole of `item_template`, and CMSG_MESSAGECHAT
+     is PROCESS_THREADUNSAFE -- so that scan runs in World::UpdateSessions, on the
+     MAIN WORLD THREAD. It does not stall one map, it stalls the world tick, for
+     everybody, once per character. Typing "frostweave cloth" was fifteen of them.
+
+     Three things pace it now, in this order:
+
+       1. DEBOUNCE. Typing accumulates into wlSearch.pending and only the settled
+          query goes out, WL_SEARCH_DEBOUNCE seconds after the last keypress.
+       2. ONE IN FLIGHT. A second request is never sent while the first is
+          unanswered. Replies carry no query, so two overlapping bursts of ICINAME
+          lines interleave in wlSuggestStaging and the first ICINAMEEND commits a
+          MIXTURE of both result sets. Serialising removes that outright, without
+          changing the wire format.
+       3. NO REPEATS. Re-sending the query already on screen buys nothing.
+
+     ⚠ wlSearch.sentAt is a TIMESTAMP, not a boolean, and that is the whole point.
+       A boolean in-flight flag that a lost reply never clears would leave the box
+       permanently dead -- the exact failure the Vault's item-cache warmer already
+       had and already fixed (see `queried` in UncappedVault.lua). If no answer
+       arrives within WL_SEARCH_TIMEOUT the next query goes anyway.
+
+     ⚠ THE SERVER HALF IS NOT OPTIONAL AND IT IS NOT HERE. This addon is
+       player-editable Lua; an out-of-date client keeps typing at the old rate
+       until it updates and a hand-edited one never will. The limit that actually
+       protects the realm is the per-player coalescing throttle in
+       item_customization_playerscript.cpp, and making the query itself cheap is
+       IC-12. This half removes ~90% of the calls. It does not make one safe. ]]
+local WL_SEARCH_DEBOUNCE = 0.30   -- quiet time before the settled query goes out
+local WL_SEARCH_TIMEOUT  = 3.0    -- stop waiting on a reply after this
+-- One table rather than six file-scope locals: this chunk is long and Lua 5.1
+-- allows only 200 locals per chunk.
+local wlSearch = { timer = nil, wait = nil, pending = nil, inflight = nil, sentAt = 0, last = nil }
+
+-- Cancels anything queued or awaited, and puts the hint line back. Called when the
+-- box drops below two characters, when the query is committed with Add/Enter, when
+-- the window is opened, and when it is closed -- a pending send firing into a box
+-- the player has finished with is a free full-table scan for nobody.
+local function wlSearchReset()
+  wlSearch.wait, wlSearch.pending = nil, nil
+  wlSearch.inflight, wlSearch.last = nil, nil
+  wlSearch.sentAt = 0
+  if wlSearch.timer then wlSearch.timer:Hide() end
+  if WLM and WLM.sEmpty then WLM.sEmpty:SetText("Type at least 2 letters to search all items.") end
+end
+
+-- Puts the settled query on the wire, or holds it if one is still unanswered.
+-- File-scope because both the debounce ticker and the ICINAMEEND handler drive it,
+-- and those live at opposite ends of this file.
+local function wlSearchFlush()
+  local q = wlSearch.pending
+  if not q or #q < 2 then return end
+
+  if wlSearch.inflight then
+    local age = (GetTime() or 0) - (wlSearch.sentAt or 0)
+    if age < WL_SEARCH_TIMEOUT then return end   -- still waiting; ICINAMEEND calls us back
+    wlSearch.inflight = nil                      -- timed out; that reply is not coming
+  end
+
+  if q == wlSearch.last then wlSearch.pending = nil; return end
+
+  wlSearch.pending  = nil
+  wlSearch.last     = q
+  wlSearch.inflight = q
+  wlSearch.sentAt   = GetTime() or 0
+  send("ICISEARCH:" .. q)
+end
+
+-- Called from OnLine when ICINAMEEND lands: the wire is free, so a query typed
+-- while we were waiting can go out now.
+local function wlSearchAnswered()
+  wlSearch.inflight = nil
+  if WLM and WLM.sEmpty then
+    WLM.sEmpty:SetText(wlSearch.pending and "Searching..." or "No items match that name.")
+  end
+  if wlSearch.pending then wlSearchFlush() end
+end
+
 local function BuildWhitelist()
   if WLM then return WLM end
   local f = CreateFrame("Frame", "UncappedSoulforgeWL", UIParent)
@@ -1050,6 +1168,8 @@ local function BuildWhitelist()
   f:SetMovable(true); f:EnableMouse(true); f:RegisterForDrag("LeftButton")
   f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
   f:SetClampedToScreen(true); f:Hide()
+  -- [DE-04] Closing the window abandons whatever was queued or awaited.
+  f:SetScript("OnHide", wlSearchReset)
   -- Player window zoom. This pop-out parents to UIParent, not to the Dashboard
   -- window that opens it, so it inherits nothing and has to register itself.
   -- (Anything parented INTO the Dashboard must NOT -- SetScale compounds.)
@@ -1067,7 +1187,8 @@ local function BuildWhitelist()
   sub:SetText("Items whose name contains one of these are never auto-consumed.")
   local close = CreateFrame("Button", nil, f, "UIPanelCloseButton"); close:SetPoint("TOPRIGHT",-6,-6)
 
-  -- search box (searches ALL items server-side as you type)
+  -- search box (searches ALL items server-side, once typing settles -- see the
+  -- DE-04 note above the whitelist manager for why this is not per-keystroke)
   local box = CreateFrame("EditBox", "UncappedSoulforgeWLBox", f, "InputBoxTemplate")
   box:SetPoint("TOPLEFT", 22, -54); box:SetSize(230, 20); box:SetAutoFocus(false)
   box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
@@ -1075,14 +1196,45 @@ local function BuildWhitelist()
    add:SetPoint("LEFT", box, "RIGHT", 6, 0); add:SetText("Add")
   local function doAdd()
     local t = box:GetText()
-    if t and t ~= "" then send("ICWLADD:" .. t); box:SetText(""); state.wlSuggest = {}; if WLM then WLM:UpdateSuggest() end end
+    if t and t ~= "" then
+      wlSearchReset()   -- the query is committed; nothing queued for it is wanted
+      send("ICWLADD:" .. t); box:SetText(""); state.wlSuggest = {}; if WLM then WLM:UpdateSuggest() end
+    end
   end
   add:SetScript("OnClick", doAdd)
   box:SetScript("OnEnterPressed", doAdd)
+
+  -- The debounce ticker. Hidden while idle, so it costs nothing per frame when
+  -- nobody is typing -- the same shape as invTimer further down this file.
+  wlSearch.timer = wlSearch.timer or CreateFrame("Frame")
+  wlSearch.timer:Hide()
+  wlSearch.timer:SetScript("OnUpdate", function(self, elapsed)
+    if not wlSearch.wait then self:Hide(); return end
+    wlSearch.wait = wlSearch.wait - (elapsed or arg1 or 0)
+    if wlSearch.wait > 0 then return end
+    wlSearch.wait = nil
+    self:Hide()
+    wlSearchFlush()
+  end)
+
   box:SetScript("OnTextChanged", function(self, userInput)
     if not userInput then return end
     local t = self:GetText()
-    if t and #t >= 2 then send("ICISEARCH:" .. t) else state.wlSuggest = {}; if WLM then WLM:UpdateSuggest() end end
+    if t and #t >= 2 then
+      -- Queue, do not send. Every keystroke restarts the clock, so a burst of
+      -- typing costs exactly one search instead of one per character.
+      wlSearch.pending = t
+      wlSearch.wait = WL_SEARCH_DEBOUNCE
+      wlSearch.timer:Show()
+      -- ⚠ Say we are looking. Leaving "type at least 2 letters" on screen while a
+      --   search is already on its way is the difference between a wait that
+      --   reads as fast and one that reads as broken.
+      if f.sEmpty then f.sEmpty:SetText("Searching...") end
+      if WLM then WLM:UpdateSuggest() end
+    else
+      wlSearchReset()
+      state.wlSuggest = {}; if WLM then WLM:UpdateSuggest() end
+    end
   end)
 
   -- suggestions (matching items from the whole game)
@@ -1171,9 +1323,18 @@ local function BuildWhitelist()
 end
 
 -- ====================== Scroll of Extraction picker =======================
--- Opened by ICEXOPEN (the scroll's OnUse). Pick an effect to pull from one item
--- (left) and the item to stamp it onto (right); Extract sends ICEXTRACT and the
--- server moves the proc, consumes the source item and one scroll.
+-- Opened by ICEXOPEN (the scroll's OnUse). Two modes, both in the Extraction
+-- Wardrobe below: UNLOCK adds a proc you own to your collection (ICUNLOCK), and
+-- APPLY stamps a collected proc onto a piece of gear (ICAPPLY), consuming one
+-- scroll.
+--
+-- ⚠ [DE-17] This used to describe a two-column "pick a source, pick a target,
+--   Extract sends ICEXTRACT" window. THAT WINDOW IS GONE, NOT HIDDEN -- see the
+--   Wardrobe's own header ~100 lines below, which says so. This stale comment
+--   was the ONLY remaining mention of ICEXTRACT anywhere in client_addons/, and
+--   it is what made the server's still-live ICEXTRACT handler look reachable.
+--   ICEXTRACT is RETIRED: nothing sends it, and the handler can be removed with
+--   it (part of IC-18).
 local EXT
 local exSrcRows, exTgtRows = {}, {}
 -- EXR_H raised 26 -> 30 alongside the wrap fix: two stacked lines at +4/-7 inside
@@ -1196,34 +1357,61 @@ local EXR_TEXT_W = 160
      straight over its neighbours. Every long item name in the list did it, which is
      why the window looked shredded rather than slightly off.
 
-  ⚠ 3.3.5a has no SetWordWrap and no SetMaxLines, so wrapping cannot be turned off.
-    The only reliable fix on this client is to shorten the STRING until it measures
-    narrower than the row, which is what this does: set it, measure it with
-    GetStringWidth, and trim until it fits.
+  ⚠ [DE-11] THE OLD NOTE HERE WAS WRONG, AND IT WAS THE KIND OF "KNOWN
+    LIMITATION" THAT GETS COPIED INTO THE NEXT PANEL. It read "3.3.5a has no
+    SetWordWrap and no SetMaxLines, so wrapping cannot be turned off". It does:
+    the FontString method table in this client's Wow.exe carries SetWordWrap,
+    CanWordWrap, SetNonSpaceWrap, SetIndentedWordWrap and GetIndentedWordWrap,
+    and UncappedVault_UI.lua already calls SetWordWrap(false) in two live
+    shipping places -- one of them inside BuildFrame, which would abort the
+    whole Vault panel if the method did not exist.
+
+    So wrapping is now turned OFF at build time on the rows this draws into
+    (see the SetWordWrap calls in the row builders), which removes the overspill
+    at its root rather than by keeping every string short enough to avoid it.
+
+  ★ [DE-11] AND THE MEASURE IS MEMOISED. Trimming still happens -- an
+    over-long name must still end in "..." rather than being silently clipped --
+    but the binary search behind it forced a text-layout pass per probe, up to
+    3 searches x ~7 probes per visible row x 9 rows = ~190 forced layouts on
+    EVERY redraw, i.e. on every scroll tick. The answer only depends on the
+    text, the font and the width, none of which change while scrolling, so it
+    is computed once per distinct string and read back afterwards.
 
   ⚠ Trims the VISIBLE text only. Colour codes (|cff…|r) are re-applied around the
     result rather than trimmed through -- cutting inside an escape sequence prints
     the raw code to the player.
 ]]
+local fitCache = {}
+
 local function fitText(fs, text, maxWidth, colour)
   text = text or ""
-  fs:SetText(text)
-  if fs:GetStringWidth() <= maxWidth then
-    if colour then fs:SetText(colour .. text .. "|r") end
-    return
+
+  -- The font is part of the key: these rows use two different font objects at
+  -- the same width, and a shared key would hand one the other's measurement.
+  local path, size = fs:GetFont()
+  local key = (path or "?") .. "\1" .. tostring(size) .. "\1" .. tostring(maxWidth) .. "\1" .. text
+
+  local fitted = fitCache[key]
+  if fitted == nil then
+    fs:SetText(text)
+    if fs:GetStringWidth() <= maxWidth then
+      fitted = text
+    else
+      -- Binary search rather than a character-at-a-time walk: a 60-character
+      -- name would otherwise cost 60 measures the first time it is seen.
+      local lo, hi = 0, #text
+      while lo < hi do
+        local mid = math.floor((lo + hi + 1) / 2)
+        fs:SetText(string.sub(text, 1, mid) .. "...")
+        if fs:GetStringWidth() <= maxWidth then lo = mid else hi = mid - 1 end
+      end
+      fitted = string.sub(text, 1, lo) .. "..."
+    end
+    fitCache[key] = fitted
   end
 
-  -- Binary search rather than a character-at-a-time walk: these lists redraw on
-  -- every scroll tick and a 60-character name would otherwise cost 60 measures.
-  local lo, hi = 0, #text
-  while lo < hi do
-    local mid = math.floor((lo + hi + 1) / 2)
-    fs:SetText(string.sub(text, 1, mid) .. "...")
-    if fs:GetStringWidth() <= maxWidth then lo = mid else hi = mid - 1 end
-  end
-
-  local cut = string.sub(text, 1, lo) .. "..."
-  fs:SetText(colour and (colour .. cut .. "|r") or cut)
+  fs:SetText(colour and (colour .. fitted .. "|r") or fitted)
 end
 
 local function itemDisplay(entry)
@@ -1469,6 +1657,12 @@ local function BuildExtractor(parent)
     r.name:SetPoint("LEFT", r.icon, "RIGHT", 4, 6); r.name:SetWidth(190); r.name:SetJustifyH("LEFT")
     r.sub = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     r.sub:SetPoint("LEFT", r.icon, "RIGHT", 4, -7); r.sub:SetWidth(190); r.sub:SetJustifyH("LEFT")
+    -- ★ [DE-11] A FontString with a width WORD-WRAPS by default, and two stacked
+    -- lines in a 30px row is what shredded this list in 2026-08-16's screenshot.
+    -- Turned off at the source. Guarded only because these rows are built before
+    -- anything has proved the method exists on a given client build.
+    if r.name.SetWordWrap then r.name:SetWordWrap(false) end
+    if r.sub.SetWordWrap  then r.sub:SetWordWrap(false)  end
     -- A padlock, drawn when the item is on the Soulforge whitelist.
     r.lock = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     r.lock:SetPoint("RIGHT", -4, 0); r.lock:SetText("|cffffd100*|r"); r.lock:Hide()
@@ -1544,6 +1738,7 @@ local function BuildExtractor(parent)
     r.icon:SetPoint("LEFT", 2, 0)
     r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     r.name:SetPoint("LEFT", r.icon, "RIGHT", 4, 0); r.name:SetWidth(170); r.name:SetJustifyH("LEFT")
+    if r.name.SetWordWrap then r.name:SetWordWrap(false) end   -- [DE-11]
     -- The "I am finished with this piece" tick.
     r.tick = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     r.tick:SetPoint("RIGHT", -4, 0); r.tick:SetText("|cff40ff40v|r"); r.tick:Hide()
@@ -2193,7 +2388,20 @@ local function BuildSocketUI()
     self.metaWarn:SetText("Each meta gem you wear multiplies EVERY meta's colour requirement. "
       .. ("Wearing %d |cff59bfe6-> x%d|r"):format(t.meta or 0, mult))
 
-    local scrolls = GetItemCount(500209) or 0
+    -- ⚠ THE SERVER'S COUNT, NOT GetItemCount. The Scroll of Socket is not on the bag
+    --   whitelist, so "Deposit Items" moves it into the Vault -- and the Vault is
+    --   invisible to Lua's GetItemCount. Measured 2026-08-22: 75 of the realm's 113
+    --   scrolls were in the Vault against 38 in bags, so this line read "0" and the
+    --   three Add buttons below were dead for two thirds of every scroll on the realm.
+    --   ICSOCKSCROLLS is the same GetDestroyableItemCount(..., includeVault) that
+    --   ICSOCKADD spends from, so what is shown and what is paid are one number.
+    --
+    --   ★ Unlike the Extraction panel above, the bag scan is kept as a FALLBACK and
+    --     that difference is deliberate: an extraction scroll is absorbed into a
+    --     server-side balance, so GetItemCount there is meaningless, while a socket
+    --     scroll is still a real item. nil means "not told yet" -- against a server
+    --     too old to send the verb, the bag count is the honest answer, not zero.
+    local scrolls = state.sockScrolls or GetItemCount(500209) or 0
     self.hint:SetText(("|cff59bfe6%d|r Scroll%s of Socket."):format(scrolls, scrolls == 1 and "" or "s"))
 
     -- right panel
@@ -2643,6 +2851,8 @@ local function OnLine(body)
     state.wlSuggest = state.wlSuggestStaging
     state.wlSuggestStaging = {}
     if WLM then WLM:UpdateSuggest() end
+    -- [DE-04] The wire is free. Anything typed while this was outstanding goes now.
+    wlSearchAnswered()
   elseif cmd == "ICITEM" then
     sbCurKey = rest
     sbStaging[rest] = { stats = {}, procs = {}, vestiges = 0, vestigeMult = 100 }
@@ -2705,6 +2915,7 @@ local function OnLine(body)
     if UI then UI:Ding() end
     send("ICINV"); send("ICSF")
   elseif cmd == "ICBOUNDALL" then       -- <count>
+    state.sbInflight = false   -- [DE-09] the burst finished; the cooldown stands
     local n = tonumber(rest) or 0
     msg(string.format("Soulbound %d duplicate%s onto your gear.", n, n == 1 and "" or "s"))
     if UI then UI:Ding() end
@@ -2839,6 +3050,12 @@ local function OnLine(body)
     if m then
       state.sockTally = { meta = tonumber(m), red = tonumber(r), yellow = tonumber(y), blue = tonumber(b) }
     end
+  elseif cmd == "ICSOCKSCROLLS" then    -- <spendable>  bags + bank + Vault
+    -- Rides along with every ICSOCKLIST and every socket mutation, so it arrives
+    -- just before ICSOCKEND and the commit below paints it. The guarded refresh is
+    -- for the day something sends it on its own.
+    state.sockScrolls = tonumber(rest) or 0
+    if SOCK and SOCK:IsShown() then SOCK:Refresh() end
   elseif cmd == "ICSOCKEND" then
     commitSocketItems()
   elseif cmd == "ICSOCKGEM" then        -- <entry>:<held>
@@ -2994,7 +3211,16 @@ StaticPopupDialogs["UNCAPPED_SF_RENDER_JUNK"] = {
 StaticPopupDialogs["UNCAPPED_SF_SOULBIND_ALL"] = {
   text = "Soulbind every exact duplicate of the gear you're wearing (from bags AND vault) onto it?\n\nThe duplicates are consumed. This cannot be undone.",
   button1 = ACCEPT, button2 = CANCEL,
-  OnAccept = function() send("ICSBALL") end,
+  -- [DE-09] The arm lives here, not on the button: this is the only path that
+  -- sends. Re-checked because the popup can sit on screen indefinitely
+  -- (timeout = 0) and a second one can be raised behind it.
+  OnAccept = function()
+    if state.sbInflight then return end
+    if (GetTime() or 0) < (state.sbReadyAt or 0) then return end
+    state.sbInflight = true
+    state.sbReadyAt  = (GetTime() or 0) + (state.sbCooldown or 30)
+    send("ICSBALL")
+  end,
   timeout = 0, whileDead = 1, hideOnEscape = 1, showAlert = 1,
 }
 
@@ -3204,6 +3430,7 @@ local function attachWhitelistOpener()
     BuildWhitelist()
     if WLM:IsShown() then WLM:Hide() return end
     local box = _G["UncappedSoulforgeWLBox"]; if box then box:SetText("") end
+    wlSearchReset()   -- [DE-04] drop anything the last visit left queued or awaited
     state.wlSuggest = {}
     WLM:Show(); WLM:Update(); WLM:UpdateSuggest(); send("ICWLIST")
   end
@@ -3275,7 +3502,15 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
       end
     end
   end
-  if event == "PLAYER_EQUIPMENT_CHANGED" then send("ICINV") end
+  -- ★ [DE-10] DEBOUNCED, like BAG_UPDATE three lines up -- it used to send
+  --   immediately. PLAYER_EQUIPMENT_CHANGED fires once PER SLOT, so an
+  --   equipment-manager set swap raised up to 19 events in a single frame. Each
+  --   ICINV runs SendInventorySoulbound on the map thread: 19 equipped + 16
+  --   backpack + up to 4x36 bag slots walked, with an ICITEM/ICIVEST, one
+  --   ICISTAT per stat and ICIPROC/ICIPROCBP/ICIPROCSRC per proc emitted for
+  --   every soulbound item, each proc costing a two-level trigger-chain spell
+  --   walk. Nineteen full scans and hundreds of packets for one click.
+  if event == "PLAYER_EQUIPMENT_CHANGED" then requestInvIn(0.3) end
 end)
 
 -- ============================ dashboard embedding =========================

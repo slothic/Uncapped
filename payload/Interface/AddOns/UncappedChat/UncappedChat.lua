@@ -672,12 +672,23 @@ local NOISE_PATTERNS = {
     "^Crosscheck was not successful%.",
 }
 
+local NOISE_PATTERN_COUNT = #NOISE_PATTERNS
+
 local function IsNoise(msg)
     if type(msg) ~= "string" then
         return false
     end
-    for _, pattern in ipairs(NOISE_PATTERNS) do
-        if msg:find(pattern) then
+    -- Numeric for, not ipairs: this runs on the hottest client path there is
+    -- (every combat-log line and every system message, on all ten chat frames)
+    -- and ipairs costs an iterator call per pattern per message.
+    --
+    -- The patterns stay ANCHORED patterns rather than string.find's plain mode:
+    -- plain mode cannot anchor, so "Crosscheck was not successful." would match
+    -- anywhere in a line instead of only at its start, and the "%." escape would
+    -- have to be stripped. An anchored "^..." bails on the first differing byte,
+    -- which is cheaper than a plain scan of a non-matching line anyway.
+    for i = 1, NOISE_PATTERN_COUNT do
+        if msg:find(NOISE_PATTERNS[i]) then
             return true
         end
     end
@@ -688,6 +699,13 @@ end
 -- output to another tab, and print() follows DEFAULT_CHAT_FRAME wherever that
 -- points.
 local function InstallNoiseFilter()
+    -- Force the SavedVariable into existence with its defaults backfilled ONCE,
+    -- here, so the wrapper below can read the table directly instead of calling
+    -- db(). db() is not a cheap accessor -- it walks `defaults` with pairs() on
+    -- every call -- and calling it per chat line would cost far more than the
+    -- pattern match it was meant to short-circuit.
+    db()
+
     for i = 1, NUM_CHAT_WINDOWS do
         local frame = _G["ChatFrame" .. i]
         -- The guard makes this idempotent. Without it a /reload-time re-run
@@ -696,11 +714,18 @@ local function InstallNoiseFilter()
             frame.uncappedNoiseHooked = true
             local original = frame.AddMessage
             frame.AddMessage = function(self, msg, ...)
-                -- db() is a FUNCTION in this file, not a table -- it lazily
-                -- initialises UncappedChatDB and returns it. Indexing it
-                -- directly errors, and an error raised inside AddMessage would
-                -- break every chat line in the game, not just the noisy ones.
-                if IsNoise(msg) and db().hideAddonNoise then
+                -- Setting FIRST, pattern match second. The old order ran two
+                -- anchored finds on every chat line before it even asked whether
+                -- the player wanted noise hidden.
+                --
+                -- Read UncappedChatDB directly rather than through db(): db()
+                -- walks `defaults` with pairs() on every call, so it is the
+                -- expensive half. InstallNoiseFilter called it once above, so
+                -- the table exists with defaults applied; the `s and` guard is
+                -- there because an error raised inside AddMessage would break
+                -- every chat line in the game, not just the noisy ones.
+                local s = UncappedChatDB
+                if s and s.hideAddonNoise and IsNoise(msg) then
                     return
                 end
                 return original(self, msg, ...)

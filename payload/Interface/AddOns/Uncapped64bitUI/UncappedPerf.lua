@@ -293,11 +293,19 @@ if UncappedUI then
             pcall(SetCVar, "CombatDamage",   v and "1" or "0")
             pcall(SetCVar, "PetMeleeDamage", v and "1" or "0")
             pcall(SetCVar, "PetSpellDamage", v and "1" or "0")
+            -- ★ The player has said what they want out loud. The #926 repair in
+            --   Uncapped64bitUI.lua (ApplyFloatingCombatTextRepair) reads this and stands
+            --   down -- a one-shot that overrides a stated choice is not a repair, it is
+            --   the addon arguing with the options panel. [audit 2026-08-22 AN-02]
+            DB().fctChoice = true
         end)
 
     L:Check("Show healing numbers",
         function() local ok, v = pcall(GetCVar, "CombatHealing") return ok and v == "1" end,
-        function(v) pcall(SetCVar, "CombatHealing", v and "1" or "0") end)
+        function(v)
+            pcall(SetCVar, "CombatHealing", v and "1" or "0")
+            DB().fctChoice = true
+        end)
 
     L:Note("You can also hide only the SMALL hits and keep the big ones, which costs you nothing you "
         .. "were reading anyway: |cffffff00/hideunder 500m|r. That one is filtered on the server, so "

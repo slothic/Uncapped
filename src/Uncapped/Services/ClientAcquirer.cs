@@ -266,8 +266,29 @@ public sealed class ClientAcquirer
                 var part = httpArchives[i];
                 var label = httpArchives.Count > 1 ? $" (part {i + 1} of {httpArchives.Count})" : "";
 
+                /*
+                 * ★★ NO HASH, NO UNPACK. Same rule SyncService applies to the third-party
+                 * addon zips (SyncService.cs:204-210), and it belongs here far more: that one
+                 * installs a bag addon, this one writes the game itself into an empty folder.
+                 *
+                 * Refusing rather than warning is deliberate. This runs on a FIRST INSTALL and
+                 * nowhere else, so the worst a refusal can do is stop an install that has not
+                 * happened yet -- it cannot touch a client already on disk. The alternative is
+                 * expanding several gigabytes of somebody's choosing into a folder we are
+                 * about to launch an executable out of, on the strength of a byte count.
+                 */
+                if (string.IsNullOrWhiteSpace(part.Sha256))
+                {
+                    Log.Write($"client acquire: REFUSING {part.Url} — the manifest publishes no sha256 for it");
+                    throw new InvalidOperationException(
+                        "The download of the game client was refused because the update server did not " +
+                        "publish a checksum for it. This is a safety check, not a network problem — " +
+                        "please report it rather than retrying.");
+                }
+
                 Log.Write($"client acquire: HTTP part {i + 1}/{httpArchives.Count} " +
-                          $"({part.Bytes} bytes expected) {part.Url}");
+                          $"({part.Bytes} bytes expected, sha256 " +
+                          $"{part.Sha256[..Math.Min(12, part.Sha256.Length)]}…) {part.Url}");
 
                 var archive = await DownloadOneAsync(part, label, progress, ct);
                 await ExtractAndDeleteAsync(archive, targetDir, progress, ct);
@@ -668,6 +689,32 @@ public sealed class ClientAcquirer
         try { File.Delete(archive); } catch { /* leave it; the player can clear it manually */ }
     }
 
+    /// <summary>
+    /// Fetches one archive of the HTTP fallback, resumably, and does not return until the
+    /// bytes on disk hash to what the manifest pinned.
+    ///
+    /// ★★ WHY THIS IS FOUR LINES OF WORK AND NOT A COPY OF THE SYNC LOOP
+    ///
+    /// It used to be its own hand-rolled GetAsync into a FileMode.Create, checking only that
+    /// the finished length matched — which meant two separate defects in one method:
+    ///
+    ///   * the 2.6 GB stock-client zip, the mechanism by which a new player's game files
+    ///     arrive, was the ONLY external input in this tree accepted without a hash; and
+    ///   * it could not resume. A link that dropped at 90% started again at zero, five
+    ///     times, and then gave up. The patch host's log has a player on 2026-08-22 losing
+    ///     852 MB and then 142 MB to exactly that before a third attempt got through.
+    ///
+    /// ResilientDownload was written for both problems and is already what the 26 base files
+    /// go through. Everything the old loop needed and did not have is in it: a .uncapped-tmp
+    /// that survives a dropped connection, a Range resume, an end-to-end hash over the
+    /// REASSEMBLED file however many pieces it arrived in, a mismatch that DELETES the
+    /// partial rather than resuming from poisoned bytes, the 416 recovery, and no retry when
+    /// a whole clean download still came out wrong — because that is the host talking, not
+    /// the connection, and asking again gets the same answer.
+    ///
+    /// Copying that loop instead of calling it is how repair ended up without it in the
+    /// first place; see the class comment on ResilientDownload.
+    /// </summary>
     private async Task<string> DownloadOneAsync(
         ClientArchive part, string label, IProgress<AcquireProgress> progress, CancellationToken ct)
     {
@@ -677,50 +724,59 @@ public sealed class ClientAcquirer
 
         var destination = Path.Combine(AppPaths.DownloadDir, name);
 
-        using var response = await _http.GetAsync(
-            part.Url, HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
-
-        var expected = response.Content.Headers.ContentLength ?? part.Bytes;
-
-        await using (var input = await response.Content.ReadAsStreamAsync(ct))
-        await using (var output = new FileStream(destination, FileMode.Create, FileAccess.Write,
-                                                 FileShare.None, 1024 * 256, useAsync: true))
+        var reporter = new Progress<DownloadProgress>(p =>
         {
-            var buffer = new byte[1024 * 256];
-            long copied = 0;
-            int read;
-
-            while ((read = await input.ReadAsync(buffer, ct)) > 0)
+            var detail = p.Stage switch
             {
-                await output.WriteAsync(buffer.AsMemory(0, read), ct);
-                copied += read;
+                // Named, because on a 2.6 GB zip this is a minute of a bar that has stopped
+                // moving and it must not read as a hang.
+                DownloadStage.Verifying => "checking the download is intact",
+                DownloadStage.Retrying => $"connection problem, resuming ({p.Attempt} of {p.Attempts})",
+                _ => $"{Gb(p.Bytes)} of {Gb(part.Bytes)}",
+            };
 
-                progress.Report(new AcquireProgress(
-                    "Downloading the game client" + label,
-                    expected > 0 ? (double)copied / expected : 0,
-                    $"{Gb(copied)} of {Gb(expected)}"));
-            }
-        }
+            progress.Report(new AcquireProgress(
+                "Downloading the game client" + label,
+                part.Bytes > 0 ? (double)p.Bytes / part.Bytes : 0,
+                detail));
+        });
 
-        /*
-         * A short file is the failure that would otherwise pass silently.
-         *
-         * A mirror that drops the connection mid-transfer still leaves a valid-looking .zip
-         * on disk; extraction of a truncated archive can even partially succeed. That ends as
-         * a client missing files, which looks like our bug rather than a broken download, and
-         * with nothing in the log to say otherwise.
-         */
-        var actual = new FileInfo(destination).Length;
-        if (expected > 0 && actual != expected)
+        try
         {
-            Log.Write($"client acquire: SHORT DOWNLOAD {name} got {actual} of {expected} bytes");
-            throw new IOException(
-                $"The download of {name} stopped early ({Gb(actual)} of {Gb(expected)}). " +
-                "The mirror may have dropped the connection; try again.");
+            await new ResilientDownload(_http)
+                .FetchAsync(part.Url, destination, part.Bytes, part.Sha256, name, reporter, ct,
+                            BaseFileAttempts);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (InvalidDataException ex)
+        {
+            /*
+             * ★ THE ONE MESSAGE THAT HAS TO BE WRITTEN FOR THE SUPPORT THREAD, NOT THE LOG.
+             *
+             * A mismatch here means the bytes that reached this machine are not the bytes we
+             * published. The overwhelmingly likely cause is not an attacker: it is a hotel,
+             * campus or ISP box rewriting plain-http traffic, and this download is plain http
+             * because the patch host has no TLS listener. Saying "corrupt download, try
+             * again" would send the player round a loop that cannot resolve, because retrying
+             * through the same middlebox gets the same bytes.
+             *
+             * So name the network, and say plainly that we stopped on purpose.
+             */
+            Log.Write($"client acquire: CHECKSUM MISMATCH on {name} — {ex.Message}");
+            throw new InvalidDataException(
+                $"The game client download did not match the checksum we published ({ex.Message}).\n\n" +
+                "Nothing was installed — this is a safety check, and it stopped on purpose.\n\n" +
+                "The usual cause is a network that modifies downloads: a hotel, campus, " +
+                "workplace or public Wi-Fi connection, or security software scanning traffic. " +
+                "Trying a different network — a phone hotspot will do — is the quickest test. " +
+                "If it happens on every network, please tell us: that is worth knowing.", ex);
+        }
+        catch (Exception ex)
+        {
+            throw new IOException($"{name} {ex.Message}", ex);
         }
 
-        Log.Write($"client acquire: downloaded {name} ({actual} bytes)");
+        Log.Write($"client acquire: downloaded and verified {name} ({part.Bytes} bytes)");
         return destination;
     }
 
@@ -730,7 +786,6 @@ public sealed class ClientAcquirer
         using var zip = ZipFile.OpenRead(archivePath);
 
         var entries = zip.Entries;
-        var root = Path.GetFullPath(targetDir);
 
         for (var i = 0; i < entries.Count; i++)
         {
@@ -741,8 +796,35 @@ public sealed class ClientAcquirer
 
             var destination = Path.GetFullPath(Path.Combine(targetDir, entry.FullName));
 
-            // Zip-slip guard: an entry named ..\..\something must not write outside the target.
-            if (!destination.StartsWith(root, StringComparison.OrdinalIgnoreCase)) continue;
+            /*
+             * ★★ ZIP-SLIP GUARD -- AND THIS IS THE ARCHIVE THAT NEEDS ONE MOST.
+             *
+             * The contents of this zip are whatever the network handed us, so this containment
+             * test is one of only two things between that and the player's disk -- the other
+             * being the sha256 pin added for LA-02, which lives in the manifest and arrives over
+             * https. Neither is a substitute for the other: the pin proves we published these
+             * bytes, this test proves they land where we said they would.
+             *
+             * The old test was a StartsWith against Path.GetFullPath(targetDir), which has no
+             * trailing separator and is therefore a string prefix rather than a path one. See
+             * SafePath.IsInside for exactly what that let through.
+             *
+             * ⚠ An entry that fails this is not a corrupt archive, it is a hostile one. Unpacking
+             * the remaining 2.6 GB and calling the install finished is the wrong end of that
+             * trade: better a first run that stops with an error than a game folder assembled
+             * from an archive we have just caught writing outside it.
+             */
+            if (!SafePath.IsInside(targetDir, destination))
+            {
+                Log.Write($"client acquire: REFUSED escaping zip entry '{entry.FullName}' -> " +
+                          $"{destination} (target {targetDir})");
+
+                throw new InvalidDataException(
+                    "The downloaded client archive contains a file that would be written outside " +
+                    "the game folder, so nothing further has been installed. That normally means " +
+                    "the download was altered in transit or came from a mirror we do not control. " +
+                    "Try again, and send us the launcher log if it happens twice.");
+            }
 
             var dir = Path.GetDirectoryName(destination);
             if (dir is not null) Directory.CreateDirectory(dir);

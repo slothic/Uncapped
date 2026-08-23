@@ -253,8 +253,12 @@ end
 -- ===========================================================================
 
 local gcdStart, gcdDuration = 0, 0
+local gcdExpiry = 0           -- gcdStart + gcdDuration, so the hot path adds nothing
 local gcdButtons              -- built lazily; nil until the first cast
-local offGcdSlot = {}         -- action slot -> true/false, dropped when bars change
+local gcdForeign = {}         -- ★ [AN-11] the subset Blizzard does NOT repaint for us
+local offGcdSlot = {}         -- ACTION SLOT -> true/false. Slot-keyed, so paging never invalidates it
+local macroSlots = {}         -- ⚠ the slots whose name CAN change without a slot-changed event
+local cdOf = setmetatable({}, { __mode = "k" })   -- button frame -> its cooldown frame, resolved once
 
 -- Reading what an action slot HOLDS is awkward on 3.3.5 -- GetActionInfo hands
 -- back a spellbook index rather than a spell id, and says nothing useful about
@@ -269,7 +273,7 @@ local function SlotIsOffGcd(slot)
     local cached = offGcdSlot[slot]
     if cached ~= nil then return cached end
 
-    local off = false
+    local off, read = false, false
     -- Guarded on the API as well as the table: if either is missing this answers
     -- "not off-GCD", which is the behaviour that shipped, rather than erroring.
     if UncappedGCD_OFFGCD and type(scanTip.SetAction) == "function" then
@@ -278,10 +282,26 @@ local function SlotIsOffGcd(slot)
         scanTip:SetAction(slot)
         local line = _G["UncappedGCDScanTipTextLeft1"]
         local name = line and line:GetText()
-        if name and UncappedGCD_OFFGCD[name] then off = true end
+        if name then
+            read = true
+            if UncappedGCD_OFFGCD[name] then off = true end
+        end
     end
 
-    offGcdSlot[slot] = off
+    -- ⚠ NEVER CACHE A SCAN THAT READ NOTHING. A slot asked before the client has its
+    -- action data -- straight off a loading screen, or mid bar-rebuild -- yields an
+    -- empty tooltip, and the old code filed that silence as "not off-GCD" and kept it.
+    -- That is report #392 restored by accident: a permanent phantom swipe over a
+    -- Heroic Strike that was never on the global cooldown. Leaving a miss uncached
+    -- costs one re-scan, and it is what lets the blanket wipes below be deleted.
+    if read then
+        offGcdSlot[slot] = off
+        -- ⚠ A macro is the one action whose NAME changes with no ACTIONBAR_SLOT_CHANGED
+        -- behind it: /castsequence steps, and #showtooltip resolves per stance. Remember
+        -- which slots those are, so a stance change can re-ask the handful that can
+        -- actually have changed instead of wiping all 120.
+        if GetActionText and GetActionText(slot) then macroSlots[slot] = true end
+    end
     return off
 end
 
@@ -294,19 +314,45 @@ local BUTTON_PREFIXES = {
     "BT4Button", "DominosActionButton",
 }
 local BUTTONS_PER_PREFIX = 120   -- stock bars stop at 12; Bartender/Dominos go higher
+-- ★ [AN-13] The old loop asked the global table for all 8 x 120 names on every rebuild,
+-- and about nine in ten of those names have never existed on any client. Button names
+-- are contiguous inside a prefix -- stock runs 1..12, Dominos hands out
+-- DominosActionButton1..N in order -- so the scan stops after a short run of misses.
+-- The tolerance is 4 rather than 1 purely so a bar addon that skips an index cannot
+-- silently truncate the list.
+local GAP_TOLERANCE = 4
 
 local function CollectButtons()
-    gcdButtons = {}
+    gcdButtons, gcdForeign = {}, {}
+    for k in pairs(cdOf) do cdOf[k] = nil end
     for _, prefix in ipairs(BUTTON_PREFIXES) do
+        local misses = 0
         for i = 1, BUTTONS_PER_PREFIX do
             local btn = _G[prefix .. i]
             if btn then
+                misses = 0
                 -- Stock buttons expose <name>Cooldown; LibActionButton-based bars
-                -- (Bartender4, Dominos) hang it off the button as .cooldown.
-                local cd = _G[prefix .. i .. "Cooldown"] or btn.cooldown
+                -- (Bartender4) hang it off the button as .cooldown.
+                local named = _G[prefix .. i .. "Cooldown"]
+                local cd = named or btn.cooldown
                 if cd then
-                    gcdButtons[#gcdButtons + 1] = { btn = btn, cd = cd }
+                    local entry = { btn = btn, cd = cd }
+                    gcdButtons[#gcdButtons + 1] = entry
+                    cdOf[btn] = cd
+                    -- ★ [AN-11] A <name>Cooldown child means the button came from
+                    -- ActionBarButtonTemplate, so Blizzard's ActionButton_UpdateCooldown
+                    -- repaints it and our hook paints back on top of that -- it must NOT
+                    -- also be swept. Dominos re-uses the stock buttons for slots 1-72 and
+                    -- builds the rest from that same template, so on the shipped UI this
+                    -- list comes out EMPTY. Only a LibActionButton bar the player
+                    -- installed themselves lands here, and it keeps today's behaviour.
+                    if not named then
+                        gcdForeign[#gcdForeign + 1] = entry
+                    end
                 end
+            else
+                misses = misses + 1
+                if misses >= GAP_TOLERANCE then break end
             end
         end
     end
@@ -321,8 +367,13 @@ end
 -- Paint one button, unless a REAL cooldown longer than the GCD is already
 -- running on it -- stomping that with a 1.4s swipe would hide a 5-minute
 -- cooldown and is the classic way these addons go wrong.
-local function ApplyToButton(entry)
-    local slot = ButtonSlot(entry.btn)
+--
+-- ★ [AN-11] Takes (btn, cd), not a table. The hook below runs this once per button per
+-- ACTIONBAR_UPDATE_COOLDOWN, and it used to build a fresh { btn = , cd = } for every one
+-- of them -- thousands of two-key tables a second, handed straight to the collector, for
+-- a call that reads both fields and drops them on the next line.
+local function ApplyToButton(btn, cd)
+    local slot = ButtonSlot(btn)
     if not slot or not HasAction(slot) then return end
 
     -- Off the global cooldown entirely -- still pressable, so leave it clear.
@@ -333,16 +384,32 @@ local function ApplyToButton(entry)
 
     -- Passing the ORIGINAL start (not "now") is what lets this be re-applied
     -- mid-GCD without the swipe jumping back to full.
-    CooldownFrame_SetTimer(entry.cd, gcdStart, gcdDuration, 1)
+    CooldownFrame_SetTimer(cd, gcdStart, gcdDuration, 1)
 end
 
+-- The whole-bar paint. This is the FIRST paint of a GCD window: it runs once per key
+-- press, from StartGCD, and no longer on every cooldown event -- see the hook below.
 local function ApplyGCD()
     if not db.showGcd then return end
     if gcdDuration <= 0 then return end
-    if GetTime() >= gcdStart + gcdDuration then return end   -- already expired
+    if GetTime() >= gcdExpiry then return end   -- already expired
 
     if not gcdButtons then CollectButtons() end
-    for _, entry in ipairs(gcdButtons) do ApplyToButton(entry) end
+    for _, e in ipairs(gcdButtons) do ApplyToButton(e.btn, e.cd) end
+end
+
+-- ★ [AN-11] The reason ACTIONBAR_UPDATE_COOLDOWN no longer calls ApplyGCD. Every button
+-- built from ActionBarButtonTemplate is already repainted by the per-button hook, so
+-- sweeping the whole list on that event was doing the identical work a second time,
+-- hundreds of times a second. Only LibActionButton bars still need the sweep, and on the
+-- shipped UI there are none -- so this is a length check and a return.
+local function ApplyForeign()
+    if #gcdForeign == 0 then return end
+    if not db.showGcd then return end
+    if gcdDuration <= 0 then return end
+    if GetTime() >= gcdExpiry then return end
+
+    for _, e in ipairs(gcdForeign) do ApplyToButton(e.btn, e.cd) end
 end
 
 -- ===========================================================================
@@ -408,19 +475,35 @@ local function StartGCD(spellName)
     if reduced <= 0 then return end
 
     gcdStart, gcdDuration = GetTime(), reduced
+    gcdExpiry = gcdStart + gcdDuration
     ApplyGCD()
 end
 
 -- The stock code repaints a button from GetActionCooldown, which knows nothing
 -- about our GCD and would wipe the swipe the moment anything else changed. Put
 -- it back for the remainder of the window.
+--
+-- ★ [AN-11] THIS IS NOW THE ONLY STEADY-STATE PAINTER, and Blizzard calls it once per
+-- button out of its own ACTIONBAR_UPDATE_COOLDOWN handler. Two costs used to ride along
+-- on every button on every event and both are gone: a throwaway table for the arguments,
+-- and a GetName() + concat + global lookup to re-find a cooldown frame that never moves.
+-- cdOf answers that once per button for the life of the session.
+--
+-- ⚠ cdOf is a side table on purpose. Stashing the frame on the button itself is the
+-- obvious version and it taints a secure frame -- this UI already logs ADDON_ACTION_BLOCKED
+-- 45-48 times a second and does not need help.
 if type(ActionButton_UpdateCooldown) == "function" then
     hooksecurefunc("ActionButton_UpdateCooldown", function(self)
         if not db.showGcd or gcdDuration <= 0 then return end
-        if GetTime() >= gcdStart + gcdDuration then return end
+        if GetTime() >= gcdExpiry then return end
         if not self then return end
-        local cd = self.cooldown or (self:GetName() and _G[self:GetName() .. "Cooldown"])
-        if cd then ApplyToButton({ btn = self, cd = cd }) end
+        local cd = cdOf[self]
+        if cd == nil then
+            local name = self.GetName and self:GetName()
+            cd = self.cooldown or (name and _G[name .. "Cooldown"]) or false
+            cdOf[self] = cd
+        end
+        if cd then ApplyToButton(self, cd) end
     end)
 end
 
@@ -437,9 +520,12 @@ ev:RegisterEvent("UNIT_SPELLCAST_SENT")
 ev:RegisterEvent("UNIT_SPELLCAST_FAILED")
 ev:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
 pcall(ev.RegisterEvent, ev, "UNIT_SPELLCAST_FAILED_QUIET")
+-- ★ [AN-11] Still registered, but it no longer sweeps the bar -- see ApplyForeign.
 ev:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
--- Bars are rebuilt when the player changes them, so drop the cached list and
--- let the next cast re-scan rather than holding stale frames.
+-- Bars are rebuilt when the player changes them, so drop the cached FRAME list and let
+-- the next cast re-scan rather than holding stale frames. ⚠ Frames only: the off-GCD
+-- answers are keyed by ACTION SLOT, and paging repoints buttons at different slots
+-- without changing what any slot holds -- see the handler.
 ev:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
 ev:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
 -- Dragging an ability onto a bar changes what a slot holds without changing the
@@ -475,7 +561,10 @@ ev:SetScript("OnEvent", function(self, e, a1, a2)
         TryHook()
         RequestStats()
         gcdButtons = nil            -- bars may have been rebuilt on the loading screen
-        offGcdSlot = {}
+        -- ★ [AN-12] offGcdSlot is deliberately NOT wiped here any more. A zone-in does not
+        -- change what an action slot holds, and the one hazard the wipe was really covering
+        -- -- a slot scanned before the client had its action data -- is now handled at
+        -- source: SlotIsOffGcd refuses to cache a scan that read nothing.
     elseif e == "UNIT_SPELLCAST_SUCCEEDED" then
         if a1 == "player" then StartGCD(a2) end
     elseif e == "UNIT_SPELLCAST_SENT" then
@@ -489,13 +578,23 @@ ev:SetScript("OnEvent", function(self, e, a1, a2)
         -- for the quiet variant, which does not always carry a name.
         if a1 == "player" and (a2 == nil or a2 == sentName) then sentName = nil end
     elseif e == "ACTIONBAR_UPDATE_COOLDOWN" then
-        ApplyGCD()                  -- repaint over the stock refresh, if ours is still live
+        -- ★ [AN-11] Was ApplyGCD() -- a sweep of every button on the bar, on an event the
+        -- client fires hundreds of times a second in combat, redoing work the per-button
+        -- hook had already done a moment earlier. Now only the bars Blizzard does not
+        -- repaint for us, which on the shipped UI is none of them.
+        ApplyForeign()
     elseif e == "ACTIONBAR_SLOT_CHANGED" then
         -- slot 0 (or none) means "everything changed"
-        if a1 and a1 ~= 0 then offGcdSlot[a1] = nil else offGcdSlot = {} end
+        if a1 and a1 ~= 0 then offGcdSlot[a1] = nil else offGcdSlot, macroSlots = {}, {} end
     elseif e == "ACTIONBAR_PAGE_CHANGED" or e == "UPDATE_BONUS_ACTIONBAR" then
+        -- ★ [AN-12] The frame list is dropped; the off-GCD answers are NOT. They are keyed
+        -- by action slot, and a page swap or a form shift repoints buttons at other slots
+        -- without altering a single slot's contents -- so wiping them bought nothing and
+        -- cost a full GameTooltip:SetAction build per button on the next paint, all inside
+        -- one frame. That was the druid-form and stance-dance hitch.
+        -- ⚠ Macros are the exception and only macros: re-ask those few.
         gcdButtons = nil
-        offGcdSlot = {}
+        for s in pairs(macroSlots) do offGcdSlot[s] = nil end
     elseif e == "CHAT_MSG_ADDON" then
         if a1 == PREFIX and a2 then
             local c = tonumber(string.match(a2, "CDR:([%d%.]+)"))

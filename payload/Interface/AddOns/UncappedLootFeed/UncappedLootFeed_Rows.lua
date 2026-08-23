@@ -76,16 +76,51 @@ end
 
 -- Feed entry -> row descriptor. One shape, whatever built it:
 --   { id, link, label, sub, watched, vault, plain }
+--
+-- MEMOISED ONTO THE ENTRY, the same way the engine already memoises e.q at
+-- capture time (UncappedLootFeed.lua:254-260). The feed is an APPEND-ONLY ring of
+-- up to 100 entries, and both views rebuilt every descriptor on every repaint --
+-- the popout repaints 5x/s while loot is arriving, so ~600 Describe calls a
+-- repaint and ~3,000 a second, to reproduce an identical answer for 99 rows in
+-- 100. That is exactly the always-on repaint work that has cost this realm real
+-- frames, and it lands hardest during AoE farming and bulk Vault deposits, when
+-- the feed is most useful and the client is busiest.
+--
+-- Three things can legitimately change a built descriptor, and all three are in
+-- the cache key so no external invalidation hook is needed:
+--   * the watch state (gold name + the source sub-line appear/disappear),
+--   * the item link resolving later (GetItemInfo had never seen the item yet),
+--   * the "show source line" setting.
+-- Feed entries are fresh tables per push and are never recycled, so the memo
+-- cannot leak from one drop to another.
 function Rows.Describe(e)
     local D = Data()
 
     if e.overflow then
-        -- Tail of a batched bulk deposit -- see ULFVX in the engine.
-        return {
-            label = VAULT_COLOR .. "Vault|r  |cffaaaaaa... and " .. e.overflow
-                .. " more stack" .. ((e.overflow == 1) and "" or "s") .. " banked|r",
-            plain = true,
-        }
+        -- Tail of a batched bulk deposit -- see ULFVX in the engine. Fixed text,
+        -- so it is built once and kept.
+        local fixed = e.desc
+        if not fixed then
+            fixed = {
+                label = VAULT_COLOR .. "Vault|r  |cffaaaaaa... and " .. e.overflow
+                    .. " more stack" .. ((e.overflow == 1) and "" or "s") .. " banked|r",
+                plain = true,
+            }
+            e.desc = fixed
+        end
+        return fixed
+    end
+
+    local link = ResolveLink(e)
+    local watched = LF.IsWatched(e.id)
+
+    local lfdb = LF.GetDB()
+    local sourceOn = not (lfdb and lfdb.popoutSource == false)
+
+    local cached = e.desc
+    if cached and cached.watched == watched and cached.link == link
+       and e.descSourceOn == sourceOn then
+        return cached
     end
 
     -- First column is the SOURCE, and the Vault gets its own colour: the whole
@@ -100,8 +135,6 @@ function Rows.Describe(e)
         source = "|cffaaaaaa" .. (e.who or "?") .. "|r"
     end
 
-    local link = ResolveLink(e)
-    local watched = LF.IsWatched(e.id)
     local name
 
     if watched then
@@ -114,7 +147,7 @@ function Rows.Describe(e)
 
     local suffix = (e.count and e.count > 1) and ("|cffffffff x" .. e.count .. "|r") or ""
 
-    return {
+    local desc = {
         id      = e.id,
         link    = link,
         label   = source .. "  " .. name .. suffix,
@@ -122,6 +155,17 @@ function Rows.Describe(e)
         watched = watched,
         vault   = (e.src == LF.SRC_VAULT),
     }
+
+    -- Only keep it once the baked table is answering. Before that the name would
+    -- be the "item 12345" fallback, and caching that would freeze it there.
+    if D and D.IsReady and D.IsReady() then
+        e.desc = desc
+        e.descSourceOn = sourceOn
+    else
+        e.desc = nil
+    end
+
+    return desc
 end
 
 -- ---------------------------------------------------------------------------

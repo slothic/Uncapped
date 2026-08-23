@@ -6,10 +6,13 @@
 ## OptionalDeps: UncappedUI, UncappedDashboard, UncappedOptions, UncappedAlerts
 ## SavedVariables: UncappedLootFeedDB
 
-# Generated data first -- the lookup layer resolves both tables lazily, but
-# loading them in this order means the very first frame can already answer.
+# Generated item data first, so the very first frame can already answer.
+#
+# The 490 KB "where does it drop" table is NOT here any more: it moved to the
+# UncappedLootFeedSources addon (## LoadOnDemand) and is pulled in by SourceRows()
+# the first time anything actually asks. 21,553 generated strings and ~1.8 MB of
+# permanent Lua heap that nothing at login ever touched.
 UncappedLootFeedItemData.lua
-UncappedLootFeedSourceData.lua
 UncappedLootFeedData.lua
 
 # Engine, then the shared widgets, then the two views over them. Rows and

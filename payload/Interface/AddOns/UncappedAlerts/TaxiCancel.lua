@@ -84,43 +84,24 @@ watcher:SetScript("OnUpdate", function(self, delta)
     end
 end)
 
--- The reply rides the player's personal channel, which is a data pipe -- hide
--- it so "UTAXI:1:Stormwind" never appears in chat. Registered here rather than
--- relying on ReagentBankCraft's filter, since the two addons are independent
--- and either can be absent.
-ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and msg:find("^UTAXI:") then
-        return true
-    end
-    return false
-end)
-
 -- Prefix for the whole server->client pipe (see the transport note below).
 local ADDON_PIPE_PREFIX = "UNC"
 
 -- Server reply: UTAXI:<1|0>:<flight master name>
 local listener = CreateFrame("Frame")
-listener:RegisterEvent("CHAT_MSG_CHANNEL")
 listener:RegisterEvent("CHAT_MSG_ADDON")
 listener:SetScript("OnEvent", function(self, event, a1, a2)
-    -- Two transports, on purpose.
+    -- ONE transport. The per-player chat channel this used to also listen on was
+    -- retired when the server moved the whole UNC pipe to CHAT_MSG_ADDON
+    -- (ReagentBankChannelProtocol.cpp:79-96 -- SendResponse is now the only
+    -- sender and it never Say()s). The channel branch and the CHAT_MSG_CHANNEL
+    -- chat filter are gone: an addon message is never rendered, so "UTAXI:1:..."
+    -- cannot appear in chat and the dead filter was running on every real
+    -- World-chat line.
     --
-    -- CHAT_MSG_ADDON is where the pipe is moving: the client never renders it,
-    -- so the protocol can no longer leak into chat when an addon fails to load.
-    -- CHAT_MSG_CHANNEL is the old transport, kept because one payload serves
-    -- both realms and a realm still running the previous worldserver would go
-    -- silent otherwise. Drop the channel branch once every realm is converted.
-    --
-    --   CHAT_MSG_ADDON   : a1 = prefix, a2 = body
-    --   CHAT_MSG_CHANNEL : a1 = body,   a2 = author (our own name on the pipe)
-    local text
-    if event == "CHAT_MSG_ADDON" then
-        if a1 ~= ADDON_PIPE_PREFIX then return end
-        text = a2
-    else
-        if a2 ~= UnitName("player") then return end
-        text = a1
-    end
+    --   CHAT_MSG_ADDON : a1 = prefix, a2 = body
+    if a1 ~= ADDON_PIPE_PREFIX then return end
+    local text = a2
     if not text then
         return
     end

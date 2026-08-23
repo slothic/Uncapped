@@ -127,10 +127,16 @@ public sealed class LauncherState
         }
     }
 
+    /// <summary>
+    /// ⚠ Atomic, not File.WriteAllText. Load() treats a parse failure as "no state" and returns
+    /// a fresh object, so a truncated write costs the player their remembered install path AND
+    /// the whole VerifiedFiles cache — a silent 16 GB re-hash on the next launch. See
+    /// <see cref="AtomicFile"/>.
+    /// </summary>
     public void Save()
     {
         Directory.CreateDirectory(AppPaths.DataDir);
-        File.WriteAllText(AppPaths.StateFile, JsonSerializer.Serialize(this, Options));
+        AtomicFile.WriteAllText(AppPaths.StateFile, JsonSerializer.Serialize(this, Options));
     }
 }
 

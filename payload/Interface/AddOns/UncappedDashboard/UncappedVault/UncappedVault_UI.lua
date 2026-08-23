@@ -43,6 +43,50 @@ local CATEGORY_ROW_H = 24
 
 local frame, searchBox, categoryPanel, categoryScroll, tablePanel, gridPanel, footerBar
 local rows, catRows, gridSlots, gridHeaders = {}, {}, {}, {}
+
+--[[ ★★ [DE-05] TYPING DOES NOT REFILTER ON THE SPOT.
+
+     Core.SetQuery -> Notify -> Core.Rebuild + UI.Refresh is the widest thing this
+     addon does. On a documented 3,901-row vault it was a walk of every row, a full
+     table.sort, a second per-bucket sort in the grid layout, one fresh table per
+     item, and a repaint of every widget -- PER CHARACTER TYPED. That is the
+     per-frame stall shape behind the realm's FPS reports, fired eight to fifteen
+     times per search.
+
+     Core.Rebuild is far cheaper on a narrowing query now (see the DE-05 note
+     there), but "cheaper" is not "free" and the REPAINT is not narrowed at all, so
+     a burst of keystrokes still gets coalesced into one pass here. Same mechanism,
+     same reasoning and deliberately the same feel as the Forge's search box
+     (SEARCH_DEBOUNCE in UncappedForge.lua).
+
+     ⚠ 0.12s, not the 0.30s the Soulforge whitelist box uses. That one pays for a
+       round trip and a full-table scan ON THE SERVER, so it is worth waiting
+       longer to be sure. This one is pure local CPU: a longer wait would buy
+       nothing except a list that visibly lags the caret. ]]
+local SEARCH_DEBOUNCE = 0.12
+local searchWait = nil      -- seconds left on the debounce, nil when idle
+local searchPending = nil   -- the text the debounce will hand to Core.SetQuery
+local searchTimer = CreateFrame("Frame")
+searchTimer:Hide()
+
+-- Hands the settled text over now. Called by the ticker, and directly whenever the
+-- box is going away: if the frame hid with a query still queued, Core.state.query
+-- and the text sitting in the box would disagree until the next keystroke, and
+-- reopening the Vault would show a list contradicting its own search box.
+local function FlushSearch()
+    if searchPending == nil then return end
+    local text = searchPending
+    searchWait, searchPending = nil, nil
+    searchTimer:Hide()
+    Core.SetQuery(text)
+end
+
+searchTimer:SetScript("OnUpdate", function(self, elapsed)
+    if not searchWait then self:Hide(); return end
+    searchWait = searchWait - (elapsed or arg1 or 0)
+    if searchWait > 0 then return end
+    FlushSearch()
+end)
 local viewButtons = {}
 local qualityDD, slotDD, statDD, classOnlyCheck, gridSortBtn
 
@@ -791,20 +835,30 @@ local function BuildFrame(parent)
     mag:SetWidth(16); mag:SetHeight(16); mag:SetPoint("LEFT", 6, 0)
     searchBox:SetScript("OnTextChanged", function(self)
         local text = self:GetText() or ""
+        -- The placeholder stays IMMEDIATE. It costs one Show/Hide and it is the
+        -- only thing on screen that has to track the caret exactly; debouncing it
+        -- would make the box itself look laggy, which is the opposite of the point.
+        -- Only the refilter waits.
         if text == "" then ph:Show() else ph:Hide() end
-        Core.SetQuery(text)
+        searchPending = text
+        searchWait = SEARCH_DEBOUNCE
+        searchTimer:Show()
     end)
     -- Report #88: Escape left the box holding the keyboard, so "b" landed in the
     -- search field instead of opening bags.
     --
-    -- ClearFocus runs BEFORE SetText, and the order is the whole point. SetText
-    -- fires OnTextChanged synchronously, and that handler rebuilds and repaints
-    -- the entire vault (Core.SetQuery -> Rebuild -> UI.Refresh) -- an empty query
-    -- is the widest possible rebuild, since nothing is filtered out. Anything that
-    -- raises in there aborts this handler where it stands, and with SetText first
-    -- that abort happens while the box still owns the keyboard, which is exactly
-    -- the reported symptom. Dropping focus first makes releasing the keyboard
-    -- independent of whether the refilter that follows survives.
+    -- ClearFocus runs BEFORE SetText, and the order is still the point. SetText
+    -- fires OnTextChanged synchronously, and anything that raises in that handler
+    -- aborts this one where it stands -- with SetText first, that abort would
+    -- happen while the box still owns the keyboard, which is exactly the reported
+    -- symptom. Dropping focus first makes releasing the keyboard independent of
+    -- whatever the handler does.
+    --
+    -- ⚠ [DE-05] It used to be that handler that did the damage: it ran
+    --   Core.SetQuery -> Rebuild -> UI.Refresh inline, and an empty query is the
+    --   widest possible rebuild since nothing is filtered out. It only QUEUES now,
+    --   so the exposure is much smaller -- but the ordering stays, because
+    --   "smaller" is not "none" and this order costs nothing.
     searchBox:SetScript("OnEscapePressed", function(self)
         self:ClearFocus()
         self:SetText("")
@@ -814,7 +868,11 @@ local function BuildFrame(parent)
     -- swallowing keypresses with nothing on screen to show where they are going.
     -- The Vault is a Dashboard tab, so it is hidden out from under a focused
     -- search box every time the player switches tab or closes the window.
-    frame:SetScript("OnHide", function() searchBox:ClearFocus() end)
+    -- ⚠ [DE-05] FlushSearch as well as ClearFocus: a query queued on the debounce
+    --   when the tab is switched away must still land, or Core.state.query and the
+    --   text in the box disagree and reopening the Vault shows a list that
+    --   contradicts its own search box.
+    frame:SetScript("OnHide", function() searchBox:ClearFocus(); FlushSearch() end)
 
     -- 5px right of the item frame (tablePanel/gridPanel's own left edge,
     -- which sits at PAD + LEFT_W + 12 from frame's left) -- computed here

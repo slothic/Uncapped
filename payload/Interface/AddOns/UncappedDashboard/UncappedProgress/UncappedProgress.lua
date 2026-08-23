@@ -1064,7 +1064,20 @@ local function BuildPetUI(parent)
         -- new numbers, so there is nothing to update optimistically -- and
         -- nothing that can leave the panel claiming a conversion that did not
         -- happen.
-        Send(string.format("DSPCONV:%d:%d:%d:%d", sel.num, petFrom, petTo, math.floor(amount)))
+        -- ★ [DP-07] The amount goes out through %.0f, NOT %d.
+        --
+        -- The box takes 15 digits because the stat cap is 1e15 and the server
+        -- parses this field with strtoull into a uint64. Lua 5.1 on this
+        -- 32-bit client casts %d through a 32-bit lua_Integer, so anything
+        -- above 2,147,483,647 was sent as -2147483648 -- the server's
+        -- digits-only check then rejected the minus sign and answered "Enter a
+        -- whole number greater than 0" to a perfectly valid amount, with no
+        -- way for the player to get past it.
+        --
+        -- %.0f formats the double directly: exact to 2^53, and never in
+        -- exponent form the way tostring() renders 1e15.
+        Send(string.format("DSPCONV:%d:%d:%d:%s", sel.num, petFrom, petTo,
+            string.format("%.0f", amount)))
     end
 
     ui.convert:SetScript("OnClick", DoConvert)

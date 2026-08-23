@@ -136,6 +136,11 @@ end
 local comms = CreateFrame("Frame")
 comms:RegisterEvent("CHAT_MSG_ADDON")
 comms:RegisterEvent("PLAYER_ENTERING_WORLD")
+
+-- ★ [AN-16] Attaches the stale guard below. Forward-declared because the feed
+-- handler is what arms it, and it is defined further down.
+local ArmStaleGuard
+
 comms:SetScript("OnEvent", function(_, event, a1, a2)
     if event == "PLAYER_ENTERING_WORLD" then
         -- Zoning tears down the feed for a moment. Clear rather than carry the
@@ -167,6 +172,9 @@ comms:SetScript("OnEvent", function(_, event, a1, a2)
     end
 
     lastValue = value
+    -- Arm the stale guard on the 0 -> non-zero edge; it takes itself back off
+    -- when the shield is gone.
+    if value > 0 and ArmStaleGuard then ArmStaleGuard() end
     Redraw()
 end)
 
@@ -177,13 +185,26 @@ end)
 -- ★ The guard lives on `comms`, not on `frame`. A hidden frame gets no OnUpdate,
 --   so hanging the staleness check on the bar itself means it stops checking in
 --   exactly the state where a stale value could be waiting to reappear.
-comms:SetScript("OnUpdate", function(_, elapsed)
-    if lastValue <= 0 then return end
+--
+-- ★ [AN-16] ATTACHED ONLY WHILE A SHIELD IS UP. There is nothing for this to do
+--   with no absorb on the player, which for most characters is most of the time
+--   and for many is the whole session -- and it used to run every frame regardless
+--   to evaluate its own first-line return.
+local function StaleTick(self, elapsed)
+    if lastValue <= 0 then
+        self:SetScript("OnUpdate", nil)
+        return
+    end
     if GetTime() - lastStamp > STALE_AFTER then
         lastValue, peakValue = 0, 0
         Redraw()
+        self:SetScript("OnUpdate", nil)
     end
-end)
+end
+
+ArmStaleGuard = function()
+    comms:SetScript("OnUpdate", StaleTick)
+end
 
 -- --------------------------------------------------------------- saved vars --
 local boot = CreateFrame("Frame")

@@ -233,20 +233,44 @@ local function BuildContent()
     -- Each embedded-tab addon builds its own panel directly into its group --
     -- see UncappedSoulForge.lua's EmbedInto -- so it resizes along with the
     -- Dashboard window like everything else in contentPanel.
-    for tabKey, globalName in pairs(EMBEDDED_TABS) do
+    --
+    -- ★ [DP-09] The GROUPS are made here; the PANELS are not.
+    --
+    -- An empty Frame is a handful of bytes. EmbedInto is not: eleven panels
+    -- built in the one frame the Dashboard is first opened meant Transmog's
+    -- 14 slot tabs, a DressUpModel and 54 grid cells of 5 textures each,
+    -- Keystone's three sub-panels, and the three largest files in the bundle
+    -- (Vault, Forge, SoulForge) all constructing at once -- a visible hitch
+    -- on the first /dashboard of every session, paid in full by players who
+    -- only ever open one tab. Each panel is now built the first time its tab
+    -- is actually activated; see EnsureEmbedded.
+    --
+    -- Load order in the .toc is unaffected: that governs file execution, not
+    -- frame building.
+    for tabKey in pairs(EMBEDDED_TABS) do
         local group = CreateFrame("Frame", nil, contentPanel)
         group:SetPoint("TOPLEFT", 6, -6)
         group:SetPoint("BOTTOMRIGHT", -6, 6)
         group:Hide()
         embeddedGroups[tabKey] = group
-
-        local addon = _G[globalName]
-        if addon and addon.UI and addon.UI.EmbedInto then
-            addon.UI.EmbedInto(group)
-        end
     end
 
     built = true
+end
+
+-- [DP-09] Builds one embedded panel, once. The flag is set BEFORE EmbedInto
+-- runs so a panel that errors half-way through construction is not retried on
+-- every single click of its tab.
+local embedded = {}
+local function EnsureEmbedded(tabKey)
+    if not tabKey or embedded[tabKey] then return end
+    local group = embeddedGroups[tabKey]
+    if not group then return end
+    embedded[tabKey] = true
+    local addon = _G[EMBEDDED_TABS[tabKey]]
+    if addon and addon.UI and addon.UI.EmbedInto then
+        addon.UI.EmbedInto(group)
+    end
 end
 
 -- TODO: once each other addon exposes an Open()/Toggle() the same way Vault
@@ -273,6 +297,9 @@ function UI.Refresh()
         dashboardGroup:Show()
         return
     end
+
+    -- [DP-09] First activation of this tab is what builds its panel.
+    EnsureEmbedded(Core.state.tab)
 
     local group = embeddedGroups[Core.state.tab]
     local addon = group and _G[EMBEDDED_TABS[Core.state.tab]]

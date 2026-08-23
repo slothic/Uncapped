@@ -2,30 +2,34 @@
   Uncapped Bug Reporter -- a friendlier front end for the existing !bug command,
   not a new one.
 
-  Players already have a working path: type "!bug <message>" into the World
+  Players already had a working path: type "!bug <message>" into the World
   channel, and the server watches that channel for the trigger and relays it
-  to Discord (replying with its own usage message if the text after "!bug " is
-  empty). There is no client -> server addon-message path on this realm's pipe
-  (see UncappedChat.lua's design note on why its own input box posts to the
-  World channel instead) -- so this addon sends reports out the exact same way,
-  it just gives players a proper multi-line window to write them in instead of
-  a one-line chat box, plus a live character counter (chat messages truncate
-  silently past the client's own length cap) and automatic zone context so
-  "where" is never left blank.
+  to Discord. This addon gives them a proper multi-line window to write in
+  instead of a one-line chat box, plus a live character counter and automatic
+  zone context so "where" is never left blank.
 
-  Wire format:
-    !bug [<title>] <message> (<zone context>)
+  ⚠ Transport: the "!bug " chat trigger is NOT how this addon sends any more.
+  Reports go out as CHUNKED ADDON MESSAGES on the REAGENTBANK prefix and are
+  reassembled server-side by bug_report_chunked.cpp -- that is what lifted the
+  cap from ~292 characters to 1500 (suggestion #145). The chat trigger still
+  exists for players without the addon; nothing here uses it.
+
+    SEND : SendAddonMessage("REAGENTBANK",
+             "UBUGC:<i>/<n>:<b|s>:<slice>", "WHISPER", <own name>)
+
+  Reassembled body:
+    [<title>] <message> (<zone context>)
 
   The title rides in its own [brackets] so the Discord side can pull it out
-  with one pattern (Lua: ^!bug%s*%[(.-)%]%s*(.*)$) and use it verbatim,
-  instead of synthesizing one by truncating the message body mid-word (which
-  is what produced titles like "...it says it pro**" in the existing bug
-  tracker before this addon existed). /bug <message> with no title (the quick
-  chat-only path) falls back to that same truncate-the-message behavior, so it
-  degrades to what already worked rather than sending a blank title.
+  with one pattern (Lua: ^%s*%[(.-)%]%s*(.*)$) and use it verbatim, instead of
+  synthesizing one by truncating the message body mid-word (which is what
+  produced titles like "...it says it pro**" in the existing bug tracker before
+  this addon existed). /bug <message> with no title (the quick one-liner path)
+  falls back to that same truncate-the-message behavior, so it degrades to what
+  already worked rather than sending a blank title.
 
-  Transport:
-    SEND : SendChatMessage("!bug [title] message", "CHANNEL", nil, <World channel id>)
+  The addon still keeps the player in the World channel (EnsureWorldChannel):
+  that is for reading replies and for the chat fallback, not for sending.
 
   Slash commands:
     /bug              opens the report window
@@ -35,8 +39,6 @@
 
 local ADDON = "UncappedBugReporter"
 local WORLD_CHANNEL = "World"
-local BUG_PREFIX = "!bug "
-local MAX_MESSAGE = 255 -- SendChatMessage's own hard cap on this client
 local MAX_TITLE = 80    -- keeps "[title]" from eating the whole message budget
 
 -- Chunked transport (suggestion #145, "give us more room to make suggestions").
@@ -98,11 +100,15 @@ local function EnsureWorldChannel()
     JoinPermanentChannel(WORLD_CHANNEL, nil, 1, false)
 end
 
---- Appends "(Zone - SubZone)" so a report is never missing "where" even if the
---- player forgets to type it. GetSubZoneText() is often "" outdoors or the
---- same as the zone name in an instance, so it's only added when it actually
---- adds information.
-local function WithZoneContext(text)
+--- The " (Zone - SubZone)" suffix, or "" if there is nothing worth saying, so a
+--- report is never missing "where" even if the player forgets to type it.
+--- GetSubZoneText() is often "" outdoors or the same as the zone name in an
+--- instance, so it's only added when it actually adds information.
+---
+--- Returned SEPARATELY rather than pre-appended: the caller has to budget for it
+--- before trimming, because the trim cuts from the end and that is exactly where
+--- this lives.
+local function ZoneSuffix()
     local zone, sub = GetZoneText() or "", GetSubZoneText() or ""
     local where
     if sub ~= "" and sub ~= zone then
@@ -110,8 +116,8 @@ local function WithZoneContext(text)
     else
         where = zone
     end
-    if where == "" then return text end
-    return text .. " (" .. where .. ")"
+    if where == "" then return "" end
+    return " (" .. where .. ")"
 end
 
 --- Derives a title the same way the Discord side already used to (before it
@@ -126,11 +132,11 @@ end
 --- Sends one bug report over the World channel. Returns true if it went out,
 --- false (with a chat explanation) if it couldn't.
 -- `asSuggestion` picks the transport's kind byte. It is an explicit ARGUMENT
--- rather than the old BR.sendAsSuggestion field because that field was read
--- here and set precisely nowhere -- the suggestion path existed on the server
--- and in this transport, and no client route could ever reach it (report #485).
--- A sticky flag would also mean one /suggestion silently turning every later
--- /bug into a suggestion.
+-- rather than the old BR.sendAsSuggestion field, which was read here and set
+-- precisely nowhere -- the suggestion path existed on the server and in this
+-- transport, and no client route could ever reach it (report #485). That read
+-- has now been removed too; a sticky flag would also mean one /suggestion
+-- silently turning every later /bug into a suggestion.
 function BR.Send(title, message, asSuggestion)
     local label = asSuggestion and "[Suggestion]" or "[Bug Report]"
 
@@ -149,21 +155,34 @@ function BR.Send(title, message, asSuggestion)
     -- The title (already capped above) rides inside its own brackets so the
     -- Discord side can pull it out verbatim instead of synthesizing one by
     -- truncating the message body.
-    local full = "[" .. title .. "] " .. WithZoneContext(message)
+    local header = "[" .. title .. "] "
+    local suffix = ZoneSuffix()
 
+    -- Trim the MESSAGE to what is left after the wrapper, rather than trimming
+    -- the assembled string. The old code built header + message + zone suffix and
+    -- only then cut the whole thing to MAX_LONG_REPORT from the END -- so the
+    -- longest, most detailed reports were exactly the ones that lost their
+    -- location, which is the one thing the automatic zone context exists to
+    -- guarantee. The editbox caps the message at 1500 and the header can add
+    -- another 83 bytes on top, so this was reachable by typing.
+    --
     -- Trim here rather than letting the transport do it silently -- a report cut
     -- off mid-sentence with no warning is worse than one visibly shortened.
-    if #full > MAX_LONG_REPORT then
-        full = full:sub(1, MAX_LONG_REPORT)
+    local budget = MAX_LONG_REPORT - #header - #suffix
+    if budget < 1 then budget = 1 end
+    if #message > budget then
+        message = message:sub(1, budget)
         DEFAULT_CHAT_FRAME:AddMessage("|cffff8040" .. label .. "|r That was over "
-            .. MAX_LONG_REPORT .. " characters, so the end was trimmed.")
+            .. budget .. " characters, so the end was trimmed.")
     end
+
+    local full = header .. message .. suffix
 
     local n = math.ceil(#full / CHUNK_BODY)
     if n < 1 then n = 1 end
     if n > MAX_CHUNKS then n = MAX_CHUNKS end
 
-    local kind = (asSuggestion or BR.sendAsSuggestion) and "s" or "b"
+    local kind = asSuggestion and "s" or "b"
     for i = 1, n do
         SendAddonMessage(TRANSPORT_PREFIX,
             "UBUGC:" .. i .. "/" .. n .. ":" .. kind .. ":"

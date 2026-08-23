@@ -1,12 +1,32 @@
 -- UncappedUIKit Controls.EditBox -- themed search box (InputBoxTemplate +
 -- placeholder text + magnifying-glass icon). Wire up filtering by setting
 -- box.OnQueryChanged = function(text) ... end after creation.
+--
+-- ⚠ OnQueryChanged is DEBOUNCED (0.25s after the last keystroke), so it is not
+-- called once per character. Clearing the box still fires immediately.
 
 local UncappedUIKit = _G.UncappedUIKit
 if not UncappedUIKit then return end
 
 local function ApplySearchSkin(box, theme)
     box.icon:SetTexture(theme.textures.searchIcon)
+end
+
+-- How long the box waits, after the last keystroke, before it runs the query.
+local SEARCH_DEBOUNCE = 0.25
+
+-- Attached to the box only while a query is pending, detached the moment it
+-- fires -- no always-on OnUpdate.
+local function SearchDebounceTick(self, elapsed)
+    self.queryWait = (self.queryWait or 0) - elapsed
+    if self.queryWait > 0 then
+        return
+    end
+    self:SetScript("OnUpdate", nil)
+    self.queryWait = nil
+    if self.OnQueryChanged then
+        self.OnQueryChanged(self:GetText() or "")
+    end
 end
 
 function UncappedUIKit.CreateSearchBox(parent, width, height, placeholderText)
@@ -23,10 +43,30 @@ function UncappedUIKit.CreateSearchBox(parent, width, height, placeholderText)
     box.icon:SetWidth(16); box.icon:SetHeight(16)
     box.icon:SetPoint("LEFT", 6, 0)
 
+    -- DEBOUNCED. OnTextChanged fires once per keystroke, and the heaviest
+    -- consumers of this widget do a full linear scan per call -- LootFeed's
+    -- 25,459-row item table, the wardrobe's ~4,550-row Off Hand pool -- plus a
+    -- sort. Typing a ten-letter item name was ten complete scans and ten sorts,
+    -- nine of whose results the player never saw. Fixing it here fixes every
+    -- consumer of the widget at once.
+    --
+    -- ⚠ An EMPTY box is deliberately NOT debounced: clearing the field (or
+    -- Escape, below) must restore the full list immediately, and that is the
+    -- cheap path anyway.
     box:SetScript("OnTextChanged", function(self)
         local text = self:GetText() or ""
         if text == "" then self.placeholder:Show() else self.placeholder:Hide() end
-        if self.OnQueryChanged then self.OnQueryChanged(text) end
+        if not self.OnQueryChanged then return end
+
+        if text == "" then
+            self:SetScript("OnUpdate", nil)
+            self.queryWait = nil
+            self.OnQueryChanged("")
+            return
+        end
+
+        self.queryWait = SEARCH_DEBOUNCE
+        self:SetScript("OnUpdate", SearchDebounceTick)
     end)
     box:SetScript("OnEscapePressed", function(self) self:SetText(""); self:ClearFocus() end)
 

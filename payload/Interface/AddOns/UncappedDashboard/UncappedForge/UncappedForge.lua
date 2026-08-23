@@ -265,6 +265,25 @@ local quote = nil           -- { cost=, buy=, tokenOnly=, unbuyable= }
 local processable = {}      -- { item=, count=, kinds= }
 local job = nil             -- { done=, total=, crafted= } while a job runs
 
+--[[ ★ [DE-02] Where the last craft's output actually went.
+
+     FRGDONE's two success strings used to append the literal " into your
+     Vault". Right for both normal output paths -- DoCreateItem is
+     vault-intercepted, and AutoStoreLoot now diverts to the forge sink during
+     a vault-output cast -- but ForgeCraft::ProductMustGoToBags forces
+     ITEM_CLASS_CONTAINER products to bags, so a tailor crafting a Frostweave
+     Bag was told it was in a window it is not in.
+
+     Carried on its OWN line rather than as a new FRGDONE field, for the same
+     reason as the #922 rows above: FRGDONE's failure token is captured with
+     `(.*)$`, so a fourth positional field would be read by every un-updated
+     client as part of the failure string and printed as "failed (...)".
+     An unknown verb is simply ignored instead.
+
+     Set by FRGDEST, consumed by the next FRGDONE, and nil against a server
+     that does not send it -- which degrades to exactly today's wording. ]]
+local craftDest = nil       -- "bags" | "vault" | nil (= unknown, assume vault)
+
 -- [#922] Disenchant-only attributes, arriving on their own row types so an
 -- un-updated client is unaffected. Empty against an old server, which is what makes
 -- the new sort and filter degrade to the old behaviour instead of erroring.
@@ -1047,11 +1066,21 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
             RefreshProgress()
         end
 
+    -- [DE-02] Optional, and always sent BEFORE the FRGDONE it describes.
+    elseif body:find("^FRGDEST:") then
+        craftDest = body:match("^FRGDEST:(%a+)$")
+
     elseif body:find("^FRGDONE:") then
         local crafted, failure = body:match("^FRGDONE:(%d+):(.*)$")
         crafted = tonumber(crafted) or 0
         job = nil
         RefreshProgress()
+
+        -- [DE-02] Consume the destination hint. Absent (old server, or an
+        -- ordinary vault-bound craft) reads as the Vault, which is what every
+        -- output path except a container product actually does.
+        local where = (craftDest == "bags") and " into your bags" or " into your Vault"
+        craftDest = nil
 
         local FAILURES = {
             reagents  = "ran out of materials",
@@ -1096,14 +1125,14 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
             local why = FAILURES[failure] or ("failed (" .. failure .. ")")
             DEFAULT_CHAT_FRAME:AddMessage(string.format(
                 "|cffff8040[Forge]|r produced |cffffffff%s|r item(s)%s, then stopped -- %s.",
-                Commafy(crafted), " into your Vault", why))
+                Commafy(crafted), where, why))
         elseif failure and failure ~= "" then
             local why = FAILURES[failure] or ("failed (" .. failure .. ")")
             DEFAULT_CHAT_FRAME:AddMessage("|cffff8040[Forge]|r " .. why)
         elseif crafted > 0 then
             DEFAULT_CHAT_FRAME:AddMessage(string.format(
                 "|cffff8040[Forge]|r produced |cffffffff%s|r item(s)%s.",
-                Commafy(crafted), " into your Vault"))
+                Commafy(crafted), where))
         end
 
         -- Counts moved; re-ask rather than guessing at them locally. A craft is
@@ -1291,13 +1320,20 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
         -- A name that only just arrived from the item cache changes both the
         -- sort order and what the search can find, so re-filter -- but only when
         -- something actually resolved, not on every beat.
+        --
+        -- ★ [DE-13] The two refreshes live INSIDE this branch now. They used to
+        -- run unconditionally on the 0.5s beat, redrawing byte-identical text
+        -- twice a second for as long as the window was open -- and
+        -- RefreshDetail rebuilds every line of the pane. `namesChanged` is the
+        -- precise signal that something resolved, and all sixteen other code
+        -- paths that change data already call these explicitly.
         if namesChanged then
             namesChanged = false
             sortDirty = true
             ApplyFilter()
+            RefreshList()
+            RefreshDetail()
         end
-        RefreshList()
-        RefreshDetail()
     end
 end)
 

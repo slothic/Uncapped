@@ -343,6 +343,11 @@ local comms = CreateFrame("Frame")
 comms:RegisterEvent("CHAT_MSG_ADDON")
 comms:SetScript("OnEvent", function(_, _, prefix, message)
     if prefix ~= ADDON_PIPE_PREFIX then return end
+    -- [DP-12] Cheap prefix reject FIRST. The UNC pipe is shared by every panel
+    -- and carries well over a hundred lines a second in an AoE Mythic+ pull;
+    -- every LFG verb is MLF*, so this drops the other panels' traffic before
+    -- HandleMessage allocates a single strmatch capture.
+    if strsub(message or "", 1, 3) ~= "MLF" then return end
     HandleMessage(message)
 end)
 
@@ -361,6 +366,32 @@ SlashCmdList["UNCAPPEDMLFG"] = function(arg)
         return
     end
 
-    Request()
-    if Dashboard.Open then Dashboard:Open("keystone") end
+    -- ★ THE HOUSE IDIOM, NOT A BESPOKE ONE. Every other tab opens itself with
+    -- SetTab + Toggle-if-hidden -- /mkey next door, Anima, Forge, Vault, Transmog,
+    -- Progress, Prestige, Scrolls and the Loot Feed all read identically. This file
+    -- ended in `if Dashboard.Open then Dashboard:Open("keystone") end` instead, and
+    -- UncappedDashboard has never had an Open(): the guard swallowed the miss, so
+    -- /mlfg, the I key and the LFD micro button all did nothing at all, silently,
+    -- from 2026-08-16 to 2026-08-22. Match the neighbours; do not invent a door.
+    Dashboard.SetTab("keystone")
+    if not (Dashboard.UI and Dashboard.UI.IsShown and Dashboard.UI.IsShown()) then
+        Dashboard.Toggle()
+    end
+
+    -- ⚠ OPENING THE TAB IS NOT OPENING THE NOTICEBOARD. All of M+ is ONE nav tab
+    -- with a sub-tab strip inside it (see the SUB-TABS block in UncappedKeystone.lua),
+    -- so the lines above land on whichever sub-tab was last open -- "Your Keystone"
+    -- by default. Without this, /mlfg still costs a click to reach what it names.
+    --
+    -- Keystone.ShowSection is assigned inside BuildFrame, which the open above has
+    -- just run; guarded anyway, because a partial install (no UncappedUI, no keystone
+    -- panel) never builds the strip and must degrade rather than error. ShowSection
+    -- calls LFG.UI.Activate(), which does the Request() itself -- hence the else
+    -- branch rather than a second Request() that would double every keypress.
+    local Keystone = _G.UncappedKeystone
+    if Keystone and Keystone.ShowSection then
+        Keystone.ShowSection("lfg")
+    else
+        Request()
+    end
 end

@@ -369,6 +369,14 @@ local function RefreshBar()
         shown, needed, math.floor(frac * 100 + 0.5)))
 end
 
+-- The countdown's text changes once a second and its colour three times in a
+-- whole run, so both are memoised and only pushed when they actually move.
+-- Anything that can make either disagree with what is on screen -- a new run, a
+-- resync, a colour picked in the settings page -- clears the memo through here.
+local function ResetTimerPaint()
+    frame.shownSec, frame.shownBand = nil, nil
+end
+
 frame:SetScript("OnUpdate", function(self)
     -- [#863/#837] A finished run holds its reason on screen briefly, then puts
     -- itself away. Checked BEFORE the run.active guard below, because by the time
@@ -386,15 +394,31 @@ frame:SetScript("OnUpdate", function(self)
     if not run.active or not run.timed then return end
     local remaining = run.limit - (GetTime() - run.startTime)
     if remaining < 0 then remaining = 0 end   -- hold at 0:00, never wrap to negative
-    self.timer:SetText(fmtTime(remaining))
-    if remaining <= 0 then
-        local c = db.colTimerExpired                 -- over the timer
-        self.timer:SetTextColor(c[1], c[2], c[3])
-    elseif remaining <= 60 then
-        local c = db.colTimerLast                     -- last minute
-        self.timer:SetTextColor(c[1], c[2], c[3])
-    else
-        local c = db.colTimerNormal
+
+    -- fmtTime allocates a string, SetText repaints a font string, and neither
+    -- has anything new to say between whole seconds. Doing both every frame was
+    -- ~60 allocations and ~60 repaints a second for the entire duration of every
+    -- Mythic+ run -- permanently on, in the content where the frame budget is
+    -- tightest. The house pattern is already written down in the sibling file
+    -- (UncappedShardsHUD's driver: "the text at roughly 10 Hz, because a number
+    -- changing sixty times a second is unreadable and costs a SetText each
+    -- time"); this file simply had not followed it.
+    local sec = math.floor(remaining)
+    if sec ~= self.shownSec then
+        self.shownSec = sec
+        self.timer:SetText(fmtTime(remaining))
+    end
+
+    -- Three bands, so three SetTextColor calls in a whole run.
+    local band
+    if remaining <= 0 then band = 3                   -- over the timer
+    elseif remaining <= 60 then band = 2              -- last minute
+    else band = 1 end
+    if band ~= self.shownBand then
+        self.shownBand = band
+        local c = (band == 3 and db.colTimerExpired)
+               or (band == 2 and db.colTimerLast)
+               or db.colTimerNormal
         self.timer:SetTextColor(c[1], c[2], c[3])
     end
 end)
@@ -443,6 +467,7 @@ local function StartRun(remaining, level, trashNeeded, token)
     end
 
     frame.title:SetText("Mythic+ Keystone +" .. level)
+    ResetTimerPaint()
     ApplyTimerVisibility()
     RefreshBar()
     RefreshBossLog()
@@ -456,6 +481,7 @@ local function ResyncTimer(remaining)
     if not run.active then return end
     run.startTime = GetTime()
     run.limit = remaining
+    ResetTimerPaint()
 end
 
 -- `engagedAt` is a local GetTime() stamp, not a server value.
@@ -648,27 +674,18 @@ local function RestoreRun()
     frame:Show()
 end
 
--- Hide the protocol lines from chat.
-ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    -- ⚠ EVERY NEW OPCODE MUST BE ADDED HERE TOO. This filter is what stops the
-    -- protocol appearing as chat text on the legacy CHAT_MSG_CHANNEL transport;
-    -- a line handled in the dispatch but missing from this list is invisible in
-    -- testing on the addon pipe and prints raw "UMD:3" to anyone still on the old
-    -- transport. UMD added with report #807.
-    -- UMX added with reports #863/#837 -- and note the warning above is exactly why:
-    -- it is dispatched below, so omitting it here would print raw "UMX:..." as chat
-    -- to anyone still on the legacy transport.
-    if msg and (msg:find("^UMS:") or msg:find("^UMT:") or msg:find("^UMR:") or msg:find("^UMB:") or msg:find("^UMW:") or msg:find("^UMD:") or msg:find("^UMX:")) then
-        return true
-    end
-    return false
-end)
+-- The two CHAT_MSG_CHANNEL message filters that used to live here are GONE, and
+-- with them the "every new opcode must be added here too" tax on the protocol.
+-- They only ever existed to keep the legacy channel transport from printing raw
+-- "UMD:3" into chat, and that transport no longer carries anything -- see the
+-- transport note on the dispatcher below. A chat filter runs for every channel
+-- line in every registered chat frame, so ten anchored string.find per line were
+-- being paid on a busy World channel for a payload that can no longer arrive.
 
 -- Prefix for the whole server->client pipe (see the transport note below).
 local ADDON_PIPE_PREFIX = "UNC"
 
 local listener = CreateFrame("Frame")
-listener:RegisterEvent("CHAT_MSG_CHANNEL")
 listener:RegisterEvent("CHAT_MSG_ADDON")
 listener:RegisterEvent("ADDON_LOADED")
 listener:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -722,7 +739,6 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
             -- rather than a second ADDON_LOADED handler racing this one.
             if UncappedMythicAffixLoad then UncappedMythicAffixLoad() end
             if UncappedMythicRefresh then UncappedMythicRefresh() end
-            JoinChannelByName(UnitName("player"))
         end
         return
     end
@@ -747,24 +763,21 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         return
     end
 
-    -- Two transports, on purpose.
+    -- ONE transport: CHAT_MSG_ADDON under the "UNC" prefix.
     --
-    -- CHAT_MSG_ADDON is where the pipe is moving: the client never renders it,
-    -- so the protocol can no longer leak into chat when an addon fails to load.
-    -- CHAT_MSG_CHANNEL is the old transport, kept because one payload serves
-    -- both realms and a realm still running the previous worldserver would go
-    -- silent otherwise. Drop the channel branch once every realm is converted.
+    --   CHAT_MSG_ADDON : a1 = prefix, a2 = body
     --
-    --   CHAT_MSG_ADDON   : a1 = prefix, a2 = body
-    --   CHAT_MSG_CHANNEL : a1 = body,   a2 = author (our own name on the pipe)
-    local msg
-    if event == "CHAT_MSG_ADDON" then
-        if a1 ~= ADDON_PIPE_PREFIX then return end
-        msg = a2
-    else
-        if a2 ~= UnitName("player") then return end
-        msg = a1
-    end
+    -- The CHAT_MSG_CHANNEL leg is gone (2026-08-22 audit, MQ-09), established by
+    -- reading the only sender: MythicPlus::SendRunHud and SendRunEnded both go
+    -- through ReagentBankChannelProtocol::SendResponse, which builds "UNC\t<body>"
+    -- and sends SMSG_MESSAGECHAT as CHAT_MSG_WHISPER / LANG_ADDON -- it can only
+    -- ever surface on the client as CHAT_MSG_ADDON. Nothing has been sent down a
+    -- channel for this protocol in a long time, so the branch, both message
+    -- filters and the JoinChannelByName in ADDON_LOADED were all unreachable --
+    -- and that join was permanently holding one of the client's ten chat-channel
+    -- slots, which players on this realm's custom channels do run out of.
+    if a1 ~= ADDON_PIPE_PREFIX then return end
+    local msg = a2
     if not msg then
         return
     end
@@ -896,9 +909,11 @@ if UncappedUI then
 
     L:Gap(6)
     L:Header("Timer")
-    track(L:Color("Timer normal colour",      colGet("colTimerNormal"),  colSet("colTimerNormal")))
-    track(L:Color("Timer last-minute colour", colGet("colTimerLast"),    colSet("colTimerLast")))
-    track(L:Color("Timer expired colour",     colGet("colTimerExpired"), colSet("colTimerExpired")))
+    -- ResetTimerPaint, or a colour picked mid-run would not show until the clock
+    -- crossed into a different band.
+    track(L:Color("Timer normal colour",      colGet("colTimerNormal"),  colSet("colTimerNormal",  ResetTimerPaint)))
+    track(L:Color("Timer last-minute colour", colGet("colTimerLast"),    colSet("colTimerLast",    ResetTimerPaint)))
+    track(L:Color("Timer expired colour",     colGet("colTimerExpired"), colSet("colTimerExpired", ResetTimerPaint)))
 
     L:Gap(6)
     L:Note("|cff808080Colours, scale and boss-row count update the HUD live; the saved HUD position restores on login. Use /mplus test to preview.|r", 40)
@@ -1612,19 +1627,28 @@ end
 -- ---------------------------------------------------------------------------
 -- Protocol
 -- ---------------------------------------------------------------------------
--- Not yet sent by the server -- the affix set is client-side test data until the
--- worldserver learns to emit it. Format is fixed here so both ends can be written
--- against it:
+-- ★ LIVE, not test data. The worldserver emits both UMI: and UMA:
+-- (mod-mythic-plus/src/mythic_plus.cpp:1217 and :1219), so the affix strip, the
+-- cards and the voice lines are all in production. The old note said the
+-- opposite, and that is exactly the line someone reads before deciding this
+-- code path does not matter.
 --
---   UMA:<key>,<key>,...   set the run's affix list (announces newcomers)
---   UMX:<key>             announce one affix right now (it triggered)
+--   UMI:<freezeSeconds>:<key>,<key>,...   run start: countdown plus full intro
+--   UMA:<key>,<key>,...                   set the run's affix list
 --
 -- Keys are the catalogue keys above, not numeric ids, so a server-side reorder
 -- cannot silently repoint an affix at the wrong card.
-ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and (msg:find("^UMA:") or msg:find("^UMX:") or msg:find("^UMI:")) then return true end
-    return false
-end)
+--
+-- ⚠ UMX IS NOT AN AFFIX OPCODE. It is "the run has ENDED", handled by the HUD's
+--   own listener above (reports #863/#837), and BOTH frames see every UNC message
+--   -- so a second reading of UMX here was a live collision. It was harmless only
+--   by accident: end reasons are sentences with spaces and ^UMX:(%S+)$ cannot
+--   match them, so the first single-word reason would have fired an affix
+--   announcement instead. The affix meaning is dropped; the server has only ever
+--   sent the run-end form.
+--
+-- The CHAT_MSG_CHANNEL filter that sat here is gone with the transport -- see the
+-- note on the main dispatcher above.
 
 -- Called from the main ADDON_LOADED handler above, deliberately NOT from a second
 -- handler of its own: both would fire on the same event with no defined order, and
@@ -1643,17 +1667,10 @@ function UncappedMythicAffixLoad()
 end
 
 local affixListener = CreateFrame("Frame")
-affixListener:RegisterEvent("CHAT_MSG_CHANNEL")
 affixListener:RegisterEvent("CHAT_MSG_ADDON")
 affixListener:SetScript("OnEvent", function(self, event, a1, a2)
-    local msg
-    if event == "CHAT_MSG_ADDON" then
-        if a1 ~= ADDON_PIPE_PREFIX then return end
-        msg = a2
-    else
-        if a2 ~= UnitName("player") then return end
-        msg = a1
-    end
+    if a1 ~= ADDON_PIPE_PREFIX then return end
+    local msg = a2
     if not msg then return end
 
     -- UMI:<freezeSeconds>:<key>,<key>,... -- run start. Sent once, when the server
@@ -1671,12 +1688,6 @@ affixListener:SetScript("OnEvent", function(self, event, a1, a2)
         local keys = {}
         for k in list:gmatch("[^,]+") do keys[#keys + 1] = k end
         UncappedMythicAffix_SetActive(keys, true)
-        return
-    end
-
-    local one = msg:match("^UMX:(%S+)$")
-    if one then
-        UncappedMythicAffix_Announce(one)
         return
     end
 end)

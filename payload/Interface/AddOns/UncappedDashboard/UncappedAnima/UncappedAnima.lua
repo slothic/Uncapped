@@ -143,41 +143,10 @@ local DEFAULT_STATS = {
         help  = "Reduces melee and ranged swing time. More auto-attacks means more damage and more chances for your item procs to fire.",
     },
 
-    -- The DEFENCE tree. These only do anything inside a Mythic+ keystone, where
-    -- your avoidance is held to a ceiling; each one raises its own ceiling, and
-    -- the key's depth divides it back down.
-    {
-        tree  = "defence",
-        index = 4,
-        name  = "Evasion",
-        icon  = 5277,    -- Evasion
-        blurb = "Raises your dodge ceiling in keystones.",
-        help  = "Dodging avoids a melee hit completely. Only melee -- spells cannot be dodged. Reaches 85% at full investment, before the keystone's depth is applied.",
-    },
-    {
-        tree  = "defence",
-        index = 5,
-        name  = "Deflection",
-        icon  = 3127,    -- Parry
-        blurb = "Raises your parry ceiling in keystones.",
-        help  = "Parrying avoids a melee hit completely, but needs a weapon equipped and only works from the front. Reaches 85% at full investment, before the keystone's depth is applied.",
-    },
-    {
-        tree  = "defence",
-        index = 6,
-        name  = "Bulwark",
-        icon  = 2565,    -- Shield Block
-        blurb = "Raises your block ceiling in keystones.",
-        help  = "Blocking does NOT avoid the hit -- it still lands, reduced. Weaker per point than dodge or parry, but it needs only a shield. Reaches 100% at full investment, before the keystone's depth is applied.",
-    },
-    {
-        tree  = "defence",
-        index = 7,
-        name  = "Resolve",
-        icon  = 871,     -- Shield Wall
-        blurb = "Reduces all damage you take in keystones.",
-        help  = "Flat damage reduction, up to 95%. The ONLY defence that works against spells, which cannot be dodged, parried or blocked at all -- so it is what a caster-heavy pull is answered with. Not reduced by keystone depth.",
-    },
+    -- ⚠ The DEFENCE tree -- Evasion (4), Deflection (5), Bulwark (6) and
+    -- Resolve (7) -- was RETIRED on 2026-08-12 and every rank refunded. The
+    -- entries are gone from this fallback, and the server's own definitions
+    -- for those wire indices are filtered out on arrival; see RETIRED_TREES.
 }
 local STATS = DEFAULT_STATS
 -- def.index -> def, rebuilt alongside STATS. A plain STATS[idx+1] positional
@@ -196,10 +165,22 @@ IndexStats()
 local TREES = {
     { key = "tempo",   label = "Tempo",
       note = "Haste is converted to crit damage on this realm, so these are what actually make you faster. The first four trim the time a cast, swing, cooldown or GCD takes; Multicast skips the time entirely by repeating the cast for free. Buy the one your rotation is limited by." },
-    { key = "defence", label = "Defence",
-      note = "Inside a keystone your dodge, parry and block are held to a ceiling. These raise your own ceilings -- but the key's depth divides them back down, so investment buys you DEPTH, not immunity." },
     { key = "utility", label = "Utility",
       note = "Quality-of-life stats that work everywhere, mounted or on foot, keystone or open world." },
+}
+
+-- ★ [DP-03] Dropping the four defence entries from DEFAULT_STATS is NOT
+-- enough on its own. `SendDefinitions` still loops 0..STAT_COUNT and
+-- STAT_TREE[4..7] is still "defence" (mod-time-stats/src/time_stats.cpp:210),
+-- so CommitDefinitions would put every one of them straight back -- priced,
+-- rank 0 after the refund, and therefore drawn with a live Buy button that
+-- the server answers with `coming_soon`.
+--
+-- Filtered by TREE NAME rather than by wire index on purpose: the index list
+-- is the server's to change, the tree name is what the client already models,
+-- and a stat moved to a live tree keeps working without a client change.
+local RETIRED_TREES = {
+    defence = true,   -- retired 2026-08-12, all ranks refunded
 }
 
 -- ---------------------------------------------------------------------------
@@ -237,7 +218,6 @@ local haveData = false
 -- ANIMALISTEND -- same "stage then swap" shape Soul Forge uses for its
 -- equipped-item tooltip cache, so a definition never renders half-built.
 local defStaging = {}      -- [index] = { index=, tree=, icon=, name=, blurb=, help= }
-local haveDefinitions = false
 
 local frame, cards, pointsText, statusText, tabButtons, treeNote
 local animaScroll
@@ -497,6 +477,27 @@ end
 local function Relayout()
     if not frame then return end
 
+    -- [DP-03] How many cards each tree actually holds. A tree with none is a
+    -- tab that leads to an empty page -- which is what the retired Defence
+    -- tree became -- so it is hidden rather than drawn. Counted here and not
+    -- once at build time because CommitDefinitions replaces STATS wholesale.
+    local perTree = {}
+    for _, card in ipairs(cards or {}) do
+        local k = card.def.tree
+        perTree[k] = (perTree[k] or 0) + 1
+    end
+
+    -- A remembered tab whose tree no longer exists would otherwise leave the
+    -- player on an empty list with no tab lit and no obvious way back.
+    if (perTree[db.tree] or 0) == 0 then
+        for _, t in ipairs(TREES) do
+            if (perTree[t.key] or 0) > 0 then
+                db.tree = t.key
+                break
+            end
+        end
+    end
+
     local treeCards = {}
     for _, card in ipairs(cards or {}) do
         if card.def.tree == db.tree then treeCards[#treeCards + 1] = card end
@@ -523,12 +524,28 @@ local function Relayout()
         end
     end
 
+    -- [DP-03] Re-anchored every relayout rather than chained once at build:
+    -- the tabs are placed LEFT-of-the-previous-one, so hiding one in the
+    -- middle would leave a hole exactly where it used to be.
+    local prevShown
     for _, tab in ipairs(tabButtons or {}) do
-        -- House idiom (gold active state) rather than locking the Blizzard
-        -- template into PUSHED. ⚠ Guarded: SetButtonActive reaches into
-        -- `button.text`, which only kit buttons have -- on the raw fallback it
-        -- would be a nil index, so that path keeps the old behaviour.
-        KitSetActive(tab, tab.treeKey == db.tree)
+        if (perTree[tab.treeKey] or 0) > 0 then
+            tab:ClearAllPoints()
+            if prevShown then
+                tab:SetPoint("LEFT", prevShown, "RIGHT", 4, 0)
+            else
+                tab:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_INSET + 4, -48)
+            end
+            tab:Show()
+            prevShown = tab
+            -- House idiom (gold active state) rather than locking the Blizzard
+            -- template into PUSHED. ⚠ Guarded: SetButtonActive reaches into
+            -- `button.text`, which only kit buttons have -- on the raw fallback it
+            -- would be a nil index, so that path keeps the old behaviour.
+            KitSetActive(tab, tab.treeKey == db.tree)
+        else
+            tab:Hide()
+        end
     end
 
     if treeNote then
@@ -560,9 +577,9 @@ local function RefreshAll()
     if pointsText then
         pointsText:SetText(string.format("Anima: |cffffd100%s|r", Comma(arenaPoints)))
     end
-    -- Deliberately NOT gated on haveDefinitions too: a server build that
-    -- doesn't implement ANIMALIST yet will never send ANIMALISTEND, and the
-    -- addon should keep working fine off DEFAULT_STATS + live ANIMASTAT
+    -- Deliberately NOT gated on definitions having arrived: a server build
+    -- that doesn't implement ANIMALIST yet will never send ANIMALISTEND, and
+    -- the addon should keep working fine off DEFAULT_STATS + live ANIMASTAT
     -- numbers in that case rather than showing "Waiting..." forever.
     if statusText then
         statusText:SetText(haveData and "" or "|cff888888Waiting for the server...|r")
@@ -728,11 +745,13 @@ local function HandleStat(body)
         string.match(body, "^ANIMASTAT:(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
     if not idx then return end
 
+    -- maxPct is on the wire but deliberately NOT stored: nothing reads it.
+    -- The ceiling is conveyed to the player through each stat's `help` text
+    -- instead, which is where the server-side wording lives.
     state[tonumber(idx)] = {
         rank    = tonumber(rank),
         maxRank = tonumber(maxRank),
         pct     = tonumber(pct),
-        maxPct  = tonumber(maxPct),
         cost    = {
             c1   = tonumber(c1),
             c10  = tonumber(c10),
@@ -782,6 +801,10 @@ local function HandleHelp(body)
     StagedDef(tonumber(idx)).help = help
 end
 
+-- Assigned by the settings-page block near the bottom of this file, which is
+-- built after this function is defined. Nil when UncappedUI is absent.
+local RefreshSettingsDoc
+
 -- Swaps STATS over to the staged definitions, sorted by wire index, and
 -- rebuilds the actual card frames to match -- see RebuildCards. A def
 -- missing any of tree/icon/name (an ANIMADEF line never arrived, only a
@@ -790,7 +813,9 @@ end
 local function CommitDefinitions()
     local list = {}
     for _, def in pairs(defStaging) do
-        if def.tree and def.icon and def.name then
+        -- [DP-03] A retired tree is dropped here, not rendered and then
+        -- refused at the till.
+        if def.tree and def.icon and def.name and not RETIRED_TREES[def.tree] then
             list[#list + 1] = def
         end
     end
@@ -798,9 +823,13 @@ local function CommitDefinitions()
 
     STATS = list
     IndexStats()
-    haveDefinitions = true
     RebuildCards()
     RefreshAll()
+    -- [DP-02] The ESC > Interface page documents whatever STATS now holds.
+    -- It used to be built once in the main chunk off DEFAULT_STATS and never
+    -- touched again, so it described the retired Defence tree forever and
+    -- never mentioned a server-defined stat such as Multicast.
+    if RefreshSettingsDoc then RefreshSettingsDoc() end
 end
 
 local ERRORS = {
@@ -814,10 +843,11 @@ local ERRORS = {
     -- this token; without an entry here the lookup fell through to `ERRORS[err]
     -- or err` below and printed the raw string "coming_soon" at the player.
     --
-    -- ⚠ This makes the refusal readable, it does not stop the cards being drawn.
-    --   The server still sends all ten stats with maxRank 1000, so the retired
-    --   four still render as buyable -- fixing that properly means the server not
-    --   advertising them, which needs a build.
+    -- ★ [DP-03] The cards themselves are gone now: the server still sends
+    --   all ten stats, but RETIRED_TREES filters the defence four out in
+    --   CommitDefinitions and Relayout hides a tree tab with no cards under
+    --   it. This string is the belt to that braces -- it still fires if the
+    --   server ever refuses a stat the client had no reason to doubt.
     coming_soon      = "That stat has been retired. Your ranks in it were refunded.",
 }
 
@@ -884,7 +914,7 @@ end
 -- ===========================================================================
 if UncappedUI then
     local panel, L = UncappedUI.CreatePanel("Anima",
-        "Two Anima-bought upgrade trees: Tempo (what haste used to do) and Defence (your avoidance ceilings inside keystones).")
+        "Anima-bought upgrade trees. The list below is built from whatever the server actually offers, so it cannot drift out of date.")
 
     L:Header("Opening the window")
     L:Note("Type /dashboard, or click the button below. The window always refreshes from the server when it opens, so the ranks and prices you see are live.", 40)
@@ -898,16 +928,45 @@ if UncappedUI then
     end)
     L:advance(32)
 
-    for _, t in ipairs(TREES) do
-        L:Gap(6)
-        L:Header(t.label)
-        L:Note(t.note, 44)
-        for _, def in ipairs(STATS) do
-            if def.tree == t.key then
-                L:Note("|cffffd100" .. def.name .. "|r -- " .. def.help, 44)
+    -- ★ [DP-02] Rebuildable, not baked at load.
+    --
+    -- This block runs in the main chunk, long before ANIMALISTEND, so STATS is
+    -- still DEFAULT_STATS here. Built once, the page therefore documented the
+    -- fallback table for the whole session: it described all four retired
+    -- Defence stats in the present tense, printed a Utility header with
+    -- nothing under it (both live utility stats exist only server-side), and
+    -- never mentioned Multicast. CommitDefinitions now calls back into this.
+    --
+    -- 3.3.5a cannot destroy a FontString, so a rebuild hides the old ones and
+    -- rewinds the layout cursor to where the generated section began.
+    local docStrings = {}
+    local docStartY  = L.y
+
+    RefreshSettingsDoc = function()
+        for _, fs in ipairs(docStrings) do fs:Hide() end
+        docStrings = {}
+        L.y = docStartY
+
+        for _, t in ipairs(TREES) do
+            local rows = {}
+            for _, def in ipairs(STATS) do
+                if def.tree == t.key then rows[#rows + 1] = def end
+            end
+            -- A tree the server offers nothing in gets no header, for the same
+            -- reason Relayout hides its tab: an empty section reads as broken.
+            if #rows > 0 then
+                L:Gap(6)
+                docStrings[#docStrings + 1] = L:Header(t.label)
+                docStrings[#docStrings + 1] = L:Note(t.note, 44)
+                for _, def in ipairs(rows) do
+                    docStrings[#docStrings + 1] =
+                        L:Note("|cffffd100" .. def.name .. "|r -- " .. (def.help or ""), 44)
+                end
             end
         end
     end
+
+    RefreshSettingsDoc()
 
     UncappedAnimaPanel = panel
 end
@@ -988,7 +1047,13 @@ local function ApplyAnimaRename()
     -- Assigning to keys that already exist is safe during pairs(); only ADDING
     -- keys mid-iteration is undefined, and nothing here adds one.
     for key, value in pairs(_G) do
-        if type(key) == "string" and type(value) == "string" then
+        -- [DP-13] Two plain finds gate the six-pair loop instead of running it
+        -- on every string global in the client. Every needle in the table
+        -- contains "rena" or, in the SHOUTING variant, "RENA", so this is
+        -- exactly equivalent -- it just stops ~12,000 strings paying for six
+        -- string.find calls each at PLAYER_LOGIN to match none of them.
+        if type(key) == "string" and type(value) == "string"
+           and (string.find(value, "rena", 1, true) or string.find(value, "RENA", 1, true)) then
             local rewritten = value
             for _, pair in ipairs(ANIMA_RENAME_PAIRS) do
                 -- plain=true on the find: a stray '%' or '-' in a Blizzard string

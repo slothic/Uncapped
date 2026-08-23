@@ -42,8 +42,18 @@ public sealed class ClientVersionService
     /// <summary>Manifest path of the addon file the version is baked into.</summary>
     public const string VersionFilePath = "Interface/AddOns/UncappedVersion/UncappedVersion.lua";
 
+    /// <summary>
+    /// ⚠ The lookbehind is load-bearing. Without it this also matches
+    /// <c>REQUIRED_CLIENT_VERSION = n</c> — the SERVER's half of the gate — and whichever of
+    /// the two appears first in the file wins. The addon carries only CLIENT_VERSION today,
+    /// but the two constants must be bumped together, which makes adding the other one to the
+    /// same file a natural thing for somebody to do. If that happened, this would silently
+    /// start reporting the server's number as the client's and the version display (and
+    /// preflight's four-copy check, which uses the same pattern) would agree with itself for
+    /// the wrong reason.
+    /// </summary>
     private static readonly Regex VersionRx =
-        new(@"CLIENT_VERSION\s*=\s*(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        new(@"(?<![A-Za-z_])CLIENT_VERSION\s*=\s*(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private readonly HttpClient _http;
     private readonly CdnGate _gate;

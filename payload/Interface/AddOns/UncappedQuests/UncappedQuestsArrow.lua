@@ -85,10 +85,19 @@ local sinceRoute = ROUTE_INTERVAL
 --
 -- It fails silently because the neighbouring zone's bounds are a perfectly
 -- valid rectangle: you get a confident, plausible, completely wrong answer.
--- The fallback covers any id where the offset does not hold.
+--
+-- ...which is precisely what the old `or UncappedMapAreas[clientAreaID]`
+-- fallback delivered. The +1 is not a heuristic, it is how the client reports
+-- every map area (UQ.CurrentDbcArea applies the same correction with no
+-- fallback at all), so the raw id is never the right key -- it is the NEXT
+-- zone's key. The table is sparse but clustered (...11, 13, 14, 15, 16, 17,
+-- 19, 20...), so adjacent pairs exist throughout and that branch fired
+-- wherever the correct row was missing, returning the neighbour's rectangle.
+-- No answer beats a wrong one: the caller below and PlayerNode both already
+-- fail safe on nil.
 function UQ.WorldPos(clientAreaID, mx, my)
     if not (UncappedMapAreas and clientAreaID) then return nil end
-    local a = UncappedMapAreas[clientAreaID - 1] or UncappedMapAreas[clientAreaID]
+    local a = UncappedMapAreas[clientAreaID - 1]
     if not a then return nil end
     local mapID, left, right, top, bottom = a[1], a[2], a[3], a[4], a[5]
     -- Degenerate (zero-span) bounds -- some WorldMapArea rows ship all-zero in
@@ -190,8 +199,16 @@ end
 
 -- Greedy nearest-neighbour, then 2-opt. Both are cheap at this size: the quest
 -- log caps at 25, so the distance matrix is at most 25x25.
+local routeLogIndex = {}
+
 local function BuildRoute(player)
     local pending = {}
+
+    -- One quest-log pass for the whole route. UQ.QuestLogIndex is a full walk
+    -- with a GetQuestLink and a string.match per entry, and this used to call
+    -- it once per pending objective -- every ROUTE_INTERVAL, and again
+    -- synchronously on every right-click of the arrow.
+    local logIndex = UQ.QuestLogIndexMap and UQ.QuestLogIndexMap(routeLogIndex)
 
     -- Same single source as the map pins: the ledger covers every held quest,
     -- where QuestPOIGetIconInfo only ever covers the 25 with client slots. The
@@ -225,7 +242,7 @@ local function BuildRoute(player)
             pending[#pending + 1] = {
                 map = o.map, wx = o.wx, wy = o.wy,
                 questID    = o.questID,
-                questIndex = UQ.QuestLogIndex and UQ.QuestLogIndex(o.questID) or nil,
+                questIndex = logIndex and logIndex[o.questID] or nil,
                 title      = o.title,
                 isComplete = o.isComplete,
                 isTurnIn   = o.isTurnIn,

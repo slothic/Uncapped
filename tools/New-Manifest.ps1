@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Generates manifest.json by hashing everything in the payload tree.
 
@@ -89,6 +89,10 @@ param(
     # manifest file entry -- see the block that reads it for why that distinction is the whole
     # design. Set "enabled": false in there to roll the feature back.
     [string]$ItemCache     = 'C:\Wotlk\Launcher\tools\itemcache.json',
+    # The stock client archive the HTTP fallback downloads. Pinned by sha256 there, verified
+    # against the served bytes here. See LA-02: this was the one external input in the tree
+    # that nothing checked.
+    [string]$ClientArchive = 'C:\Wotlk\Launcher\tools\client-archive.json',
     [string]$ExternalCache = 'C:\Wotlk\Launcher\.external-cache',
     [string]$Magnet          = 'magnet:?xt=urn:btih:2ba2833baf733ce0a16040d43ed09491f2bf2ab2&dn=ChromieCraft_3.3.5a.zip&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.uw0.xyz%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.zerobytes.xyz%3A1337%2Fannounce',
     [string]$DirectDownloadUrl = $null
@@ -213,6 +217,59 @@ if (Test-Path $ExternalFiles) {
                         throw "External file $($e.path) does not start with the MZ magic bytes (got $($sig -join ',')). The host probably served an error page."
                     }
                     Write-Host "    PE signature ok" -ForegroundColor DarkGray
+
+                    # --- LA-03. THE GAME EXECUTABLE MUST ALREADY BE LARGE-ADDRESS-AWARE ----
+                    #
+                    # The launcher runs LargeAddressAware.Apply on the client after EVERY
+                    # sync, and that rewrites two header bytes plus the PE checksum -- in a
+                    # file whose sha256 THIS script pins and which IntegrityVerifier treats
+                    # as Blocking. If a client ever ships without the flag the loop is
+                    # realm-wide and self-sustaining: sync downloads it (hash ok), Apply
+                    # mutates it, the next launch calls it Corrupt+Blocking, PLAY goes off,
+                    # REPAIR re-downloads, and round again. FOREVER, for every player at once.
+                    #
+                    # The only reason that has never happened is that the published .dat
+                    # already carries the flag, so Apply reports "already large address
+                    # aware" and writes nothing. Nothing enforced that -- until this. It is
+                    # asserted here rather than in the launcher because a publish is
+                    # recoverable and a bricked realm is not.
+                    #
+                    # Scoped to the two names ClientExecutable.Find will actually open; a
+                    # helper DLL is never patched and has no business carrying the flag.
+                    $peName = [IO.Path]::GetFileName($e.path)
+                    if ($peName -ieq 'UncappedClient.dat' -or $peName -ieq 'Wow.exe') {
+                        $pefs = [IO.File]::OpenRead($cached)
+                        try {
+                            $per = New-Object IO.BinaryReader($pefs)
+                            $pefs.Position = 0x3C
+                            $peOff = $per.ReadInt32()
+                            if ($peOff -le 0 -or $peOff -gt ($pefs.Length - 24)) {
+                                throw "External file $($e.path) has no usable PE header (e_lfanew $peOff)."
+                            }
+                            $pefs.Position = $peOff
+                            if ($per.ReadUInt32() -ne 0x00004550) {
+                                throw "External file $($e.path) has no PE signature at offset $peOff."
+                            }
+                            $pefs.Position = $peOff + 4 + 18   # COFF Characteristics
+                            $peChar = $per.ReadUInt16()
+                        } finally { $pefs.Dispose() }
+
+                        if (($peChar -band 0x0020) -eq 0) {
+                            throw @"
+$($e.path) does NOT have IMAGE_FILE_LARGE_ADDRESS_AWARE set (characteristics 0x$('{0:X4}' -f $peChar)).
+
+Publishing it would brick the realm. The launcher patches that flag in after every sync, so
+the file on disk would stop matching the sha256 this manifest pins, the integrity check would
+call it Corrupt and BLOCKING, PLAY would switch off, and REPAIR would re-download straight
+back into the same loop -- for every player, permanently.
+
+Set the flag on the file BEFORE uploading it (editbin /LARGEADDRESSAWARE, or any PE editor)
+and re-upload. Do not work around this check.
+Nothing was written.
+"@
+                        }
+                        Write-Host "    large-address-aware ok" -ForegroundColor DarkGray
+                    }
                 }
                 default {
                     if ($sig[0] -ne 0x4D -or $sig[1] -ne 0x50 -or $sig[2] -ne 0x51 -or $sig[3] -ne 0x1A) {
@@ -432,6 +489,126 @@ if (Test-Path $Archives) {
     }
 }
 
+# --- The stock client archive the HTTP fallback downloads ---------------------------------
+#
+# LA-02. This was a HAND-TYPED LITERAL in the manifest hashtable below -- a url, a name
+# and a byte count, and no hash. Every other external input this script emits is pinned and
+# hard-fails on mismatch: the payload files, the MPQs, UncappedCT.dll, ArkInventory's zip,
+# the launcher exe, the item cache twice over. This one, 2.6 GB and the mechanism by which
+# a new player's entire game arrives, was not checked at all. A byte count is not a check --
+# whatever can choose the bytes can choose the length.
+#
+# WARNING: THE TRANSPORT CANNOT HELP. The patch host listens on port 80 only and the url is
+# a bare IP, so there is no certificate to validate. The sha256 IS the security of that
+# download, which is why every failure below is a throw and none of them is a warning.
+#
+# Deliberately the same shape as the external-files block above: fetch from the url PLAYERS
+# will use, prove it is a zip, hash it, compare against the checked-in pin, and publish the
+# MEASURED hash and the MEASURED length. The pin is what makes this a check rather than a
+# recording -- without one, all we would publish is a faithful hash of whatever we were
+# handed, which is the defect LA-11 still has on the upstream addon zips.
+#
+# WARNING: ONE-TIME 2.6 GB. The cache is keyed on the url and the url is immutable (the build
+# is in the name, nginx serves it with Cache-Control: immutable), so this downloads exactly
+# once per release machine, ever. Seed .external-cache by hand if that is not acceptable; do
+# not add a switch to skip it, because a skippable check is the one that is skipped.
+$clientArchiveEntries = @()
+if (-not (Test-Path $ClientArchive)) {
+    throw @"
+$ClientArchive is missing.
+It carries the sha256 of the stock client archive, and without it this script would publish
+a 2.6 GB download that the launcher has no way to verify -- which is the exact hole LA-02
+closed. It is checked in; restore it rather than working around it.
+Nothing was written.
+"@
+}
+
+$clientDefs = Get-Content $ClientArchive -Raw | ConvertFrom-Json
+if ($clientDefs) {
+    New-Item -ItemType Directory -Force $ExternalCache | Out-Null
+    $cwc = New-Object Net.WebClient
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+    Write-Host "`nStock client archive (the HTTP install fallback):" -ForegroundColor Cyan
+    foreach ($c in $clientDefs) {
+        if (-not $c.url) { continue }
+
+        if (-not $c.sha256) {
+            throw @"
+$($c.url) has no sha256 in $(Split-Path -Leaf $ClientArchive).
+Publishing it would hand every first-time installer 2.6 GB that nothing checks, over plain
+http. Hash the file on the host (sha256sum /srv/patches/<name>) and pin it.
+Nothing was written.
+"@
+        }
+
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try {
+            $urlKey = ([BitConverter]::ToString(
+                $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($c.url))
+            ) -replace '-', '').Substring(0, 12).ToLower()
+        } finally { $sha.Dispose() }
+        $cached = Join-Path $ExternalCache ("clientarchive." + $urlKey + ".zip")
+
+        if (-not (Test-Path $cached)) {
+            Write-Host "  downloading $($c.url) -- this is 2.6 GB and happens once..." -ForegroundColor DarkGray
+            $cwc.DownloadFile($c.url, $cached)
+        }
+
+        $item = Get-Item $cached
+        if ($item.Length -eq 0) { throw "Client archive downloaded as 0 bytes." }
+
+        # An nginx 404 body is still a file, and would otherwise be published as a perfectly
+        # valid hash of an error page. Same guard as the addon archives above.
+        #
+        # WARNING: streamed, NOT [IO.File]::ReadAllBytes. That helper refuses any file over
+        # 2 GB on .NET Framework, so on the one archive this block exists for it would throw
+        # before the hash was ever reached. Two bytes is all the check needs.
+        $sig = New-Object byte[] 2
+        $fs  = [IO.File]::OpenRead($cached)
+        try { $null = $fs.Read($sig, 0, 2) } finally { $fs.Dispose() }
+        if ($sig[0] -ne 0x50 -or $sig[1] -ne 0x4B) {
+            throw "Client archive is not a zip (first bytes $($sig[0]),$($sig[1])). The host probably served an error page."
+        }
+
+        $actualHash = (Get-FileHash $cached -Algorithm SHA256).Hash.ToLower()
+        if ($actualHash -ne $c.sha256.ToLower()) {
+            throw @"
+The client archive does not match the sha256 pinned in $(Split-Path -Leaf $ClientArchive).
+  pinned   $($c.sha256.ToLower())
+  actual   $actualHash
+  url      $($c.url)
+Either the host is serving different bytes than you published, or the pin is stale after a
+re-upload. Settle WHICH before touching either -- this is the one download players cannot
+check for themselves.
+Nothing was written.
+"@
+        }
+
+        # Hoisted out of the [ordered]@{} literal below on purpose: a statement inside a
+        # multi-line hashtable literal is the PS 5.1 mis-parse this file already documents,
+        # and it writes a null manifest silently.
+        $clientName = if ($c.name) { $c.name } else { ($c.url -split '/')[-1] }
+
+        $clientArchiveEntries += [ordered]@{
+            url    = $c.url
+            # Falls back to the url's filename, exactly as the launcher's SafeNameFromUrl does.
+            name   = $clientName
+            # WARNING: MEASURED, never typed. The launcher resumes from this figure, so a byte
+            # count that is merely close fails every install at the length check.
+            bytes  = $item.Length
+            sha256 = $actualHash
+        }
+
+        Write-Host ("  + {0,-28} {1,8} MB  sha256 pin verified" -f `
+            $clientName, [math]::Round($item.Length / 1MB, 1)) -ForegroundColor Green
+    }
+}
+
+if ($clientArchiveEntries.Count -eq 0 -and -not $DirectDownloadUrl) {
+    throw "No HTTP client archive resolved. Players whose network blocks BitTorrent would have no way to install at all. Nothing was written."
+}
+
 # When a routine regen omits the launcher args, keep whatever the current manifest already
 # advertises rather than falling back to the defaults. A publish that forgets -LauncherVersion
 # used to silently downgrade every client's self-update pointer (e.g. 1.4.0 -> 1.0.0).
@@ -615,15 +792,13 @@ $manifest = [ordered]@{
         #    against archive.org -- never against this host. Mirroring removes
         #    the last third party from the install path.
         #
-        # The mirrored bytes were verified against the baseline entry by entry
-        # before being served. Size is the real Content-Length.
-        directDownloadUrls = @(
-            [ordered]@{
-                url   = 'http://152.53.115.249/patches/3.3.5-12340_enUS.zip'
-                name  = '3.3.5-12340_enUS.zip'
-                bytes = 2628185615
-            }
-        )
+        # ★ Resolved above from tools\client-archive.json, NOT typed here. Until
+        # 2026-08-22 this was three literals with no hash, and it was the only
+        # external input in the whole manifest the launcher had no way to verify
+        # -- see LA-02 and the block that builds this. The url, the length and
+        # the sha256 now all come from bytes this script actually downloaded and
+        # checked against a pin.
+        directDownloadUrls = @($clientArchiveEntries)
         # The torrent's payload is this single zip.
         archiveName       = 'ChromieCraft_3.3.5a.zip'
         archiveBytes      = $archiveBytes
@@ -671,7 +846,13 @@ $manifest = [ordered]@{
     # one list or neither. It is standalone (no LoadOnDemand, no dependencies), so without
     # a force-tick it installs and simply never loads, and the vendor bulk-buy UI would be
     # invisible to everyone who did not enable it by hand.
-    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests', 'UncappedBugReporter', 'UncappedShieldBar', 'Uncapped64bitUI', 'UncappedPanel', 'UncappedLootFeed', 'UncappedBulkBuy', 'UncappedShards')
+    # ⚠ UncappedHotzones added 2026-08-22 — the FIFTH instance of the bug the four notes
+    # above record, and the first one caught by a check rather than by a player. It was in
+    # ownedPaths and shipping in the payload since release, but never force-ticked: it is
+    # standalone (no LoadOnDemand, no hard deps), so for anyone who ever unticked it the
+    # hotzone marquee simply never loaded and never came back. Found by
+    # tools\check-addon-lists.py on its first run — see LA-07.
+    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests', 'UncappedBugReporter', 'UncappedShieldBar', 'Uncapped64bitUI', 'UncappedPanel', 'UncappedLootFeed', 'UncappedBulkBuy', 'UncappedShards', 'UncappedHotzones', 'UncappedLootFeedSources', 'UncappedTransmogData', 'UncappedQuestData')
 
     # Switched off in AddOns.txt on clients that already have them. Needed because dropping
     # an addon from the payload does not uninstall it - the launcher never deletes
@@ -721,6 +902,38 @@ $manifest = [ordered]@{
         # ever be pruned: rename or drop a file in a future release and the old copy
         # stays on every player's disk forever, loading alongside the new one.
         'Interface/AddOns/UncappedLootFeed',
+        # [AR-04] Split out of UncappedLootFeed 2026-08-23: the 490 KB source table
+        # became its own top-level ## LoadOnDemand addon so it is no longer parsed at
+        # every login. Listed here AND force-enabled from its FIRST release --
+        # deliberately, because five addons in a row shipped missing one list or the
+        # other and the notes above record every one. Force-enable matters more than
+        # usual for this one: it is LoadOnDemand, so if a player ever unticks it
+        # LoadAddOn returns DISABLED and the 'where does it drop' line silently
+        # vanishes for good rather than failing loudly.
+        'Interface/AddOns/UncappedLootFeedSources',
+        # [DP-11] Split out of UncappedDashboard/UncappedTransmog 2026-08-23: the 797 KB
+        # appearance table (~17,270 strings) was parsed at EVERY login, including by players
+        # who never opened the Transmog tab. Now its own top-level ## LoadOnDemand addon.
+        # ⚠ It MUST be top-level -- WoW only loads addons at the top of Interface/AddOns, so
+        # it could not stay a subfolder of the Dashboard.
+        # ★★ Force-enable is NOT optional here, and the failure is worse than LootFeedSources:
+        # if a player ever unticks it, LoadAddOn returns DISABLED, EnsureData() memoises false,
+        # and the ENTIRE Transmog appearance grid is silently empty for that session -- not a
+        # degraded tooltip line, the whole panel. Being LoadOnDemand it will not self-heal if
+        # they re-tick it later in the same session.
+        'Interface/AddOns/UncappedTransmogData',
+        # [MQ-05] Split out of UncappedQuests 2026-08-23: 628 KB of quest-giver tables
+        # (91% of a 708 KB generated file) parsed at every login, for a feature that is
+        # opt-in. Now its own top-level ## LoadOnDemand addon.
+        # ★★ Force-enable is LOAD-BEARING, not tidiness: a LoadOnDemand addon that is
+        # DISABLED cannot be loaded by LoadAddOn() at all -- it returns nil, 'DISABLED'.
+        # Every reader nil-guards, so the failure mode is the pick-up arrow silently
+        # finding no quest givers rather than a Lua error. That is why EnsureQuestData
+        # warns in chat once instead of failing quietly.
+        # ⚠ THIRD addon this session to need this step. tools/Generate-QuestGivers.py was
+        # also updated to emit both files -- without that the next regeneration would
+        # silently undo the whole split.
+        'Interface/AddOns/UncappedQuestData',
         # Shards of the Seven. Listed from its FIRST release, deliberately -- four
         # addons have now shipped unlisted and became impossible to prune, and the
         # only cost of getting it right up front is this line.
@@ -763,14 +976,50 @@ try { $check = $written | ConvertFrom-Json } catch { throw "Wrote $OutFile but i
 if (-not $check.files -or $check.files.Count -ne $files.Count) {
     throw "Wrote $OutFile but it contains $($check.files.Count) file entries, expected $($files.Count)."
 }
-# Same reasoning as the files check above: an archive that silently failed to serialise would
-# publish a manifest that simply stops shipping the addon, with nothing to notice at generation
-# time. (The @() wrapper on the property is what keeps a single entry a JSON array rather than
-# a bare object -- verified, but cheap to keep honest.)
-$writtenArchives = @($check.archives).Count
-if ($writtenArchives -ne $archiveEntries.Count) {
-    throw "Wrote $OutFile but it contains $writtenArchives archive entries, expected $($archiveEntries.Count)."
+# --- LA-06. THE ARRAY-COLLAPSE CHECK THAT COULD NOT FAIL ----------------------------------
+#
+# This used to read `@($check.archives).Count -ne $archiveEntries.Count`, which is blind to
+# exactly the failure its own comment claimed it kept honest: if `archives` had collapsed to a
+# BARE OBJECT, @() re-wraps it and .Count is still 1, so a one-entry list passes either way.
+#
+# The mechanism is real and has bitten this file before -- it took out `locales`. It is NOT
+# ConvertTo-Json (a nested object[] of one element serialises fine); it is STATEMENT-OUTPUT
+# UNROLLING: `$x = if (...) { @('a') }` yields a String, not an array. So the shape has to be
+# asserted on what actually landed on disk.
+#
+# Why it matters more than a cosmetic difference: the launcher deserialises these into
+# List<T>. A bare object throws at Parse, which means the WHOLE manifest fails and every
+# player gets "Could not reach the update server" at once -- while the generator reports
+# success.
+function Assert-JsonArray {
+    param(
+        [Parameter(Mandatory)][string]$Text,
+        [Parameter(Mandatory)][string]$Name,
+        $Parsed,
+        [int]$Expected
+    )
+
+    # The parsed side answers "is it an array"; the raw text answers "did the key serialise as
+    # one at all". Both, because ConvertFrom-Json is forgiving in different ways than the
+    # launcher's parser is.
+    if ($Parsed -isnot [array]) {
+        throw "Wrote $OutFile but '$Name' did not serialise as a JSON array (got $(if ($null -eq $Parsed) { 'null/absent' } else { $Parsed.GetType().Name })). The launcher parses it into a List<> and would reject the entire manifest."
+    }
+    if ($Text -notmatch ('"' + [regex]::Escape($Name) + '"\s*:\s*\[')) {
+        throw "Wrote $OutFile but the text of '$Name' is not a JSON array. The launcher parses it into a List<> and would reject the entire manifest."
+    }
+    if ($Parsed.Count -ne $Expected) {
+        throw "Wrote $OutFile but it contains $($Parsed.Count) '$Name' entries, expected $Expected."
+    }
 }
+
+Assert-JsonArray -Text $written -Name 'archives'           -Parsed $check.archives           -Expected $archiveEntries.Count
+Assert-JsonArray -Text $written -Name 'news'               -Parsed $check.news               -Expected @($news).Count
+Assert-JsonArray -Text $written -Name 'forceDisableAddOns' -Parsed $check.forceDisableAddOns -Expected @($ForceDisableAddOns).Count
+
+# LA-02 made this one a variable rather than a literal, and it is normally a list of ONE --
+# the single collapse case the old check was blind to.
+Assert-JsonArray -Text $written -Name 'directDownloadUrls' -Parsed $check.client.directDownloadUrls -Expected $clientArchiveEntries.Count
 # The item cache is one object rather than a list, and a silently dropped epoch would leave
 # every client believing it is already up to date with whatever it last installed -- a
 # no-op release that looks like a successful one.

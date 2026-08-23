@@ -139,9 +139,16 @@ pump:SetScript("OnEvent", function()
     UncappedNative.Register("TEST", SelfTest)
 end)
 
-pump:SetScript("OnUpdate", function()
-    if not UncappedNative.IsAvailable() then return end
-
+-- ★ [AN-16] ATTACHED ONLY IF THE DLL IS ACTUALLY THERE. `nativeVersion` is
+-- resolved once at load and can never change afterwards -- the DLL registers its
+-- functions when the world Lua state is built or not at all -- so on a client
+-- without it this script was an every-frame call, for the whole session, whose
+-- first statement was a constant-false test.
+--
+-- ⚠ Where the DLL IS present this genuinely has to run every frame and is left
+-- alone: the queue is filled from native code, so there is no Lua-side event to
+-- arm it on, and a late drain drops frames.
+local function NativePump()
     for _ = 1, 16 do
         local topic, payload = UncappedNative_Poll()
         if not topic then return end
@@ -158,7 +165,11 @@ pump:SetScript("OnUpdate", function()
             end
         end
     end
-end)
+end
+
+if UncappedNative.IsAvailable() then
+    pump:SetScript("OnUpdate", NativePump)
+end
 
 --[[ /uncnative -- is the channel up, and is anything using it?
 

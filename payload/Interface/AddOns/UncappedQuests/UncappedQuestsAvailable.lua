@@ -6,8 +6,13 @@
   "where is the nearest quest I could take and have not already done".
 
   The client cannot answer that on its own. Quest POI data only covers quests
-  already in your log, so the giver locations come from UncappedQuestGivers.lua,
+  already in your log, so the giver locations come from UncappedQuestGiverData.lua,
   generated from this realm's own world DB (tools/Generate-QuestGivers.py).
+
+  [MQ-05] That table lives in the separate UncappedQuestData addon, which is
+  ## LoadOnDemand: 1 -- it is 640 KB and this whole feature is opt-in and
+  default off, so it is NOT parsed at login. BuildIndex() pulls it in through
+  UQ.EnsureQuestData() on first use; everything here runs downstream of that.
   Which of them are actually available IS client-side though:
 
     QueryQuestsCompleted()  asks the server for the completed-quest set
@@ -51,7 +56,7 @@ local panelRefreshers = {}
 local completed = {}
 local haveCompleted = false
 
-local byMap                     -- [mapID] = { {qid, e}, ... }   static
+local byMap                     -- [mapID] = { qid, qid, ... }   static
 local eligible = {}             -- candidates on the player's current map
 local eligibleMap               -- which map `eligible` was built for
 local eligibleDirty = true
@@ -118,14 +123,27 @@ end
 -- indexes
 -- ---------------------------------------------------------------------------
 
+-- ⚠ Quest IDS only. This used to store { qid = qid, e = e } per row, which is
+--   7,461 extra two-field Lua tables held for the whole session -- several
+--   hundred KB -- carrying a key alongside a value that is already reachable as
+--   UncappedQuestGivers[qid]. Every reader below does that lookup instead; it is
+--   one hash probe against a table it already had to hold anyway.
 local function BuildIndex()
-    if byMap or not UncappedQuestGivers then return end
+    if byMap then return end
+
+    -- [MQ-05] This is the choke point where the 640 KB giver table is actually
+    -- pulled in. It is no longer loaded at login -- it lives in the
+    -- UncappedQuestData LoadOnDemand addon -- and everything that reads
+    -- UncappedQuestGivers or UncappedQuestGiverMaps runs downstream of here.
+    if not UQ.EnsureQuestData() then return end
+    if not UncappedQuestGivers then return end
+
     byMap = {}
     for qid, e in pairs(UncappedQuestGivers) do
         local m = e[1]
         local bucket = byMap[m]
         if not bucket then bucket = {}; byMap[m] = bucket end
-        bucket[#bucket + 1] = { qid = qid, e = e }
+        bucket[#bucket + 1] = qid
     end
 end
 
@@ -202,8 +220,8 @@ local function BuildEligible(mapID)
     -- Cheap local pass first: it is only a PRE-filter to keep the list we ask
     -- the server about small. The server's answer is what actually decides.
     local candidates = {}
-    for _, r in ipairs(bucket) do
-        local e = r.e
+    for _, qid in ipairs(bucket) do
+        local e = UncappedQuestGivers[qid]
         local minLevel, questLevel, races = e[4], e[5], e[6]
 
         -- A giver whose SPAWN is event-controlled is not standing there unless
@@ -214,12 +232,12 @@ local function BuildEligible(mapID)
         local spawned = (ev == 0) or (UQ.ActiveEvents and UQ.ActiveEvents[ev])
 
         if spawned
-           and (not completed[r.qid]) and (not inLog[r.qid])
+           and (not completed[qid]) and (not inLog[qid])
            and level >= minLevel
            and (questLevel <= 0 or questLevel <= maxLevel)
            and (races == 0 or raceMask == 0 or bit.band(races, raceMask) ~= 0)
-           and GiverReachable(r.qid) then
-            candidates[#candidates + 1] = r.qid
+           and GiverReachable(qid) then
+            candidates[#candidates + 1] = qid
         end
     end
 
@@ -228,20 +246,20 @@ local function BuildEligible(mapID)
         return          -- nothing shown until the server has ruled
     end
 
-    for _, r in ipairs(bucket) do
-        local e = r.e
+    for _, qid in ipairs(bucket) do
+        local e = UncappedQuestGivers[qid]
         local minLevel, questLevel, races = e[4], e[5], e[6]
 
         local ev2 = e[10] or 0
         local spawned2 = (ev2 == 0) or (UQ.ActiveEvents and UQ.ActiveEvents[ev2])
 
-        if verified[r.qid] and spawned2
-           and (not completed[r.qid]) and (not inLog[r.qid])
+        if verified[qid] and spawned2
+           and (not completed[qid]) and (not inLog[qid])
            and level >= minLevel
            and (questLevel <= 0 or questLevel <= maxLevel)
            and (races == 0 or raceMask == 0 or bit.band(races, raceMask) ~= 0) then
             eligible[#eligible + 1] = {
-                questID = r.qid,
+                questID = qid,
                 map = mapID, wx = e[2], wy = e[3],
                 giver = e[7], title = e[8], questLevel = questLevel,
             }
@@ -267,9 +285,9 @@ local function ScanInstance()
 
     for mapID, label in pairs(UncappedQuestGiverMaps) do
         if label == instanceName then
-            for _, r in ipairs(byMap[mapID] or {}) do
-                local e = r.e
-                if (not completed[r.qid]) and (not inLog[r.qid]) and level >= e[4] then
+            for _, qid in ipairs(byMap[mapID] or {}) do
+                local e = UncappedQuestGivers[qid]
+                if (not completed[qid]) and (not inLog[qid]) and level >= e[4] then
                     if name then extra = extra + 1
                     else name, quest = e[7], e[8] end
                 end
@@ -420,11 +438,23 @@ end
 -- hidden frame, and the arrow starts hidden.
 local driver = CreateFrame("Frame")
 
+-- The disabled and no-target paths are the COMMON ones -- most players never
+-- turn the pick-up arrow on at all -- and they used to call Hide() on both
+-- frames on every single frame. The sibling arrow file already guards exactly
+-- this (HideArrow, UncappedQuestsArrow.lua); this driver did not.
+local function HideIf(f)
+    if f:IsShown() then f:Hide() end
+end
+
+local function ShowIf(f)
+    if not f:IsShown() then f:Show() end
+end
+
 driver:SetScript("OnUpdate", function(_, elapsed)
     local self = arrow
 
     if not db.availEnabled then
-        self:Hide(); note:Hide()
+        HideIf(self); HideIf(note)
         return
     end
 
@@ -439,30 +469,35 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     -- No world position: we are in an instance, so say what is in here instead
     -- of pointing at nothing.
     if not player then
-        self:Hide()
+        HideIf(self)
         if instanceNote then
-            note.text:SetText(instanceNote)
-            note:Show()
+            -- Same string every frame while you stand in the same instance, so
+            -- only push it when it actually changes.
+            if note.uqShownText ~= instanceNote then
+                note.uqShownText = instanceNote
+                note.text:SetText(instanceNote)
+            end
+            ShowIf(note)
         else
-            note:Hide()
+            HideIf(note)
         end
         return
     end
 
-    note:Hide()
+    HideIf(note)
 
     if not target then
-        self:Hide()
+        HideIf(self)
         return
     end
 
     local dist, dx, dy = UQ.WorldDistance(player, target)
     if not dist then
-        self:Hide()
+        HideIf(self)
         return
     end
 
-    self:Show()
+    ShowIf(self)
     UQ.SetArrowHeading(self.tex, UQ.Bearing(dx, dy))
 
     if self.uqTarget ~= target then
@@ -559,9 +594,14 @@ end
 -- and the arrow never disagree about what is available.
 function UQ.AvailableGiverPins(dbcArea)
     local out = {}
-    if not (dbcArea and UncappedQuestGivers and UncappedMapAreas) then return out end
+    if not (dbcArea and UncappedMapAreas) then return out end
 
+    -- [MQ-05] BuildIndex is what LOADS the giver table now, so it has to run
+    -- before UncappedQuestGivers is tested. Testing the global first -- which is
+    -- what this guard used to do -- would return empty forever and never trigger
+    -- the on-demand load, silently killing the giver pin layer.
     BuildIndex()
+    if not UncappedQuestGivers then return out end
 
     local player = UQ.PlayerNode()
     if player and (eligibleDirty or eligibleMap ~= player.map) then
@@ -638,12 +678,12 @@ SlashCmdList["UNCAPPEDQAVAIL"] = function(arg)
 
         -- Everything within 200 yards, eligible or not, nearest first.
         local near = {}
-        for _, r in ipairs((byMap and byMap[player.map]) or {}) do
-            local e = r.e
+        for _, qid in ipairs((byMap and byMap[player.map]) or {}) do
+            local e = UncappedQuestGivers[qid]
             local d = UQ.WorldDistance(player, { map = e[1], wx = e[2], wy = e[3] })
             if d and d <= 200 then
-                near[#near + 1] = { d = d, qid = r.qid, giver = e[7], title = e[8],
-                    why = Rejection(r.qid, e, inLog, level, raceMask, maxLevel) }
+                near[#near + 1] = { d = d, qid = qid, giver = e[7], title = e[8],
+                    why = Rejection(qid, e, inLog, level, raceMask, maxLevel) }
             end
         end
         table.sort(near, function(a, b) return a.d < b.d end)

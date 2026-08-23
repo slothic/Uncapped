@@ -42,8 +42,14 @@
   cosmetic difference between two legitimate installs from reading as tampering.
 
 .EXAMPLE
-  .\New-Baseline.ps1 -ClientDir 'C:\Wotlk\Client\ChromieCraft_3.3.5a - Copy' -Stage
-  .\Publish-Baseline.ps1
+  .\New-Baseline.ps1 -ClientDir 'C:\Wotlk\Client\ChromieCraft_3.3.5a - Copy'
+  bash ./Publish-Baseline.sh
+
+  LA-15: this used to say ".\Publish-Baseline.ps1", and there has never been such a file --
+  tools\ contains Publish-Baseline.SH. Following the script's own instructions mid-publish
+  got you "command not found". Note too that the uploader takes baseline.json and the client
+  directory and scp's the files straight up under their served names; it does NOT read a
+  staged tree, so -Stage is not a prerequisite for it.
 #>
 [CmdletBinding()]
 param(
@@ -90,10 +96,42 @@ $clientRoot = (Resolve-Path $ClientDir).Path
 # Compared case-insensitively with forward slashes, and with the locale folder
 # normalised, so Data/enGB/patch-enGB-Q.MPQ in a manifest generated against another
 # locale still matches Data/enUS/patch-enUS-Q.MPQ here.
+#
+# ⚠ LA-09. THAT PARAGRAPH DESCRIBED SOMETHING THAT DID NOT EXIST. The lookup below was a
+# plain HashSet.Contains on the raw path with no rewriting at all, so the sentence read as a
+# guarantee and was documentation of an intention.
+#
+# The consequence is not cosmetic. A file of OURS that the comparison fails to recognise
+# stops being "in manifest.json" and is written into baseline.json as a REQUIRED STOCK file
+# with a /base/... url that was never uploaded -- so the launcher reports it Corrupt and
+# BLOCKING, and REPAIR, doing exactly as told, fetches the url and is handed a 404. The
+# player is then stuck with PLAY off and a repair button that cannot fix it.
+#
+# Now implemented rather than merely described: both sides are folded through
+# ConvertTo-LocaleNeutral, which replaces a known locale code wherever it appears -- as a
+# path segment (Data/enGB/) and inside a filename (patch-enGB-Q.MPQ) -- with a placeholder.
+# The raw form is kept in the set too, so an exact match still works without going near this.
 # ---------------------------------------------------------------------------
+
+# Explicit list, not [A-Za-z]{4}. A generic pattern would fold "Data/Cache/" or a four-letter
+# filename fragment into the placeholder and start matching files that are not ours at all --
+# a false "managed" is silent, and drops a genuine stock file OUT of the baseline.
+$localeCodes = @('enUS','enGB','deDE','frFR','esES','esMX','ruRU','koKR','zhCN','zhTW','ptBR','ptPT','itIT')
+
+function ConvertTo-LocaleNeutral([string]$p) {
+    foreach ($code in $localeCodes) {
+        $p = $p -replace ('(?i)(?<![A-Za-z])' + $code + '(?![A-Za-z])'), '%LOCALE%'
+    }
+    return $p
+}
+
 $manifest = Get-Content $ManifestFile -Raw | ConvertFrom-Json
 $managed  = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-foreach ($f in $manifest.files) { [void]$managed.Add(($f.path -replace '\\', '/')) }
+foreach ($f in $manifest.files) {
+    $mp = $f.path -replace '\\', '/'
+    [void]$managed.Add($mp)
+    [void]$managed.Add((ConvertTo-LocaleNeutral $mp))
+}
 
 # Also managed: anything the launcher itself creates or renames into place.
 $launcherArtefacts = @(
@@ -183,7 +221,10 @@ foreach ($f in $candidates) {
     if ($skipRoots -contains $top)      { continue }
     if (Test-Ignored $leaf)             { $skipped.Add("$slashed (working file)"); continue }
     if ($launcherArtefacts -contains $leaf) { $skipped.Add("$slashed (launcher-managed)"); continue }
-    if ($managed.Contains($slashed))    { $skipped.Add("$slashed (in manifest.json)"); continue }
+    # Raw first (the common case, and free), then locale-neutral -- see LA-09 by the set.
+    if ($managed.Contains($slashed) -or $managed.Contains((ConvertTo-LocaleNeutral $slashed))) {
+        $skipped.Add("$slashed (in manifest.json)"); continue
+    }
 
     $done++
     Write-Progress -Activity 'Hashing client' -Status $slashed `
@@ -285,5 +326,7 @@ if ($Stage) {
     }
 
     Write-Progress -Activity 'Staging' -Completed
-    Write-Host "Staged. Upload with Publish-Baseline.ps1" -ForegroundColor Green
+    # LA-15: named .ps1 here for months; the uploader is bash. And it does not read this
+    # staging tree -- it scp's from the client directory using baseline.json.
+    Write-Host "Staged. Upload with: bash tools/Publish-Baseline.sh" -ForegroundColor Green
 }

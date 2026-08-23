@@ -35,6 +35,12 @@
 -- 18k server queries. Regenerate it whenever item_template changes, with
 -- azerothcore-wotlk/tools/generate_transmog_appearance_db.sh.
 --
+-- It is NOT part of this addon any more. 797 KB and ~17,270 generated strings
+-- were parsed at every login by every player, whether or not the Transmog tab
+-- was ever opened, so it moved to its own top-level `## LoadOnDemand` addon --
+-- Interface\AddOns\UncappedTransmogData -- and is pulled in by EnsureData()
+-- when the panel is first built.
+--
 -- Icons and 3D models are NOT in that file: the client resolves both from
 -- its own DBCs for any real 3.3.5a item, with no server round-trip. Every
 -- transmoggable item on this realm is a stock entry, so previews always
@@ -131,17 +137,42 @@ local SOURCE_KIND = {
 -- Rows live as packed strings ("entry:disp:quality:class:sub:ilvl:name")
 -- and are parsed into tables lazily. 18k tables up front costs several
 -- megabytes and a visible hitch at load; parsed-on-demand costs nothing
--- until a slot is actually opened, and name search runs straight over the
--- raw strings as a single C-side string.find.
+-- until a slot is actually opened. Name search is one find() per parsed row,
+-- NOT one C-side find over the raw blob -- an earlier version of this comment
+-- claimed otherwise -- which is why the search box is debounced rather than
+-- rebuilding per keystroke.
 -- =====================================================================
 local rowCache = {}   -- [invType] = { parsed rows }
+
+-- DEMAND-LOADED. The generated appearance table is 797 KB / ~17,270 strings,
+-- and interning them costs roughly 1.2 MB of strings plus ~275 KB of array
+-- slots that then stay resident for the whole session -- paid at every login
+-- by every player, whether or not the Transmog tab was ever opened. It lives
+-- in its own top-level `## LoadOnDemand` addon (UncappedTransmogData) and is
+-- pulled in when the panel is first built.
+--
+-- The `false` memo matters: without it, a client with that addon missing or
+-- disabled would retry LoadAddOn on every slot open for the rest of the
+-- session.
+local appearanceData = nil
+
+local function EnsureData()
+    if appearanceData == nil then
+        if not _G.UncappedTransmogData and LoadAddOn then
+            LoadAddOn("UncappedTransmogData")
+        end
+        appearanceData = _G.UncappedTransmogData or false
+    end
+    return appearanceData
+end
 
 local function ParsedRows(invType)
     local cached = rowCache[invType]
     if cached then return cached end
 
     local out = {}
-    local raw = UncappedTransmogData and UncappedTransmogData[invType]
+    local data = EnsureData()
+    local raw = data and data[invType]
     if raw then
         for i = 1, #raw do
             local entry, disp, q, cls, sub, ilvl, name =
@@ -183,6 +214,13 @@ local currentSlot  = 0
 local selected     = nil  -- selected row (a parsed appearance)
 local previewEntry = nil  -- item entry the 3D model is currently wearing
 local query        = ""
+
+-- Set instead of rescanning the pool straight away; the frame's 0.2s OnUpdate
+-- tick (see BuildFrame) runs whichever are outstanding, exactly once. A pool
+-- scan is not cheap -- Off Hand's is ~4,550 rows -- so every caller that would
+-- otherwise fire several in a row flags instead.
+local queryDirty   = false   -- results need a Rebuild + grid repaint
+local subDirty     = false   -- the subclass dropdown needs its own pool scan
 local filterOwned  = "all"   -- all | collected | missing | favorites
 -- nil means "any". Poor gear is quality 0, so a numeric sentinel would
 -- collide with it -- hence nil rather than 0.
@@ -272,8 +310,19 @@ local packBuffers = { TMPK = {}, TMFAVPK = {} }
 
 local function ApplyCollection(values)
     wipe(collection)
-    for i = 1, #values do collection[values[i]] = true end
-    collCount = #values
+    -- Counted distinctly rather than as #values: the restore path below can
+    -- concatenate the cached blob with the displays unlocked after it was
+    -- written, and collCount is what TMSYNC compares against the server's
+    -- distinct-display count.
+    local n = 0
+    for i = 1, #values do
+        local v = values[i]
+        if v and not collection[v] then
+            collection[v] = true
+            n = n + 1
+        end
+    end
+    collCount = n
 end
 
 -- =====================================================================
@@ -500,6 +549,8 @@ local function RefreshGrid()
 end
 
 local function Refresh()
+    -- Whoever asked for this, the pending debounced rebuild is now satisfied.
+    queryDirty = false
     Rebuild()
     RefreshGrid()
 end
@@ -721,6 +772,7 @@ end
 -- subclasses that actually occur among this slot's eligible appearances.
 local function RebuildSubFilter()
     if not subDD then return end
+    subDirty = false
 
     local def = SLOT_BY_ID[currentSlot]
     local eq = equipment[currentSlot]
@@ -761,7 +813,7 @@ local function RebuildSubFilter()
     UIDropDownMenu_SetText(subDD, "Any type")
 end
 
-local function SelectSlot(slotId)
+local function SelectSlot(slotId, defer)
     currentSlot = slotId
     selected = nil
     sourceFor = nil
@@ -778,10 +830,28 @@ local function SelectSlot(slotId)
     end
 
     ResetScroll()
-    RebuildSubFilter()
     ResetModel()
     UpdateCostText()
-    Refresh()
+
+    -- `defer` is passed by Activate and by nothing else. Entering the tab
+    -- sends TMEQ, and the TMEQEND that answers it recomputes eligibility from
+    -- the equipment that has only just landed -- so scanning the pool here as
+    -- well built a list that was thrown away a moment later. Off Hand's pool
+    -- is ~4,550 rows and Main Hand's ~3,760, which made opening the tab on a
+    -- remembered Off Hand cost ~18,000 row visits and two full sorts. Flagging
+    -- lets both passes collapse into the single one the 0.2s tick runs, and
+    -- the first grid the player sees is the correct one rather than a
+    -- pre-equipment guess that flickers.
+    --
+    -- A slot-tab CLICK never defers: there the grid is showing some other
+    -- slot's looks and has to change under the cursor at once.
+    if defer then
+        subDirty = true
+        queryDirty = true
+    else
+        RebuildSubFilter()
+        Refresh()
+    end
 end
 
 -- =====================================================================
@@ -809,7 +879,14 @@ local function BuildFrame(parent)
         self._t = (self._t or 0) + dt
         if self._t < 0.2 then return end
         self._t = 0
-        if pendingIcons then
+        -- Single coalescing point for everything that would otherwise rescan
+        -- the pool per keystroke or twice per tab-open. Refresh repaints the
+        -- grid itself, so the icon repaint is only needed when nothing else
+        -- has already done one this tick.
+        if subDirty then RebuildSubFilter() end
+        if queryDirty then
+            Refresh()
+        elseif pendingIcons then
             pendingIcons = false
             RefreshGrid()
         end
@@ -1024,7 +1101,20 @@ local function BuildFrame(parent)
         query = (self:GetText() or ""):lower()
         if query == "" then ph:Show() else ph:Hide() end
         ResetScroll()
-        Refresh()
+        -- Debounced through the 0.2s tick above. A rebuild walks every row in
+        -- the slot's pool -- Off Hand's is ~4,550 -- calling find() on each,
+        -- then sorts the survivors with a five-branch Lua comparator, so a
+        -- Refresh per keystroke made typing "shadowfang" ten full scans and
+        -- ten sorts.
+        --
+        -- Emptying the box is the exception and refreshes at once: clearing
+        -- the field, or pressing Escape, is a request to see everything again,
+        -- and a wait there reads as the box being stuck.
+        if query == "" then
+            Refresh()
+        else
+            queryDirty = true
+        end
     end)
     search:SetScript("OnEscapePressed", function(self) self:SetText(""); self:ClearFocus() end)
 
@@ -1333,6 +1423,10 @@ _G.UncappedTransmog = Transmog
 Transmog.UI = {}
 
 function Transmog.UI.EmbedInto(parent)
+    -- Pull the demand-loaded appearance table in here rather than at the first
+    -- slot scan, so its cost lands with the rest of the panel build instead of
+    -- inside the player's first click.
+    EnsureData()
     BuildFrame(parent)
     frame:Show()
     return frame
@@ -1345,7 +1439,9 @@ function Transmog.UI.Activate()
     Send("TMSYNC:" .. collCount)
     Send("TMEQ")
     Send("TMSETS")
-    SelectSlot(currentSlot)
+    -- Deferred: TMEQEND is about to ask for the same two pool scans, and the
+    -- 0.2s tick runs the pair once instead of twice. See SelectSlot.
+    SelectSlot(currentSlot, true)
 end
 
 -- Content-panel width (not window width) Transmog needs: PAD + slot-tab
@@ -1422,6 +1518,9 @@ comms:SetScript("OnEvent", function(_, event, prefix, text)
         ApplyCollection(values)
         UncappedTransmogDB.collection = encoded
         UncappedTransmogDB.collectionCount = collCount
+        -- The blob is authoritative again, so anything TMNEW recorded beside it
+        -- is already inside it.
+        UncappedTransmogDB.collectionExtra = nil
         Refresh()
 
     elseif text:find("^TMSYNCOK:") then
@@ -1432,10 +1531,22 @@ comms:SetScript("OnEvent", function(_, event, prefix, text)
         if disp and not collection[disp] then
             collection[disp] = true
             collCount = collCount + 1
-            -- The cached blob is now stale. Drop it so the next open resyncs
-            -- rather than trusting a count that no longer matches its payload.
-            UncappedTransmogDB.collection = nil
-            UncappedTransmogDB.collectionCount = nil
+            -- Record the addition BESIDE the cached blob instead of throwing the
+            -- blob away. Nilling it here left collCount matching the server's
+            -- count, so the next TMSYNC answered TMSYNCOK, TMPKEND never fired,
+            -- the cache was never rewritten -- and the following login therefore
+            -- paid for a full repack and resend of the entire collection. Any
+            -- session in which one appearance unlocked with the window open used
+            -- to cost that.
+            if UncappedTransmogDB.collection then
+                local extra = UncappedTransmogDB.collectionExtra
+                if not extra then
+                    extra = {}
+                    UncappedTransmogDB.collectionExtra = extra
+                end
+                extra[#extra + 1] = disp
+                UncappedTransmogDB.collectionCount = collCount
+            end
             Refresh()
         end
 
@@ -1479,8 +1590,11 @@ comms:SetScript("OnEvent", function(_, event, prefix, text)
         -- and the window is opened before this snapshot lands.
         UpdateCostText()
         if frame and frame:IsShown() then
-            RebuildSubFilter()
-            Refresh()
+            -- Flag rather than rescan: Activate has usually flagged the same
+            -- two passes a fraction of a second earlier, and the 0.2s tick
+            -- runs whichever are outstanding exactly once.
+            subDirty = true
+            queryDirty = true
         end
 
     elseif text:find("^TMR:") then
@@ -1560,6 +1674,13 @@ init:SetScript("OnEvent", function()
     -- immediately has something to draw and the sync becomes a no-op.
     if UncappedTransmogDB.collection then
         local values = DecodePacked(UncappedTransmogDB.collection)
+        -- Displays unlocked after the blob was written are kept alongside it
+        -- rather than invalidating it, so a session that unlocked one appearance
+        -- no longer forces a full repack-and-resend at the next login.
+        local extra = UncappedTransmogDB.collectionExtra
+        if extra then
+            for i = 1, #extra do values[#values + 1] = extra[i] end
+        end
         ApplyCollection(values)
     end
 
@@ -1587,6 +1708,7 @@ if UncappedUI then
         -- Forces a full resend by claiming an impossible count.
         UncappedTransmogDB.collection = nil
         UncappedTransmogDB.collectionCount = nil
+        UncappedTransmogDB.collectionExtra = nil
         Send("TMSYNC:4294967295")
     end, 160)
 

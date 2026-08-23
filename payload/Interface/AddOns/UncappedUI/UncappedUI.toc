@@ -3,7 +3,7 @@
 ## Notes: Modular, theme-aware UI toolkit shared by Uncapped addons.
 ## Author: Uncapped
 ## Version: 0.0.0
-## SavedVariables: UncappedUIDB, UncappedUIDemoDB
+## SavedVariables: UncappedUIDB
 
 UncappedNative.lua
 UncappedUI.lua
@@ -12,7 +12,12 @@ UncappedUI.lua
 UncappedScale.lua
 Themes\ThemeManager.lua
 Themes\DefaultTheme.lua
-Themes\UncappedTheme.lua
+# Themes\UncappedTheme.lua -- NOT LOADED. Every key in it is commented out
+# pending custom art, so ThemeManager deep-merged it into an exact copy of
+# Default: /uitheme listed an "Uncapped" theme and /uitheme uncapped reported
+# success while changing nothing. Re-add this line the moment the file has real
+# art in it. (Anyone who had selected it degrades cleanly -- GetActiveTheme falls
+# back to Default for an unknown name, which is what they were already seeing.)
 Controls\Text.lua
 Controls\Button.lua
 Controls\EditBox.lua
@@ -23,4 +28,7 @@ Frames\Panel.lua
 Windows\Window.lua
 Navigation\Sidebar.lua
 Navigation\Tabs.lua
-Demo.lua
+# Demo.lua -- NOT LOADED. A developer harness for /uidemo that shipped in the
+# player payload, registering a slash command and reserving UncappedUIDemoDB in
+# every player's SavedVariables. The file stays for development; add this line
+# back (and UncappedUIDemoDB to SavedVariables above) to use it.

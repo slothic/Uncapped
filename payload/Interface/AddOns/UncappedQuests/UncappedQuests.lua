@@ -36,6 +36,52 @@ UncappedQuests = UncappedQuests or {}
 local UQ = UncappedQuests
 
 -- ---------------------------------------------------------------------------
+-- [MQ-05] On-demand quest-giver data
+--
+-- UncappedQuestGivers is 7,461 rows / 640 KB of generated table, and it used to
+-- be the FIRST file in UncappedQuests.toc -- so every player parsed it at every
+-- login and every /reload, and held ~2 MB of Lua heap for it forever. Its only
+-- readers are the pick-up arrow (db.availEnabled) and the giver pin layer
+-- (db.showGivers), BOTH opt-in and BOTH default false.
+--
+-- It now lives in the UncappedQuestData addon, which is ## LoadOnDemand: 1, and
+-- this is the one place that pulls it in. Call it before touching
+-- UncappedQuestGivers or UncappedQuestGiverMaps; it is cheap to call repeatedly
+-- (one global read on the hot path once loaded).
+--
+-- /!\ IF THIS EVER RETURNS FALSE IN THE FIELD, the launcher is not shipping
+--     UncappedQuestData, or it is not in the manifest's forceEnableAddOns. A
+--     LoadOnDemand addon that is disabled cannot be loaded by LoadAddOn() at
+--     all. Every reader below already nil-guards, so the failure mode is a
+--     pick-up arrow that finds nothing rather than a Lua error -- which is
+--     exactly why it says so out loud once instead of failing silently.
+-- ---------------------------------------------------------------------------
+
+local questDataTried, questDataWarned = false, false
+
+function UQ.EnsureQuestData()
+    if UncappedQuestGivers then return true end
+    if questDataTried then return false end
+
+    -- One attempt per session. A failed LoadAddOn is a permanent condition
+    -- (missing or disabled), not a transient one, and retrying it from the
+    -- 2-second scan driver would be a per-tick disk probe forever.
+    questDataTried = true
+    if LoadAddOn then LoadAddOn("UncappedQuestData") end
+    if UncappedQuestGivers then return true end
+
+    if not questDataWarned then
+        questDataWarned = true
+        if DEFAULT_CHAT_FRAME then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff8800Uncapped Quests:|r the quest-giver data "
+                .. "add-on didn't load, so \"quests you could pick up\" has nothing to show. "
+                .. "Running the launcher should put it back.")
+        end
+    end
+    return false
+end
+
+-- ---------------------------------------------------------------------------
 -- Per-quest player overrides
 --
 -- Two decisions a player can make about a single quest, shared by all four
@@ -213,6 +259,28 @@ function UQ.QuestLogIndex(questID)
         end
     end
     return nil
+end
+
+-- The same walk, once, as questID -> log index.
+--
+-- QuestLogIndex is a full quest-log pass -- GetQuestLogTitle, GetQuestLink and
+-- a string.match per entry -- so calling it once per pin or per route node is
+-- an O(pins x log) rebuild, and this realm uncaps the quest log, which grows
+-- BOTH halves of that product together. Anything needing more than one lookup
+-- in a single pass builds this instead.
+--
+-- Pass a scratch table to reuse it: the callers are the map-redraw and routing
+-- paths, where a fresh table per call is exactly the churn being removed.
+function UQ.QuestLogIndexMap(into)
+    local map = into or {}
+    for k in pairs(map) do map[k] = nil end
+    for i = 1, (GetNumQuestLogEntries() or 0) do
+        local _, _, _, _, isHeader = GetQuestLogTitle(i)
+        local link = (not isHeader) and GetQuestLink and GetQuestLink(i) or nil
+        local id = link and tonumber(link:match("|Hquest:(%d+):"))
+        if id then map[id] = i end
+    end
+    return map
 end
 
 -- Blizzard's POI layer, on or off to match the setting. Restoring it on the way
@@ -583,6 +651,7 @@ end
 -- ---------------------------------------------------------------------------
 
 local updating = false
+local logIndexScratch = {}
 
 local function Update()
     -- WorldMapFrame_Update is hooked, and the click handler calls it again to
@@ -609,6 +678,9 @@ local function Update()
         updating = false
         return
     end
+
+    -- One quest-log pass for the whole rebuild, not one per drawn pin.
+    local logIndex = UQ.QuestLogIndexMap(logIndexScratch)
 
     -- Pins come from the LEDGER, not from QuestPOIGetIconInfo. The client can
     -- only answer that for the 25 quests it has slots for, so it can never draw
@@ -648,7 +720,7 @@ local function Update()
             -- A ledger quest has no client log index at all, so the tooltip and
             -- click path must both cope with questIndex being nil.
             pin.questID = o.questID
-            pin.questIndex = UQ.QuestLogIndex(o.questID)
+            pin.questIndex = logIndex[o.questID]
             pin.pinTitle = o.title
             pin.pinComplete = o.isComplete
             pin:SetWidth(db.iconSize)
@@ -793,6 +865,47 @@ local function Update()
     updating = false
 end
 
+-- Five separate paths ask for a repaint -- WORLD_MAP_UPDATE, the
+-- WorldMapFrame_Update hook, WorldMapButton's OnSizeChanged and OnShow, and the
+-- ledger burst -- and several of them fire many times a second while the map is
+-- open. Every one of them was a FULL rebuild: a fresh LedgerPins() allocation,
+-- a table per POI, and (before the map above) a quest-log walk per pin. There
+-- was only ever a re-entrancy guard here, never a throttle, which is why a big
+-- ledger made the client stutter for as long as the map stayed open.
+--
+-- Leading edge, so opening the map still paints instantly; anything arriving
+-- inside the window collapses into one trailing repaint, so the pins still
+-- settle on the latest data rather than dropping it.
+local REDRAW_THROTTLE = 0.2
+local lastRedraw, redrawPending = 0, false
+
+local redrawTimer = CreateFrame("Frame", nil, UIParent)
+redrawTimer:SetWidth(1)
+redrawTimer:SetHeight(1)
+redrawTimer:SetPoint("TOPLEFT")
+redrawTimer:Hide()
+
+local function RequestUpdate()
+    local now = GetTime()
+    if now - lastRedraw >= REDRAW_THROTTLE then
+        lastRedraw = now
+        redrawPending = false
+        redrawTimer:Hide()
+        Update()
+    elseif not redrawPending then
+        redrawPending = true
+        redrawTimer:Show()
+    end
+end
+
+redrawTimer:SetScript("OnUpdate", function()
+    if GetTime() - lastRedraw < REDRAW_THROTTLE then return end
+    redrawTimer:Hide()
+    redrawPending = false
+    lastRedraw = GetTime()
+    Update()
+end)
+
 -- ---------------------------------------------------------------------------
 -- events
 -- ---------------------------------------------------------------------------
@@ -829,23 +942,22 @@ f:SetScript("OnEvent", function(_, event, arg1)
         return
     end
 
-    if event == "QUEST_LOG_UPDATE" or event == "QUEST_POI_UPDATE" then
-        -- (objective cache retired; the ledger burst is the refresh now)
-    end
-
+    -- (QUEST_POI_UPDATE has no work of its own any more -- the objective cache
+    -- is retired and the ledger burst is the refresh -- but it still falls
+    -- through to the repaint request at the bottom.)
     if event == "QUEST_LOG_UPDATE" or event == "PLAYER_LOGIN" then
         -- Asks the client to (re)fetch POI records for the current log. Without
         -- this the first map open after login has nothing to draw.
         if QuestPOIUpdateIcons then QuestPOIUpdateIcons() end
     end
 
-    Update()
+    RequestUpdate()
 end)
 
 -- Same hook point WDM's AtlasPOI module uses, so pins are re-laid-out on every
 -- map redraw: zone change, continent change, and map resize all route through it.
 if type(WorldMapFrame_Update) == "function" then
-    hooksecurefunc("WorldMapFrame_Update", Update)
+    hooksecurefunc("WorldMapFrame_Update", RequestUpdate)
 end
 
 -- Windowed <-> fullscreen resizes WorldMapButton, and every pin and blob
@@ -853,16 +965,13 @@ end
 -- reliably fire on that transition, so the old layout was simply kept -- which
 -- is why the small map worked and the full map did not.
 if WorldMapButton then
-    WorldMapButton:HookScript("OnSizeChanged", function() Update() end)
-    WorldMapButton:HookScript("OnShow", function() Update() end)
-end
-
-if type(WorldMapFrame_Update) == "function" then
+    WorldMapButton:HookScript("OnSizeChanged", function() RequestUpdate() end)
+    WorldMapButton:HookScript("OnShow", function() RequestUpdate() end)
 end
 
 -- Called by the ledger module when a fresh burst lands, so the pins follow the
 -- data even with the ledger window closed.
-UQ.RefreshPins = Update
+UQ.RefreshPins = RequestUpdate
 
 -- ---------------------------------------------------------------------------
 -- Map filter button

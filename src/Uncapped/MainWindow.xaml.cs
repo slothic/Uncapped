@@ -798,6 +798,23 @@ public partial class MainWindow : Window
         {
             _state.LastManifestHash = _manifestHash;
             _state.Save();
+
+            /*
+             * ★ THE ONLY MOMENT IT IS SAFE TO RECLAIM DOWNLOAD PARTIALS.
+             *
+             * Sync has finished and every hash agreed, so anything still sitting in a
+             * .uncapped-tmp is by definition not part of the install we just certified. The
+             * pattern is in the baseline's toleratedPatterns, which means nothing else in this
+             * launcher will ever mention it, repair it or remove it -- a cancelled repair of
+             * common.MPQ could leave 2.88 GB on a player's disk permanently, with nothing on
+             * screen to explain where it went.
+             *
+             * Off the UI thread because it walks the install tree; not awaited, because a
+             * housekeeping pass must never be able to delay PLAY.
+             */
+            var downloadDir = AppPaths.DownloadDir;
+            _ = Task.Run(() => ResilientDownload.SweepOrphans(installPath, downloadDir));
+
             ShowRepair(false);
             EnablePlay(summary);
             SetStatus("Ready.");

@@ -114,8 +114,17 @@ only if the client we distribute changes, or to add a locale.
 ```powershell
 .\tools\New-Baseline.ps1 -ClientDir 'C:\Wotlk\Client\ChromieCraft_3.3.5a - Copy'
 bash tools/Publish-Baseline.sh          # uploads + verifies hashes on the host
+python tools/verify-base-host.py        # ★ REQUIRED — see below
 scp baseline.json root@152.53.115.249:/srv/uncapped-patches/public/baseline.json
 ```
+
+★★ **`verify-base-host.py` is not optional, and running it here is the whole point.**
+`preflight-release.sh` §6 runs it and fails the release if it does not pass — but **a baseline
+publish done on its own never touches preflight**, and that standalone path is exactly the one the
+2026-08-12 incident took. Running it as part of this sequence is what closes that gap.
+
+By default it checks presence and length only. `PREFLIGHT_HASH_BASE=1` makes it hash the bytes the
+host actually serves (~30 MB) — worth it whenever the uploaded set changed.
 
 ### Source the bytes from a client you trust
 

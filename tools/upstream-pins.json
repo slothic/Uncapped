@@ -1,0 +1,10 @@
+{
+  "_comment": "LA-11. Upstream addon zips from Trimitor/WDM-addons, pinned by content and not merely by tag. Update-Upstream.ps1 used to verify a download against the size the GitHub API reported for that same asset -- which is a recording, not a check: whatever can replace the asset behind a pinned tag can report its new size too, and the result is unreviewed third-party Lua staged into the payload and shipped to every client. These sha256s are the bytes that have actually shipped, hashed from Addons/upstream on 2026-08-23.",
+  "_howto": "When you deliberately move to a new upstream tag: bump 'tag' here, run Update-Upstream.ps1, and it will HARD FAIL naming the new hash. Review the new addon code, then paste the hash in. The failure is the review prompt -- do not add a switch that skips it.",
+  "tag": "1.0.9-stable",
+  "assets": {
+    "Astrolabe.zip": "c3f2c32a879165ca5d66608393ea1f279bbd4bcb705bff7342516b92ab508db3",
+    "WDM.zip": "3d294c67118e8605819221e7079255a64d612677f23d57067824b154ad4d525f",
+    "QuestHelper.zip": "3e505011ef6a0f863cc3791d3718a04bb4100a84aa5c1df2e2aceb3747e3e260"
+  }
+}

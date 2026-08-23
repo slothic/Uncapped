@@ -29,6 +29,30 @@ public sealed class CdnGate
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(15);
 
+    /// <summary>
+    /// The largest body this gate will pull down to hash.
+    ///
+    /// ★★ THIS CAP IS THE FIX FOR A GATE THAT COULD COST 7.5 GB OF SOMEBODY'S BANDWIDTH.
+    ///
+    /// It used to be a flat GetByteArrayAsync of every file handed to it, once per 15-second
+    /// poll, for up to 24 polls. The set it is handed is SyncOutcome.Mismatched, and that
+    /// includes the externally hosted MPQs -- patch-enUS-Q.MPQ is 313 MB. A single large MPQ
+    /// landing in that set meant re-downloading it 24 times AND allocating a 313 MB byte[]
+    /// each time, on a player who is already blocked and waiting.
+    ///
+    /// Above the cap the gate stops asking "are these the right bytes" and asks "is this the
+    /// right LENGTH", from the response headers alone, with the body never read. That is a
+    /// genuinely weaker test -- and it costs nothing here, because this gate exists for ONE
+    /// condition: raw.githubusercontent.com's Fastly cache still serving release N-1 while the
+    /// manifest describes release N. The files subject to that are our payload addons, all of
+    /// them small. The multi-hundred-MB entries are MPQs on our own host, which has no CDN in
+    /// front of it and cannot be stale in that way.
+    ///
+    /// 16 MB comfortably covers every payload file and the DLL, and is a size a blocked player
+    /// can afford to have re-fetched 24 times.
+    /// </summary>
+    private const long MaxHashBytes = 16L * 1024 * 1024;
+
     private readonly HttpClient _http;
 
     public CdnGate(HttpClient http) => _http = http;
@@ -45,8 +69,38 @@ public sealed class CdnGate
         try
         {
             // Deliberately no cache-buster: we want to see what the cache is handing out.
-            var bytes = await _http.GetByteArrayAsync(file.Url, ct);
-            return Hashing.Matches(Sha256(bytes), file.Sha256);
+            //
+            // ResponseHeadersRead, so the decision about whether to pay for the body is made
+            // BEFORE any of it is transferred. Disposing the response here aborts the request.
+            using var response = await _http.GetAsync(file.Url, HttpCompletionOption.ResponseHeadersRead, ct);
+            response.EnsureSuccessStatusCode();
+
+            var served = response.Content.Headers.ContentLength;
+
+            // Bigger than we are willing to hash: fall back to a length comparison, which needs
+            // no body at all. Unknown length is treated as small enough to try -- an unbounded
+            // read is bounded by MaxHashBytes below in any case.
+            if (served is > MaxHashBytes)
+            {
+                if (file.Size <= 0)
+                {
+                    // Nothing to compare against. Same posture as a network failure: this gate
+                    // must never be the reason PLAY is off.
+                    Log.Write($"cdn check {file.Path}: {served} bytes, no manifest size — treating as current");
+                    return true;
+                }
+
+                var lengthAgrees = served == file.Size;
+                if (!lengthAgrees)
+                    Log.Write($"cdn check {file.Path}: serving {served} bytes, manifest says {file.Size} — stale");
+
+                return lengthAgrees;
+            }
+
+            await using var body = await response.Content.ReadAsStreamAsync(ct);
+            var hash = await SHA256.HashDataAsync(body, ct);
+
+            return Hashing.Matches(Convert.ToHexString(hash).ToLowerInvariant(), file.Sha256);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
@@ -90,6 +144,4 @@ public sealed class CdnGate
         }
     }
 
-    private static string Sha256(byte[] bytes) =>
-        Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 }

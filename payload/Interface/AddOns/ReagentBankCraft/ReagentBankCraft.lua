@@ -23,10 +23,9 @@
 -- the like). Gathered materials cannot be bought and are reported instead.
 -- Bought mats go to bags, overflowing to the reagent bank if bags are full.
 --
--- The UWITHDRAWN:/UREDEPOSITED:/UQUOTE:/UBOUGHT: replies travel over the
--- same channel used for loot notifications, so they're filtered out of chat
--- display entirely (see the ChatFrame_AddMessageEventFilter call below) --
--- purely a data channel, nothing for the player to see.
+-- The UWITHDRAWN:/UREDEPOSITED:/UQUOTE:/UBOUGHT: replies arrive as ADDON
+-- messages on the shared "UNC" prefix. The client never renders one, so there
+-- is nothing to filter out of chat -- purely a data pipe.
 
 -- Prefix for the whole server->client pipe (see the transport note at OnEvent).
 local ADDON_PIPE_PREFIX = "UNC"
@@ -69,10 +68,8 @@ ReagentBankCraft_InitDB()
 
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
-frame:RegisterEvent("CHAT_MSG_CHANNEL")
 frame:RegisterEvent("CHAT_MSG_ADDON")
 
-local myChannelName = nil
 local lastWithdrawnSpellId = nil
 local toldAboutForge = false
 
@@ -96,19 +93,6 @@ end
 
 function ReagentBankCraft_Send(command)
     SendAddonMessage("REAGENTBANK", command, "WHISPER", UnitName("player"))
-end
-
--- Hides our protocol replies (UWITHDRAWN:/UREDEPOSITED:/UMAX:) from
--- ever displaying in any chat window, while still letting the
--- CHAT_MSG_CHANNEL event fire normally so our own handler below still
--- receives and processes it.
-local function ReagentBankChatFilter(self, event, msg, ...)
-    if msg:find("^UWITHDRAWN:") or msg:find("^UREDEPOSITED:") or msg:find("^UMAX:")
-        or msg:find("^UQUOTE:") or msg:find("^UBOUGHT:") or msg:find("^UBUYFAIL:")
-        then
-        return true
-    end
-    return false
 end
 
 -- Formats a copper amount the way the game does: 12g 34s 56c
@@ -183,9 +167,6 @@ StaticPopupDialogs["REAGENTBANK_BUY_CONFIRM"] = {
     hideOnEscape = 1,
 }
 
-ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", ReagentBankChatFilter)
-
-
 local function OnEvent(self, event, ...)
     if event == "ADDON_LOADED" then
         local addonName = ...
@@ -198,9 +179,6 @@ local function OnEvent(self, event, ...)
         if addonName ~= "Blizzard_TradeSkillUI" then
             return
         end
-
-        myChannelName = UnitName("player")
-        JoinChannelByName(myChannelName)
 
         if not TradeSkillCreateButton then
             return
@@ -280,28 +258,25 @@ local function OnEvent(self, event, ...)
             end
         end)
 
-    elseif event == "CHAT_MSG_CHANNEL" or event == "CHAT_MSG_ADDON" then
-        -- Two transports, on purpose.
+    elseif event == "CHAT_MSG_ADDON" then
+        -- ONE transport. The per-player chat channel this used to also listen on
+        -- was retired when the server moved the whole UNC pipe to CHAT_MSG_ADDON
+        -- (ReagentBankChannelProtocol.cpp:79-96 -- SendResponse is now the only
+        -- sender and it never Say()s). Gone with the channel branch: the
+        -- JoinChannelByName, and the CHAT_MSG_CHANNEL message filter.
         --
-        -- CHAT_MSG_ADDON is where the pipe is moving: the client never renders
-        -- it, so the protocol can no longer leak into chat when an addon fails
-        -- to load. CHAT_MSG_CHANNEL is the old transport, kept because one
-        -- payload serves both realms and a realm still running the previous
-        -- worldserver would go silent otherwise. Drop the channel branch once
-        -- every realm is converted.
+        -- ⚠ That filter was not merely dead weight. It suppressed ANY World-chat
+        -- line beginning "UWITHDRAWN:", "UREDEPOSITED:", "UMAX:", "UQUOTE:",
+        -- "UBOUGHT:" or "UBUYFAIL:", so a player typing one of those in World was
+        -- silently invisible to everyone running this addon. (Its "UMAX:" term
+        -- was doubly dead: nothing on either side has sent UMAX since UCHECK was
+        -- retired -- see AR-10/SC-10.)
         --
-        --   CHAT_MSG_ADDON   : a1 = prefix, a2 = body
-        --   CHAT_MSG_CHANNEL : a1 = body,   a2 = author (our own name)
+        --   CHAT_MSG_ADDON : a1 = prefix, a2 = body
         local a1, a2 = ...
-        local text
-        if event == "CHAT_MSG_ADDON" then
-            -- Also catches our own outgoing REAGENTBANK messages echoing back.
-            if a1 ~= ADDON_PIPE_PREFIX then return end
-            text = a2
-        else
-            if a2 ~= UnitName("player") then return end
-            text = a1
-        end
+        -- Also catches our own outgoing REAGENTBANK messages echoing back.
+        if a1 ~= ADDON_PIPE_PREFIX then return end
+        local text = a2
         if not text then
             return
         end

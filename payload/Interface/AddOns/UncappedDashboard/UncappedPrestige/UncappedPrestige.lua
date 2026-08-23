@@ -146,7 +146,6 @@ local function NewState()
         craftsPerLevel = 0,
         maxLevel       = 0,
         craftPctPerLevel = 0,
-        stackablesOnly = true,
         gatherCredit   = 1,
         rows           = {},
     }
@@ -370,7 +369,15 @@ local function HandleMessage(text)
         return
     end
 
-    local enabled, yield, perLevel, maxLevel, craftPct, stackables, credit =
+    -- ⚠ Field 6 is RETIRED and deliberately parsed-then-dropped. It carried
+    -- CraftStackablesOnly, which gated an extra-items payout that was replaced on
+    -- 2026-08-15 by the Soulforge-food chance this card already renders -- no
+    -- gameplay path consults it any more (server half: GC-16). It is still
+    -- CAPTURED because this pattern is positional: a server that stops sending
+    -- the field would make the whole match fail and silently break every prestige
+    -- setting on this card, so the field has to leave the wire and this pattern
+    -- in the same pass.
+    local enabled, yield, perLevel, maxLevel, craftPct, _retired6, credit =
         string.match(text, "^PRSCFG:(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
     if enabled then
         local p = Staging()
@@ -379,7 +386,6 @@ local function HandleMessage(text)
         p.craftsPerLevel   = tonumber(perLevel) or 0
         p.maxLevel         = tonumber(maxLevel) or 0
         p.craftPctPerLevel = tonumber(craftPct) or 0
-        p.stackablesOnly   = stackables == "1"
         p.gatherCredit     = tonumber(credit) or 1
         return
     end
@@ -518,10 +524,11 @@ local function ShowCardTooltip(self)
             .. "spellthreads do not.", 0.7, 0.55, 0.35, true)
     end
 
-    if HasFlag(d.flags, F_CRAFT) and state.stackablesOnly then
-        GameTooltip:AddLine("Extra items are paid on stackable products -- bars, cloth, potions, gems.",
-            0.7, 0.7, 0.7, true)
-    end
+    -- (Removed: an "extra items are paid on stackable products" line fed by the
+    -- retired CraftStackablesOnly config. The extra-items payout it described was
+    -- replaced on 2026-08-15 by the Soulforge-food chance rendered above, so on
+    -- any realm that set the key to 1 this tooltip advertised a reward that no
+    -- longer exists. See DP-05 / GC-16.)
 
     if HasFlag(d.flags, F_GATHER) then
         if state.gatherCredit == 1 then

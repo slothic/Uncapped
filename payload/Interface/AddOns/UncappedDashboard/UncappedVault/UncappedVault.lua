@@ -1,10 +1,9 @@
 -- UncappedVault -- core vault state and server transport.
--- Derived from UncappedVault's live VLT* protocol, bag hooks, demo data shape,
--- item-cache warming, and withdraw/deposit behaviour.
+-- Derived from UncappedVault's live VLT* protocol, bag hooks, item-cache
+-- warming, and withdraw/deposit behaviour.
 
 local ADDON_PIPE_PREFIX = "UNC"
 local TRANSPORT_PREFIX = "REAGENTBANK"
-local FORCE_LIVE = true
 local ADDON = "UncappedVault"
 -- Bump this whenever the MEANING of a cached field changes, not just its shape.
 -- v2: the server now reports quest-shaped items as class 12 so they file under
@@ -41,27 +40,13 @@ Core.version = "0.0.1"
 Core.ADDON = ADDON
 Core.callbacks = Core.callbacks or {}
 
-local function RealmIsDev()
-    local r = GetRealmName and GetRealmName()
-    return r and find(lower(r), "dev", 1, true) ~= nil
-end
-
-Core.demo = not (FORCE_LIVE or RealmIsDev())
-
-local DEMO_ITEMS = {
-    { e = 49623, q = 5, c = 1,   n = "Shadowmourne",                         i = "Interface\\Icons\\INV_Axe_113", cls = 2,  sub = 1,  ilvl = 80 },
-    { e = 33470, q = 3, c = 200, n = "Frostweave Cloth",                     i = "Interface\\Icons\\INV_Fabric_Frostweave", cls = 7, sub = 5, ilvl = 1 },
-    { e = 36910, q = 2, c = 150, n = "Titanium Ore",                         i = "Interface\\Icons\\INV_Ore_Titanium_01", cls = 7, sub = 7, ilvl = 1 },
-    { e = 40211, q = 1, c = 20,  n = "Potion of Speed",                      i = "Interface\\Icons\\INV_Potion_108", cls = 0, sub = 1, ilvl = 1 },
-    { e = 34057, q = 4, c = 5,   n = "Abyss Crystal",                        i = "Interface\\Icons\\INV_Enchant_VoidCrystal", cls = 7, sub = 12, ilvl = 1 },
-    { e = 40905, q = 4, c = 1,   n = "Relentless Gladiator's Plate Chestpiece", i = "Interface\\Icons\\INV_Chest_Plate_25", cls = 4, sub = 4, ilvl = 80 },
-    { e = 33568, q = 2, c = 80,  n = "Heavy Borean Leather",                 i = "Interface\\Icons\\INV_Misc_LeatherScrap_08", cls = 7, sub = 6, ilvl = 1 },
-    { e = 22449, q = 3, c = 12,  n = "Large Prismatic Shard",                i = "Interface\\Icons\\INV_Enchant_ShardPrismaticLarge", cls = 7, sub = 12, ilvl = 1 },
-    { e = 43543, q = 1, c = 3,   n = "Glyph of Frost Strike",                i = "Interface\\Icons\\INV_Inscription_MajorGlyph00", cls = 16, sub = 6, ilvl = 1 },
-    { e = 52325, q = 2, c = 25,  n = "Volatile Fire",                        i = "Interface\\Icons\\Spell_Fire_FelFire", cls = 7, sub = 10, ilvl = 1 },
-    { e = 36931, q = 4, c = 1,   n = "Ilvl 200 Epic Gem",                    i = "Interface\\Icons\\INV_Misc_Gem_Diamond_06", cls = 3, sub = 0, ilvl = 200 },
-    { e = 43102, q = 3, c = 2,   n = "Crusader Orb",                         i = "Interface\\Icons\\Spell_Frost_FrozenOrb", cls = 7, sub = 10, ilvl = 1 },
-}
+-- ★ [DE-14] Demo mode is gone.
+--
+-- It was unreachable at compile time: FORCE_LIVE was a file-local `true` that
+-- nothing ever reassigned, so `Core.demo = not (FORCE_LIVE or RealmIsDev())`
+-- was permanently false. With it went RealmIsDev, the 12-row DEMO_ITEMS
+-- table, LoadDemo and twelve `if Core.demo` guards -- including a whole
+-- client-side withdraw simulation inside Core.Withdraw that could never run.
 
 Core.items = Core.items or {}
 Core.filtered = Core.filtered or {}
@@ -75,6 +60,19 @@ Core.depositCount = 0
 Core.withdrawCount = 0
 Core.cacheLoaded = false
 Core.cacheDirty = false
+--[[ ★ [DE-06] The DERIVED view is behind Core.items, and nobody is looking.
+
+     Raised whenever an update lands while the Vault panel is off screen and the
+     Rebuild+repaint is therefore skipped -- see FlushVaultUpdate and the warmer.
+     Deliberately a Core field rather than a file-local, for exactly the reason
+     cacheDirty is one: the places that raise it and the places that clear it are
+     five hundred and fifteen hundred lines apart, and a local declared at either
+     end is invisible at the other.
+
+     ⚠ IT MEANS "THE SCREEN IS STALE", NOT "THE TABLES ARE". Core.items is always
+     current -- the message handler writes it before any of this runs. Clear it
+     only alongside a real Notify(), never after a bare Core.Rebuild(). ]]
+Core.displayDirty = false
 
 local state = {
     query = "",
@@ -804,6 +802,52 @@ function Core.ItemAgeText(it)
     return max(1, min(99, added)) .. "d"
 end
 
+-- Is the vault window actually on screen? Resolved defensively: the UI half is a
+-- separate file and may not have registered yet, and a nil here must mean
+-- "assume hidden and be cheap", never an error on the update path.
+--
+-- ★ [DE-06] Moved up here from the flusher block. It has no load-time
+-- dependency of its own (Core.UI is populated at runtime by RegisterUI), and
+-- both callers that need it -- the flusher AND the item-cache warmer -- now sit
+-- on opposite sides of Notify. One definition, not two that can drift.
+local function VaultWindowShown()
+    local ui = Core.UI
+    if not ui then return false end
+    if type(ui.IsShown) == "function" then
+        local ok, shown = pcall(ui.IsShown)
+        if ok then return shown and true or false end
+    end
+    local f = ui.frame
+    if f and type(f.IsShown) == "function" then return f:IsShown() and true or false end
+    return false
+end
+
+--[[ ★★ [DE-05] THE NARROWING FAST PATH.
+
+     Set by Core.SetQuery when the new query is the old one plus more characters,
+     and consumed by the very next Core.Rebuild. Nothing else ever sets it, so
+     every other rebuild -- a snapshot, a deposit, a withdraw, a name arriving from
+     the item cache, a category click -- takes the full pass exactly as before.
+
+     The invariant it rests on, stated out loud because breaking it shows the
+     player a WRONG LIST rather than an error:
+
+       Core.filtered was built from the CURRENT value of every filter except the
+       query, and from `narrowFrom` as the query.
+
+     That holds because SetQuery is the only thing that changes the query, it
+     changes nothing else, and it sets narrowFrom and calls Notify in the same
+     synchronous breath -- no frame boundary, no event, nothing can run between.
+     ⚠ If SetQuery is ever made to defer its Notify, narrowFrom must be cleared
+       rather than carried across the gap.
+
+     Why it is worth having: a longer query can only ever REMOVE rows. The match is
+     a plain substring test, so if the old query is a prefix of the new one, any
+     name containing the new one already contained the old one. The new result set
+     is therefore a subset of the old one IN THE SAME ORDER -- no re-count, no
+     re-categorise, and above all NO RE-SORT. ]]
+local narrowFrom = nil
+
 local function Notify(reason)
     Core.Rebuild()
     if Core.UI and Core.UI.Refresh then Core.UI.Refresh(reason) end
@@ -819,7 +863,20 @@ function Core.SetMode(mode)
 end
 
 function Core.SetQuery(q)
-    state.query = lower(q or "")
+    local nq = lower(q or "")
+    -- ⚠ EditBox:SetText fires OnTextChanged even when the text did not change, and
+    --   this window's own Escape handler does exactly that. Without this guard a
+    --   bare Escape on an already-empty box cost a full rebuild of a 4,000-row vault.
+    if nq == (state.query or "") then return end
+
+    -- Only ever a STRICT extension: "fro" -> "fros" narrows; "fros" -> "fro" (a
+    -- backspace) and "fro" -> "ice" (a paste) do not, and take the full pass.
+    -- Extending "" counts -- the previous set was everything, so the first
+    -- character of a query narrows from it just as well as the fifth does.
+    local old = state.query or ""
+    narrowFrom = (#nq > #old and strsub(nq, 1, #old) == old) and old or nil
+
+    state.query = nq
     state.page = 1
     Notify("filter")
 end
@@ -1176,13 +1233,22 @@ local function BuildGridLayout()
     local grid = Core.gridLayout
     while #grid > 0 do tremove(grid) end
 
-    local sorter = SORTERS[state.sort] or SORTERS.recent
+    --[[ ★ [DE-05] NO SORT HERE. There used to be one and it could never change
+         anything: Core.Rebuild sorts Core.filtered with this exact comparator
+         immediately before calling us, and the buckets below are filled by walking
+         Core.filtered in order -- so every bucket arrives already sorted. It was a
+         second full O(n log n) pass per rebuild, over the same data, for the same
+         answer.
+
+         ⚠ It was also mildly HARMFUL: table.sort is not stable, so re-sorting an
+           already-sorted list could permute rows the comparator calls equal and
+           leave grid view in a different order from list view. Dropping it makes
+           the two agree.
+
+         ⚠ If BuildGridLayout ever gains a caller that has not sorted Core.filtered
+           first, this has to come back. Today Core.Rebuild is the only one. ]]
     local function Emit(key, label, bucket)
         if not bucket or #bucket == 0 then return end
-        sort(bucket, function(a, b)
-            if state.sortAsc then return sorter(b, a) end
-            return sorter(a, b)
-        end)
         grid[#grid + 1] = { header = true, key = key, label = label, count = #bucket }
         for i = 1, #bucket do
             grid[#grid + 1] = { item = bucket[i] }
@@ -1228,6 +1294,46 @@ end
 
 function Core.Rebuild()
     local q = state.query or ""
+
+    --[[ [DE-05] The narrowing fast path -- see the note above Notify.
+
+         Everything the full pass below computes EXCEPT `filtered` is
+         query-independent: totalItems, spaceUsed, hiddenByClass, the sidebar
+         counts, the subcategory counts, the Slot dropdown's contents and
+         Core.categories are all accumulated ABOVE the query test and are
+         identical for "fro" and "fros". So a narrowing keystroke needs to prune
+         the existing result set and rebuild the grid layout, and nothing else --
+         no walk of Core.items, no counting, and no sort, because removing rows
+         from a sorted list leaves it sorted.
+
+         The equipSlot auto-reset further down cannot fire here for the same
+         reason: it keys off eqCounts, which a query cannot change.
+
+         ⚠ The grid build is gated on view mode for the same reason it is at the
+           tail of the full pass -- see the [DE-08] note there. ]]
+    local narrow = narrowFrom
+    narrowFrom = nil
+    if narrow and q ~= "" then
+        local filtered = Core.filtered
+        local keep = 0
+        for i = 1, #filtered do
+            local it = filtered[i]
+            if lower(ResolveName(it)):find(q, 1, true) then
+                keep = keep + 1
+                filtered[keep] = it
+            end
+        end
+        for _ = #filtered, keep + 1, -1 do tremove(filtered) end
+
+        if state.viewMode == "grid" then
+            BuildGridLayout()
+            Core.BuildGridPages()
+        end
+        local pages = Core.PageCount()
+        if state.page > pages then state.page = pages end
+        return
+    end
+
     local category = state.category or "all"
     local subcategory = state.subcategory or "all"
     local quality = tonumber(state.quality) or -1
@@ -1353,8 +1459,21 @@ function Core.Rebuild()
     end
     Core.subcategoryCounts = subCounts
 
-    BuildGridLayout()
-    Core.BuildGridPages()
+    -- ★ [DE-08] Grid layout only in grid view.
+    --
+    -- BuildGridLayout buckets every filtered row, RE-SORTS every bucket with
+    -- the comparator Rebuild just used, and allocates one fresh table per
+    -- item -- and nothing reads any of it unless viewMode is "grid" (list is
+    -- the default). It ran on every Rebuild, so it doubled the sort cost and
+    -- added N table allocations to every filter, sort and live update for the
+    -- majority of players, compounding every other Rebuild cost.
+    --
+    -- Switching view goes through Core.SetViewMode -> Notify -> Rebuild with
+    -- viewMode already set, so entering grid always builds a fresh layout.
+    if state.viewMode == "grid" then
+        BuildGridLayout()
+        Core.BuildGridPages()
+    end
     local pages = Core.PageCount()
     if state.page > pages then state.page = pages end
 end
@@ -1415,8 +1534,39 @@ local function EnqueueWarm(e)
 end
 Core.EnqueueWarm = EnqueueWarm
 
+--[[ ★ [DE-07] O(1) row lookup.
+
+     FindRow used to be a linear scan over the whole vault, and it is called
+     ONCE PER ROW inside the VLTROWUPD loop, the VLTUPD loop and VLTWDONE. A
+     burst during a pull -- several rows per message, many messages a second --
+     was therefore k x N field comparisons per second on the UI thread over a
+     4,000-row table, and none of it was covered by the flush coalescer: the
+     coalescer defers SaveCache/Push/Notify, the scan runs inline on the frame
+     the message lands.
+
+     Kept honest by construction rather than by discipline:
+       - the index is LAZY. nil means "stale", and the next FindRow rebuilds
+         it. Bulk paths (ClearItems, snapshot refill, cache load) just drop it
+         and pay one rebuild.
+       - single appends patch it in place, so a VLTROWUPD loop that adds a row
+         and then looks another one up does not rebuild per iteration.
+       - removals drop it. They are rare (a stack hitting zero) and the tremove
+         they accompany is O(N) anyway.
+     e/rp never change on a live row -- only `c` does -- so a key cannot go
+     stale under a row that is still in the table. ]]
+local rowIndex   -- nil = stale, rebuilt on next FindRow
+
+local function RowKey(e, rp) return (e or 0) .. ":" .. (rp or 0) end
+
+local function InvalidateRowIndex() rowIndex = nil end
+
+local function IndexRow(it)
+    if rowIndex and it then rowIndex[RowKey(it.e, it.rp or 0)] = it end
+end
+
 local function ClearItems()
     while #Core.items > 0 do tremove(Core.items) end
+    InvalidateRowIndex()
 end
 
 local function CopyItem(it)
@@ -1479,7 +1629,6 @@ local function CaptureBagItem(bag, slot, fallbackLink)
 end
 
 function Core.SaveCache()
-    if Core.demo then return end
     local db = Core.GetDB()
     db.cacheVersion = CACHE_VERSION
     db.cacheSavedAt = time and time() or floor(GetTime() or 0)
@@ -1491,7 +1640,6 @@ function Core.SaveCache()
 end
 
 function Core.ClearCache()
-    if Core.demo then return end
     local db = Core.GetDB()
     db.cacheVersion = CACHE_VERSION
     db.cacheSavedAt = nil
@@ -1501,7 +1649,6 @@ function Core.ClearCache()
 end
 
 function Core.LoadCache()
-    if Core.demo then return false end
     local db = Core.GetDB()
     if db.cacheVersion ~= CACHE_VERSION or type(db.cachedItems) ~= "table" or #db.cachedItems == 0 then
         return false
@@ -1619,7 +1766,35 @@ warmer:SetScript("OnUpdate", function(_, dt)
     end
     if iconsDirty then
         iconsDirty = false
-        Notify("icons")
+        --[[ ★★ [DE-06] The same gate as the flusher, and this is the HARSHER of
+             the two sites by an order of magnitude.
+
+             The launcher wipes Cache\WDB on every launch (the arithmetic is
+             spelled out above), so EVERY session begins with the entire vault
+             cold -- ~3,800 entries on the realm's largest. This branch is then
+             reached on essentially every 0.2s pass for the ~40 seconds it takes
+             to warm them: ~190 full Rebuilds in the first minute of every login,
+             before the player has clicked anything, whether or not the Dashboard
+             has ever been opened.
+
+             ⚠ AND REBUILD IS A QUERY FAUCET WHILE COLD. ResolveName and
+             EquipSlotFor each call GetItemInfo for every row still unresolved,
+             which during a warm-up is nearly all of them -- so this was firing up
+             to 2xN cache lookups five times a second, straight past the closed
+             loop MAX_INFLIGHT exists to enforce. Read the ★★ note above: the
+             rate is supposed to be set by the ANSWERS, not by a timer. Rebuild
+             was quietly breaking that.
+
+             Deferring costs nothing. The only thing Rebuild does with a warmed
+             answer is write it into it.n / it.eq for display, and the single
+             Rebuild that runs when the panel is next opened reads every one of
+             them out of a WDB that is warm by then, in one pass. ]]
+        if VaultWindowShown() then
+            Core.displayDirty = false
+            Notify("icons")
+        else
+            Core.displayDirty = true
+        end
         --[[ Persist ONCE, when the queue finally drains.
 
              Notify above re-runs Rebuild, which is what resolves and caches
@@ -1632,7 +1807,6 @@ warmer:SetScript("OnUpdate", function(_, dt)
 end)
 
 function Core.Send(msg)
-    if Core.demo then return end
     if SendAddonMessage then
         SendAddonMessage(TRANSPORT_PREFIX, msg, "WHISPER", UnitName("player"))
     end
@@ -1648,11 +1822,6 @@ local recacheTicker = CreateFrame("Frame")
 recacheTicker:Hide()
 recacheTicker.elapsed = 0
 recacheTicker:SetScript("OnUpdate", function(self, dt)
-    if Core.demo then
-        self:Hide()
-        return
-    end
-
     self.elapsed = (self.elapsed or 0) + (dt or arg1 or 0)
     if self.elapsed < RECACHE_INTERVAL then return end
     self.elapsed = 0
@@ -1682,9 +1851,14 @@ function Core.ManualRefresh()
 end
 
 local function FindRow(e, rp)
-    for _, it in ipairs(Core.items) do
-        if it.e == e and (it.rp or 0) == rp then return it end
+    if not rowIndex then
+        rowIndex = {}
+        for i = 1, #Core.items do
+            local it = Core.items[i]
+            rowIndex[RowKey(it.e, it.rp or 0)] = it
+        end
     end
+    return rowIndex[RowKey(e, rp)]
 end
 
 local function ApplyDepositToCache(item)
@@ -1701,31 +1875,39 @@ local function ApplyDepositToCache(item)
         row.i = row.i or item.i
         row.n = (row.n and row.n ~= "" and row.n) or item.n or ""
     else
-        Core.items[#Core.items + 1] = CopyItem(item)
+        local fresh = CopyItem(item)
+        Core.items[#Core.items + 1] = fresh
+        IndexRow(fresh)                      -- [DE-07]
     end
 
     Core.depositCount = Core.depositCount + 1
     EnqueueWarm(item.e)
-    Core.SaveCache()
+    -- ★ [DE-12] Mark, do not save. SaveCache deep-copies the ENTIRE vault --
+    -- a fresh 13-field table per row -- so on a 4,000-row vault one drag
+    -- deposit was 4,000 table allocations and ~52,000 field writes, and
+    -- shift-clicking down a page was a visible hitch per click. The flusher's
+    -- 15s save, the warm-queue drain and the logout force-flush all already
+    -- honour Core.cacheDirty; SavedVariables is only ever read at login.
+    Core.cacheDirty = true
     Notify("deposit")
 end
 
 function Core.Withdraw(item, count)
     if not item then return end
     count = max(1, min(tonumber(count) or 1, tonumber(item.c) or 1))
-    if Core.demo then
-        item.c = max(0, (item.c or 0) - count)
-        Core.withdrawCount = Core.withdrawCount + 1
-        if item.c <= 0 then
-            for i, it in ipairs(Core.items) do
-                if it == item then tremove(Core.items, i); break end
-            end
-            if Core.selectedItem == item then Core.selectedItem = nil end
-        end
-        Notify("withdraw")
-        return
-    end
-    Core.Send(format("VLTWD:%d:%d:%d", item.e, item.rp or 0, count))
+    -- ★ [DE-03] The COUNT goes out as %s, not %d.
+    --
+    -- The server sends a vault amount as uint64 (loot_vault_comms_playerscript
+    -- .cpp:144) and parses this field back as text -- but Lua 5.1 on this
+    -- 32-bit client casts %d through a 32-bit lua_Integer, so a single stack
+    -- over 2,147,483,647 went out wrapped. Latent (the largest stack recorded
+    -- on this realm is 235,345 Silk Cloth) and wrong on a field the server
+    -- deliberately widened. %.0f is exact to 2^53 and never uses exponent
+    -- form the way tostring() renders 1e15.
+    --
+    -- [DE-14] The dead client-side demo simulation that used to sit here went
+    -- with demo mode; it could not run.
+    Core.Send(format("VLTWD:%d:%d:%s", item.e, item.rp or 0, format("%.0f", count)))
 end
 
 -- Bulk deposit: hand the whole decision to the server.
@@ -1736,7 +1918,6 @@ end
 -- and would drift from the loot path the moment that rule changed. One token,
 -- server decides, server replies with a summary.
 function Core.DepositAllBags()
-    if Core.demo then return end
     Core.Send("VLTDEPALL")
 end
 
@@ -1767,7 +1948,6 @@ if hooksecurefunc then
 end
 
 function Core.DepositCursor()
-    if Core.demo then ClearCursor(); return end
     if not CursorHasItem() then return end
     local t, _, cursorLink = GetCursorInfo()
     --[[ Second guard on top of the pickup hooks: if that slot now reports a
@@ -1799,7 +1979,7 @@ end
 
 if hooksecurefunc then
     hooksecurefunc("HandleModifiedItemClick", function(link)
-        if Core.demo or not link then return end
+        if not link then return end
         if not (Core.UI and Core.UI.IsShown and Core.UI.IsShown()) then return end
         if not (IsControlKeyDown() or IsShiftKeyDown()) then return end
         for bag = 0, 4 do
@@ -1814,19 +1994,6 @@ if hooksecurefunc then
         end
     end)
 end
-
-local function LoadDemo()
-    while #Core.items > 0 do tremove(Core.items) end
-    for k, src in ipairs(DEMO_ITEMS) do
-        Core.items[#Core.items + 1] = {
-            e = src.e, rp = src.rp or 0, q = src.q, c = src.c, n = src.n, i = src.i,
-            icon = src.i, cls = src.cls, sub = src.sub, ilvl = src.ilvl,
-            added = k, days = min(99, k + 1),
-        }
-    end
-    Notify("demo")
-end
-Core.LoadDemo = LoadDemo
 
 --[[ Row parsing and snapshot finalisation, factored out of the addon-message
      handler so the native channel can reuse both verbatim.
@@ -2106,23 +2273,15 @@ local lastSave = 0
 local flusher = CreateFrame("Frame")
 local flushAcc = 0
 
--- Is the vault window actually on screen? Resolved defensively: the UI half is a
--- separate file and may not have registered yet, and a nil here must mean
--- "assume hidden and be cheap", never an error on the update path.
-local function VaultWindowShown()
-    local ui = Core.UI
-    if not ui then return false end
-    if type(ui.IsShown) == "function" then
-        local ok, shown = pcall(ui.IsShown)
-        if ok then return shown and true or false end
-    end
-    local f = ui.frame
-    if f and type(f.IsShown) == "function" then return f:IsShown() and true or false end
-    return false
-end
-
 local function FlushVaultUpdate(force)
-    if not dirty then return end
+    if not dirty then
+        -- [DE-12] A deposit or a withdraw sets cacheDirty without setting
+        -- `dirty` (nothing about them needs coalescing -- they repaint at
+        -- once). Logout must still write that out: it is the only moment the
+        -- deferred save cannot be deferred again.
+        if force and Core.cacheDirty then Core.SaveCache() end
+        return
+    end
     dirty = false
 
     local now = GetTime and GetTime() or 0
@@ -2135,12 +2294,71 @@ local function FlushVaultUpdate(force)
         Core.cacheDirty = true
     end
 
+    --[[ ★★ ALWAYS, WINDOW OR NO WINDOW. This one is not a repaint.
+
+         PushVaultCountsToClient is what the ENGINE reads. The 3.3.5 client works
+         out quest objective progress ("3/5") and tradeskill reagent availability
+         by counting bags itself, below FrameXML, and UncappedCT.dll hooks that
+         count to add the vault's stock. Gate this and a player farming a vaulted
+         turn-in watches it sit at 0/5 while it drops -- with the Dashboard shut,
+         which is exactly when they are farming it. ]]
     PushVaultCountsToClient()
-    Notify(dirtyReason)
-    dirtyReason = "update"
+
+    --[[ ★★ [DE-06] BUT THE REPAINT WAITS FOR SOMEBODY TO BE LOOKING.
+
+         Notify is Core.Rebuild() + Core.UI.Refresh(): a walk of every row that
+         resolves a name and an equip slot each, two O(n log n) sorts, one fresh
+         table per row for the grid layout, and then a pass over every widget in
+         the panel. On the realm's largest vault that is 3,802 rows and ~3,900
+         table allocations, and it was being done for a panel nobody could see.
+
+         The interval above only ever made that CHEAPER, never SKIPPED, and
+         "cheaper" is the wrong axis when the result is discarded unseen. There
+         was no fallback early-out to save it either: Core.UI is registered
+         unconditionally at load (UncappedVault_UI.lua:8) and `frame` survives
+         the whole session once the Dashboard has been opened once, so
+         UI.Refresh's nil-guard never fires again.
+
+         ⚠ NOTHING IS LOST BY WAITING. Core.items was updated the instant the
+         message landed; only the DERIVED view (filtered/categories/gridLayout)
+         and the pixels are deferred. UI.Activate (UncappedVault_UI.lua)
+         rebuilds and repaints both, unconditionally, every single time the Vault
+         tab is selected -- so the window is already correct the moment it opens.
+         displayDirty is the belt to that braces: it covers a future path that
+         reaches the screen without going through Activate. An update that lands
+         while hidden and is never drawn would be a far worse bug than the cost
+         this removes. ]]
+    if VaultWindowShown() then
+        Core.displayDirty = false
+        Notify(dirtyReason)
+        dirtyReason = "update"
+    else
+        Core.displayDirty = true
+    end
 end
 
 flusher:SetScript("OnUpdate", function(self, dt)
+    --[[ ★ [DE-06] Pay the deferred repaint the moment the panel is on screen.
+
+         ⚠ THIS MUST STAY ABOVE THE `if not dirty` LINE. A repaint can be owed
+         long after the last update landed -- dirty is already false by then --
+         so putting this below the early-out is the one edit that reintroduces
+         the exact regression the flag exists to prevent: a vault the player
+         opens to find frozen at the state it had ten minutes ago.
+
+         Costs one VaultWindowShown() per frame ONLY while a repaint is actually
+         owed AND the window is shut -- never on an idle client, and never once
+         the debt is paid. In practice it fires on nothing at all, because
+         UI.Activate already does the same Rebuild+Refresh on every Vault-tab
+         selection and every one of the three Buttons.Show() call sites is
+         followed immediately by UncappedDashboard.UI.Refresh(). It is here so
+         that stops being something a future edit has to remember. ]]
+    if Core.displayDirty and VaultWindowShown() then
+        Core.displayDirty = false
+        Notify(dirtyReason)
+        dirtyReason = "update"
+    end
+
     if not dirty then return end
     flushAcc = flushAcc + (dt or arg1 or 0)
     local interval = VaultWindowShown() and FLUSH_INTERVAL_OPEN or FLUSH_INTERVAL_CLOSED
@@ -2223,12 +2441,14 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
             if it then
                 if it.c ~= c then it.c = c touched = true end
             else
-                Core.items[#Core.items + 1] = CopyItem({
+                local fresh = CopyItem({
                     e = e, rp = rp, c = c, q = tonumber(q),
                     cls = tonumber(cls), sub = tonumber(subc), ilvl = tonumber(ilvl),
                     icon = (icon ~= "" and ("Interface\\Icons\\" .. icon)) or nil,
                     n = "",
                 })
+                Core.items[#Core.items + 1] = fresh
+                IndexRow(fresh)              -- [DE-07]
                 EnqueueWarm(e)
                 touched = true
             end
@@ -2263,6 +2483,7 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
                     for k, v in ipairs(Core.items) do
                         if v == it then tremove(Core.items, k) break end
                     end
+                    InvalidateRowIndex()     -- [DE-07]
                     if Core.selectedItem == it then Core.selectedItem = nil end
                     touched = true
                 end
@@ -2289,11 +2510,13 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
                 it.c = remaining
                 if remaining <= 0 then
                     for k, v in ipairs(Core.items) do if v == it then tremove(Core.items, k); break end end
+                    InvalidateRowIndex()     -- [DE-07]
                     if Core.selectedItem == it then Core.selectedItem = nil end
                 end
             end
             Core.withdrawCount = Core.withdrawCount + 1
-            Core.SaveCache()
+            -- [DE-12] Mark, do not deep-copy the whole vault per right-click.
+            Core.cacheDirty = true
             if DEFAULT_CHAT_FRAME then
                 DEFAULT_CHAT_FRAME:AddMessage(format("|cff40c0ff[Vault]|r withdrew |cffffffff%sx|r %s", Core.Comma(given), GetItemInfo(e) or ("item " .. e)))
             end
@@ -2377,7 +2600,7 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
              that phantom row behind -- the window says the bag is banked while
              it is still in your hands. Re-ask for the truth; the server sends no
              snapshot on the failure path. ]]
-        if Core.RequestSnapshot and not Core.demo then Core.RequestSnapshot() end
+        if Core.RequestSnapshot then Core.RequestSnapshot() end
     end
 end)
 
@@ -2390,10 +2613,10 @@ local init = CreateFrame("Frame")
 init:RegisterEvent("PLAYER_LOGIN")
 init:SetScript("OnEvent", function()
     Core.GetDB()
-    if Core.demo then
-        LoadDemo()
-        if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r preview ready -- type |cffffd100/dashboard|r to open it.") end
-    else
+    -- [DE-14] Was `if Core.demo then LoadDemo() else <this> end`. Demo mode was
+    -- unreachable, so only this branch ever ran. Left as a plain do-block
+    -- rather than de-indented, so the long #407 note below stays put.
+    do
         if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r ready -- type |cffffd100/dashboard|r to open it.") end
         --[[ ★★ [Custom] Report #407 -- "Vault is slowly refreshing. After a couple of
              relogs it starts to show exact number of items left in the vault."

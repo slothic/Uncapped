@@ -204,8 +204,19 @@ end
 -- never print "in ?".
 local SOURCES, SRC_COUNT = nil, 0
 
+-- DEMAND-LOADED. The source table is 490 KB / 21,553 generated strings and
+-- ~1.8 MB of permanent Lua heap, and nothing at login touches it: its only
+-- callers are the watchlist views, watched-item rows and row tooltips. It lives
+-- in its own ## LoadOnDemand addon (UncappedLootFeedSources) and arrives the
+-- first time somebody actually asks where an item drops.
+--
+-- The `false` memo matters: without it, a client with that addon disabled would
+-- retry LoadAddOn on every tooltip for the rest of the session.
 local function SourceRows()
     if SOURCES == nil then
+        if not _G.UncappedLootFeedSources and LoadAddOn then
+            LoadAddOn("UncappedLootFeedSources")
+        end
         SOURCES = _G.UncappedLootFeedSources or false
         SRC_COUNT = SOURCES and #SOURCES or 0
     end

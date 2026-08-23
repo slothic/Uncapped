@@ -21,6 +21,12 @@ namespace Uncapped.Model;
 /// </summary>
 public sealed class Baseline
 {
+    /// <summary>
+    /// ⚠ LA-14. Parsed, never consulted. There is no schema-version branch anywhere in the
+    /// launcher, so bumping this in a generated baseline changes NOTHING about how an older
+    /// client reads it. If a breaking baseline change is ever needed, the version gate has to be
+    /// written first — this field on its own is not one.
+    /// </summary>
     [JsonPropertyName("baselineVersion")] public int BaselineVersion { get; set; } = 1;
     [JsonPropertyName("generated")] public string? Generated { get; set; }
 
@@ -45,6 +51,12 @@ public sealed class Baseline
     /// Logs, Errors and Screenshots, which are the same kind of player-generated data. Interface
     /// is here too — our addons are covered by the manifest, and everyone else's are the
     /// player's business, not evidence of anything.
+    ///
+    /// ⚠ LA-14. THE CLIENT DOES NOT USE THIS LIST. It is applied by New-Baseline.ps1 at
+    /// GENERATION time — the skipped folders simply never become rows — and the launcher's own
+    /// foreign scan is bounded the other way round, by an allow-list (`checkedRoots`, which is
+    /// just ["Data"]). So editing skipRoots in a published baseline changes nothing on any
+    /// player's machine. Deserialised so the field is not silently dropped on a round-trip.
     /// </summary>
     [JsonPropertyName("skipRoots")] public List<string> SkipRoots { get; set; } = new();
 
@@ -85,6 +97,14 @@ public sealed class BaselineFile
     /// <summary>Where to fetch a replacement. Present on required files only.</summary>
     [JsonPropertyName("url")] public string? Url { get; set; }
 
-    /// <summary>The filename the patch host serves it under. Diagnostic; the URL is what is used.</summary>
+    /// <summary>
+    /// The filename the patch host serves it under.
+    ///
+    /// ⚠ LA-14. Diagnostic in the strict sense: NOTHING in the launcher reads it. Every fetch
+    /// goes through <see cref="Url"/>. It earns its place by being what
+    /// tools/verify-base-host.py and Publish-Baseline.sh name a file by when they talk to the
+    /// host, so a mismatch is legible to a human reading the JSON — but a client-side check
+    /// that trusted it would be trusting a field no code path validates.
+    /// </summary>
     [JsonPropertyName("served")] public string? Served { get; set; }
 }
