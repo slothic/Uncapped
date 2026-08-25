@@ -283,6 +283,52 @@ local function scaleDescription(desc, bases, mult)
   return hit and out or nil
 end
 
+-- Correct the stack count inside a scraped description.
+--
+-- [#999] The description is the spell's own stock text and can disagree with what the
+-- server actually enforces -- the reported case said "Can be applied up to 15 times"
+-- on a proc the server caps at 5. The addon used to print that verbatim because it had
+-- no way to know better; the server now sends the real cap on ICIPROCFACT.
+--
+-- Deliberately narrow: it only rewrites a number that is immediately followed by
+-- "time"/"times", so a duration, a radius or the effect's own magnitude cannot be
+-- caught by it. Returns the text unchanged when there is nothing to correct, when the
+-- server sent no cap, or when the two already agree.
+local function fixStackCount(desc, stackCap)
+  if not desc or not stackCap or stackCap <= 0 then return desc end
+  return (desc:gsub("(%d+)(%s+times?)", function(n, tail)
+    if tonumber(n) == stackCap then return n .. tail end
+    return tostring(stackCap) .. tail
+  end))
+end
+
+-- One short line saying what actually moves this proc's numbers.
+--
+-- [#1033] The extraction ban list told a player "nothing on this realm can scale it, so
+-- every rank you poured in would be wasted" about a proc carrying a 100% spell-power
+-- coefficient. Both halves of that sentence were being guessed at. They are now two
+-- separate facts from the server, and they are genuinely independent -- the proc in that
+-- report scales fully with spell power and not at all with rank.
+local function procScalingNote(p)
+  if not p or p.rankScales == nil then return nil end   -- older server, say nothing
+
+  local from = {}
+  if p.spPct and p.spPct > 0 then from[#from+1] = string.format("spell power (%d%%)", p.spPct) end
+  if p.apPct and p.apPct > 0 then from[#from+1] = string.format("attack power (%d%%)", p.apPct) end
+
+  if p.rankScales then
+    if #from > 0 then
+      return "Ranks raise this, and it also scales with " .. table.concat(from, " and ") .. "."
+    end
+    return "Ranks raise this."
+  end
+
+  if #from > 0 then
+    return "Ranks do NOT raise this \226\128\148 it scales with " .. table.concat(from, " and ") .. " instead."
+  end
+  return "Ranks do NOT raise this, and nothing else scales it either."
+end
+
 -- Wrap `s` into a list of lines of at most `width` characters, breaking on spaces.
 --
 -- Both tooltip paths need this done UP FRONT rather than by the renderer:
@@ -2894,6 +2940,23 @@ local function OnLine(body)
       local last = procs[#procs]
       if last then last.bases = v end
     end
+  elseif cmd == "ICIPROCFACT" then
+    -- <stackCap>:<rankScales>:<spPct>:<apPct> -- the facts about the ICIPROC just
+    -- before it. Reports #999 and #1033: the panel was stating things about a proc
+    -- that were not true, because it had no source for them and fell back to the
+    -- spell's stock description. Its own line, so older builds drop it (same
+    -- reasoning as ICIPROCBP/ICIPROCSRC).
+    local sc, rs, sp, ap = rest:match("^(%d+):(%d+):(%d+):(%d+)$")
+    if sc and sbCurKey and sbStaging[sbCurKey] then
+      local procs = sbStaging[sbCurKey].procs
+      local last = procs[#procs]
+      if last then
+        last.stackCap   = tonumber(sc) or 0
+        last.rankScales = (tonumber(rs) or 0) == 1
+        last.spPct      = tonumber(sp) or 0
+        last.apPct      = tonumber(ap) or 0
+      end
+    end
   elseif cmd == "ICIPROCSRC" then
     -- <itemEntry> -- the sole item carrying the ICIPROC just before it. Only sent when
     -- unambiguous, and only useful for developer-named spells (see procDisplayName).
@@ -3394,13 +3457,34 @@ local function Inject(tt, key)
     -- has no description for the spell, or if none of the server's base values
     -- appear in it -- printing stock numbers next to a 367x multiplier would read
     -- as a bug, and the header already carries the multiplier.
-    local scaled = scaleDescription(spellDescription(p.spellId), p.bases or {}, (p.mag or 100) / 100)
+    -- [#999] Correct the stack count FIRST, on the stock text, so the fix survives
+    -- whether or not scaleDescription manages to rewrite the magnitudes below. The two
+    -- are independent failures and were showing up as one confusing tooltip.
+    local baseDesc = fixStackCount(spellDescription(p.spellId), p.stackCap)
+    local scaled = scaleDescription(baseDesc, p.bases or {}, (p.mag or 100) / 100)
+
+    -- [#1033] Even when the magnitudes could not be rewritten, the corrected stock text
+    -- is worth more than nothing -- it is what the spell does, just at base values, and
+    -- the header already says "Nx power" so nobody reads it as their own number.
+    if not scaled and baseDesc and (p.mag or 100) == 100 then
+      scaled = baseDesc
+    end
+
     if scaled then
       -- Pre-wrapped: a spell description is one long unbroken string, and neither render
       -- path wraps it for us (GameTooltip:AddLine stretches the tooltip across the screen;
       -- the companion panel's rows are fixed height and would overlap).
       for _, seg in ipairs(wrapText(scaled, TIP_WRAP_CHARS)) do
         lines[#lines+1] = { text = "  " .. seg, r = 0.62, g = 0.62, b = 0.72 }
+      end
+    end
+
+    -- [#1033] What actually moves this proc's numbers. Owner ruling 2026-08-25:
+    -- "let the players know how to scale the proc via the interface".
+    local note = procScalingNote(p)
+    if note then
+      for _, seg in ipairs(wrapText(note, TIP_WRAP_CHARS)) do
+        lines[#lines+1] = { text = "  " .. seg, r = 0.55, g = 0.62, b = 0.55 }
       end
     end
   end

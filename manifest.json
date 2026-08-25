@@ -1868,14 +1868,14 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedScrolls/UncappedScrolls.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedScrolls/UncappedScrolls.lua",
-                      "sha256":  "729688b45ec7f67c79c2b4793ca5b18ddfcf6da65f72db3ff02a067b776c363f",
-                      "size":  18136
+                      "sha256":  "b030da6277d61c3b4b95e2b9b1a2102a52f3ffdb558dc4c16dd8148d97892bfc",
+                      "size":  21150
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedSoulForge/UncappedSoulForge.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedSoulForge/UncappedSoulForge.lua",
-                      "sha256":  "a8f26c98dfbd396b9958bb9744e9e22002c90bdb02ef96732508e530ae32b0c9",
-                      "size":  169052
+                      "sha256":  "edfb401858987142377580ed9435b384b5e51f1c2a40e7b5edc6213501d44285",
+                      "size":  173112
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedTransmog/UncappedTransmog.lua",
@@ -2372,7 +2372,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "20b43c857f986f0c7b0be7d2bcd70f8e89c00f4cfa7d1f03eabbf9ee437bd3bc",
+                      "sha256":  "c976e489ee14838664f9d0d0e4a7429618c9ad71c718679523cd60a4e4e32d6a",
                       "size":  3593
                   },
                   {

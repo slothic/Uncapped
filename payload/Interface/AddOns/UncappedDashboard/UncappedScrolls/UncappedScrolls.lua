@@ -47,6 +47,10 @@ local state = {
     professions = {},   -- { name, cur, max }
     fortune     = {},   -- { mapName, bonus }
     fortuneAll  = 0,    -- total server-side, may exceed #fortune (list is capped)
+    -- [#986] nil until a SCRCONV line arrives. nil is "this server does not have the
+    -- feature", NOT "off" -- the control stays hidden rather than offering a toggle
+    -- the server has no handler for.
+    autoScroll  = nil,
     received    = false,
 }
 
@@ -194,6 +198,49 @@ local function Render()
         Note("No professions learned.")
     end
 
+    -- [#986] Directly under the professions, because that is what a Scroll of Mastery
+    -- raises and this toggle is about what happens when there is none left to raise.
+    -- Hidden entirely when the server never sent SCRCONV.
+    if state.autoScroll ~= nil then
+        if not frame.convCheck then
+            local cb = CreateFrame("CheckButton", "UncappedScrollsConv", frame,
+                                   "InterfaceOptionsCheckButtonTemplate")
+            _G[cb:GetName() .. "Text"]:SetText("Convert unusable Mastery scrolls \226\134\146 Delver")
+            cb:SetScript("OnClick", function(self)
+                local want = self:GetChecked() and 1 or 0
+                -- Snap back to the server's value; the SCRCONV in the reply burst is
+                -- the authority, exactly as the Soulforge checkboxes behave.
+                self:SetChecked(state.autoScroll and true or false)
+                SendAddonMessage(TRANSPORT_PREFIX, "ICSC:" .. want, "WHISPER", UnitName("player"))
+                Request()
+            end)
+            cb:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:AddLine("Scroll auto-convert", 1, 1, 1)
+                GameTooltip:AddLine("A Scroll of Mastery only raises a profession you have not "
+                    .. "maxed. Once they are all maxed it does nothing and stays in your bags.",
+                    0.8, 0.8, 0.8, true)
+                GameTooltip:AddLine("With this on, using one of those turns it into a Scroll of "
+                    .. "the Delver instead.", 0.6, 1, 0.6, true)
+                GameTooltip:AddLine("It is never converted while it still has a profession it "
+                    .. "could raise.", 0.6, 0.6, 0.7, true)
+                GameTooltip:Show()
+            end)
+            cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            frame.convCheck = cb
+        end
+
+        -- Positioned from the running y like every other row, so it cannot collide with
+        -- whatever the profession list happened to be this refresh.
+        frame.convCheck:ClearAllPoints()
+        frame.convCheck:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, y - 2)
+        frame.convCheck:SetChecked(state.autoScroll)
+        frame.convCheck:Show()
+        y = y - (ROW_H + 12)
+    elseif frame.convCheck then
+        frame.convCheck:Hide()
+    end
+
     y = y - 6
     if state.fortuneAll > #state.fortune then
         Head(string.format("Scroll of Fortune  (showing %d of %d)", #state.fortune, state.fortuneAll))
@@ -267,13 +314,21 @@ comms:SetScript("OnEvent", function(_, event, a1, a2)
         pending = { professions = {}, fortune = {}, fortuneAll = 0,
                     gatherRange = 0, yieldTenths = 0, delver = 0, petDelver = nil, petMult = 2,
                     questCount = 0, questMult = 1, contagion = 0, contagionMax = 10,
-                    contagionInnate = 0 }
+                    contagionInnate = 0, autoScroll = nil }
     end
 
     local range, yield = text:match("^SCRACC:([%d%.%-]+):(%d+)$")
     if range then
         pending.gatherRange = tonumber(range) or 0
         pending.yieldTenths = tonumber(yield) or 0
+        return
+    end
+
+    -- [#986] Scroll auto-convert. Its own anchored verb, so a client predating it
+    -- simply falls off the end of the match chain and never shows the control.
+    local conv = text:match("^SCRCONV:(%d+)$")
+    if conv then
+        pending.autoScroll = (tonumber(conv) or 0) == 1
         return
     end
 
