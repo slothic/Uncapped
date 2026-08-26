@@ -294,11 +294,32 @@ end
      ⚠ `tuning.doubleEvery` keeps its name for wire compatibility, but it is no
        longer a doubling period -- it is the number of keystone levels per +1.0x.
   -------------------------------------------------------------------------- ]]
+--[[ ------------------------------------------------------------------------
+     [#1057] ...AND NO LONGER A STRAIGHT LINE EITHER.
+
+     Owner ruling 2026-08-25: give key level real weight. The linear term above is
+     now raised to an exponent server-side, because the RATIO between two levels on
+     a line saturates -- key(18)/key(8) can never exceed 17/7 however the slope is
+     tuned, which is not enough to matter against a 10x spread in clear size.
+
+     Kept in its own variable rather than inside `tuning` on purpose: MRWH rebuilds
+     that table wholesale, and MRWK arrives as a separate message afterwards. Same
+     shape as hotMaps and for the same reason.
+
+     ⚠ Defaults to 1 = the linear curve = exactly what this rendered before. A realm
+       too old to send MRWK therefore degrades to correct-for-that-realm rather than
+       to a wrong number, which is the whole point of it being a separate message.
+  -------------------------------------------------------------------------- ]]
+local keyExponent = 1
+
 local function KeyBonus(lvl)
     if not tuning then return 1 end
     local per = tuning.doubleEvery
     if not per or per <= 0 then per = 5 end
-    return 1 + (math.max(lvl, 1) - 1) / per
+    local linear = 1 + (math.max(lvl, 1) - 1) / per
+    -- 1^e is 1, so a +1 key is a fixed point at any exponent -- matches the server.
+    if keyExponent <= 1 or linear <= 1 then return linear end
+    return linear ^ keyExponent
 end
 
 local function FilteredMaps()
@@ -368,7 +389,22 @@ local function HandleMessage(msg)
             -- at all sends none. Both must end up with an empty set rather than
             -- with the previous sync's hotzones still marked.
             hotMaps = {}
+            -- [#1057] Cleared with the map table for the same reason hotMaps is: a
+            -- realm too old to send MRWK must end up on the linear curve rather than
+            -- keeping an exponent from a previous sync against a different server.
+            keyExponent = 1
         end
+        return
+    end
+
+    -- [#1057] MRWK:<exponent> -- the key-bonus curve's shape. Its own message id, not
+    -- a fifth MRWH field, because MRWH's pattern is anchored and appending to it would
+    -- break the match outright on an un-updated client instead of degrading.
+    local kexp = string.match(msg, "^MRWK:([%d%.%-]+)$")
+    if kexp then
+        keyExponent = tonumber(kexp) or 1
+        if keyExponent < 1 then keyExponent = 1 end
+        if Keystone.Render then Keystone.Render() end
         return
     end
 
@@ -555,10 +591,13 @@ function Keystone.Render()
 
     SetLine("size", string.format("%sClear size|r    %s%.2f|r  %s(1.00 = one Utgarde Keep)|r",
         COLOR_LABEL, COLOR_VALUE, m.size, COLOR_DIM))
-    -- "+1.0x every N levels", not "doubles" -- the curve is linear since the
-    -- 2026-08-14 reset. See the note on KeyBonus above.
-    SetLine("bonus", string.format("%sKey bonus|r     %sx%.1f|r  %s(+1.0x every %.1f levels)|r",
-        COLOR_LABEL, COLOR_VALUE, bonus, COLOR_DIM, tuning.doubleEvery))
+    -- [#1057] Was "+1.0x every N levels", which described the straight line and stops
+    -- being true the moment the exponent is above 1. Quote the curve five levels
+    -- deeper instead of restating its shape in prose: read from KeyBonus itself, so
+    -- there is nothing here to keep in step by hand. Same fix as the keystone NPC page,
+    -- which had been describing a curve retired eleven days earlier.
+    SetLine("bonus", string.format("%sKey bonus|r     %sx%.1f|r  %s(x%.1f at +%d)|r",
+        COLOR_LABEL, COLOR_VALUE, bonus, COLOR_DIM, KeyBonus(level + 5), level + 5))
 
     -- Says "already counted" out loud. A multiplier printed next to a total is
     -- ambiguous about whether the total includes it, and guessing wrong in
