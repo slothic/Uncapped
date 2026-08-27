@@ -312,6 +312,26 @@ end
   -------------------------------------------------------------------------- ]]
 local keyExponent = 1
 
+--[[ ------------------------------------------------------------------------
+     Legendary sacks. Owner change 2026-08-27: the floor came down from +100 to
+     +20, and this is the first time it has ever been reachable -- the deepest
+     keystone anyone has run on this realm is a +25, so +100 was not a high bar,
+     it was a closed door. While it was closed, this panel's silence about
+     legendary sacks cost nothing. The moment it opened, a player finishing a
+     +20 started being handed a guaranteed legendary with nothing having told
+     them it existed.
+
+     Kept out of `tuning` on purpose, exactly like keyExponent and hotMaps: MRWH
+     rebuilds that table wholesale and MRWL arrives as its own message after it.
+
+     nil = the server never sent MRWL, so print no legendary line at all. That is
+     the honest degrade -- a realm without the message genuinely has nothing to
+     say here, and inventing a default floor would advertise a reward that may
+     not exist.
+  -------------------------------------------------------------------------- ]]
+local legendaryFloor = nil
+local legendaryPer   = 25
+
 local function KeyBonus(lvl)
     if not tuning then return 1 end
     local per = tuning.doubleEvery
@@ -393,6 +413,11 @@ local function HandleMessage(msg)
             -- realm too old to send MRWK must end up on the linear curve rather than
             -- keeping an exponent from a previous sync against a different server.
             keyExponent = 1
+            -- Same again for the legendary floor: back to nil, so a realm that does
+            -- not send MRWL prints nothing rather than keeping the previous realm's
+            -- floor and promising a legendary this server will never hand out.
+            legendaryFloor = nil
+            legendaryPer = 25
         end
         return
     end
@@ -404,6 +429,20 @@ local function HandleMessage(msg)
     if kexp then
         keyExponent = tonumber(kexp) or 1
         if keyExponent < 1 then keyExponent = 1 end
+        if Keystone.Render then Keystone.Render() end
+        return
+    end
+
+    -- MRWL:<floor>:<perLevels> -- the legendary sack curve. Its own message id for
+    -- the same reason MRWK and MRWZ are: MRWH's pattern is anchored, so appending a
+    -- fifth field to it breaks the match outright on an un-updated client instead of
+    -- degrading. A floor of 0 means the sacks are switched off, and is kept distinct
+    -- from nil (never sent) only in that both print nothing -- the distinction matters
+    -- to the server, not here.
+    local lfloor, lper = string.match(msg, "^MRWL:(%d+):(%d+)$")
+    if lfloor then
+        legendaryFloor = tonumber(lfloor)
+        legendaryPer = math.max(1, tonumber(lper) or 25)
         if Keystone.Render then Keystone.Render() end
         return
     end
@@ -564,14 +603,14 @@ function Keystone.Render()
 
     if not tuning then
         SetLine("map", COLOR_DIM .. (answered and "No map data." or "Loading...") .. "|r")
-        for _, k in ipairs({ "size", "bonus", "hot", "sacks", "anima", "note", "compare" }) do SetLine(k, "") end
+        for _, k in ipairs({ "size", "bonus", "hot", "sacks", "anima", "legendary", "note", "compare" }) do SetLine(k, "") end
         return
     end
 
     local m = maps[selected]
     if not m then
         SetLine("map", COLOR_DIM .. "Pick a dungeon or raid on the left.|r")
-        for _, k in ipairs({ "size", "bonus", "hot", "sacks", "anima", "note", "compare" }) do SetLine(k, "") end
+        for _, k in ipairs({ "size", "bonus", "hot", "sacks", "anima", "legendary", "note", "compare" }) do SetLine(k, "") end
         return
     end
 
@@ -615,6 +654,33 @@ function Keystone.Render()
     -- was naming a bonus that does not exist. The reporter spotted that himself.
     SetLine("anima", string.format("%sAnima|r         %s%s|r  %s(before your quest bonus)|r",
         COLOR_LABEL, COLOR_GOOD, Abbrev(anima), COLOR_DIM))
+
+    --[[ Legendary sacks. Two things this line has to get right, because both have
+         produced reward reports before:
+
+         1. It is a function of KEY DEPTH ALONE. The server does not apply the map's
+            reward multiplier to it (LegendarySackApplyMultiplier is off) -- a
+            guaranteed legendary is a depth prize, not a size one, and scaling it by
+            map weight would make the biggest map in the pool the only one anybody
+            ran for legendaries. So this count does NOT move when you pick a
+            different dungeon, and the line says so out loud rather than leaving
+            that looking broken.
+         2. Below the floor it names the floor. That is the entire point of adding
+            the line: someone at +12 should be able to see what +20 buys. Printing
+            nothing at all below the floor would leave the reward exactly as
+            undiscoverable as it was before. ]]
+    if legendaryFloor and legendaryFloor > 0 then
+        if level >= legendaryFloor then
+            local legs = 1 + math.floor((level - legendaryFloor) / legendaryPer)
+            SetLine("legendary", string.format("%sLegendary|r     %s%d|r  %s(key depth only -- map choice does not change this)|r",
+                COLOR_LABEL, COLOR_GOOD, legs, COLOR_DIM))
+        else
+            SetLine("legendary", string.format("%sLegendary|r     %s--|r  %s(guaranteed legendary from +%d)|r",
+                COLOR_LABEL, COLOR_DIM, COLOR_DIM, legendaryFloor))
+        end
+    else
+        SetLine("legendary", "")
+    end
 
     -- The comparison IS the feature. A number on its own does not tell anyone
     -- whether pushing is worth it; "x4.0 what a +10 pays" does.
@@ -1008,9 +1074,9 @@ local function BuildFrame(parent)
     plus1:SetPoint("LEFT", levelText, "RIGHT", 10, 0)
     plus10:SetPoint("LEFT", plus1, "RIGHT", 3, 0)
 
-    local order = { "map", "size", "bonus", "hot", "sacks", "anima", "compare", "note" }
+    local order = { "map", "size", "bonus", "hot", "sacks", "anima", "legendary", "compare", "note" }
     local anchor = minus10
-    local gaps = { map = -16, size = -10, bonus = -2, hot = -8, sacks = -12, anima = -2, compare = -14, note = -8 }
+    local gaps = { map = -16, size = -10, bonus = -2, hot = -8, sacks = -12, anima = -2, legendary = -2, compare = -14, note = -8 }
     for _, key in ipairs(order) do
         local style = (key == "map") and "GameFontNormalLarge" or "GameFontHighlightSmall"
         local fs = right:CreateFontString(nil, "OVERLAY", style)

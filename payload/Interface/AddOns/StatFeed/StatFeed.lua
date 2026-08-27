@@ -620,7 +620,29 @@ function Repaint(force)
     SetTextCached(frame.rateText, Commas(totalEarned * 3600 / max(60, elapsed)))
     SetTextCached(frame.clockText, Clock(elapsed))
 
-    if not (dirty or force) then return end
+    --[[ ★ [#1083] A value can move with nothing to announce it.
+
+         A Dungeon Stats conversion moves the bank AND the character sheet and tells this
+         window nothing at all: Mgr::ConvertStat reports through ChatHandler::SendSysMessage
+         (DungeonStatsPets.cpp:1014), not through the StatFeed pipe. `dirty` is only ever set
+         by a parsed feed line or by a UI action, so without this the rows below keep
+         painting pre-conversion figures until the player relogs -- which is exactly what
+         was reported as "false stats in the show stats section".
+
+         Eight cheap client reads per tick, and only while the window is open and the stat
+         block is actually on screen. ]]
+    if not (dirty or force) then
+        local dbTick = GetDB()
+        if dbTick.collapsed or not dbTick.showStats then return end
+        local moved = false
+        for i = 1, #STATS do
+            if CurrentStat(STATS[i]) ~= STATS[i].lastPainted then
+                moved = true
+                break
+            end
+        end
+        if not moved then return end
+    end
     dirty = false
 
     local db = GetDB()
@@ -639,7 +661,20 @@ function Repaint(force)
         else
             if SetTextCached(row.added, C_OFF .. "+0" .. C_RESET) then textChanged = true end
         end
-        if SetTextCached(row.start, Short(info.startValue or 0)) then textChanged = true end
+        --[[ ★ [#1083] THE LIVE VALUE, NOT THE LOGIN SNAPSHOT.
+
+             This is the only number on screen for the stat, and the block carries no column
+             header, so a player reads it as "my Strength". It was `info.startValue`, which is
+             written only by ResetSession and CaptureBaseline -- and the ticker driving the
+             second one takes itself off the frame about 20 seconds after login and never runs
+             again. So a conversion, a gear swap or a level-up left this quoting a figure that
+             both the character sheet and the .ds readout had already moved on from: measured
+             on the reporter's character, Intellect read 208,950 live against a frozen panel.
+
+             The "At login" figure is not lost -- it stays in the row tooltip, where it is
+             actually labelled as such. ]]
+        info.lastPainted = CurrentStat(info)
+        if SetTextCached(row.start, Short(info.lastPainted)) then textChanged = true end
     end
 
     if textChanged then
