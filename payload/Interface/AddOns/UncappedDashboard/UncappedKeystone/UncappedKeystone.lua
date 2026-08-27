@@ -693,8 +693,14 @@ function Keystone.Render()
         SetLine("compare", COLOR_DIM .. "Move the key up and down to compare.|r")
     end
 
-    SetLine("note", COLOR_DIM ..
-        "Estimate for a full clear (required trash + every boss). Clear more, earn more.|r")
+    --[[ [#1004] SAY WHICH KEY LEVEL THIS IS PRICING.
+
+         The reporter measured a +2 run against numbers this panel had quoted for a +10 and
+         concluded the payout was broken. It was not -- the level selector here is
+         independent of the keystone you are actually holding, and nothing on the readout
+         said so. A number with no units invites exactly that mistake. ]]
+    SetLine("note", string.format("%sEstimate for a full clear of a %s+%d|r%s (required trash + every boss). Clear more, earn more.|r",
+        COLOR_DIM, COLOR_VALUE, level, COLOR_DIM))
 end
 
 -- ---------------------------------------------------------------------------
