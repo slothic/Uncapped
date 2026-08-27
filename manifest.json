@@ -1616,8 +1616,8 @@
                   {
                       "path":  "Interface/AddOns/StatFeed/StatFeed.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/StatFeed/StatFeed.lua",
-                      "sha256":  "347a64a10be71aa37c44f04238044edde50e9ce32111a7b00f0df65552f31539",
-                      "size":  57659
+                      "sha256":  "89d559aa3089b0d0d9e6b814a3c1d3961431ff70c1eecf38eabb7dbde181c2f3",
+                      "size":  59614
                   },
                   {
                       "path":  "Interface/AddOns/StatFeed/StatFeed.toc",
@@ -1838,8 +1838,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedKeystone/UncappedKeystone.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedKeystone/UncappedKeystone.lua",
-                      "sha256":  "28a7cc98757c4776ff5a47a660e9d25ed676329eaf4cb596f7ee1fa95a7029f4",
-                      "size":  50098
+                      "sha256":  "2a39d913aa29e2efd4837407d37513d1081e55db8b7cf15b4dbed2184606b01e",
+                      "size":  53871
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedKeystone/UncappedKeystoneRun.lua",
@@ -2378,7 +2378,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "6d70feb7f0639a337b932773206f39c34c2502a42fe9c12fa8027918711477d7",
+                      "sha256":  "0cd4b67451aa0f169a5c6a96b62692ed25d9a122dc6f62138e860b1ea886f31e",
                       "size":  3695
                   },
                   {
