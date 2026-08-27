@@ -1838,8 +1838,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedKeystone/UncappedKeystone.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedKeystone/UncappedKeystone.lua",
-                      "sha256":  "2a39d913aa29e2efd4837407d37513d1081e55db8b7cf15b4dbed2184606b01e",
-                      "size":  53871
+                      "sha256":  "a89609ddd565ec70045419a835ba1f202b59afc8ff6b162143a9d6bd93dc05df",
+                      "size":  54326
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedKeystone/UncappedKeystoneRun.lua",
@@ -2378,7 +2378,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "70d76da78d7f3bf50df303e2ffa18c6fa37152c5a8dca1884ee261fad7d277a9",
+                      "sha256":  "eed47b724addd6a80a36266c508bef727a50d509e88786c622d90cdd4a59cbdc",
                       "size":  3695
                   },
                   {
@@ -3061,9 +3061,9 @@
                   },
                   {
                       "path":  "Data/enUS/patch-enUS-U.MPQ",
-                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.08.27a.MPQ",
-                      "sha256":  "36f40af77d28d9a740dacafc5ee41d93b721254363109816ce57076ff77d4002",
-                      "size":  62115091
+                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.08.28a.MPQ",
+                      "sha256":  "2fcc8c71a67f68fb14368bac59369e82c81c92ac54b6f5716b3c382d106fd7d9",
+                      "size":  66690944
                   },
                   {
                       "path":  "UncappedClient.dat",
