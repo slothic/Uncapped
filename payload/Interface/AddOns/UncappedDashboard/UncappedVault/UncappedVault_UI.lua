@@ -1087,6 +1087,16 @@ local function BuildFrame(parent)
     next:SetPoint("BOTTOM", tablePanel, "BOTTOM", 70, 12)
     next:SetScript("OnClick", function() Core.SetPage(Core.state.page + 1) end)
 
+    -- [#1071] Same scrollwheel paging as the grid view. Safe here because this panel
+    -- has no inner ScrollFrame to compete with -- its row count is derived from the
+    -- panel's own height (RefreshRowCount) rather than being windowed, so the wheel
+    -- has no other meaning to steal. The category list on the left keeps its own
+    -- wheel handler and is unaffected; wheeling there still scrolls categories.
+    tablePanel:EnableMouseWheel(true)
+    tablePanel:SetScript("OnMouseWheel", function(_, delta)
+        Core.SetPage(Core.state.page - delta)
+    end)
+
     RefreshRowCount()
     RelayoutColumns()
     tablePanel:SetScript("OnSizeChanged", function()
@@ -1135,6 +1145,21 @@ local function BuildFrame(parent)
     local gridNext = Button(gridPanel, ">", 36, 28)
     gridNext:SetPoint("BOTTOM", gridPanel, "BOTTOM", 70, 12)
     gridNext:SetScript("OnClick", function() Core.SetPage(Core.state.page + 1) end)
+
+    -- [#1071] Scrollwheel pages the vault. Owner ruling 2026-08-27.
+    --
+    -- Routed through Core.SetPage exactly as the < and > buttons above are, so the
+    -- wheel cannot reach a page the buttons could not: SetPage clamps to
+    -- [1, PageCount()] itself, which is also why no bounds check belongs here.
+    --
+    -- Wheel DOWN is the next page. That matches every other paged list in the
+    -- client (and a book, and this frame's own top-to-bottom fill order), so
+    -- "further down the list" and "further down the wheel" agree.
+    gridPanel:EnableMouseWheel(true)
+    gridPanel:SetScript("OnMouseWheel", function(_, delta)
+        Core.SetPage(Core.state.page - delta)
+    end)
+
     RefreshGridRowCount()
     gridPanel:SetScript("OnSizeChanged", RefreshGridRowCount)
     gridPanel:Hide()

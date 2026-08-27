@@ -2572,6 +2572,11 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
         end
     elseif find(text, "^VLTDEPFAIL:") then
         local why = match(text, "^VLTDEPFAIL:(%a+)")
+        -- [#1072] Optional 3rd field naming WHICH keep rule refused it. "kept" alone
+        -- covered six different rules and this code could only describe one of them,
+        -- so a class reagent was explained to players as a part-looted container.
+        -- nil on an older server, which falls through to the original wording.
+        local keptWhy = match(text, "^VLTDEPFAIL:kept:(%a+)")
         local reason = (why == "quest" and "quest items") or (why == "bag" and "bags")
             or (why == "bound" and "soulbound items") or "that item"
         if why == "bagitems" then
@@ -2583,13 +2588,36 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
                     .. "-- empty it first, then deposit the bag.")
             end
         elseif why == "kept" then
-            -- Things the Vault stores as a COUNT would lose what makes them
-            -- individual: a part-looted lockbox would come back unopened, a
-            -- half-used trinket would come back full.
+            -- Each of these is a genuinely different reason, and telling the player the
+            -- wrong one is worse than telling them nothing -- they go looking for loot
+            -- inside a stack of fish scales.
+            local msg
+            if keptWhy == "reagent" then
+                msg = "that one stays in your bags -- it's a class reagent, and spells "
+                    .. "spend those straight out of your bags."
+            elseif keptWhy == "key" then
+                msg = "that's a key -- it has to be on you to open what it opens."
+            elseif keptWhy == "questuse" then
+                msg = "a quest wants you to click that one, and you can't click "
+                    .. "something that's in the Vault."
+            elseif keptWhy == "dungeonquest" then
+                msg = "you're on a dungeon quest that wants that one, so it stays on you "
+                    .. "until you're done."
+            elseif keptWhy == "playerlist" then
+                msg = "you asked for that one to stay in your bags -- `/keep remove` to undo."
+            elseif keptWhy == "builtin" then
+                msg = "the realm keeps that one on you on purpose."
+            else
+                -- "unrep", and the fallback for an older server that sends a bare "kept".
+                -- Things the Vault stores as a COUNT would lose what makes them
+                -- individual: a part-looted lockbox would come back unopened, a
+                -- half-used trinket would come back full.
+                msg = "that one stays in your bags -- it holds something of its own "
+                    .. "(loot inside it, or charges left), and the Vault only stores a count."
+            end
+
             if DEFAULT_CHAT_FRAME then
-                DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r that one stays in your bags "
-                    .. "-- it holds something of its own (loot inside it, or charges left), "
-                    .. "and the Vault only stores a count.")
+                DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r " .. msg)
             end
         elseif DEFAULT_CHAT_FRAME then
             DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Vault]|r can't deposit " .. reason .. ".")

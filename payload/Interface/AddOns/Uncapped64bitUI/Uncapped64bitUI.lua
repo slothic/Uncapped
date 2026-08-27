@@ -6,16 +6,21 @@
 --
 -- Wire (personal channel, filtered out of chat):
 --   UHP:S:<realCur>:<realMax>                     -- the player themselves
---   UHP:T:<realCur>:<realMax>:<visMax>:<stacks>   -- current target (may be a boss)
+--   UHP:T:<realCur>:<realMax>:<visMax>:<guidLow>  -- current target (may be a boss)
 --   UHP:U:<guidLow>:<realCur>:<realMax>           -- a group member (party/raid)
 --
 -- Health is proxied on the wire (proxy% == real%), so we reconstruct real from
 -- the native bar: real = (nativeCur/nativeMax) * realMax. Power is NOT proxied
 -- (it still fits 32-bit), so those numbers are read straight from the client.
 --
--- The <stacks> field is a retired mechanism, now always 0. It used to carry a
--- boss's banked HP-overflow phases; creatures hold a true 64-bit pool instead.
--- It stays on the wire only so an older addon build keeps parsing the line.
+-- The 4th field of UHP:T was <stacks>, a retired mechanism pinned to 0 (it used to
+-- carry a boss's banked HP-overflow phases; creatures hold a true 64-bit pool now).
+-- ★ [#998] It now carries the target's guidLow instead. A UHP:T line previously
+-- identified nobody, so one still in flight when the player switched target painted
+-- the new target at the old one's scale -- and the visMax comparison that was meant
+-- to catch that is pinned to exactly 2e9 for every unit above the proxy budget, so it
+-- could never reject anything for the units it existed to protect. Same field count,
+-- so an older addon build still parses the line and ignores the value as it always did.
 --
 -- Targeting is deliberately NOT gated on the feed arriving. Below
 -- HEALTH_PROXY_BUDGET the client's own max-health field is the real number
@@ -185,7 +190,7 @@ end
 -- State fed by the server.
 -- ---------------------------------------------------------------------------
 local selfData   = nil   -- { max }
-local targetData = nil   -- { max, visMax, stacks }
+local targetData = nil   -- { max, visMax, guid }   [#998] guid replaced the retired stacks
 local byGuid     = {}    -- [guidLow] = { max }   (group members)
 
 -- [absorb] Remaining shield on the player and on the current target, from UABS.
@@ -293,7 +298,9 @@ local function HpInfoFor(unit)
         local vmax = NativeMaxIfExact(unit)
         if vmax then return vmax, 0, nil end
     elseif unit == "target" then
-        if targetData then return targetData.max, targetData.stacks or 0, targetData.visMax end
+        -- [#998] targetData.stacks is gone (the slot carries a guid now); the middle
+        -- return stays 0, which is what the retired field always evaluated to anyway.
+        if targetData then return targetData.max, 0, targetData.visMax end
         -- Fallback: a group member we already have HP for (UHP:T can lag by a
         -- tick, and a far player only resolves once the server catches up).
         local low = GuidLow(unit)
@@ -654,9 +661,37 @@ local function OnLine(msg)
         return
     end
 
-    local tCur, tMax, tVis, tStacks, tExp = msg:match("^UHP:T:(%d+):(%d+):(%d+):(%d+):?(%d*)$")
+    -- [#998] The 4th field used to be a retired, ignored <stacks> slot; it now carries
+    -- the guid of the unit this line describes. Same field count, so this parse is
+    -- unchanged in shape -- only the meaning of a value we were already reading.
+    local tCur, tMax, tVis, tGuid, tExp = msg:match("^UHP:T:(%d+):(%d+):(%d+):(%d+):?(%d*)$")
     if tMax then
-        targetData = { max = ApplyHpExponent(tonumber(tMax), tExp), visMax = tonumber(tVis), stacks = tonumber(tStacks) }
+        --[[
+          ★★ [#998] REJECT A LINE THAT IS ABOUT SOMEBODY ELSE.
+
+          This assignment used to be unconditional, and the two guards downstream that
+          were meant to catch a mismatch both compare UnitHealthMax("target") to visMax.
+          Above 2 billion the server pins visMax to exactly 2e9 for EVERY unit, so both
+          comparisons become 2e9 == 2e9 and never reject anything -- for exactly the
+          units they exist to protect.
+
+          The visible result is the reported one: an in-flight line about a mob with
+          865 trillion health lands after you have switched to one with 874 billion, and
+          the new target's bar is painted at the old target's scale until the next pass
+          corrects it. Switch back and it lurches the other way. It only ever happens
+          above 2e9, because below that the exact value is used and no substitution
+          occurs.
+
+          A guid comparison cannot degenerate. If the line is not about the unit we are
+          currently looking at, it is dropped -- the server re-sends on target change, so
+          nothing is lost by ignoring a stale one.
+        ]]
+        local low = tonumber(tGuid)
+        if low and low ~= 0 and GuidLow("target") and low ~= GuidLow("target") then
+            return
+        end
+
+        targetData = { max = ApplyHpExponent(tonumber(tMax), tExp), visMax = tonumber(tVis), guid = low }
         RememberTargetHp(targetData)
         RefreshUnitBars("target")
         return

@@ -6,6 +6,12 @@
 ## SavedVariables: UncappedUIDB
 
 UncappedNative.lua
+# [#1008] Re-routes a leading-dot command onto a whisper-to-self while the player is
+# a ghost, because the 3.3.5a client refuses to SEND a SAY while dead and SAY is what
+# carries every dot-command on this realm. Loaded early and deliberately depends on
+# nothing in this addon -- it only hooks SendChatMessage, and `.dropcombat` being
+# reachable while dead should not rest on the UI toolkit having initialised.
+UncappedCommand.lua
 UncappedUI.lua
 # Right after the namespace bootstrap: every other file may register a frame
 # with it, and CreateWindow does so for free.

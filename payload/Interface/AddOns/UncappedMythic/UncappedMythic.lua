@@ -1376,7 +1376,12 @@ intro:Hide()
 
 intro.label = intro:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 intro.label:SetPoint("TOP", intro, "TOP", 0, 0)
-intro.label:SetText("Affixes for this run")
+-- [#1002] "-- don't attack yet" is load-bearing, not decoration. The freeze is
+-- enforced server-side and pulling during it FAILS THE RUN, and nothing on screen
+-- used to say so: 29 of 102 recorded keystone failures, across 18 different
+-- players, happened in the final 1.45 seconds of a countdown labelled only
+-- "Affixes for this run".
+intro.label:SetText("Affixes for this run -- don't attack yet")
 intro.label:SetTextColor(0.70, 0.65, 0.55)
 
 intro.count = intro:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
@@ -1448,13 +1453,29 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     if introEnd then
         local left = introEnd - GetTime()
         if left > 0 then
-            intro.count:SetText(string.format("%.0f", math.ceil(left)))
+            -- [#1002] floor, NOT ceil.
+            --
+            -- ceil showed "1" for the whole of the final second and then the frame
+            -- simply vanished -- no zero, no go signal. So the number a player saw
+            -- last was a number that meant "still frozen", and the obvious reading of
+            -- a "1" that disappears is "that's it, go". Pulling on it fails the run.
+            -- floor counts 2, 1, 0 and holds 0 for the last second, so the moment the
+            -- freeze actually lifts is the moment GO! replaces it below.
+            intro.count:SetText(string.format("%d", math.floor(left)))
             -- Amber, going red over the last two seconds.
             if left <= 2 then
                 intro.count:SetTextColor(1.0, 0.35, 0.25)
             else
                 intro.count:SetTextColor(1.0, 0.82, 0.0)
             end
+        elseif left > -0.6 then
+            -- [#1002] A POSITIVE RELEASE SIGNAL. The frame used to disappear and that
+            -- was the entire notification. Green GO! for six tenths of a second is
+            -- unmissable and unambiguous, and it lines up with the server's own
+            -- "Go! The keystone clock is running." going out at the same instant.
+            intro.count:SetText("GO!")
+            intro.count:SetTextColor(0.25, 1.0, 0.35)
+            intro.label:SetText("Keystone is live")
         else
             introEnd = nil
             intro:Hide()

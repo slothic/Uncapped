@@ -304,7 +304,17 @@ $silenceRules = @(
        Why   = 'Astrolabe login burst, one line per zone with no map data' },
     @{ File = 'Interface\AddOns\QuestCompletist\Core.lua'
        Match = 'print\("Crosscheck was not successful\.'
-       Why   = 'QuestCompletist status line, fires on a normal scan' }
+       Why   = 'QuestCompletist status line, fires on a normal scan' },
+    # [#1070] Reported as "quest 'To the Top' gives error 'unable to get Quest ID
+    # from quest log'". The quest is fine -- id 3567, complete and consistent data.
+    # This line is QuestCompletist reading the 9th return of GetQuestLogTitle, which
+    # does not exist on 3.3.5a (it arrived in Cataclysm), so it is nil for EVERY
+    # quest and this fires on EVERY turn-in for everyone running the addon. Our own
+    # UncappedQuests.lua documents the same gotcha. Nothing working is suppressed:
+    # the addon's whole quest-history feature is inert on this client either way.
+    @{ File = 'Interface\AddOns\QuestCompletist\Core.lua'
+       Match = 'print\("Unable to get Quest ID from quest log\.'
+       Why   = 'QuestCompletist quest-history line; GetQuestLogTitle has no questID return on 3.3.5a, so it fires on every turn-in' }
 )
 
 Write-Host "`nSilencing third-party chat spam:"

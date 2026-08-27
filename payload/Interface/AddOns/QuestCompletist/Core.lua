@@ -299,7 +299,7 @@ local function qcQuestHistory_Complete() -- Adds quest to the Quest History DB -
 	questID, questLogIndex = getQuestIDFromTitle(questTitle)
 
 	if (questID == nil) or (questLogIndex == nil) then
-		print("Unable to get Quest ID from quest log. Quest not saved in Quest History database.")
+--[[ silenced by Build-Payload: QuestCompletist quest-history line; GetQuestLogTitle has no questID return on 3.3.5a, so it fires on every turn-in ]] --		print("Unable to get Quest ID from quest log. Quest not saved in Quest History database.")
 		return false
 	end
 
