@@ -98,6 +98,11 @@ local PROFESSION_SPELL = {
     [165] = 2108,     -- Leatherworking
     [171] = 2259,     -- Alchemy
     [182] = 2366,     -- Herbalism
+    -- [#1107] Cooking. Missing here since the panel was written, which nobody
+    -- noticed while the server happened not to be sending it: the label comes
+    -- from the server, so the row rendered with a question-mark icon rather than
+    -- disappearing. Restored to the tracked list on 2026-08-28.
+    [185] = 2550,     -- Cooking
     [186] = 2575,     -- Mining
     [197] = 3908,     -- Tailoring
     [202] = 4036,     -- Engineering

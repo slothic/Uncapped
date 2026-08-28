@@ -2597,6 +2597,13 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
                     .. "spend those straight out of your bags."
             elseif keptWhy == "key" then
                 msg = "that's a key -- it has to be on you to open what it opens."
+            elseif keptWhy == "worlduse" then
+                -- [#1103] Without this branch a Gni'kiv Medallion falls through to the
+                -- "unrep" fallback below and is explained as holding loot or charges,
+                -- which is report #1072 reproduced word for word. A wrong explanation
+                -- is worse than none: it sends the player looking for the wrong thing.
+                msg = "that one gets clicked on something out in the world -- a door, an "
+                    .. "altar, a pile of bones -- and you can't click what's in the Vault."
             elseif keptWhy == "questuse" then
                 msg = "a quest wants you to click that one, and you can't click "
                     .. "something that's in the Vault."
