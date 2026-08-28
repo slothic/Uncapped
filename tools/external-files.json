@@ -45,8 +45,8 @@
   {
     "_comment": "THE PATCHED CLIENT EXECUTABLE. Stock 3.3.5a 12340 with LARGE_ADDRESS_AWARE set and an import-table entry for UncappedCT.dll, which is what gets our code loaded before the client's entry point runs. Shipped whole rather than patched on the player's machine: every install then runs a byte-identical binary we can verify by hash, instead of the output of patch logic running on 40 different machines. The path is the RENAMED name the launcher's client hardening uses -- ClientHardening deletes a stock Wow.exe when this file is present, so the install ends up with exactly one runnable client.",
     "path": "UncappedClient.dat",
-    "url": "http://152.53.115.249/patches/UncappedClient-2026.08.05a.dat",
-    "sha256": "eabd235bd8fab5dbdeb75f20e7d3466b091c79484f825990d2c1cac5399f7a78",
+    "url": "http://152.53.115.249/patches/UncappedClient-2026.08.28a.dat",
+    "sha256": "3267734673b634027fd6aaa75bcbfc7d0a51544acce9a27d86d98cdcf9cfaae3",
     "_note": "Not in payload/ and never committed: it is a modified Blizzard binary, and the payload tree is a public git repo."
   },
   {
