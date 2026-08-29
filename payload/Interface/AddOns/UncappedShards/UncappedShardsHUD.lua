@@ -343,8 +343,21 @@ end
 
 local tDread, tAgony, tTrembling = 0, 0, false
 
+-- [#1126] An EXACT caster match beats the fail-open one.
+--
+-- IsMine above deliberately fails open on a nil caster, and until now that could
+-- never mislead anyone: Agony could not stack per caster, so a target carried at
+-- most one copy and "somebody's" was always "yours". Setting
+-- SPELL_ATTR3_DOT_STACKING_RULE on 850602 fixed the overwriting between party
+-- members -- and in doing so made a boss able to carry up to five Agonies at once.
+-- Last match wins, so a single out-of-range copy reporting a nil caster would show
+-- a party member's stacks as yours.
+--
+-- So: keep failing open (still better than showing nothing), but the moment a copy
+-- reports player/pet/vehicle outright, that one wins and nothing later overrides it.
 local function ReadTarget()
     local dread, agony, trembling = 0, 0, false
+    local dreadExact, agonyExact = false, false
     for i = 1, 40 do
         local name, _, _, count, _, _, _, caster, _, _, spellId = UnitDebuff("target", i)
         if not name then break end
@@ -353,10 +366,13 @@ local function ReadTarget()
             -- A stack of 1 arrives as 0 on a non-stacking aura; show it as one.
             local n = count or 0
             if n < 1 then n = 1 end
+            local exact = (caster == "player" or caster == "pet" or caster == "vehicle")
             if spellId == SPELL_DREAD then
-                dread = n
+                if exact or not dreadExact then dread = n end
+                if exact then dreadExact = true end
             elseif spellId == SPELL_AGONY then
-                agony = n
+                if exact or not agonyExact then agony = n end
+                if exact then agonyExact = true end
             elseif spellId == SPELL_TREMBLING then
                 trembling = true
             end

@@ -353,6 +353,25 @@ local function RefreshBar()
     local shown = run.trashKilled
     if needed > 0 and shown > needed then shown = needed end
 
+    -- [#1139] A map with no static spawn population has NO clear requirement, and
+    -- saying so is not the same as saying nothing is done. The Black Morass is the
+    -- case: every mob in it is summoned by the rift waves, so RunTrashTotal returns a
+    -- hard 0 for map 269 and IsForcesGateMet is true on a total of 0 -- the run
+    -- completes on the encounter and the counter is irrelevant. Painting the literal
+    -- "Enemy Forces  0 / 0  (0%)" in the incomplete colour for the whole run reads as
+    -- a broken counter, and was reported as one.
+    --
+    -- Deliberately NOT :Hide() -- the boss-log rows anchor to frame.bar's BOTTOMLEFT
+    -- and hiding it leaves a hole in the middle of the HUD. Same rule UpdateWipes
+    -- already applies to a zero allowance, stated the other way round.
+    if needed <= 0 then
+        frame.bar:SetValue(1)
+        local c = db.colComplete
+        frame.bar:SetStatusBarColor(c[1], c[2], c[3])
+        frame.barText:SetText("Enemy Forces  -  no clear requirement")
+        return
+    end
+
     local frac = 0
     if needed > 0 then
         frac = shown / needed

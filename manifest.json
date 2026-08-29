@@ -1988,8 +1988,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/UncappedMythic.lua",
-                      "sha256":  "533bc35def943da5709aef9a1e215cbda4c3270c8f63cc6fd507c225fa2bfa88",
-                      "size":  81417
+                      "sha256":  "edeacaf4cb3cdeae01b2005a638322b64abc3390296e342345494acef13d4d7f",
+                      "size":  82459
                   },
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.toc",
@@ -2216,8 +2216,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedShards/UncappedShardsHUD.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedShards/UncappedShardsHUD.lua",
-                      "sha256":  "dc944ba91fdeae2fb4ac50d39f6da2801a8cb485077e4a474e126ec2644ca0ab",
-                      "size":  35425
+                      "sha256":  "3a1f3a8f302e4ccff7538dbde55127d3459759d9d0474f200bc28c846756e367",
+                      "size":  36482
                   },
                   {
                       "path":  "Interface/AddOns/UncappedShieldBar/UncappedShieldBar.lua",
