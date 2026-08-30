@@ -2393,11 +2393,29 @@ fctEv:SetScript("OnEvent", function(self, event, ...)
          permanently skip exactly the people who need to be told. Top-level on
          `db`, not under `db.fct`, so InitSavedVars' `for k in pairs(Cfg)` loop
          never touches it. ]]
+    --[[ ★★ [#1165] THE FLAG WAS BURNED BEFORE THE DLL EVER SHIPPED. Two faults, and
+         the first one alone would have made this warning reach NOBODY.
+
+         1. `hideUnderFixNotice1` was set UNCONDITIONALLY, above the `m > 0` test --
+            so every player who logged in since payload v66 (2026-08-24) consumed the
+            flag whether or not they had a threshold set, i.e. whether or not there
+            was anything to tell them. By the time the DLL was ready the entire
+            population had already spent it.
+         2. The DLL still has not shipped. The note above says "SHIP THIS WITH THE
+            DLL, NOT AFTER IT", and NC-02 is one of thirteen NativeCT fixes still
+            sitting at `built` -- the shipped UncappedCT-2026.08.21a.dll predates the
+            whole 2026-08-22 audit. Verified by binary: the live DLL contains the old
+            format string and none of the new one.
+
+         Bumped to ...Notice2 for exactly the reason the note below already gives --
+         reusing the name would permanently skip the people who need telling -- and
+         the write is moved INSIDE the branch so only a player who actually sees the
+         message spends their flag. ]]
     local db = Uncapped64bitUIDB
-    if db and not db.hideUnderFixNotice1 then
-        db.hideUnderFixNotice1 = true
+    if db and not db.hideUnderFixNotice2 then
         local m = Cfg.minFloat or 0
         if m > 0 then
+            db.hideUnderFixNotice2 = true
             DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[Uncapped]|r your |cffffff00/hideunder|r "
                 .. "threshold is " .. Abbrev(m) .. ", and it now hides auto-attacks too -- "
                 .. "it had been failing on anything over a million. "

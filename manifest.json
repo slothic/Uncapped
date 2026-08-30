@@ -1628,8 +1628,8 @@
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
-                      "sha256":  "5f6c2230662784b1208604be554cd79fd4db2dad868cb3d7c9cb9b9021e4ca60",
-                      "size":  175240
+                      "sha256":  "cbb8e2f500be5e352aaeac0dfcece627b0a34e3540c74f46ee1462c01f6071aa",
+                      "size":  176486
                   },
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.toc",
@@ -2378,8 +2378,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "eed47b724addd6a80a36266c508bef727a50d509e88786c622d90cdd4a59cbdc",
-                      "size":  3695
+                      "sha256":  "c35d2fc2b7384c11305c2ffb27eacdfff80ce72c2c9535f57a45e2fa7124f53c",
+                      "size":  3593
                   },
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.toc",
@@ -3073,9 +3073,9 @@
                   },
                   {
                       "path":  "UncappedCT.dll",
-                      "url":  "http://152.53.115.249/patches/UncappedCT-2026.08.21a.dll",
-                      "sha256":  "55ea5f6efde9bc0ac924e2fc91f96472353855da78d70302ffdfed7a3e7df8b6",
-                      "size":  454656
+                      "url":  "http://152.53.115.249/patches/UncappedCT-2026.08.31a.dll",
+                      "sha256":  "33d639d16b754c4f1389d2677cc06efe4fd851195b9effda941789e2ef6e1714",
+                      "size":  452608
                   }
               ],
     "archives":  [
