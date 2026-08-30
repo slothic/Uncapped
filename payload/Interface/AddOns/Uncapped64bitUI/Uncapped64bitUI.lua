@@ -266,7 +266,18 @@ end
 -- turn a GUID-keyed update back into the frames that need repainting. Party
 -- frames only: raid frames are not driven by the stock unit-frame formatter, so
 -- there is nothing here for them to refresh.
-local GROUP_UNITS = { "party1", "party2", "party3", "party4", "target", "focus" }
+-- [#1153] "pet" is here for the same reason the others are: a UHP:U line arrives
+-- keyed by guid, and this list is how that guid is turned back into the frames
+-- that need repainting. The substitution itself already worked for the pet --
+-- HpInfoFor falls through to the byGuid lookup for any unit that is not "player"
+-- or "target", and health bars register themselves per unit token -- so the pet
+-- frame was only ever missing the DATA, plus this nudge to repaint on arrival
+-- rather than waiting for Blizzard's next natural update.
+--
+-- Reported as "pet ui is bugged hp wont go past 2000m / target works but pet
+-- doesn't": both frames read the same saturating 32-bit field, and the target
+-- looked right only because the target feed told us the real number.
+local GROUP_UNITS = { "party1", "party2", "party3", "party4", "target", "focus", "pet" }
 
 -- The client's own max-health field, but ONLY when it is provably the real
 -- number rather than a proxy.
