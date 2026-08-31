@@ -235,12 +235,13 @@ hf:SetScript("OnLeave", function() GameTooltip:Hide() end)
 --
 -- 3.3.5a has no C_NamePlate, and a nameplate carries no unit token of any kind.
 -- The only way to find one is to walk WorldFrame's children and recognise the
--- shape -- which is exactly what Uncapped64bitUI already does to position its
--- floating combat text (Uncapped64bitUI.lua, LooksLikeNameplate/TargetPlate).
+-- shape.
 --
--- That code is DUPLICATED here rather than shared. Its helpers are file-locals
--- in another addon, and reaching across addons for them would make this file
--- fail to load whenever that one is disabled -- for a purely cosmetic anchor.
+-- ⚠ Uncapped64bitUI used to carry the same walk (LooksLikeNameplate/TargetPlate) to
+--   position its own floating combat text. That renderer was retired 2026-08-08 and
+--   deleted 2026-08-31 -- UncappedCT.dll draws over the unit's body and needs no
+--   nameplate -- so THIS IS NOW THE ONLY COPY, not a duplicate of one. Do not go
+--   looking for the other to share with; it is gone.
 --
 -- ⚠ THE MATCH IS BY NAME, AND THAT IS THE CEILING OF THE TECHNIQUE. Two mobs
 --   with the same name in one pack cannot be told apart, so the overlay follows

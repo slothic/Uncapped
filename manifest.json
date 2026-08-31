@@ -1628,8 +1628,8 @@
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
-                      "sha256":  "cbb8e2f500be5e352aaeac0dfcece627b0a34e3540c74f46ee1462c01f6071aa",
-                      "size":  176486
+                      "sha256":  "5ad7f7679d61f2ae3c7b7a329e6d1facc4e6bd4d227832ab4ac73b407d396e1d",
+                      "size":  116992
                   },
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.toc",
@@ -1640,8 +1640,8 @@
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/UncappedPerf.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/UncappedPerf.lua",
-                      "sha256":  "9bbe434facb9b4f1c471bd7e33b5f2c52fc04dc3c4d707fae2d682b94b7f67c7",
-                      "size":  15652
+                      "sha256":  "7fa7c50232602974ce5a57837cb2762a2cf4ae9816d410e4b4efaba858390d79",
+                      "size":  16174
                   },
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/fonts/Anton-Regular.ttf",
@@ -2216,8 +2216,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedShards/UncappedShardsHUD.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedShards/UncappedShardsHUD.lua",
-                      "sha256":  "3a1f3a8f302e4ccff7538dbde55127d3459759d9d0474f200bc28c846756e367",
-                      "size":  36482
+                      "sha256":  "31e56880fea34fb2b1cdbf33d621313141b02be0cf22ed880862b2fc0d86b284",
+                      "size":  36487
                   },
                   {
                       "path":  "Interface/AddOns/UncappedShieldBar/UncappedShieldBar.lua",

@@ -239,6 +239,13 @@ if UncappedUI then
     local panel, L = UncappedUI.CreatePanel("Performance",
         "Combat effect density, for big pulls.")
 
+    -- ★ [AN-04] Published so /fct can land here. The combat-text options page was
+    --   deleted on 2026-08-31 -- it configured a renderer retired in August -- and this
+    --   page owns the switch that actually matters for damage numbers, so the slash
+    --   command redirects rather than dying. Uncapped64bitUI.lua resolves this global at
+    --   CALL time, because that file loads BEFORE this one.
+    Uncapped64bitUI_PerfPanel = panel
+
     L:Header("Combat effects")
     L:Note("A big pull on this realm draws a lot of spell effects at once, and on most machines that "
         .. "is what costs frames -- not the mobs, the effects over them. These are the client's own "
@@ -281,9 +288,10 @@ if UncappedUI then
          UNCHECKED, and SetCVar threw straight into the pcall, so clicking it did
          nothing. That is a dead switch sitting directly under the one feature this
          realm exists for -- and since 2026-08-08 the engine floaters are the ONLY
-         renderer left (FCT_ADDON_DRAWS is false and we pin SHOW_COMBAT_TEXT to "0"),
-         so a player whose CombatDamage happened to be 0 had no combat numbers at all
-         and no working control anywhere to bring them back.
+         renderer left (this addon's own was retired then and deleted 2026-08-31, and
+         CT_ApplyBlizzardSurfaces pins SHOW_COMBAT_TEXT to "0"), so a player whose
+         CombatDamage happened to be 0 had no combat numbers at all and no working
+         control anywhere to bring them back.
 
          Pet damage rides along with the enemy-damage box because it is the same
          decision to the player, and leaving it out means two more silent CVars. ]]

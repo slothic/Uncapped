@@ -105,23 +105,16 @@ local function Abbrev(n)
     return string.format("%d%s", whole, suffix)
 end
 
--- Forward declaration: the real-damage floater lives in the FCT section (bottom
--- of the file), but the channel handler (above it) needs to call it.
-local ShowRealDamage
-local ShowRealHeal
-
--- Forward declarations for the combat-text correction feed (UCT), which lives
--- with the rest of the combat text at the bottom of the file. The channel
--- handler above it has to hand corrections in, and PLAYER_ENTERING_WORLD has to
--- push the hide-under threshold up, so both need names that exist by then.
-local CT_Ingest
+-- Forward declarations for the combat-text plumbing, which lives with the rest of
+-- the combat text at the bottom of the file. PLAYER_ENTERING_WORLD has to push the
+-- hide-under threshold up and re-assert which of the client's surfaces are ours, so
+-- both need names that exist by then.
 local CT_PushHideUnder
 local CT_ApplyBlizzardSurfaces
 
 -- Forward declarations for the config/options plumbing at the bottom of the file
 -- (referenced by the ADDON_LOADED handler and slash commands above them).
 local InitSavedVars
-local RefreshOptionsPanel
 local ApplyStatusTextDefaults
 local ApplyCameraZoomDefaults
 local ApplyFloatingCombatTextRepair
@@ -254,8 +247,12 @@ end
 -- every such unit. Player guids happen to carry no high bits, which is the only
 -- reason it never misfired; the assumption was stated in a comment and defended
 -- by nothing. Slicing the last eight digits is what the server actually computes
--- (GetRawValue() & 0xFFFFFFFF) and is what CT_Low already does, so the two key
--- derivations in this file now agree by construction instead of by luck.
+-- (GetRawValue() & 0xFFFFFFFF), so the key this file derives and the key the server
+-- derives now agree by construction instead of by luck.
+--
+-- ⚠ [AN-04] The sibling this used to be kept in step with, CT_Low, is gone with the
+--   correction feed. If a second guid->key helper is ever written, it slices the last
+--   eight hex digits, and this is the reason.
 local function GuidLow(unit)
     local g = UnitGUID(unit)
     if not g then return nil end
@@ -560,15 +557,6 @@ local function ApplyHpExponent(value, exponent)
 end
 
 local function OnLine(msg)
-    -- Per-hit combat-text corrections. Tested FIRST and returned on immediately:
-    -- this is the only line on the pipe that arrives at combat cadence, and every
-    -- pattern below would otherwise be tried against it on every hit.
-    local corrections = msg:match("^UCT:(.+)$")
-    if corrections then
-        if CT_Ingest then CT_Ingest(corrections) end
-        return
-    end
-
     -- Spell tooltip damage, answering a USPELLDMG request. Cached until gear
     -- changes; no reply at all is a valid answer and leaves the tooltip bare.
     -- ★ [audit 2026-08-22 NC-14] THREE CAPTURES, THREE VARIABLES. The pattern
@@ -658,20 +646,6 @@ local function OnLine(msg)
         return
     end
 
-    -- Real (trillion-scale) outgoing melee/spell hit, past the 32-bit combat-log wall.
-    local dmg = msg:match("^UDMG:(%d+)$")
-    if dmg then
-        if ShowRealDamage then ShowRealDamage(tonumber(dmg)) end
-        return
-    end
-
-    -- Real (trillion-scale) outgoing heal, past the 32-bit combat-log wall.
-    local heal = msg:match("^UHEAL:(%d+)$")
-    if heal then
-        if ShowRealHeal then ShowRealHeal(tonumber(heal)) end
-        return
-    end
-
     -- [#998] The 4th field used to be a retired, ignored <stacks> slot; it now carries
     -- the guid of the unit this line describes. Same field count, so this parse is
     -- unchanged in shape -- only the meaning of a value we were already reading.
@@ -725,6 +699,13 @@ local function OnLine(msg)
 end
 
 -- Keep our protocol lines out of chat.
+--
+-- ⚠ UDMG:, UHEAL: and UCT: are RETIRED prefixes (2026-08-31) and are still listed
+--   ON PURPOSE. Nothing parses them any more, but a worldserver that has not yet
+--   taken the matching build keeps sending them, and an unfiltered protocol line is
+--   a visible string in the player's chat window for the length of that window.
+--   Three plain finds is a cheap price. Drop them once every realm is on the build
+--   that stopped sending them.
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
     if msg and (msg:find("^UHP:") or msg:find("^UALL:") or msg:find("^UDMG:")
         or msg:find("^UHEAL:") or msg:find("^UCT:")) then
@@ -932,8 +913,7 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
     -- replied and binned on every single hover.
     --
     -- ⚠ Adding a branch to OnLine? Add its prefix here IN THE SAME EDIT.
-    if msg:find("^UHP:") or msg:find("^UALL") or msg:find("^UDMG:")
-        or msg:find("^UHEAL:") or msg:find("^UCT:")
+    if msg:find("^UHP:") or msg:find("^UALL")
         or msg:find("^UABS:") or msg:find("^USPELLDMGR:") then
         OnLine(msg)
     elseif msg:find("^ICBAN") then
@@ -950,56 +930,37 @@ SlashCmdList["DEVUNCAPPED64"] = function()
 end
 
 -- ===========================================================================
--- FLOATING COMBAT TEXT (merged in -- was a separate file that wouldn't load
--- without a full client restart). Replaces Blizzard's over-head damage numbers
--- with our own, driven from the combat log. Blizzard-style: outgoing floats up
--- over the TARGET (its nameplate when shown, else the target frame), incoming
--- floats up over YOU; crits pop bigger. Live font: /dev64font, test: /dev64dmg.
+-- COMBAT TEXT
+--
+-- ★★ THIS ADDON DOES NOT DRAW COMBAT TEXT, and has not since 2026-08-08. The last of
+--    the machinery was deleted 2026-08-31 (audit AN-04, owner's ruling).
+--
+--    UncappedCT.dll draws the ENGINE body floaters and corrects them itself: it hooks
+--    the one function every floater passes through, decodes the wire band, and renders
+--    the true magnitude as K / M / B / T. Strictly better than anything Lua can reach
+--    -- over the body rather than off to the side, one renderer to keep in step with
+--    the wire format instead of two, and it covers floaters this addon never owned.
+--    See NativeCT/src/UncappedCT.c and docs/design/NATIVE_COMBAT_TEXT.md.
+--
+--    What survives in this section, and why each piece has to:
+--      * CT_DecodeBand           -- the wire-band decoder, shared with the chat tab
+--      * CT_RewriteChatLine      -- nothing outside Lua can rewrite a chat line
+--      * CT_ApplyBlizzardSurfaces-- keeps Blizzard's SCROLLING region switched off
+--      * CT_PushHideUnder        -- /hideunder, pushed to the server AND to the DLL
+--
+--    ⚠ The eleven bundled display fonts under fonts/ are now referenced by NOTHING.
+--      They are kept on disk deliberately (owner's call 2026-08-31) in case a later
+--      UI wants one. Do not read their presence as evidence a font picker exists.
 -- ===========================================================================
-local FONT_DIR = "Interface\\AddOns\\Uncapped64bitUI\\fonts\\"
-local FCT_FONTS = {
-    -- Built into the WoW client -- always present on every install.
-    skurri   = "Fonts\\SKURRI.TTF",     -- the classic spiky WoW combat font
-    arial    = "Fonts\\ARIALN.TTF",     -- condensed, clean, very readable
-    morpheus = "Fonts\\MORPHEUS.TTF",   -- ornate fantasy serif
-    friz     = "Fonts\\FRIZQT__.TTF",   -- default UI font
-    -- Bundled with this addon (SIL OFL 1.1, from Google Fonts).
-    -- Licences travel with them: fonts/LICENSES-OFL.txt.
-    bangers   = FONT_DIR .. "Bangers-Regular.ttf",      -- comic impact
-    anton     = FONT_DIR .. "Anton-Regular.ttf",        -- heavy condensed
-    bebas     = FONT_DIR .. "BebasNeue-Regular.ttf",    -- tall caps
-    russo     = FONT_DIR .. "RussoOne-Regular.ttf",     -- techno bold
-    fjalla    = FONT_DIR .. "FjallaOne-Regular.ttf",    -- bold display
-    metamorph = FONT_DIR .. "Metamorphous-Regular.ttf", -- fantasy
-    righteous = FONT_DIR .. "Righteous-Regular.ttf",    -- retro rounded
-    bungee    = FONT_DIR .. "Bungee-Regular.ttf",       -- chunky signage
-    titan     = FONT_DIR .. "TitanOne-Regular.ttf",     -- cartoon bold
-    creepster = FONT_DIR .. "Creepster-Regular.ttf",    -- horror
-    pixel     = FONT_DIR .. "PressStart2P-Regular.ttf", -- pixel/8-bit
-}
--- Live, user-tunable FCT settings. These are the defaults; they are overwritten
--- from SavedVariables (Uncapped64bitUIDB.fct) at ADDON_LOADED, and edited live
--- from the options panel (ESC > Interface > AddOns > "Uncapped 64-bit UI") and
--- /dev64font. Every FCT closure below reads them straight off this table, so a
--- change takes effect on the very next number that floats.
---   wiggleAmp    - how far heals sway side-to-side as they rise (px)
---   wiggleFreq   - how fast that sway oscillates (rad/s; lower = slower)
---   healDrop     - how far BELOW the target heals start (float up under its plate)
---   selfHealDrop - same for self-heals (start at your character, so a smaller drop)
---   spreadX/Y    - random scatter of each number's start point (breaks the baseline)
---   normalSize   - font size of ordinary (non-crit) hits and heals (px)
---   critSize     - font size a crit starts at, before it pops (px)
---   critPop      - font size crits grow to just after they land (px)
---   popTime      - seconds that crit grow-in takes
---   font         - key into FCT_FONTS (see the picker in the options panel)
---   minFloat     - hide any floater below this value entirely (0 = show all)
---   legacyFct    - draw with our own floaters instead of the scrolling region
+
+-- The one surviving tunable, and it is still a table rather than a bare local because
+-- InitSavedVars, the exported UncappedFCT_* setters and the Dashboard's settings tab
+-- all round-trip it through Uncapped64bitUIDB.fct.
+--   minFloat - hide any hit below this value (0 = show all). Enforced SERVER-side for
+--              spells, periodics and heals (the packet is never sent); by
+--              UncappedCT.dll for melee, whose packet also plays the weapon swing.
 local CFG_DEFAULTS = {
-    wiggleAmp = 10, wiggleFreq = 4.0, healDrop = 120, selfHealDrop = 30,
-    spreadX = 25, spreadY = 30, normalSize = 20, critSize = 34,
-    critPop = 54, popTime = 0.15, font = "morpheus",
     minFloat = 0,
-    legacyFct = false,
 }
 local Cfg = {}
 for k, v in pairs(CFG_DEFAULTS) do Cfg[k] = v end
@@ -1022,46 +983,6 @@ local function ParseAbbrev(s)
     if not v then return nil end
     return v * (({ k = 1e3, m = 1e6, b = 1e9, t = 1e12 })[suf:lower()] or 1)
 end
-
--- Is this floater too small to be worth drawing?
---
--- Applies to incoming as well as outgoing, and to crits as well as ordinary hits.
--- Both are deliberate: a number too small to read is too small to matter in
--- either direction, and a crit under the player's own threshold is still noise.
--- One rule with no exceptions, so the setting behaves exactly as it reads --
--- "hide under this value" hiding some things under that value would be worse
--- than not having it.
---
--- Defined up here rather than beside the FCT handlers because ShowRealDamage /
--- ShowRealHeal (the UDMG/UHEAL feed path) sit above them and need it too;
--- anything declared later would be captured as nil.
---
--- ONE EXCEPTION, AND IT IS THE OTHER HALF OF REPORTS #199 / #221.
---
--- A drawn number that lands inside the wire band is not a number: it is a
--- SATURATED hit whose true magnitude has been encoded into the low bits (server
--- side, WireMagnitude in Damage64Log.h). Whatever it reads as -- always around
--- 2.14B -- the hit itself was at least 2,147,483,520 and in practice far larger.
--- Comparing that against a threshold players set in the TRILLIONS hid precisely
--- the biggest hits in the game while letting small ones through, which is the
--- exact inversion the server side of this filter had. Fail open: a saturated hit
--- is never "too small to be worth drawing".
---
--- Only the band is exempted, not everything above CT_MATCH_FLOOR. A genuine,
--- unsaturated hit that would have landed in the band is pushed to BAND_BASE - 1
--- by the encoder precisely so the band means one thing, and that value still
--- means what it says -- so it stays filterable.
--- ★★ MASTER SWITCH for this addon's own floating combat text. Retired
---    2026-08-08 (owner's call) because UncappedCT.dll now corrects the ENGINE
---    body floaters directly and renders them as K/M/B/T, which is strictly
---    better: over the body rather than off to the side, and one renderer to keep
---    in step with the wire format instead of two.
---
---    Left as a named flag rather than ripped out. The drawing code below is
---    still reached by the /dev64 settings preview, and a single false is a much
---    smaller thing to reason about -- and to reverse -- than a partially deleted
---    pipeline.
-local FCT_ADDON_DRAWS = false
 
 local CT_BAND_BASE_MIN = 2145386496   -- WireMagnitude::BAND_BASE
 local CT_BAND_BASE_MAX = 2147483647   -- INT32_MAX
@@ -1099,15 +1020,15 @@ end
 --     wire = BAND_BASE + (exponent * 32768) + mantissa
 --     real = (mantissa + 32768) * 2^exponent
 --
--- ★ THIS IS WHY THE SERVER'S CORRECTION FEED IS DEAD, AND WHY THAT IS FINE.
+-- ★ THIS IS WHY THE SERVER'S CORRECTION FEED WAS DELETED, AND WHY THAT IS FINE.
 --
 --   The feed used to send one addon message per saturated hit carrying the true
---   figure. It cannot fire any more: every caller now pins on the ENCODED value,
---   which lives in [2145386496, 2147483647], and the server's own gate needs a
---   value clearing 2147483520 -- i.e. exponent 63, which Encode never emits
---   (it caps at 47). The two sides disagreed in the same direction: CT_MATCH_FLOOR
---   below is 2147483008, ABOVE BAND_BASE, so this addon would have refused to
---   look up an encoded hit even if one had been sent.
+--   figure. It had already stopped being able to fire: every caller pinned on the
+--   ENCODED value, which lives in [2145386496, 2147483647], while the server's own
+--   send gate needed a value clearing 2147483520 -- i.e. exponent 63, which Encode
+--   never emits (it caps at 47). The two sides disagreed in the same direction: this
+--   addon's match floor was 2147483008, ABOVE BAND_BASE, so it would have refused to
+--   look up an encoded hit even if one had been sent. Both halves went 2026-08-31.
 --
 --   Re-opening the feed would have been the wrong repair anyway. It puts one
 --   message on the wire per saturated hit, and a 250-mob AoE tick produces 250
@@ -1141,21 +1062,14 @@ local function CT_DecodeBand(wire)
     return mantissa * (2 ^ exponent)
 end
 
-local function FctBelowThreshold(amount)
-    local m = Cfg.minFloat or 0
-    if m <= 0 or not amount then return false end
-    if amount >= CT_BAND_BASE_MIN and amount <= CT_BAND_BASE_MAX then return false end
-    return amount < m
-end
-
--- The resolved font path, kept in sync with Cfg.font. Reassigned at ADDON_LOADED
--- and whenever the font changes from the panel or /dev64font.
-local FCT_FONT = FCT_FONTS[Cfg.font] or FCT_FONTS.morpheus
-
 -- Assigned to the forward-declared InitSavedVars; runs once at ADDON_LOADED, when
--- Uncapped64bitUIDB is guaranteed loaded. Pulls saved tunables over the defaults,
--- resolves the font, and (on a brand-new install only) turns nameplates on once
--- so the over-target/over-ally combat text works out of the box.
+-- Uncapped64bitUIDB is guaranteed loaded. Pulls the saved threshold over the default
+-- and, on a brand-new install only, turns nameplates on once.
+--
+-- ⚠ The nameplate default is NOT about combat text any more -- the engine draws the
+--   numbers over the unit's body and does not read a nameplate. It stays because
+--   several Uncapped surfaces still key off them and most players expect them on.
+--   Defaulted once, never re-forced: players disliked having it re-asserted.
 InitSavedVars = function()
     Uncapped64bitUIDB = Uncapped64bitUIDB or {}
     local db = Uncapped64bitUIDB
@@ -1163,7 +1077,6 @@ InitSavedVars = function()
     for k in pairs(Cfg) do
         if db.fct[k] ~= nil then Cfg[k] = db.fct[k] end
     end
-    FCT_FONT = FCT_FONTS[Cfg.font] or FCT_FONTS.morpheus
     if not db.initialized then
         db.initialized = true
         pcall(SetCVar, "nameplateShowEnemies", "1")
@@ -1172,7 +1085,6 @@ InitSavedVars = function()
 
     -- The status-text migration is NOT run here -- see ApplyStatusTextDefaults
     -- below, which PLAYER_ENTERING_WORLD drives instead.
-    if RefreshOptionsPanel then RefreshOptionsPanel() end
 end
 
 -- ★★ A ONE-SHOT MIGRATION MUST VERIFY, NOT ASSUME. [audit 2026-08-22 AN-02]
@@ -1234,7 +1146,7 @@ end
 --
 -- ★★ THE ENGINE FLOATERS ARE THE ONLY RENDERER LEFT, SO ONE CVAR AT 0 IS A BLANK SCREEN.
 --
--- Since 2026-08-08 this addon does not draw combat text (FCT_ADDON_DRAWS is false) and
+-- This addon does not draw combat text (retired 2026-08-08, deleted 2026-08-31) and
 -- CT_ApplyBlizzardSurfaces pins SHOW_COMBAT_TEXT to "0", so Blizzard's scrolling region is
 -- off on purpose. Everything the player sees comes from UncappedCT.dll -- which detours
 -- sub_7E6030, the world-text choke point, and therefore only ever rewrites a floater the
@@ -1374,18 +1286,6 @@ ApplyCameraZoomDefaults = function()
     db.cameraDistanceMaxGranted = ok and tonumber(granted) or nil
 end
 
--- (The old DisableBlizzardFCT lived here. It turned off Blizzard's floating AND
--- scrolling combat text so our own floaters owned every kind of combat feedback.
--- Only half of that survives -- see CT_ApplyBlizzardSurfaces down in the
--- combat-text section, which still suppresses the ENGINE floaters but now hands
--- the scrolling region the numbers instead of silencing it.)
-
-local MISS_TEXT = {
-    MISS = "Miss", DODGE = "Dodge", PARRY = "Parry", BLOCK = "Block",
-    DEFLECT = "Deflect", ABSORB = "Absorb", IMMUNE = "Immune",
-    RESIST = "Resist", EVADE = "Evade", REFLECT = "Reflect",
-}
-
 -- [audit 2026-08-22 AN-03] Commafy() and SCHOOL_COLOR were removed here. Both
 -- were file-locals with no reader anywhere in the addon -- nothing outside the
 -- file could ever have reached them. Commafy was also wrong above 1e15, where
@@ -1395,681 +1295,35 @@ local MISS_TEXT = {
 -- the DLL's FormatMagnitude. If a grouped-digits format is ever wanted, write it
 -- against that contract rather than restoring this.
 
-local fctHost = CreateFrame("Frame", nil, UIParent)
--- Blizzard-style anchoring: outgoing floats up over the TARGET (its nameplate
--- when one is shown, else the target frame); incoming floats up over YOU.
-local function LooksLikeNameplate(f)
-    if f:GetName() then return false end
-    if f:GetNumChildren() < 1 then return false end
-    local hb = select(1, f:GetChildren())
-    return hb ~= nil and hb.GetObjectType and hb:GetObjectType() == "StatusBar"
-end
-
-local function NameplateName(f)
-    for _, r in ipairs({ f:GetRegions() }) do
-        if r.GetObjectType and r:GetObjectType() == "FontString" then
-            local t = r:GetText()
-            if t and t ~= "" and not tonumber(t) then return t end   -- name, not the level number
-        end
-    end
-    return nil
-end
-
-local plateCache, plateCacheName
-local function TargetPlate()
-    if not UnitExists("target") or UnitIsDeadOrGhost("target") then return nil end
-    local tname = UnitName("target")
-    if plateCache and plateCache:IsShown() and plateCacheName == tname
-        and NameplateName(plateCache) == tname then
-        return plateCache
-    end
-    plateCache, plateCacheName = nil, nil
-    for _, f in ipairs({ WorldFrame:GetChildren() }) do
-        if f:IsShown() and LooksLikeNameplate(f) and NameplateName(f) == tname then
-            plateCache, plateCacheName = f, tname
-            return f
-        end
-    end
-    return nil
-end
-
-local function CenterInUIParent(frame)
-    if not frame or not frame:IsShown() then return nil end
-    local x, y = frame:GetCenter()
-    if not x then return nil end
-    local s = frame:GetEffectiveScale() / UIParent:GetEffectiveScale()
-    return x * s, y * s
-end
-
-local function GetOutgoingPos()
-    local plate = TargetPlate()
-    if plate then
-        local x, y = CenterInUIParent(plate)
-        if x then return x, y + 24 end
-    end
-    if TargetFrame and TargetFrame:IsShown() and UnitExists("target") then
-        local x, y = CenterInUIParent(TargetFrame)
-        if x then return x, y - 18 end
-    end
-    return GetScreenWidth() * 0.5, GetScreenHeight() * 0.70
-end
-
-local function GetIncomingPos()
-    return GetScreenWidth() * 0.5, GetScreenHeight() * 0.42
-end
-
-local fctPool, fctActive = {}, {}
-
--- ★ [audit 2026-08-22 AN-16] Forward declaration for the animator, so the spawn
--- function below can ARM it. The frame is left with no OnUpdate at load and only
--- carries one while fctActive is non-empty. It used to run every frame for the
--- whole session, walking an empty list -- and since FCT_ADDON_DRAWS is false the
--- list is empty except during the options preview, so it was a per-frame call to
--- do nothing, on every client, forever.
-local fctAnimate
-
--- Apply the current combat font at a given size, ALWAYS leaving a usable font set.
--- SetFont returns false (without setting anything) when the font file can't be
--- loaded -- most commonly a bundled font that was added while the client was
--- already running, which the client only picks up on a full restart. If we left
--- it there, the next SetText() would throw "Font not set", so fall back to a
--- built-in client font that is guaranteed to be loadable.
-local FCT_FALLBACK_FONT = "Fonts\\FRIZQT__.TTF"
-local function SafeSetFont(fs, size)
-    if not fs:SetFont(FCT_FONT, size, "OUTLINE") then
-        fs:SetFont(FCT_FALLBACK_FONT, size, "OUTLINE")
-    end
-end
-
--- Spawn any floating text (a damage number, a heal, or a "Dodge"/"Parry"/etc).
--- outgoing=true floats up over the target; false floats up over the player.
-local function FctSpawnText(text, big, r, g, b, outgoing, heal)
-    local x, y
-    if outgoing then
-        x, y = GetOutgoingPos()
-    else
-        x, y = GetIncomingPos()
-    end
-    x = x + math.random(-Cfg.spreadX, Cfg.spreadX)
-    -- Scatter the start height too, so numbers don't all lift off one flat line.
-    y = y + math.random(-Cfg.spreadY, Cfg.spreadY)
-    -- Heals begin well UNDER the unit and float up to sit under the nameplate.
-    if heal then y = y - (outgoing and Cfg.healDrop or Cfg.selfHealDrop) end
-    local fs = table.remove(fctPool) or fctHost:CreateFontString(nil, "OVERLAY")
-    local base = big and Cfg.critSize or Cfg.normalSize
-    SafeSetFont(fs, base)
-    fs:SetText(text)
-    fs:SetTextColor(r, g, b)
-    fs:SetAlpha(1)
-    fs:ClearAllPoints()
-    fs:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
-    fs:Show()
-    fctActive[#fctActive + 1] = { fs = fs, x = x, y0 = y, t = 0, dur = big and 1.6 or 1.2,
-        rise = big and 95 or 70, wiggle = true, phase = math.random() * 6.2832,
-        pop = big or false, base = base }
-    -- ★ [AN-16] Arm on the transition from empty to one; the animator disarms
-    -- itself on the way back. Re-setting an already-set OnUpdate every spawn
-    -- would be harmless but pointless, so it is gated on the count.
-    if #fctActive == 1 then fctHost:SetScript("OnUpdate", fctAnimate) end
-end
-
--- Assigns the forward-declared handler: the server feeds real (trillion-scale)
--- melee hits over the channel when they're past the 32-bit combat-log wall.
---
--- LEGACY ONLY now. UDMG/UHEAL carry a SUM -- every saturated hit a player landed
--- inside the server's merge window, added together and drawn as one number. That
--- was the right answer while the only alternative was a stack of thirty pinned
--- numbers on one spot, but it is not what happened, and the UCT feed replaces it
--- with the truth per hit. Drawing both would put a merged total on screen
--- alongside the individual hits it is made of.
---
--- The parse stays either way: the server still sends these, the legacy renderer
--- still wants them, and a realm running an older worldserver has nothing else.
-ShowRealDamage = function(real)
-    if not FCT_ADDON_DRAWS then return end
-    if not Cfg.legacyFct then return end
-    if FctBelowThreshold(real) then return end
-    FctSpawnText(Abbrev(real) .. "!", true, 1.0, 0.82, 0.0, true)
-end
-
--- Real (trillion-scale) outgoing heal, fed over the channel when the client's
--- own combat log would show the 32-bit-capped value. Heal green, "+" prefix.
-ShowRealHeal = function(real)
-    if not FCT_ADDON_DRAWS then return end
-    if not Cfg.legacyFct then return end
-    if FctBelowThreshold(real) then return end
-    FctSpawnText("+" .. Abbrev(real), true, 0.4, 1.0, 0.4, true, true)
-end
-
-fctAnimate = function(self, dt)
-    for i = #fctActive, 1, -1 do
-        local a = fctActive[i]
-        a.t = a.t + dt
-        local p = a.t / a.dur
-        if p >= 1 then
-            a.fs:Hide(); a.fs:ClearAllPoints()
-            fctPool[#fctPool + 1] = a.fs
-            table.remove(fctActive, i)
-        else
-            -- Crit "pop": grow from base size up to Cfg.critPop over the first
-            -- Cfg.popTime seconds, then hold -- it visibly scales bigger just
-            -- after it lands.
-            if a.pop and not a.popped then
-                if a.t >= Cfg.popTime then
-                    SafeSetFont(a.fs, Cfg.critPop)
-                    a.popped = true
-                else
-                    local pp = a.t / Cfg.popTime
-                    local size = a.base + (Cfg.critPop - a.base) * (1 - (1 - pp) * (1 - pp))
-                    SafeSetFont(a.fs, math.floor(size + 0.5))
-                end
-            end
-            local wx = a.x
-            if a.wiggle then
-                wx = wx + math.sin(a.t * Cfg.wiggleFreq + a.phase) * Cfg.wiggleAmp
-            end
-            a.fs:SetPoint("CENTER", UIParent, "BOTTOMLEFT", wx, a.y0 + a.rise * p)
-            if p > 0.55 then a.fs:SetAlpha(1 - (p - 0.55) / 0.45) end
-        end
-    end
-    -- ★ [AN-16] Nothing left to animate: stop being called. FctSpawnText re-arms.
-    if #fctActive == 0 then self:SetScript("OnUpdate", nil) end
-end
-
-local fctPlayerGUID
-
-local function FctMine(guid) return guid == fctPlayerGUID or guid == UnitGUID("pet") end
-
--- ===========================================================================
--- CORRECTED COMBAT TEXT
---
--- The problem, established by disassembling the client and not worth
--- re-deriving: the combat-text event marshaller does a SIGNED 32-bit load
--- (fild dword ptr [esi+4], 0x0081AD70) and only then widens to double for
--- lua_pushnumber, and every numeric combat-text slot goes through the %d
--- handler. Anything past 2^31 is destroyed BEFORE Lua is handed it. There is no
--- arrangement of addon code that gets a real number down that pipe.
---
--- So we let the client draw whatever it gets, and correct it before it renders.
--- The server sends the true 64-bit figure out of band on the UCT feed, keyed by
--- the exact pinned value the client will draw plus the source and target GUIDs;
--- we hold a short-lived table of those and substitute on the way to the screen.
---
--- WHAT WE DRAW INTO
---
--- Blizzard's scrolling combat text (the LoadOnDemand Blizzard_CombatText addon;
--- 3.3.5a has no FrameXML/CombatText.lua). It renders in a FIXED screen region,
--- which is the entire reason for moving: our own floaters anchor outgoing
--- numbers to the target's nameplate or unit frame, and a boss scaled to several
--- times its normal size puts that anchor somewhere the number should never be.
--- Incoming numbers never had that problem -- GetIncomingPos is already a fixed
--- point -- but they move too, because splitting one kind of combat text across
--- two renderers would look worse than either.
---
--- WHAT WE CANNOT DRAW
---
--- The numbers that fly off a unit's body are drawn by the game engine. They are
--- unreachable from Lua entirely -- no hook, no event, no frame -- so they can
--- only ever show the pinned value. CT_ApplyBlizzardSurfaces keeps them switched
--- off rather than leaving an uncorrectable 2.1B beside every corrected number.
---
--- FAILURE IS INVISIBLE, BY CONSTRUCTION
---
--- Everything below is all-or-nothing: the scrolling region is used only when the
--- renderer AND the event takeover are both in place (ctScrollReady). If either
--- fails -- the LoadOnDemand addon missing, a client that names things
--- differently, another addon holding the same seam -- we fall straight back to
--- the floaters this addon already had, with the corrections still applied. A
--- correction that never arrives leaves the ordinary pinned number on screen.
--- Nothing here can produce a blank, and nothing here runs outside a pcall that
--- could throw in combat.
--- ===========================================================================
-
--- The value the wire pins a saturated hit to: 2^31 - 128, matching
--- Damage64Log::SATURATION_FLOOR and UncappedCombatText::WIRE_CEILING server-side.
-local CT_WIRE_CEILING = 2147483520
-
--- How far a drawn number may sit from the pinned value the server told us about
--- and still be considered the same hit.
---
--- Exact equality does NOT work, and this is the reason. Melee sub-damage rides
--- the wire as a float32 (`data << float(tmpDamage[i])` in
--- Unit::SendAttackStateUpdate), and float32 spacing at 2^31 is 2^31/2^23 = 256.
--- So the number Lua is handed can differ from the integer the server wrote by up
--- to half a step in either direction, and a saturated melee hit lands on a
--- coarse 256-wide grid rather than on one exact value.
---
--- There is a second, smaller source of drift in the same direction. The melee
--- packet carries the summed "Full damage" as an int32 (clamped at INT32_MAX,
--- 2147483647) and each sub-damage as a float32 (clamped at 2147483520). Which of
--- the two the client's combat log reports does not matter as long as the
--- tolerance spans the 127 between them, and it does.
---
--- 512 is two float steps: comfortably past any rounding the round-trip can
--- introduce, past that 127, and still 0.00002% of the magnitude being matched --
--- far too tight to bind two hits that are genuinely different. The one thing it can do
--- is pair a correction with an unsaturated hit that happens to land within 512
--- of the ceiling; that requires a real hit of ~2,147,483,100 from the same
--- source to the same target inside the TTL, and the result would be a number of
--- the right order of magnitude rather than a wrong one.
-local CT_TOLERANCE = 512
-
--- Below this a drawn number is its own truth and is never looked up. This is
--- what stops the correction table being consulted for ordinary hits at all.
-local CT_MATCH_FLOOR = CT_WIRE_CEILING - CT_TOLERANCE
-
--- How long a correction stays usable, and how many are kept.
---
--- A correction is sent in the same server tick as the hit it belongs to, so it
--- is normally consumed within a frame or two. The TTL exists for the case where
--- it is not: a correction that arrives too late must expire rather than attach
--- itself to some unrelated later hit. Three seconds is far longer than the feed
--- ever needs and far shorter than a fight.
---
--- The cap is the other half of the same rule -- a long fight cannot grow this
--- table, because the oldest entry is discarded to make room. Both bounds are
--- deliberately generous compared to what the feed actually produces (the server
--- refuses to send more than a dozen corrections per player per tick), so hitting
--- either one means something upstream is already wrong.
-local CT_TTL = 3.0
-local CT_MAX_PENDING = 64
-
-local ctPending = {}   -- FIFO; oldest first
-local ctSelfLow        -- low 32 bits of the player's own GUID
-
--- ★ [audit 2026-08-22 AN-16] Arms the combat-text driver's OnUpdate. Forward
--- declared because the ingest below runs long before the driver frame is
--- created, and the driver must only be running while there is something for it
--- to do -- a queued line to draw next frame, or a correction still inside its
--- TTL. It used to hold an OnUpdate for the whole session to service a purge that
--- fires once a second and, out of combat, has nothing to purge.
-local CT_ArmDriver = function() end
-
--- A SECOND copy of every correction, consumed independently.
---
--- The combat-log chat tab and the floating number describe the same hit, so if
--- they drew from one list the first of them to run would take the entry and the
--- other would print the pinned value. Two lists, each seeing every correction
--- exactly once, is the whole fix -- and it costs one extra small table per hit.
-local ctPendingChat = {}
-
--- The 32 bits both sides agree on.
---
--- Lua sees a GUID as "0x" plus 16 hex digits; the server computes
--- ObjectGuid::GetRawValue() & 0xFFFFFFFF. The last eight hex digits ARE that
--- value, so the two derive the same key from the same unit without either side
--- having to reproduce the other's GUID layout. Half the bytes of a full GUID,
--- which matters against the client's 255-byte addon-message ceiling.
-local function CT_Low(guid)
-    if type(guid) ~= "string" then return nil end
-    return tonumber(guid:sub(-8), 16)
-end
-
--- Parse a UCT line. Malformed entries are skipped rather than erroring: this
--- runs inside combat and a protocol hiccup must cost a number, never a frame.
-CT_Ingest = function(body)
-    local now = GetTime()
-    for entry in body:gmatch("[^;]+") do
-        local kind, src, dst, pin, real = entry:match("^(%a)(%x+),(%x+),(%d+),(%d+)$")
-        if kind then
-            local rec = {
-                kind = kind,
-                src  = tonumber(src, 16),
-                dst  = tonumber(dst, 16),
-                pin  = tonumber(pin),
-                real = tonumber(real),
-                t    = now,
-            }
-
-            if #ctPending >= CT_MAX_PENDING then table.remove(ctPending, 1) end
-            ctPending[#ctPending + 1] = rec
-
-            -- Shared by reference: nothing ever mutates a correction, only
-            -- removes it from one list or the other.
-            if #ctPendingChat >= CT_MAX_PENDING then table.remove(ctPendingChat, 1) end
-            ctPendingChat[#ctPendingChat + 1] = rec
-
-            CT_ArmDriver()   -- [AN-16] there is now something to purge
-        end
-    end
-end
-
-local function CT_PurgeList(list)
-    local now = GetTime()
-    for i = #list, 1, -1 do
-        if now - list[i].t > CT_TTL then table.remove(list, i) end
-    end
-end
-
-local function CT_Purge()
-    CT_PurgeList(ctPending)
-    CT_PurgeList(ctPendingChat)
-end
-
--- Claim the correction for one drawn number, or nil.
---
--- `src` and `dst` may be nil for "don't care" -- the incoming path knows the
--- number landed on us but not who threw it, because the client's own combat-text
--- event carries no GUIDs at all.
---
--- Consuming is deliberate: each correction describes exactly one hit, and two
--- hits that saturate to the same value must take two different entries. Oldest
--- first, so a burst is matched in the order it was dealt.
---
--- Note what is NOT needed here. Corrections from other people's hits cannot
--- collide with ours, because they are never sent to us: the server addresses
--- each one to the two players party to the hit and stamps both GUIDs on it. The
--- keying below separates OUR simultaneous hits from each other; cross-player
--- leakage is prevented a step earlier, where it cannot be got wrong.
-local function CT_Take(kind, src, dst, amount)
-    -- The band decodes to its own truth, so it is answered before the correction
-    -- table is consulted at all -- no GUID match, no TTL, no budget, and it works
-    -- for a 250-target AoE tick where a message-based feed could not.
-    --
-    -- Checked BEFORE the CT_MATCH_FLOOR gate on purpose: that floor is 2147483008
-    -- and BAND_BASE is 2145386496, so most encoded hits sit below it and the old
-    -- ordering rejected them before anyone could look.
-    local decoded = CT_DecodeBand(amount)
-    if decoded then return decoded end
-
-    if not amount or amount < CT_MATCH_FLOOR then return nil end
-    local now = GetTime()
-    for i = 1, #ctPending do
-        local p = ctPending[i]
-        if now - p.t <= CT_TTL
-            and p.kind == kind
-            and (src == nil or p.src == src)
-            and (dst == nil or p.dst == dst)
-            and math.abs(amount - p.pin) <= CT_TOLERANCE then
-            table.remove(ctPending, i)
-            return p.real
-        end
-    end
-    return nil
-end
-
--- ---------------------------------------------------------------------------
--- Blizzard's scrolling region
--- ---------------------------------------------------------------------------
--- Two seams are taken, and neither is useful without the other:
---
---   * CombatText_AddMessage, kept as a direct reference so our own numbers go in
---     without passing back through anything we (or another addon) wrapped;
---   * the frame's OnEvent, so the message types WE draw are dropped before
---     Blizzard formats them. Precisely those types -- mana, honour, reputation,
---     combo points, aura gains and incoming avoidance stay Blizzard's, because
---     silencing the whole event to stop two damage numbers would take a dozen
---     unrelated ones with it.
---
--- ctScrollReady is set only when both are held. Half of this installed is worse
--- than none of it: the renderer without the takeover draws every number twice.
-local ctOriginalAdd
-local ctScrollReady = false
-
--- How many messages the event takeover has actually dropped.
---
--- This is a self-check on the one assumption in here that cannot be verified
--- from the code: that CT_WE_DRAW below lists the message-type names this client
--- really uses. If it does, this climbs the first time anything hits us and
--- Blizzard's own damage and heal lines never reach CombatText_AddMessage at all.
--- If a name is wrong it stays at zero, and the wrapper uses that to tell a
--- duplicate of a number we already drew from a message genuinely worth passing
--- through. See CT_InstallMessageWrapper.
-local ctSuppressed = 0
-
-local CT_WE_DRAW = {
-    DAMAGE = true, DAMAGE_CRIT = true,
-    SPELL_DAMAGE = true, SPELL_DAMAGE_CRIT = true,
-    PERIODIC_DAMAGE = true, SPELL_PERIODIC_DAMAGE = true,
-    HEAL = true, HEAL_CRIT = true,
-    SPELL_HEAL = true, SPELL_HEAL_CRIT = true,
-    PERIODIC_HEAL = true,
-}
-
--- The animation Blizzard will run our line through.
---
--- Resolved per call, not once: COMBAT_TEXT_SCROLL_FUNCTION follows the player's
--- float-mode setting and is rewritten by CombatText_UpdateDisplayedMessages, so
--- a cached reference would pin them to whatever mode was live when we started.
--- Passing a nil here would not fail in our pcall -- Blizzard stores it on the
--- font string and calls it later, from its own OnUpdate -- so it is checked
--- before the region is claimed at all.
-local function CT_ScrollFn()
-    local named = type(COMBAT_TEXT_SCROLL_FUNCTION) == "string" and _G[COMBAT_TEXT_SCROLL_FUNCTION]
-    if type(named) == "function" then return named end
-    if type(CombatText_StandardScroll) == "function" then return CombatText_StandardScroll end
-    if type(CombatText_FountainScroll) == "function" then return CombatText_FountainScroll end
-    return nil
-end
-
-local function CT_ClaimScrollRegion()
-    if ctScrollReady then return true end
-
-    -- LoadOnDemand: nothing exists until something asks for it.
-    if not CombatText_AddMessage and LoadAddOn then
-        pcall(LoadAddOn, "Blizzard_CombatText")
-    end
-    if type(CombatText_AddMessage) ~= "function" or not CombatTextFrame then return false end
-    if not CT_ScrollFn() then return false end
-
-    local original = CombatText_AddMessage
-    local origOnEvent = CombatTextFrame:GetScript("OnEvent") or CombatText_OnEvent
-    if type(origOnEvent) ~= "function" then return false end
-
-    local ok = pcall(function()
-        CombatTextFrame:SetScript("OnEvent", function(self, event, ...)
-            if event == "COMBAT_TEXT_UPDATE" then
-                local messageType = ...
-                if CT_WE_DRAW[messageType] then
-                    ctSuppressed = ctSuppressed + 1
-                    return
-                end
-            end
-            return origOnEvent(self, event, ...)
-        end)
-    end)
-    if not ok then return false end
-
-    ctOriginalAdd = original
-    ctScrollReady = true
-    return true
-end
-
--- Put one line into the scrolling region. Returns false when the region is not
--- ours, which is the caller's cue to fall back to our own floaters.
-local function CT_Scroll(text, r, g, b, crit)
-    if not ctScrollReady or not ctOriginalAdd then return false end
-    local scrollFn = CT_ScrollFn()
-    if not scrollFn then return false end
-    -- displayType "crit" is what makes Blizzard use its larger crit font, which
-    -- is the same distinction our own renderer draws with the size pop.
-    return (pcall(ctOriginalAdd, text, scrollFn, r, g, b, crit and "crit" or nil, nil))
-end
-
--- ---------------------------------------------------------------------------
--- The one-frame hold
--- ---------------------------------------------------------------------------
--- Every number worth correcting is held back for one full frame before it is
--- drawn, and this is the only reason the whole scheme lands on the right hit.
---
--- The server flushes corrections at the end of the same world tick that produced
--- the combat-log packets, so a correction is always one or two packets BEHIND
--- the hit it describes. The client fires COMBAT_LOG_EVENT_UNFILTERED while it is
--- still working through that burst -- drawing there would consult a table that
--- does not yet contain the answer. Waiting until the next OnUpdate guarantees
--- the whole burst has been processed first.
---
--- The cost is one frame, 16ms at 60fps. Nobody can see it, and the alternative
--- (reaching into Blizzard's live animation list to rewrite a string that is
--- already on screen) is both fragile and visibly wrong for a frame anyway.
-local ctQueue, ctFrame, ctPurgeAccum = {}, 0, 0
-local ctDriver = CreateFrame("Frame")
-
--- The queue drains every frame, so it should never hold more than one frame's
--- worth. The cap is there for the case where that assumption is wrong -- a UI
--- error that kills the driver, a stall -- so the failure is "some numbers are
--- missing" rather than a table that grows until the client runs out of memory.
-local CT_MAX_QUEUE = 256
-
-local function CT_Enqueue(rec)
-    if #ctQueue >= CT_MAX_QUEUE then table.remove(ctQueue, 1) end
-    rec.frame = ctFrame
-    ctQueue[#ctQueue + 1] = rec
-    CT_ArmDriver()   -- [AN-16] there is now something to draw next frame
-end
-
--- Draw one of our own (combat-log driven) lines, correction applied.
-local function CT_DrawOwn(rec)
-    local amount = CT_Take(rec.kind, rec.src, rec.dst, rec.amount) or rec.amount
-
-    -- The threshold is enforced server-side now (it never sends the packet), but
-    -- it is still checked here: a realm running an older worldserver, and the
-    -- legacy renderer, both need it, and a second check costs one comparison.
-    if FctBelowThreshold(amount) then return end
-
-    local text = (rec.kind == "h" and "+" or "") .. Abbrev(amount) .. (rec.crit and "!" or "")
-    if not CT_Scroll(text, rec.r, rec.g, rec.b, rec.crit) then
-        FctSpawnText(text, rec.crit, rec.r, rec.g, rec.b, not rec.incoming, rec.kind == "h")
-    end
-end
-
--- Re-issue a message Blizzard tried to send while a correction was still in
--- flight. Only reached when the event takeover is NOT in place for that type --
--- a safety net for anything Blizzard still emits with a pinned number in it.
-local function CT_DrawBlizzard(rec)
-    local real = CT_Take(rec.heal and "h" or "d", nil, ctSelfLow, rec.amount)
-              or CT_Take(rec.heal and "d" or "h", nil, ctSelfLow, rec.amount)
-    local message = rec.message
-    if real then
-        -- numStr is digits, so it is its own pattern, and Abbrev never produces
-        -- a '%' -- neither side of the substitution can be reinterpreted.
-        message = message:gsub(rec.numStr, Abbrev(real), 1)
-    end
-    if ctOriginalAdd then
-        pcall(ctOriginalAdd, message, rec.scrollFunction, rec.r, rec.g, rec.b,
-            rec.displayType, rec.isStaggered)
-    end
-end
-
-local function CT_Drive(self, dt)
-    ctPurgeAccum = ctPurgeAccum + dt
-    if ctPurgeAccum >= 1.0 then
-        ctPurgeAccum = 0
-        if #ctPending > 0 or #ctPendingChat > 0 then CT_Purge() end
-    end
-
-    if #ctQueue > 0 then
-        local i = 1
-        while i <= #ctQueue do
-            local rec = ctQueue[i]
-            -- Strictly less-than: an entry stamped during THIS frame's event
-            -- processing has rec.frame == ctFrame and waits for the next pass.
-            if rec.frame < ctFrame then
-                table.remove(ctQueue, i)
-                if rec.blizzard then CT_DrawBlizzard(rec) else CT_DrawOwn(rec) end
-            else
-                i = i + 1
-            end
-        end
-    end
-
-    ctFrame = ctFrame + 1
-
-    -- ★ [AN-16] Nothing queued and nothing to purge: stop being called. Both
-    -- fill points (CT_Enqueue, CT_Ingest) re-arm. ctFrame stops advancing while
-    -- idle, which is harmless -- the queue's one-frame delay is measured against
-    -- the value stamped at enqueue time, and the first tick after re-arming
-    -- still sees rec.frame == ctFrame and waits, exactly as before.
-    if #ctQueue == 0 and #ctPending == 0 and #ctPendingChat == 0 then
-        self:SetScript("OnUpdate", nil)
-    end
-end
-
-CT_ArmDriver = function()
-    if not ctDriver:GetScript("OnUpdate") then
-        ctPurgeAccum = 0
-        ctDriver:SetScript("OnUpdate", CT_Drive)
-    end
-end
-
--- Wrap CombatText_AddMessage so anything Blizzard (or another addon) pushes into
--- the scrolling region gets the same treatment. Installed separately from the
--- event takeover because it is useful on its own: even with the takeover in
--- place, a message type we did not list still arrives here and still gets its
--- number fixed rather than showing 2,147,483,520.
-local ctWrapped = false
-local function CT_InstallMessageWrapper()
-    if ctWrapped or type(CombatText_AddMessage) ~= "function" then return end
-    ctWrapped = true
-
-    local passthrough = CombatText_AddMessage
-    if not ctOriginalAdd then ctOriginalAdd = passthrough end
-
-    CombatText_AddMessage = function(message, scrollFunction, r, g, b, displayType, isStaggered)
-        if type(message) == "string" then
-            -- Prefer the run behind a sign: Blizzard writes damage as "-N" and
-            -- healing as "+N", sometimes after the healer's name. A bare "%d+"
-            -- would find the "1" in "Player1" instead of the number.
-            local numStr = message:match("[%+%-](%d+)") or message:match("%d+")
-            local amount = numStr and tonumber(numStr)
-            if amount and amount >= CT_MATCH_FLOOR then
-                -- A pinned number that reached this wrapper while we are drawing
-                -- everything ourselves AND the event takeover has never once
-                -- fired means the takeover is not matching this client's type
-                -- names -- so this is Blizzard's copy of a hit we have already
-                -- queued. Drop it. Doubling every incoming number is a visible,
-                -- permanent bug that would need a payload republish; the cost of
-                -- being wrong the other way is one lost number, once, before the
-                -- first genuine suppression.
-                if ctScrollReady and ctSuppressed == 0 then return end
-
-                -- Pinned, and the correction for it is very likely one packet
-                -- behind. Swallow it and re-issue next frame rather than draw a
-                -- number we already know to be wrong.
-                CT_Enqueue({
-                    blizzard = true,
-                    message = message, numStr = numStr, amount = amount,
-                    heal = message:find("%+") ~= nil,
-                    scrollFunction = scrollFunction, r = r, g = g, b = b,
-                    displayType = displayType, isStaggered = isStaggered,
-                })
-                return
-            end
-        end
-        return passthrough(message, scrollFunction, r, g, b, displayType, isStaggered)
-    end
-end
-
 -- ---------------------------------------------------------------------------
 -- The combat log chat tab
 -- ---------------------------------------------------------------------------
--- The third surface, and the one with the weakest keying, for a reason that
--- cannot be engineered around: a chat line is TEXT. It names units, it does not
--- carry their GUIDs, so a correction can only be matched to it by the number
--- itself. Both other surfaces are driven by events that hand us both GUIDs, and
--- both use them.
+-- The one surface left to Lua, and the only one that needs it: a chat line is TEXT,
+-- and nothing outside Lua can rewrite it. The floating numbers are the DLL's.
 --
--- What that costs, stated plainly: in a group, a line describing somebody ELSE's
--- saturated hit can consume a correction that belonged to one of ours, so
--- attributions in the scrollback can drift during heavy raid combat. What it
--- cannot do is show another player's number -- their corrections are never sent
--- to this client at all -- so the failure is our own figure printed against the
--- wrong line, in a log, rather than a leak.
+-- ★ [AN-04] EVERYTHING THE CORRECTION FEED NEEDED IS GONE FROM HERE.
 --
--- Weighed against the alternative, which is the tab showing 2147483520 for every
--- hit on the realm forever, that is worth taking. A line with no matching
--- correction is left exactly as Blizzard wrote it.
-local function CT_TakeChat(amount)
-    local now = GetTime()
-    for i = 1, #ctPendingChat do
-        local p = ctPendingChat[i]
-        if now - p.t <= CT_TTL and math.abs(amount - p.pin) <= CT_TOLERANCE then
-            table.remove(ctPendingChat, i)
-            return p.real
-        end
-    end
-    return nil
-end
+--   Deleted 2026-08-31: this addon's own floater renderer (pool, animator, nameplate
+--   anchoring, MISS_TEXT, the font machinery), the Blizzard scrolling-region takeover
+--   (CT_ClaimScrollRegion / CT_Scroll / CT_WE_DRAW / the CombatText_AddMessage
+--   wrapper), the one-frame hold queue that existed to let a late correction catch
+--   up, and the UCT ingest itself (ctPending, ctPendingChat, CT_Take, CT_TakeChat,
+--   CT_TTL, CT_TOLERANCE, CT_MATCH_FLOOR, CT_WIRE_CEILING).
+--
+--   The feed was already dead in fact, not just in effect: every caller pinned on the
+--   ENCODED wire value, which tops out below the server's own send gate, so nothing
+--   could be sent -- and CT_MATCH_FLOOR sat ABOVE BAND_BASE, so this side would have
+--   refused to look an encoded hit up even if one had arrived. Two halves that could
+--   not meet. The band encoding replaced all of it: zero messages, no ordering
+--   problem, no per-tick budget, and it covers a 250-target AoE tick at the same
+--   cost as one hit. Do NOT re-open the feed to "improve" the chat tab -- that is one
+--   addon message per saturated hit, which is the flood the band was invented to
+--   remove. See docs/design/NATIVE_COMBAT_TEXT.md.
+--
+-- What this costs, stated plainly: a chat line names units, it does not carry their
+-- GUIDs. But the magnitude now travels inside the number itself, so the rewrite needs
+-- no keying at all -- it decodes what is written and puts it back. A line whose
+-- number is not an encoding is left exactly as Blizzard wrote it.
 
 local function CT_RewriteChatLine(msg)
     if type(msg) ~= "string" then return msg end
@@ -2085,18 +1339,17 @@ local function CT_RewriteChatLine(msg)
     -- so a line that merely mentions "214" costs one failed pattern find.
     if not msg:find("%d%d%d%d%d%d%d%d%d%d") then return msg end
 
-    -- ⚠ NO `#ctPendingChat == 0` EARLY-OUT ANY MORE.
-    --   It used to bail here when the correction queue was empty, which since the
-    --   feed went dead is ALWAYS -- so the combat log tab showed the raw pinned
-    --   ~2.14B for every big hit on the realm and nothing could ever change it.
-    --   Band decoding needs no queue, so the gate that used to be free is now the
-    --   thing standing in the way.
+    -- ⚠ NO CHEAP "IS THE CORRECTION QUEUE EMPTY" EARLY-OUT EXISTS ANY MORE, AND THAT
+    --   IS NOT AN OVERSIGHT. There is no queue: the number carries its own magnitude
+    --   in its low bits, so the only way to know whether a line is worth rewriting is
+    --   to look at the digits. The two gates above are what pays for that.
 
     for numStr in msg:gmatch("%d+") do
         local n = tonumber(numStr)
         if n and n >= CT_BAND_BASE_MIN and n <= CT_BAND_BASE_MAX then
-            -- Band first, correction table second -- same reasoning as CT_Take.
-            local real = CT_DecodeBand(n) or (n >= CT_MATCH_FLOOR and CT_TakeChat(n) or nil)
+            -- The number is its own answer, or it is not ours. There is no second
+            -- source to fall back to any more -- see the section header.
+            local real = CT_DecodeBand(n)
             if real then
                 -- Every occurrence of that digit run, not just the first: the
                 -- same figure is repeated in the "(N overkill)" and "(N
@@ -2140,31 +1393,16 @@ CT_ApplyBlizzardSurfaces = function()
     -- text does, and nothing outside Lua rewrites chat.
     CT_InstallChatHooks()
 
-    --[[ ★★ THIS ADDON NO LONGER DRAWS FLOATING COMBAT TEXT. Retired 2026-08-08.
-
-         UncappedCT.dll draws the ENGINE body floaters and corrects them itself:
-         it hooks the one function every floater passes through, decodes the wire
-         band, and renders the real magnitude abbreviated as K / M / B / T. See
-         NativeCT/src/UncappedCT.c and docs/design/NATIVE_COMBAT_TEXT.md.
-
-         So the scrolling renderer below became a SECOND, worse copy of a solved
-         problem -- numbers off to the side instead of over the body, and one more
-         thing to keep in step with the wire format. Owner's call: prune it.
-
-         ⚠ THE ENGINE FLOATERS MUST NOW BE LEFT ALONE.
-           This function used to force floatingCombatTextCombatDamage/Healing/State
-           to "0", on the reasoning that engine floaters "are not reachable from
-           Lua, so they can only ever show the pinned value". That was true before
-           the DLL shipped and is now exactly backwards -- switching them off here
-           would turn OFF the only correct renderer and leave players with no
-           floating numbers at all. The CVars are deliberately untouched.
-
-         What this addon still owns, and why it is NOT being pruned wholesale:
-           * the wire-band decode (CT_DecodeBand) -- shared with the chat rewrite
-           * the combat-log chat tab rewriting
-           * 64-bit health/number display and the paperdoll stat panel
-           * the /hideunder threshold plumbing
-    ]]
+    -- ⚠ THE ENGINE FLOATERS MUST BE LEFT ALONE.
+    --
+    --   This function used to force floatingCombatTextCombatDamage/Healing/State to
+    --   "0", on the reasoning that engine floaters could only ever show the pinned
+    --   value. That is now exactly backwards -- they are the ONLY renderer, corrected
+    --   by UncappedCT.dll, so switching them off leaves a player with no floating
+    --   numbers at all. (Those three names are Cataclysm-era and do nothing on this
+    --   client anyway; the real gates are CombatDamage / CombatHealing /
+    --   PetMeleeDamage / PetSpellDamage, owned by the /uperf checkbox and repaired by
+    --   ApplyFloatingCombatTextRepair. See report #926, audit AN-02.)
 
     -- Blizzard's own scrolling region stays OFF. The DLL draws over the body; a
     -- scroll on the side would be the same hit reported twice, in two places, in
@@ -2217,157 +1455,17 @@ CT_PushHideUnder = function()
     end
 end
 
--- ---------------------------------------------------------------------------
--- Combat-log routing
--- ---------------------------------------------------------------------------
-local function FctDamage(srcGUID, dstGUID, amount, crit, isSpell)
-    -- ★ RETIRED 2026-08-08: this addon no longer draws floating combat text.
-    --   UncappedCT.dll corrects the ENGINE body floaters (K/M/B/T) -- see
-    --   CT_ApplyBlizzardSurfaces. Returning here rather than deleting the
-    --   pipeline below keeps one honest off-switch instead of a half-removed
-    --   renderer, and the enqueue/draw machinery is still referenced by the
-    --   /dev64 preview.
-    if not FCT_ADDON_DRAWS then return end
-
-    if not amount or amount <= 0 then return end
-
-    local outgoing = FctMine(srcGUID)
-    if not outgoing and dstGUID ~= fctPlayerGUID then return end
-
-    if Cfg.legacyFct then
-        -- At/above the wall the client only ever sees the pinned value, and the
-        -- merged UDMG feed draws the real one, so drop ours to avoid a double.
-        -- The corrected path below needs no such rule: it fixes the number in
-        -- place instead of letting a second feed draw a second number.
-        if amount >= CT_MATCH_FLOOR then return end
-        if FctBelowThreshold(amount) then return end
-        local label = Abbrev(amount) .. (crit and "!" or "")
-        if outgoing then
-            -- melee auto-attacks white, spells/skills yellow; crit -> big=true,
-            -- which drives the size pop in the animation loop.
-            if isSpell then FctSpawnText(label, crit, 1.0, 0.82, 0.0, true)
-            else FctSpawnText(label, crit, 1, 1, 1, true) end
-        else
-            FctSpawnText(label, crit, 1.0, 0.4, 0.4, false)
-        end
-        return
-    end
-
-    local r, g, b
-    if not outgoing then      r, g, b = 1.0, 0.4, 0.4      -- damage you take
-    elseif isSpell then       r, g, b = 1.0, 0.82, 0.0     -- your spells/skills
-    else                      r, g, b = 1.0, 1.0, 1.0 end  -- your auto-attacks
-
-    CT_Enqueue({
-        kind = "d", crit = crit and true or false, incoming = not outgoing,
-        src = CT_Low(srcGUID), dst = CT_Low(dstGUID), amount = amount,
-        r = r, g = g, b = b,
-    })
-end
-
--- Miss/dodge/parry/block/absorb/immune/resist -- avoided attacks. No number, so
--- nothing to correct and nothing to hold a frame for.
-local function FctMiss(srcGUID, dstGUID, missType)
-    -- ★ RETIRED 2026-08-08: this addon no longer draws floating combat text.
-    --   UncappedCT.dll corrects the ENGINE body floaters (K/M/B/T) -- see
-    --   CT_ApplyBlizzardSurfaces. Returning here rather than deleting the
-    --   pipeline below keeps one honest off-switch instead of a half-removed
-    --   renderer, and the enqueue/draw machinery is still referenced by the
-    --   /dev64 preview.
-    if not FCT_ADDON_DRAWS then return end
-
-    local label = MISS_TEXT[missType] or "Miss"
-    if FctMine(srcGUID) then
-        -- Your attack was avoided.
-        if Cfg.legacyFct or not CT_Scroll(label, 0.85, 0.85, 0.85, false) then
-            FctSpawnText(label, false, 0.85, 0.85, 0.85, true)
-        end
-    elseif dstGUID == fctPlayerGUID then
-        -- You avoided one. Left to Blizzard when the scrolling region is ours --
-        -- its own MISS/DODGE/PARRY messages are deliberately NOT in CT_WE_DRAW,
-        -- so they still arrive, and drawing over them would double them. In
-        -- either mode where that region is silent, we draw it or nobody does.
-        if Cfg.legacyFct or not ctScrollReady then
-            FctSpawnText(label, false, 0.85, 0.95, 1.0, false)
-        end
-    end
-end
-
-local function FctHeal(srcGUID, dstGUID, amount, crit)
-    -- ★ RETIRED 2026-08-08: this addon no longer draws floating combat text.
-    --   UncappedCT.dll corrects the ENGINE body floaters (K/M/B/T) -- see
-    --   CT_ApplyBlizzardSurfaces. Returning here rather than deleting the
-    --   pipeline below keeps one honest off-switch instead of a half-removed
-    --   renderer, and the enqueue/draw machinery is still referenced by the
-    --   /dev64 preview.
-    if not FCT_ADDON_DRAWS then return end
-
-    if not amount or amount <= 0 then return end
-
-    local outgoing = FctMine(srcGUID)
-    if not outgoing and dstGUID ~= fctPlayerGUID then return end
-
-    if Cfg.legacyFct then
-        if amount >= CT_MATCH_FLOOR then return end   -- UHEAL feed covers these
-        if FctBelowThreshold(amount) then return end
-        local label = "+" .. Abbrev(amount)
-        if dstGUID == fctPlayerGUID then
-            FctSpawnText(label, crit, 0.4, 1.0, 0.4, false, true)
-        else
-            FctSpawnText(label, crit, 0.4, 1.0, 0.4, true, true)
-        end
-        return
-    end
-
-    -- `incoming` only decides where the FALLBACK floater starts, so it reads the
-    -- destination rather than the source: a heal you cast on yourself belongs
-    -- over you, not over your target.
-    CT_Enqueue({
-        kind = "h", crit = crit and true or false, incoming = (dstGUID == fctPlayerGUID),
-        src = CT_Low(srcGUID), dst = CT_Low(dstGUID), amount = amount,
-        r = 0.4, g = 1.0, b = 0.4,
-    })
-end
-
-local function FctOnCombatLog(...)
-    local subevent = select(2, ...)
-    local srcGUID  = select(3, ...)
-    local dstGUID  = select(6, ...)
-    if subevent == "SWING_DAMAGE" then
-        local amount, overkill, school, resisted, blocked, absorbed, critical = select(9, ...)
-        FctDamage(srcGUID, dstGUID, amount, critical, false)  -- melee swing -> white
-    elseif subevent == "SWING_MISSED" then
-        local missType = select(9, ...)
-        FctMiss(srcGUID, dstGUID, missType)
-    elseif subevent == "SPELL_DAMAGE" or subevent == "RANGE_DAMAGE" or subevent == "SPELL_PERIODIC_DAMAGE"
-        or subevent == "DAMAGE_SHIELD" or subevent == "SPELL_BUILDING_DAMAGE" or subevent == "DAMAGE_SPLIT" then
-        local spellId, spellName, spellSchool, amount, overkill, school, resisted, blocked, absorbed, critical = select(9, ...)
-        FctDamage(srcGUID, dstGUID, amount, critical, true)  -- spell/skill -> yellow
-    elseif subevent == "SPELL_MISSED" or subevent == "RANGE_MISSED" or subevent == "SPELL_PERIODIC_MISSED" then
-        local spellId, spellName, spellSchool, missType = select(9, ...)
-        FctMiss(srcGUID, dstGUID, missType)
-    elseif subevent == "SPELL_HEAL" or subevent == "SPELL_PERIODIC_HEAL" then
-        local spellId, spellName, spellSchool, amount, overhealing, absorbed, critical = select(9, ...)
-        FctHeal(srcGUID, dstGUID, amount, critical)
-    end
-end
-
 local fctEv = CreateFrame("Frame")
 fctEv:RegisterEvent("PLAYER_LOGIN")
 fctEv:RegisterEvent("PLAYER_ENTERING_WORLD")
-fctEv:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-fctEv:SetScript("OnEvent", function(self, event, ...)
-    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        FctOnCombatLog(...)
-        return
-    end
-    fctPlayerGUID = UnitGUID("player")
-    ctSelfLow = CT_Low(fctPlayerGUID)
-
-    -- Re-assert which combat-text surfaces are ours on every world-enter: the
-    -- client reloads its own CVars behind us, and the scrolling region has to be
-    -- re-claimed after a UI reload. (Nameplates are no longer force-held on here
-    -- -- see the one-time warning below.)
+-- ★ [AN-04] COMBAT_LOG_EVENT_UNFILTERED IS NO LONGER REGISTERED AT ALL.
+--   This was the only addon on the realm listening to it, and since 2026-08-08 every
+--   handler returned on its first line. The frame now serves login and world-enter,
+--   which is why the handler below takes no varargs.
+fctEv:SetScript("OnEvent", function(self)
+    -- Re-assert which combat-text surfaces are ours on every world-enter: the client
+    -- reloads its own CVars behind us, and a UI reload drops the chat-frame hooks
+    -- along with the frames they were installed on.
     CT_ApplyBlizzardSurfaces()
 
     -- The hide-under threshold lives client-side but is ENFORCED server-side, so
@@ -2424,110 +1522,17 @@ fctEv:SetScript("OnEvent", function(self, event, ...)
     end
 end)
 
--- Nameplates power the over-target / over-ally combat text: a unit's on-screen
--- position is read from its nameplate. We used to FORCE them on and re-assert on
--- every CVar change, but players disliked losing the ability to turn them off.
--- Now InitSavedVars just defaults them on for a fresh install; the first time a
--- player turns them off we tell them EXACTLY what they're giving up, remember we
--- said it, and never override or nag them again.
-local function NameplatesOff()
-    return GetCVar("nameplateShowEnemies") ~= "1" or GetCVar("nameplateShowFriends") ~= "1"
-end
-
-StaticPopupDialogs["UNCAPPED64_NAMEPLATE_WARNING"] = {
-    text = "|cff40ff40Uncapped floating combat text|r\n\n"
-        .. "Your outgoing damage floats over your target, and your heals float over the "
-        .. "ally you healed -- both are positioned by reading that unit's nameplate.\n\n"
-        .. "You just turned nameplates |cffff2020OFF|r. While they're off:\n\n"
-        .. "|cffff8080-|r your damage numbers pile up in the center of the screen instead of over the enemy\n"
-        .. "|cffff8080-|r heals you cast on other players no longer appear over them at all\n\n"
-        .. "(Numbers over yourself are unaffected.)\n\n"
-        .. "Press |cffffd100V|r, or use Interface > Names, to turn them back on. "
-        .. "This warning only appears once.",
-    button1 = OKAY,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-    preferredIndex = 3,
-}
-
-local npWatch = CreateFrame("Frame")
-local function MaybeWarnNameplatesOff()
-    if not Uncapped64bitUIDB then return end   -- SavedVariables not loaded yet
-    if Uncapped64bitUIDB.nameplateWarningShown then
-        npWatch:SetScript("OnUpdate", nil)
-        npWatch:UnregisterAllEvents()
-        return
-    end
-    if NameplatesOff() then
-        Uncapped64bitUIDB.nameplateWarningShown = true
-        StaticPopup_Show("UNCAPPED64_NAMEPLATE_WARNING")
-        npWatch:SetScript("OnUpdate", nil)
-        npWatch:UnregisterAllEvents()
-    end
-end
--- CVAR_UPDATE catches the Interface panel and /console; the V key doesn't always
--- fire it, so a light poll backstops it. Both stop the instant the warning fires.
-npWatch:RegisterEvent("CVAR_UPDATE")
-npWatch:SetScript("OnEvent", MaybeWarnNameplatesOff)
-local npWatchAccum = 0
-npWatch:SetScript("OnUpdate", function(self, dt)
-    npWatchAccum = npWatchAccum + dt
-    if npWatchAccum < 0.5 then return end
-    npWatchAccum = 0
-    MaybeWarnNameplatesOff()
-end)
-
-SLASH_DEV64FONT1 = "/dev64font"
-SlashCmdList["DEV64FONT"] = function(msg)
-    local key = (msg or ""):lower():gsub("%s", "")
-    if FCT_FONTS[key] then
-        FCT_FONT = FCT_FONTS[key]
-        Cfg.font = key
-        if Uncapped64bitUIDB and Uncapped64bitUIDB.fct then Uncapped64bitUIDB.fct.font = key end
-        if RefreshOptionsPanel then RefreshOptionsPanel() end
-        DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[dev64]|r combat font -> " .. key)
-    else
-        DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[dev64]|r use /fct to pick a font, or one of: "
-            .. "morpheus, skurri, friz, arial, bangers, anton, bebas, russo, fjalla, "
-            .. "metamorph, righteous, bungee, titan, creepster, pixel")
-    end
-end
-
--- A sample burst of every FCT flavour, for tuning. Shared by /dev64dmg and the
--- options panel's Preview button.
-local function FctPreview()
-    -- Preview whatever the player will actually see. In the corrected mode the
-    -- sliders above are not driving anything, so previewing the floaters would
-    -- demonstrate a renderer that is switched off.
-    if not Cfg.legacyFct and ctScrollReady then
-        -- Trillion-scale figures built by scaling a SMALL random. math.random
-        -- takes C ints in Lua 5.1, and the client's Lua is a 32-bit build, so
-        -- handing it 9e11 directly is undefined rather than merely large.
-        local function big(lo, hi) return math.random(lo, hi) * 1e9 end
-        CT_Scroll(Abbrev(big(100, 900)) .. "!", 1, 1, 1, true)          -- melee crit
-        CT_Scroll(Abbrev(big(10, 80)), 1, 1, 1, false)                  -- melee hit
-        CT_Scroll(Abbrev(big(100, 900)) .. "!", 1.0, 0.82, 0.0, true)   -- spell crit
-        CT_Scroll(Abbrev(big(10, 80)), 1.0, 0.82, 0.0, false)           -- spell hit
-        CT_Scroll(Abbrev(big(10, 500)), 1.0, 0.4, 0.4, false)           -- taken
-        CT_Scroll("Dodge", 0.85, 0.85, 0.85, false)
-        CT_Scroll("+" .. Abbrev(big(1, 40)), 0.4, 1.0, 0.4, false)      -- heal
-        return
-    end
-
-    FctSpawnText(Abbrev(math.random(100000000, 2000000000)) .. "!", true, 1, 1, 1, true)          -- melee crit (white, pops)
-    FctSpawnText(Abbrev(math.random(1000000, 50000000)), false, 1, 1, 1, true)                    -- melee hit (white)
-    FctSpawnText(Abbrev(math.random(1000000, 50000000)) .. "!", true, 1.0, 0.82, 0.0, true)       -- spell crit (yellow, pops)
-    FctSpawnText(Abbrev(math.random(1000000, 50000000)), false, 1.0, 0.82, 0.0, true)             -- spell hit (yellow)
-    FctSpawnText(Abbrev(math.random(50000000, 900000000)), false, 1.0, 0.4, 0.4, false)            -- taken
-    FctSpawnText("Dodge", false, 0.85, 0.95, 1.0, false)                                            -- avoided
-    FctSpawnText("Parry", false, 0.85, 0.95, 1.0, false)
-    FctSpawnText("+" .. Abbrev(math.random(5000000, 80000000)), false, 0.4, 1.0, 0.4, false, true) -- target heal
-    FctSpawnText("+" .. Abbrev(math.random(5000000, 80000000)), true, 0.4, 1.0, 0.4, false, true)  -- self heal crit
-end
-
-SLASH_DEV64DMG1 = "/dev64dmg"
-SlashCmdList["DEV64DMG"] = FctPreview
+-- The one-time "you turned nameplates off" warning and its CVar poll lived here.
+-- Both existed for the retired renderer -- it read a unit's screen position off its
+-- nameplate, so losing nameplates cost you your outgoing numbers. The engine draws
+-- over the body and does not care, so the warning was telling players something
+-- that had stopped being true. /dev64font and /dev64dmg went with it: they tuned and
+-- previewed the same renderer. [audit AN-04]
+--
+-- ⚠ This supersedes the AN-16 decline that kept npWatch's 0.5s poll alive "because
+--   disarming it would silently delete the one-time nameplate warning". Correct at
+--   the time; the warning itself is what is gone now, so the poll has nothing left
+--   to back up. InitSavedVars still defaults nameplates ON for a fresh install.
 
 -- ---------------------------------------------------------------------------
 -- Stat panel hover removal.
@@ -3145,272 +2150,44 @@ banner:SetScript("OnEvent", function(self)
 end)
 
 -- ---------------------------------------------------------------------------
--- Options panel: ESC > Interface > AddOns > "Uncapped 64-bit UI".
---
--- Live sliders + font picker for the FCT tunables. Every change writes straight
--- to Cfg and SavedVariables and takes effect on the next number that floats --
--- there's no Apply step. RefreshOptionsPanel() re-syncs every widget from Cfg
--- (used after InitSavedVars loads the saved values, and after /dev64font).
+-- /fct
 -- ---------------------------------------------------------------------------
+-- There is no combat-text options page any more. [audit AN-04, owner 2026-08-31]
 --
--- ⚠ NOT WIRED TO THE UNCAPPED WINDOW ZOOM, and there is nothing here to wire.
--- This addon owns exactly two UIParent frames and neither is a window:
+-- It configured a renderer this addon retired on 2026-08-08: ten sliders for text
+-- size, crit pop, heal sway and scatter, a fifteen-entry font picker, a Preview
+-- button and a greyed-out "classic floating numbers" checkbox -- every one of them
+-- writing a saved variable that nothing read. That is report #766, and only the
+-- page's header copy was fixed the first time; the controls stayed.
 --
---   * this one, which is an ESC > Interface > AddOns PAGE. Blizzard reparents
---     it into InterfaceOptionsFramePanelContainer and sizes it to that
---     container, so scaling it would leave a mis-sized page inside a
---     stock-sized frame -- Blizzard's own UI Scale slider is what moves it.
---   * fctHost, the floating-combat-text layer, which is not a frame the player
---     places or reads at leisure but a screen-space layer whose numbers are
---     positioned from nameplate/target centres in UIParent units. Its size is
---     already player-controlled by the font-size sliders on this very page.
+-- The slash command survives because players have it in muscle memory, and it now
+-- lands where the real switches are: Uncapped > Performance owns "Show damage
+-- numbers over enemies" (the CVar the engine floaters are actually gated on), and
+-- /hideunder owns the threshold.
 --
--- The CenterInUIParent helper up by fctHost is the reason that stays true: it
--- normalises through GetEffectiveScale, so it keeps working over any scaled
--- frame it is asked about.
-local optPanel = CreateFrame("Frame", "Uncapped64bitUIOptions", UIParent)
--- Nest under the shared "Uncapped" hub (registered by UncappedOptions). If that
--- addon is missing, a .parent naming a non-existent category just falls back to
--- a top-level entry, so this is safe either way.
-optPanel.name = "Combat Text"
-optPanel.parent = "Uncapped"
-
-local optTitle = optPanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-optTitle:SetPoint("TOPLEFT", 16, -16)
-optTitle:SetText("Uncapped 64-bit UI  |cff808080-|r  Floating Combat Text")
-
-local optSub = optPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-optSub:SetPoint("TOPLEFT", optTitle, "BOTTOMLEFT", 0, -8)
-optSub:SetPoint("RIGHT", optPanel, "RIGHT", -16, 0)   -- wrap to the real panel width
-optSub:SetJustifyH("LEFT")
--- [#766] This page was still selling a feature that was retired on 2026-08-08. The addon
--- stopped drawing its own floating text when the DLL took over the engine's body floaters
--- and corrected them to real 64-bit values, but the copy here still said "switch them on
--- at the bottom" -- so a player with no numbers ticked a box that nothing reads any more
--- and concluded the combat text was broken. Say what is actually true.
-optSub:SetText("|cffff8040Your damage numbers are now drawn by the game engine, over the "
-    .. "enemy's body, and corrected to real 64-bit values -- this addon no longer draws "
-    .. "its own.|r  Turn them on or off under |cffffd100Uncapped > Performance|r, and hide "
-    .. "small hits with |cffffff00/hideunder 500m|r.  The sliders below only affect the "
-    .. "classic floating numbers, which are not currently drawn.")
-
--- ★ EVERYTHING BELOW BUILDS INTO A SCROLLING BODY, NOT INTO THE PANEL.
---
--- This page is two columns of sliders plus a font picker, two buttons and a
--- checkbox. On a 768-tall client that last checkbox sits underneath the Interface
--- frame's own Okay/Cancel row and cannot be clicked -- reported with a screenshot,
--- arrow pointing straight at it.
---
--- Rather than shrink the page, the body scrolls. UncappedUI.MakeScrollable is the
--- same helper the fourteen shared settings pages use, so they all behave alike.
---
--- ⚠ `or optPanel` IS LOAD-ORDER INSURANCE, NOT DECORATION. UncappedOptions is an
---   OptionalDep, so it is normally loaded first and the helper exists -- but a
---   player who disables it must still get a working page, just an unscrolled one.
---   Every widget below anchors to optBody, which is either the scroll child or the
---   panel itself, and the offsets work in both.
-local optBody = (UncappedUI and UncappedUI.MakeScrollable
-    and UncappedUI.MakeScrollable(optPanel, -72)) or optPanel
-
--- Absolute-positioned page, so the scroll child cannot learn its own height from
--- a layout cursor the way the shared pages do. Lowest widget is the legacy
--- checkbox at -352 plus its own height; 400 clears it with a little air.
-if optBody ~= optPanel then optBody:SetHeight(400) end
-
--- One slider bound to a Cfg key. Writes Cfg + SavedVariables live and snaps to step.
-local SLIDERS = {
-    { key = "normalSize",   label = "Normal text size",   min = 10,   max = 48,  step = 1,    fmt = "%d px" },
-    { key = "critSize",     label = "Crit text size",     min = 16,   max = 60,  step = 1,    fmt = "%d px" },
-    { key = "critPop",      label = "Crit pop size",      min = 16,   max = 96,  step = 1,    fmt = "%d px" },
-    { key = "popTime",      label = "Crit pop time",      min = 0.05, max = 0.5, step = 0.05, fmt = "%.2f s" },
-    { key = "wiggleAmp",    label = "Heal sway distance", min = 0,    max = 30,  step = 1,    fmt = "%d px" },
-    { key = "wiggleFreq",   label = "Heal sway speed",    min = 0,    max = 10,  step = 0.5,  fmt = "%.1f" },
-    { key = "healDrop",     label = "Target heal drop",   min = 0,    max = 250, step = 5,    fmt = "%d px" },
-    { key = "selfHealDrop", label = "Self heal drop",     min = 0,    max = 150, step = 5,    fmt = "%d px" },
-    { key = "spreadX",      label = "Horizontal spread",  min = 0,    max = 60,  step = 1,    fmt = "%d px" },
-    { key = "spreadY",      label = "Vertical spread",    min = 0,    max = 60,  step = 1,    fmt = "%d px" },
-}
-
-local sliderWidgets = {}
-local function MakeSlider(meta, point, xOff, yOff)
-    local name = "Uncapped64Slider_" .. meta.key
-    local s = CreateFrame("Slider", name, optBody, "OptionsSliderTemplate")
-    -- Anchor to the panel EDGE (not a hardcoded x) so the layout fits whatever
-    -- width the Interface options panel actually gives us on this client.
-    s:SetPoint(point, optBody, point, xOff, yOff)
-    s:SetWidth(185)
-    s:SetMinMaxValues(meta.min, meta.max)
-    s:SetValueStep(meta.step)
-    _G[name .. "Low"]:SetText(tostring(meta.min))
-    _G[name .. "High"]:SetText(tostring(meta.max))
-    local caption = _G[name .. "Text"]
-    local function label(v) caption:SetText(meta.label .. ":  |cffffd100" .. string.format(meta.fmt, v) .. "|r") end
-    s.__label = label
-    s:SetValue(Cfg[meta.key])
-    label(Cfg[meta.key])
-    s:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value / meta.step + 0.5) * meta.step   -- snap to step
-        Cfg[meta.key] = value
-        if Uncapped64bitUIDB and Uncapped64bitUIDB.fct then Uncapped64bitUIDB.fct[meta.key] = value end
-        label(value)
-    end)
-    sliderWidgets[meta.key] = s
-    return s
-end
-
--- Two even columns: the left column hugs the panel's left edge, the right column
--- its right edge. Whatever the panel's real width, both stay on it.
-local SLIDER_HALF = math.ceil(#SLIDERS / 2)
-for i, meta in ipairs(SLIDERS) do
-    if i <= SLIDER_HALF then
-        MakeSlider(meta, "TOPLEFT",  16,  -8 - (i - 1) * 50)
-    else
-        MakeSlider(meta, "TOPRIGHT", -16, -8 - (i - 1 - SLIDER_HALF) * 50)
-    end
-end
-
--- Font picker.
-local FONT_ORDER = {
-    "morpheus", "skurri", "friz", "arial",
-    "bangers", "anton", "bebas", "russo", "fjalla",
-    "metamorph", "righteous", "bungee", "titan", "creepster", "pixel",
-}
-local FONT_LABEL = {
-    morpheus  = "Morpheus (WoW fantasy)",
-    skurri    = "Skurri (WoW combat)",
-    friz      = "Friz Quadrata (WoW UI)",
-    arial     = "Arial Narrow (WoW clean)",
-    bangers   = "Bangers (comic impact)",
-    anton     = "Anton (heavy)",
-    bebas     = "Bebas Neue (tall caps)",
-    russo     = "Russo One (techno)",
-    fjalla    = "Fjalla One (bold)",
-    metamorph = "Metamorphous (fantasy)",
-    righteous = "Righteous (retro)",
-    bungee    = "Bungee (signage)",
-    titan     = "Titan One (cartoon)",
-    creepster = "Creepster (horror)",
-    pixel     = "Press Start 2P (pixel)",
-}
-
-local fontHeader = optBody:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-fontHeader:SetPoint("TOPLEFT", optBody, "TOPLEFT", 20, -256)
-fontHeader:SetText("Combat font")
-
-local fontDrop = CreateFrame("Frame", "Uncapped64FontDropdown", optBody, "UIDropDownMenuTemplate")
-fontDrop:SetPoint("TOPLEFT", optBody, "TOPLEFT", 4, -276)
-local fontProbe = optBody:CreateFontString(nil, "OVERLAY")   -- offscreen; tests loadability
-local function OnFontPicked(key)
-    Cfg.font = key
-    FCT_FONT = FCT_FONTS[key] or FCT_FONT
-    if Uncapped64bitUIDB and Uncapped64bitUIDB.fct then Uncapped64bitUIDB.fct.font = key end
-    UIDropDownMenu_SetSelectedValue(fontDrop, key)
-    UIDropDownMenu_SetText(fontDrop, FONT_LABEL[key])
-    -- Bundled fonts added while the client is running only register on a full
-    -- restart; until then the combat text quietly uses the default. Say so.
-    if not fontProbe:SetFont(FCT_FONT, 20, "OUTLINE") then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[FCT]|r \"" .. (FONT_LABEL[key] or key)
-            .. "\" needs a full client restart to load -- using the default font until you restart.")
-    end
-end
-UIDropDownMenu_Initialize(fontDrop, function(self, level)
-    for _, key in ipairs(FONT_ORDER) do
-        local info = UIDropDownMenu_CreateInfo()
-        info.text = FONT_LABEL[key]
-        info.value = key
-        info.func = function() OnFontPicked(key) end   -- capture key; don't depend on self.value
-        info.checked = (Cfg.font == key)
-        UIDropDownMenu_AddButton(info, level)
-    end
-end)
-UIDropDownMenu_SetWidth(fontDrop, 180)
-
--- Preview + Reset buttons.
-local previewBtn = CreateFrame("Button", nil, optBody, "UIPanelButtonTemplate")
-previewBtn:SetWidth(110)
-previewBtn:SetHeight(24)
-previewBtn:SetPoint("TOPLEFT", optBody, "TOPLEFT", 20, -318)
-previewBtn:SetText("Preview")
-previewBtn:SetScript("OnClick", function() FctPreview() end)
-
-local resetBtn = CreateFrame("Button", nil, optBody, "UIPanelButtonTemplate")
-resetBtn:SetWidth(150)
-resetBtn:SetHeight(24)
-resetBtn:SetPoint("TOPLEFT", optBody, "TOPLEFT", 140, -318)
-resetBtn:SetText("Reset to defaults")
-
--- ---------------------------------------------------------------------------
--- Classic floating numbers.
--- ---------------------------------------------------------------------------
--- Kept, not deleted, and off by default.
---
--- The scrolling column is the right default and fixes the actual complaint: an
--- outgoing number used to be anchored to the target's nameplate or unit frame,
--- and a boss scaled several times its normal size puts that anchor somewhere the
--- number has no business being. A fixed screen region cannot be moved by
--- anything a creature does.
---
--- But the floaters are not a mistake to be undone. They are the fallback the
--- corrected path automatically drops to when the scrolling region cannot be
--- claimed, so the code has to stay live rather than rot behind a flag; and the
--- crit pop, the sway and the font picker are a look somebody deliberately tuned.
--- Making it a switch costs one checkbox and settles the argument in the player's
--- favour instead of ours.
-local legacyCheck = CreateFrame("CheckButton", "Uncapped64LegacyFctCheck", optBody, "InterfaceOptionsCheckButtonTemplate")
-legacyCheck:SetPoint("TOPLEFT", optBody, "TOPLEFT", 20, -352)
--- [#766] Retired 2026-08-08 -- FCT_ADDON_DRAWS gates the whole path in front of this, so
--- the box wrote a saved variable nothing reads. Greyed rather than removed so a player who
--- remembers ticking it can see what happened to it.
-_G["Uncapped64LegacyFctCheckText"]:SetText("|cff808080Classic floating numbers (retired -- see above)|r")
-legacyCheck.tooltipText = "Draws damage and healing as floating numbers over the units involved, "
-    .. "the way this addon did before. Outgoing numbers follow the target, so they can "
-    .. "land off-position on a heavily scaled boss. The sliders and font above only "
-    .. "affect this mode."
-legacyCheck:SetScript("OnClick", function(self)
-    Cfg.legacyFct = self:GetChecked() and true or false
-    if Uncapped64bitUIDB and Uncapped64bitUIDB.fct then
-        Uncapped64bitUIDB.fct.legacyFct = Cfg.legacyFct
-    end
-    if CT_ApplyBlizzardSurfaces then CT_ApplyBlizzardSurfaces() end
-end)
-legacyCheck:Disable()   -- [#766] nothing reads Cfg.legacyFct any more
-
-local function ApplyDefaults()
-    for k, v in pairs(CFG_DEFAULTS) do
-        Cfg[k] = v
-        if Uncapped64bitUIDB and Uncapped64bitUIDB.fct then Uncapped64bitUIDB.fct[k] = v end
-    end
-    FCT_FONT = FCT_FONTS[Cfg.font] or FCT_FONT
-    if CT_ApplyBlizzardSurfaces then CT_ApplyBlizzardSurfaces() end
-    if RefreshOptionsPanel then RefreshOptionsPanel() end
-end
-resetBtn:SetScript("OnClick", ApplyDefaults)
-
--- Push every current Cfg value back into the widgets (after a load or a slash cmd).
-RefreshOptionsPanel = function()
-    for key, s in pairs(sliderWidgets) do
-        s:SetValue(Cfg[key])
-        if s.__label then s.__label(Cfg[key]) end
-    end
-    UIDropDownMenu_SetSelectedValue(fontDrop, Cfg.font)
-    UIDropDownMenu_SetText(fontDrop, FONT_LABEL[Cfg.font] or Cfg.font)
-    legacyCheck:SetChecked(Cfg.legacyFct and true or false)
-end
-
-optPanel.refresh = RefreshOptionsPanel
-optPanel.okay    = function() end   -- changes are already applied live
-optPanel.cancel  = function() end
-optPanel.default = ApplyDefaults    -- the Interface panel's "Defaults" button
-InterfaceOptions_AddCategory(optPanel)
-RefreshOptionsPanel()
-
--- Open the panel directly.
+-- ⚠ Resolved at CALL time, not load time. UncappedPerf.lua builds that page and is
+--   listed AFTER this file in the .toc, so the global does not exist yet while this
+--   chunk runs -- and it never exists at all for a player who has disabled
+--   UncappedOptions, which is why every step below is guarded.
 SLASH_UNCAPPEDFCT1 = "/fct"
 SlashCmdList["UNCAPPEDFCT"] = function()
-    -- Called twice on purpose: a long-standing client quirk means the first call
-    -- opens Interface options but doesn't scroll to our category.
-    InterfaceOptionsFrame_OpenToCategory(optPanel)
-    InterfaceOptionsFrame_OpenToCategory(optPanel)
+    local panel = Uncapped64bitUI_PerfPanel
+    if panel then
+        if UncappedUI and type(UncappedUI.Open) == "function" then
+            UncappedUI.Open(panel)
+        elseif type(InterfaceOptionsFrame_OpenToCategory) == "function" then
+            -- Called twice on purpose: a long-standing client quirk means the first
+            -- call opens Interface options but doesn't scroll to the category.
+            InterfaceOptionsFrame_OpenToCategory(panel)
+            InterfaceOptionsFrame_OpenToCategory(panel)
+        end
+        return
+    end
+
+    DEFAULT_CHAT_FRAME:AddMessage("|cff40ff40[Uncapped]|r your damage numbers are drawn "
+        .. "by the game engine over the enemy's body now, so there is nothing here to tune. "
+        .. "Turn them on or off with |cffffff00/uperf|r, and hide small hits with "
+        .. "|cffffff00/hideunder 500m|r.")
 end
 
 -- ---------------------------------------------------------------------------
@@ -3445,7 +2222,6 @@ function UncappedFCT_SetHideUnder(v)
     -- Dashboard box, anything else that ever calls this -- lands here, which is
     -- why the push lives on the setter rather than beside any one of them.
     if CT_PushHideUnder then CT_PushHideUnder() end
-    if RefreshOptionsPanel then RefreshOptionsPanel() end
     return n
 end
 
@@ -3491,8 +2267,8 @@ end
 --
 -- Melee auto-attacks are the exception, because their packet is also what plays
 -- the weapon swing on every client watching; filtering it would stop weapons
--- moving. Those are still hidden the old way, here on the client, which is why
--- FctBelowThreshold survives.
+-- moving. Those are filtered on the CLIENT instead -- by UncappedCT.dll, which is
+-- why CT_PushHideUnder sends the threshold to the DLL as well as to the server.
 --
 -- The other trade, stated because a player will notice it: the combat-log CHAT
 -- TAB is fed by the same packets, so a filtered hit disappears from there too.
