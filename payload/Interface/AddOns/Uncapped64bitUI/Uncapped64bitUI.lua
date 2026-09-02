@@ -2225,7 +2225,6 @@ function UncappedFCT_SetHideUnder(v)
     return n
 end
 
-function UncappedFCT_ParseAbbrev(s) return ParseAbbrev(s) end
 function UncappedFCT_Abbrev(n)      return Abbrev(n)      end
 
 -- ★ The real, uncapped stat totals from the UALL feed, for the rest of the suite.

@@ -327,6 +327,4 @@ if UncappedUI then
         .. "and it is exactly what we need in a bug report about frame rate.", 62)
 
     L:Button("Measure 10 seconds", function() StartSample(10) end, 200)
-
-    UncappedPerfPanel = panel
 end

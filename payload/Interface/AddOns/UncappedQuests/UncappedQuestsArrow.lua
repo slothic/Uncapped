@@ -620,6 +620,24 @@ local function RefreshItem(self, target)
     button:Show()
 end
 
+-- ★★ THE COMMENT ABOVE IS NOT TRUE WITHOUT THIS, AND THAT COST A REAL BUG.
+--
+-- "the next target change out of combat fixes it" is exactly what the driver
+-- prevents: it latches `self.uqTarget = target` BEFORE calling RefreshItem, so
+-- once the refresh is skipped under the lockdown, the `uqTarget ~= target`
+-- branch never runs again for that target. The button then keeps the PREVIOUS
+-- quest's item for the rest of the session.
+--
+-- And the routed target changes during combat precisely because you killed the
+-- thing you were routed to, so this is the common case, not an edge one. There
+-- is no error and nothing on screen says it is wrong -- the button simply offers
+-- the wrong item. useButton already had this catch-up; this one never did.
+local itemCombatWatcher = CreateFrame("Frame")
+itemCombatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+itemCombatWatcher:SetScript("OnEvent", function()
+    RefreshItem(arrow, target)
+end)
+
 -- Frame selection for the TomTom-derived arrow art. See LICENSE-arrow.txt --
 -- the textures and this logic come from TomTom via QuestHelper's arrow.lua,
 -- under a 3-clause BSD licence whose notice ships alongside them.
@@ -776,7 +794,21 @@ arrow:SetScript("OnClick", function(self, button)
     end
 end)
 
+local layoutPending = false
+
 local function ApplyLayout()
+    -- ⚠ SIX blocked calls per invocation in combat. Both frames are protected --
+    -- useButton is a SecureActionButtonTemplate and the arrow is the parent of
+    -- one -- so SetScale/ClearAllPoints/SetPoint are all refused. The arrow-scale
+    -- slider fires this from its OnValueChanged (UncappedOptions.lua), i.e. on
+    -- every frame of a drag, which is the only path here that can beat the frame
+    -- rate. Defer once and re-apply when the lockdown drops; do NOT retry.
+    if InCombatLockdown() then
+        layoutPending = true
+        return
+    end
+    layoutPending = false
+
     arrow:SetScale(db.arrowScale or 1)
     arrow:ClearAllPoints()
     local p = db.arrowPoint or defaults.arrowPoint
@@ -790,6 +822,13 @@ local function ApplyLayout()
     local u = db.useButtonPoint or defaults.useButtonPoint
     useButton:SetPoint(u[1], UIParent, u[3], u[4], u[5])
 end
+
+-- Combat ends: apply the layout the lockdown refused, once.
+local layoutWatcher = CreateFrame("Frame")
+layoutWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+layoutWatcher:SetScript("OnEvent", function()
+    if layoutPending then ApplyLayout() end
+end)
 
 -- Switch between the two sprite sheets ATOMICALLY.
 --
@@ -909,7 +948,20 @@ local function ShowArrow()
         arrow:SetAlpha(1)
         arrowFaded = false
     end
-    if not arrow:IsShown() then arrow:Show() end
+
+    -- ★★ [#765, THE OTHER HALF] The arrow is PROTECTED -- see the long note above
+    -- HideArrow. #765 guarded the hide side and left this one, and a refused Show
+    -- is retried by the driver's OnUpdate on EVERY FRAME for the rest of the
+    -- lockdown, so the ADDON_ACTION_BLOCKED rate simply IS the frame rate. That
+    -- is why 08-13's measured 45-48/sec never went to zero after #765 shipped:
+    -- half the storm was fixed. Measured again 2026-09-02 at a median of 21/sec
+    -- and a peak of 525/sec.
+    --
+    -- Skipping the call changes nothing a player can see. The Show was going to
+    -- be refused either way, and the driver runs every frame, so the arrow still
+    -- appears on the first frame after the lockdown drops.
+    if arrow:IsShown() or InCombatLockdown() then return end
+    arrow:Show()
 end
 
 local function HideUseButton()

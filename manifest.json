@@ -1628,8 +1628,8 @@
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
-                      "sha256":  "5ad7f7679d61f2ae3c7b7a329e6d1facc4e6bd4d227832ab4ac73b407d396e1d",
-                      "size":  116992
+                      "sha256":  "9c613d5acfd74f1828a326cd99510ce35aa390ffaee5a71674dac6ecbe507ece",
+                      "size":  116929
                   },
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.toc",
@@ -1640,8 +1640,8 @@
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/UncappedPerf.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/UncappedPerf.lua",
-                      "sha256":  "7fa7c50232602974ce5a57837cb2762a2cf4ae9816d410e4b4efaba858390d79",
-                      "size":  16174
+                      "sha256":  "24ace348b54af06bed31d4948ca63bc154d4e1bd2d980399a9f4453a00107995",
+                      "size":  16141
                   },
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/fonts/Anton-Regular.ttf",
@@ -1832,8 +1832,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedForge/UncappedForge.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedForge/UncappedForge.lua",
-                      "sha256":  "aff37ad26bf7249a60c5f67cf229fd523f466323c8cd99d5999f7be1f23e107f",
-                      "size":  136445
+                      "sha256":  "551d3b1fc99c61acf16df8055a1ee27f22999fc11e47e51de0f9d45e5ed81e2f",
+                      "size":  136364
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedKeystone/UncappedKeystone.lua",
@@ -2174,8 +2174,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedQuests/UncappedQuestsArrow.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedQuests/UncappedQuestsArrow.lua",
-                      "sha256":  "33ddbe3f7164f1eef230f3385e94fed8a8be0c975a166c7835619b3a6065a384",
-                      "size":  48155
+                      "sha256":  "51a6a34c9ed263004cb0e4af461836407a152bb44015cea617ac72101c122d36",
+                      "size":  50815
                   },
                   {
                       "path":  "Interface/AddOns/UncappedQuests/UncappedQuestsAvailable.lua",
@@ -2278,24 +2278,6 @@
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/UncappedUI.toc",
                       "sha256":  "e591da9a14422bd891ccc5d54bf373d15f6aec4e32649cc6c6ab0dd0d86de19f",
                       "size":  1818
-                  },
-                  {
-                      "path":  "Interface/AddOns/UncappedUI/Assets/Buttons/Buttons.gitkeep",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Buttons/Buttons.gitkeep",
-                      "sha256":  "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
-                      "size":  2
-                  },
-                  {
-                      "path":  "Interface/AddOns/UncappedUI/Assets/Frames/Frames.gitkeep",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Frames/Frames.gitkeep",
-                      "sha256":  "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
-                      "size":  2
-                  },
-                  {
-                      "path":  "Interface/AddOns/UncappedUI/Assets/Icons/Icons.gitkeep",
-                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Icons/Icons.gitkeep",
-                      "sha256":  "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
-                      "size":  2
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Controls/Button.lua",
@@ -3073,9 +3055,9 @@
                   },
                   {
                       "path":  "UncappedCT.dll",
-                      "url":  "http://152.53.115.249/patches/UncappedCT-2026.08.31a.dll",
-                      "sha256":  "33d639d16b754c4f1389d2677cc06efe4fd851195b9effda941789e2ef6e1714",
-                      "size":  452608
+                      "url":  "http://152.53.115.249/patches/UncappedCT-2026.09.02a.dll",
+                      "sha256":  "b694ae42af61471c630753be317bec4df4d7b5ad915cb5dc9647e79542fab588",
+                      "size":  456704
                   }
               ],
     "archives":  [

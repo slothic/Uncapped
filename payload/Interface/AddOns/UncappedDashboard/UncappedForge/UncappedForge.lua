@@ -2641,8 +2641,6 @@ local function OpenInDashboard()
     end
 end
 
-_G.UncappedForge_Toggle = OpenInDashboard
-
 -- ---------------------------------------------------------------------------
 -- Replacing the default tradeskill window
 --
@@ -2653,7 +2651,6 @@ _G.UncappedForge_Toggle = OpenInDashboard
 -- ---------------------------------------------------------------------------
 local watcher = CreateFrame("Frame")
 watcher:RegisterEvent("ADDON_LOADED")
-watcher:RegisterEvent("PLAYER_LOGIN")
 watcher:RegisterEvent("TRADE_SKILL_SHOW")
 
 -- Keeping the window current.
