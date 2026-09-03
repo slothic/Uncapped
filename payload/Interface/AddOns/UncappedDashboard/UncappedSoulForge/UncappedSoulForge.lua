@@ -578,10 +578,24 @@ local state = {
        no guard at all: the sack burst twenty lines up drives its own readyAt,
        and the junk render uses a server arm/confirm.
 
-       ⚠ The server has no limit of its own -- ICSBALL calls
-         SoulbindAllDuplicates straight through. This is a courtesy, not a
-         limit; a hand-edited addon still gets through. The real cap belongs
-         next to the handler.
+       ⚠ STALE AS WRITTEN, CORRECTED 2026-09-03. This used to say "the server
+         has no limit of its own -- ICSBALL calls SoulbindAllDuplicates
+         straight through". IC-13 has since put the real cap next to the
+         handler, which is where the comment said it belonged: one sweep per
+         account per second (_soulbindAllAt / SOULBIND_ALL_DEBOUNCE_MS) plus
+         the shared _vaultSweepInFlight guard, so a hand-edited addon no
+         longer gets through. IC-11 also batched the writes -- a press is
+         about three commits now, not ~1,500.
+
+         ★ This guard is KEPT anyway, and not merely as a courtesy. It is what
+           stops the ICBOUNDALL reply's ICINV + ICSF follow-up storm, and it is
+           what gives the player a button that visibly refuses instead of one
+           that silently does nothing for a second. Defence in depth, on the
+           side that can explain itself.
+
+         ⚠ Do not read the server cap as a reason to delete this, and do not
+           read this as a reason to relax the server cap. That trade has been
+           made twice on this realm already.
 
        Kept in `state` rather than as file locals because the button and its
        confirm popup are ~2,400 lines apart and this chunk is already near
