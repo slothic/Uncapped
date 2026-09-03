@@ -1862,8 +1862,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedProgress/UncappedProgress.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedProgress/UncappedProgress.lua",
-                      "sha256":  "8c65f776147a4f66607604c7045db601ffcf4f77206fd5987b223c2f381b5d6f",
-                      "size":  57550
+                      "sha256":  "a1a034a7ab854b46b7457d29618a11964dae16595e035fb285a7ec3b0d5c5c78",
+                      "size":  73270
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedScrolls/UncappedScrolls.lua",
@@ -1988,8 +1988,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/UncappedMythic.lua",
-                      "sha256":  "28d7a9acfc4c685bd50157fee62bd41a334fc4e274bb70e5e9116268cfe045b4",
-                      "size":  80478
+                      "sha256":  "300b7ee46055a9db76c249dbab634edc648dc8fbba7ab1acc517307218d4006f",
+                      "size":  86978
                   },
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.toc",
@@ -3043,9 +3043,9 @@
                   },
                   {
                       "path":  "Data/enUS/patch-enUS-U.MPQ",
-                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.09.03a.MPQ",
-                      "sha256":  "72d3a185647500d79d1aebbb32bb7a69c2d57443c78c8583da06d888cb07b2ca",
-                      "size":  76016871
+                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.09.03b.MPQ",
+                      "sha256":  "f87cc8a99031751f12c24306cbc4b1c88ef4919c8b30e91fd73e1d191def6d2c",
+                      "size":  80766692
                   },
                   {
                       "path":  "UncappedClient.dat",

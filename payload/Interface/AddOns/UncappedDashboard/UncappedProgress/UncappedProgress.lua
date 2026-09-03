@@ -252,6 +252,27 @@ local listTop = 0         -- y offset the list was last anchored at
 local petUI = nil
 
 -- ---------------------------------------------------------------------------
+-- [#1193] Automated stat spending -- the client half of DSAGET / DSASET.
+--
+-- ★ THE DRAFT IS SEPARATE FROM THE CONFIRMED PLAN, AND THAT IS THE WHOLE DESIGN.
+--
+--   The server REFUSES a bad plan rather than normalising it: weights must total
+--   exactly 100, a stat may not be both dumped and a target, and the dump list may
+--   not be empty. So the panel has to let a player pass through invalid states
+--   while they type -- 70 in one box before 30 goes in the other is invalid for as
+--   long as it takes to reach the second box -- without ever showing that as the
+--   thing the server holds. `autoPlan` is what the server confirmed; `autoDraft`
+--   is what the player is editing; Save sends the draft and the reply replaces the
+--   plan. A refusal therefore cannot leave the panel painting a plan that does not
+--   exist, which is the failure DSASET's "never an echo" rule exists to prevent.
+-- ---------------------------------------------------------------------------
+local autoPlan  = nil     -- last DSACFG the server confirmed  { rate, enabled, dump[8], w[8] }
+local autoPend  = nil     -- last DSAPEND: fractional points waiting for the next pass
+local autoDraft = nil     -- the player's unsaved edits, same shape as autoPlan
+local autoError = nil     -- verbatim DSAERR text; the server owns this wording
+local autoUI    = nil
+
+-- ---------------------------------------------------------------------------
 -- Formatting helpers
 -- ---------------------------------------------------------------------------
 
@@ -317,6 +338,12 @@ local function Request()
     -- already says so.
     petPending = nil
     Send("DSPGET")
+
+    -- [#1193] Third independent burst, asked for on the same user action and tied
+    -- to neither of the others. A server without a DSAGET handler simply never
+    -- answers and the section does not render -- which is the honest rendering of
+    -- "this realm does not have it" rather than an error the player cannot act on.
+    Send("DSAGET")
 end
 
 -- Opens (or reuses) the accumulator for the burst currently arriving. The first
@@ -405,7 +432,71 @@ local function HandlePetMessage(text)
     return false
 end
 
+-- ---------------------------------------------------------------------------
+-- [#1193] The DSA* burst -- the automated stat-spending plan.
+--
+-- DSAGET answers with a DSACFG *and* a DSAPEND, in that order, or with a single
+-- DSAERR. DSASET answers with the same pair reflecting what is now STORED, never
+-- an echo of the request, so both replies are handled identically here: whatever
+-- arrives becomes the confirmed plan.
+-- ---------------------------------------------------------------------------
+local function HandleAutoMessage(text)
+    local err = string.match(text, "^DSAERR:(.+)$")
+    if err then
+        -- Same rule as DSPERR. "busy" is the shared 3-second throttle answering a
+        -- GET, and a refusal to repaint data the panel is already showing is not
+        -- news. Everything else is a REFUSED PLAN and is surfaced word for word --
+        -- the server composes those sentences and is the only thing that knows
+        -- which rule was broken.
+        if err ~= "busy" then autoError = err end
+        if frame and frame:IsShown() then Render() end
+        return true
+    end
+
+    local rate, enabled, mask, w0, w1, w2, w3, w4, w5, w6, w7 = string.match(text,
+        "^DSACFG:(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
+    if rate then
+        local weights = { tonumber(w0) or 0, tonumber(w1) or 0, tonumber(w2) or 0,
+                          tonumber(w3) or 0, tonumber(w4) or 0, tonumber(w5) or 0,
+                          tonumber(w6) or 0, tonumber(w7) or 0 }
+        local dump = {}
+        local m = tonumber(mask) or 0
+        for n = 1, 8 do
+            -- Bit i of dumpMask is stat i, and the array is 1-based, so stat n-1
+            -- is bit n-1. No bitlib in 3.3.5a Lua: divide down and test parity.
+            dump[n] = (math.floor(m / (2 ^ (n - 1))) % 2) == 1
+        end
+        autoPlan = { rate = tonumber(rate) or 2,
+                     enabled = (tonumber(enabled) or 0) ~= 0,
+                     dump = dump, w = weights }
+        autoError = nil
+
+        -- ★ The draft is REPLACED by every confirmed plan, including the one that
+        --   comes back from the player's own Save. Keeping local edits alive
+        --   across a refusal would leave the panel showing numbers the server
+        --   rejected, styled exactly like numbers it accepted.
+        autoDraft = nil
+        if frame and frame:IsShown() then Render() end
+        return true
+    end
+
+    local p0, p1, p2, p3, p4, p5, p6, p7 = string.match(text,
+        "^DSAPEND:(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
+    if p0 then
+        autoPend = { tonumber(p0) or 0, tonumber(p1) or 0, tonumber(p2) or 0,
+                     tonumber(p3) or 0, tonumber(p4) or 0, tonumber(p5) or 0,
+                     tonumber(p6) or 0, tonumber(p7) or 0 }
+        if frame and frame:IsShown() then Render() end
+        return true
+    end
+
+    return false
+end
+
 local function HandleMessage(text)
+    if string.sub(text, 1, 3) == "DSA" then
+        return HandleAutoMessage(text)
+    end
     if string.sub(text, 1, 3) == "DSP" then
         return HandlePetMessage(text)
     end
@@ -742,6 +833,11 @@ function Render()
         if petUI then petUI.holder:Hide() end
     end
 
+    -- [#1193] Same reason, same rule: the auto-spend editor is real frames.
+    local function HideAutoUI()
+        if autoUI then autoUI.holder:Hide() end
+    end
+
     -- ---- not answered yet ----------------------------------------------------
     if not state.received then
         Head("Progress")
@@ -759,6 +855,7 @@ function Render()
         HideRest()
         HideList()
         HidePetUI()
+        HideAutoUI()
         if statusText then statusText:SetText("") end
         return
     end
@@ -800,6 +897,63 @@ function Render()
 
     y = y - 6
 
+    -- ---- automated stat spending [#1193] -------------------------------------
+    --
+    -- Directly under the ledger it spends, for the same reason the pet pools are
+    -- under it: this is the same currency, and a plan for spending a number you
+    -- cannot see at the same time is a plan made blind.
+    if not autoPlan then
+        -- No DSACFG at all. Render nothing rather than an empty editor -- a server
+        -- without the handler is a supported state (this addon ships in payloads
+        -- ahead of worldserver builds), and an editor that cannot save reads as
+        -- broken in a way "not here yet" does not.
+        HideAutoUI()
+    else
+        Head("Automatic stat spending")
+
+        if autoUI then
+            autoUI.holder:ClearAllPoints()
+            autoUI.holder:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, y)
+            autoUI.holder:Show()
+            autoUI.Refresh()
+        end
+        y = y - (autoUI and autoUI.HEIGHT or 0)
+
+        if autoError then
+            -- Verbatim, always. The server owns this wording and is the only thing
+            -- that knows which of its three rules was broken.
+            Warn(autoError, 470)
+        else
+            Note(string.format("Ticked stats are dumped as they are earned and spent on the "
+                .. "shares below, at %d of the dumped stat for every 1 gained -- the same price "
+                .. "the conversion window charges. Only stats earned AFTER you switch this on "
+                .. "are converted; what you have already banked is left alone. Also available "
+                .. "as /dsauto.", (autoPlan.rate or 2)), 470)
+        end
+
+        -- Pending is the remainder that has not reached a whole point yet. Shown
+        -- only when there is one, because a row of zeroes invites the question of
+        -- what it is for -- and answering that costs more space than it is worth.
+        if autoPend then
+            local parts, any = {}, false
+            for n = 1, 8 do
+                if (autoPend[n] or 0) > 0 then
+                    any = true
+                    tinsert(parts, string.format("%s%s|r %s%s|r",
+                        COLOR_DIM, string.sub(ESSENCE_STATS[n], 1, 3),
+                        COLOR_VALUE, Short(autoPend[n])))
+                end
+            end
+            if any then
+                local fs = AcquireLine(i, 0, y, LIST_WIDTH)
+                fs:SetText(COLOR_DIM .. "Waiting for the next point:|r  " .. table.concat(parts, "   "))
+                i, y = i + 1, y - (ROW_H + 2)
+            end
+        end
+
+        y = y - 6
+    end
+
     -- ---- pet dungeon stats [#636] --------------------------------------------
     --
     -- Deliberately right under the player's own banked ledger: they are the same
@@ -811,12 +965,14 @@ function Render()
         -- server simply has no DSPGET handler, and this section not existing is
         -- the honest rendering of that.
         HidePetUI()
+        HideAutoUI()
     elseif #pets == 0 then
         Head("Pet Dungeon Stats")
         Note("Your pet hasn't banked any stats yet. Every dungeon kill rolls for it, "
             .. "the same as it does for you -- and the pool follows the pet, so a "
             .. "stabled one keeps what it earned.", 470)
         HidePetUI()
+        HideAutoUI()
         y = y - 6
     else
         local sel = SelectedPet()
@@ -1135,6 +1291,213 @@ local function BuildPetUI(parent)
     return ui
 end
 
+-- ---------------------------------------------------------------------------
+-- [#1193] The automated stat-spending editor.
+--
+-- Eight rows, each a "dump this" checkbox and a "send this percent here" box, plus
+-- an on/off switch, a running total and a Save. Built ONCE and re-anchored by
+-- Render, exactly like petUI: 3.3.5a cannot destroy a frame, so anything built per
+-- paint leaks one set per refresh for the session.
+-- ---------------------------------------------------------------------------
+
+-- The draft the player is editing, seeded from the confirmed plan the first time
+-- they touch anything. Never seeded from nothing: a blank editor would let someone
+-- Save a plan they never wrote.
+local function AutoDraft()
+    if autoDraft then return autoDraft end
+    local src = autoPlan or { enabled = false, dump = {}, w = {} }
+    local d = { enabled = src.enabled and true or false, dump = {}, w = {} }
+    for n = 1, 8 do
+        d.dump[n] = src.dump[n] and true or false
+        d.w[n] = tonumber(src.w[n]) or 0
+    end
+    autoDraft = d
+    return d
+end
+
+local function AutoTotal(d)
+    local t = 0
+    for n = 1, 8 do t = t + (d.w[n] or 0) end
+    return t
+end
+
+-- The same three rules the server enforces, checked here only to decide whether
+-- Save is clickable. ⚠ NOT a second implementation of the rules: the server still
+-- refuses, and its sentence is what the player is shown. This exists so the common
+-- case -- a total that is not yet 100 -- does not need a round trip to say so.
+local function AutoWhyNotSaveable(d)
+    local anyDump, anyTarget = false, false
+    for n = 1, 8 do
+        if d.dump[n] then anyDump = true end
+        if (d.w[n] or 0) > 0 then
+            anyTarget = true
+            if d.dump[n] then
+                return string.format("%s cannot be both dumped and a target.", ESSENCE_STATS[n])
+            end
+        end
+    end
+    if not anyDump then return "Tick at least one stat to dump." end
+    if not anyTarget then return "Give at least one stat a share." end
+    local total = AutoTotal(d)
+    if total ~= 100 then
+        return string.format("Shares total %d%% -- they have to total exactly 100%%.", total)
+    end
+    return nil
+end
+
+local function BuildAutoUI(parent)
+    local ui = {}
+    local CELL_H, COL_W = 22, 236
+    ui.HEIGHT = 26 + 4 * CELL_H
+
+    local holder = CreateFrame("Frame", nil, parent)
+    holder:SetWidth(LIST_WIDTH)
+    holder:SetHeight(ui.HEIGHT)
+    holder:Hide()
+    ui.holder = holder
+
+    ui.rows = {}
+    for n = 1, 8 do
+        local col = (n <= 4) and 0 or 1
+        local rowIdx = (n <= 4) and (n - 1) or (n - 5)
+        local x = col * COL_W
+        local y = -(rowIdx * CELL_H)
+
+        local r = {}
+
+        -- A named CheckButton: UICheckButtonTemplate hangs its hit-highlight and
+        -- text off $parent-derived globals, and an unnamed one loses them.
+        r.check = CreateFrame("CheckButton", "UncappedProgressAutoDump" .. n, holder,
+                              "UICheckButtonTemplate")
+        r.check:SetWidth(20)
+        r.check:SetHeight(20)
+        r.check:SetPoint("TOPLEFT", holder, "TOPLEFT", x, y)
+        r.check:SetScript("OnClick", function(self)
+            local d = AutoDraft()
+            d.dump[n] = self:GetChecked() and true or false
+            -- Dumping a stat and feeding it are mutually exclusive server-side, so
+            -- ticking dump clears the share rather than letting the player build a
+            -- plan that can only ever be refused.
+            if d.dump[n] then d.w[n] = 0 end
+            autoError = nil
+            Render()
+        end)
+
+        r.label = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        r.label:SetPoint("LEFT", r.check, "RIGHT", 2, 0)
+        r.label:SetWidth(96)
+        r.label:SetJustifyH("LEFT")
+        r.label:SetText(ESSENCE_STATS[n])
+
+        r.pct = CreateFrame("EditBox", "UncappedProgressAutoPct" .. n, holder, "InputBoxTemplate")
+        r.pct:SetPoint("LEFT", r.label, "RIGHT", 8, 0)
+        r.pct:SetWidth(34)
+        r.pct:SetHeight(18)
+        r.pct:SetAutoFocus(false)
+        r.pct:SetNumeric(true)
+        r.pct:SetMaxLetters(3)
+        r.pct:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        r.pct:SetScript("OnTextChanged", function(self)
+            local d = AutoDraft()
+            local v = tonumber(self:GetText() or "") or 0
+            if v > 100 then v = 100 end
+            d.w[n] = v
+            autoError = nil
+            -- Repaint the total and the Save state only. A full Render here would
+            -- re-set every box's text while one of them has focus, which in 3.3.5a
+            -- moves the cursor to the end on every keystroke.
+            if ui.RefreshFooter then ui.RefreshFooter() end
+        end)
+
+        r.suffix = holder:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        r.suffix:SetPoint("LEFT", r.pct, "RIGHT", 2, 0)
+        r.suffix:SetText("%")
+
+        ui.rows[n] = r
+    end
+
+    ui.enable = CreateFrame("CheckButton", "UncappedProgressAutoEnable", holder,
+                            "UICheckButtonTemplate")
+    ui.enable:SetWidth(20)
+    ui.enable:SetHeight(20)
+    ui.enable:SetPoint("TOPLEFT", holder, "TOPLEFT", 0, -(4 * CELL_H) - 2)
+    ui.enable:SetScript("OnClick", function(self)
+        AutoDraft().enabled = self:GetChecked() and true or false
+        autoError = nil
+        Render()
+    end)
+
+    ui.enableLabel = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    ui.enableLabel:SetPoint("LEFT", ui.enable, "RIGHT", 2, 0)
+    ui.enableLabel:SetText("Spend automatically")
+
+    ui.total = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    ui.total:SetPoint("LEFT", ui.enableLabel, "RIGHT", 16, 0)
+
+    ui.save = KitButton(holder, "Save", 74, 20)
+    ui.save:SetPoint("TOPLEFT", holder, "TOPLEFT", COL_W + 160, -(4 * CELL_H) - 2)
+    ui.save:SetScript("OnClick", function()
+        local d = AutoDraft()
+        local why = AutoWhyNotSaveable(d)
+        if why then
+            autoError = why
+            Render()
+            return
+        end
+
+        local mask = 0
+        for n = 1, 8 do
+            if d.dump[n] then mask = mask + 2 ^ (n - 1) end
+        end
+        Send(string.format("DSASET:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d",
+            d.enabled and 1 or 0, mask,
+            d.w[1] or 0, d.w[2] or 0, d.w[3] or 0, d.w[4] or 0,
+            d.w[5] or 0, d.w[6] or 0, d.w[7] or 0, d.w[8] or 0))
+
+        -- Nothing optimistic happens here. The reply carries what the server now
+        -- STORES and replaces the plan; until then the panel keeps showing the old
+        -- one, which is the truth.
+        autoError = nil
+        ui.save:Disable()
+    end)
+
+    function ui.RefreshFooter()
+        local d = AutoDraft()
+        local total = AutoTotal(d)
+        local why = AutoWhyNotSaveable(d)
+        ui.total:SetText(string.format("%sShares|r %s%d%%|r",
+            COLOR_DIM, (total == 100) and COLOR_VALUE or COLOR_WARN, total))
+        if why then ui.save:Disable() else ui.save:Enable() end
+    end
+
+    function ui.Refresh()
+        local d = AutoDraft()
+        for n = 1, 8 do
+            local r = ui.rows[n]
+            r.check:SetChecked(d.dump[n])
+            -- ⚠ Never write into a box the player is typing in. SetText moves the
+            --   cursor to the end, so refreshing a focused box eats the caret
+            --   position on every repaint.
+            if not r.pct:HasFocus() then
+                r.pct:SetText(tostring(d.w[n] or 0))
+            end
+            -- A dumped stat has no share by definition; greying the box says so
+            -- without needing a sentence.
+            if d.dump[n] then
+                r.pct:EnableKeyboard(false)
+                r.pct:SetAlpha(0.35)
+            else
+                r.pct:EnableKeyboard(true)
+                r.pct:SetAlpha(1.0)
+            end
+        end
+        ui.enable:SetChecked(d.enabled)
+        ui.RefreshFooter()
+    end
+
+    return ui
+end
+
 local function BuildFrame(parent)
     if frame then return end
 
@@ -1165,6 +1528,9 @@ local function BuildFrame(parent)
     -- numbers are plain font strings) and only the converter is absent -- which
     -- is a strictly better outcome than the whole tab erroring.
     petUI = BuildPetUI(frame)
+
+    -- [#1193] Same contract: built once here, anchored by Render.
+    autoUI = BuildAutoUI(frame)
 
     -- The reply timeout. 3.3.5a has no C_Timer, so this is an OnUpdate with an
     -- accumulator -- the standard shape on this client. It only runs while the
@@ -1261,7 +1627,7 @@ comms:SetScript("OnEvent", function(self, event, a1, a2)
     -- server->client line on the shared UNC pipe, which in an AoE Mythic+ pull is
     -- well over a hundred a second.
     local head = string.sub(a2, 1, 3)
-    if head ~= "PRG" and head ~= "DSP" then return end
+    if head ~= "PRG" and head ~= "DSP" and head ~= "DSA" then return end
     HandleMessage(a2)
 end)
 

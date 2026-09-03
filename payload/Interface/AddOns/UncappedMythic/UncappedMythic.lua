@@ -1142,6 +1142,18 @@ local AFFIX = {
     },
 }
 
+-- One place that turns an AFFIX entry into a texture, because there are now two
+-- kinds of entry. The hand-written fifteen name a file in our own icon folder; a
+-- generated card carries the minted SPELL ID instead and the client resolves the
+-- art itself -- which is why a card costs no bytes for artwork and cannot ship a
+-- path to a file the player does not have.
+local function AffixTexture(a)
+    if a.iconID then
+        return GetSpellTexture(a.iconID) or "Interface\\Icons\\INV_Misc_QuestionMark"
+    end
+    return ICON_DIR .. a.icon
+end
+
 -- Fixed display order, so the strip never reshuffles between runs. Roughly grouped:
 -- environmental hazards, then debuffs, then death-triggered, then boss-only.
 -- ⚠ "finecorpse" is deliberately absent. Fine Corpses is affixtype 21 and its row
@@ -1149,6 +1161,67 @@ local AFFIX = {
 -- WHERE enabled = 1 -- so it cannot be drawn into any run. Its AFFIX entry above
 -- is kept so re-enabling it server-side needs no client release, but listing it
 -- here advertised a fifteenth affix players can never see.
+-- ---------------------------------------------------------------------------
+-- Generated affixes (the 2026-09-03 rework). Everything a self-describing UMG
+-- card cannot carry, because it would cost bytes on every run to send something
+-- that never changes.
+-- ---------------------------------------------------------------------------
+
+-- The counterplay sentence, per COUNTERPLAY primitive key. These are the server's
+-- own `display` strings from mythic_plus_affix_primitive, copied here rather than
+-- sent: twenty-six fixed sentences do not belong in a 255-byte-capped message that
+-- goes out once per affix per run.
+--
+-- ⚠ Keys must match the primitive table exactly. An unknown key falls back to a
+--   generic line rather than showing nothing -- an affix card with a blank
+--   counterplay reads as "there is no answer", which is the one thing this rework
+--   guarantees is never true.
+local COUNTERPLAY_COPY = {
+    ctr_break_cc       = "Break free of it.",
+    ctr_break_los      = "Put something solid between you and it.",
+    ctr_burst_deadline = "Break it before the timer runs out.",
+    ctr_cleanse        = "Cleanse the poison or disease.",
+    ctr_communicate    = "Call it out -- someone else has to act on it.",
+    ctr_decurse        = "Remove the curse.",
+    ctr_dispel_magic   = "Dispel it.",
+    ctr_endure         = "Just take it. It is survivable.",
+    ctr_face_away      = "Look away from it.",
+    ctr_hold_still     = "Stand perfectly still.",
+    ctr_instant_heal   = "Heal it off, fast.",
+    ctr_interrupt      = "Interrupt the cast.",
+    ctr_kill_object    = "Destroy it.",
+    ctr_kite           = "Keep away from it.",
+    ctr_move_out       = "Move out of it.",
+    ctr_outrange       = "Get out of range.",
+    ctr_pre_position   = "Be somewhere else before it happens.",
+    ctr_sacrifice_tempo= "Give up the clock. Slow down and it stops mattering.",
+    ctr_save_cooldown  = "Keep one cooldown in reserve for this.",
+    ctr_soak           = "Stand in it. Somebody has to.",
+    ctr_spread         = "Spread out.",
+    ctr_stack          = "Group up.",
+    ctr_stagger_kills  = "Kill them one at a time.",
+    ctr_stop_damage    = "Stop attacking for a moment.",
+    ctr_swap_target    = "Switch targets.",
+    ctr_use_defensive  = "Pop a defensive.",
+}
+
+-- A stable colour per generated affix, so the same affix is the same colour every
+-- time anyone meets it. Derived from the key rather than sent, and deliberately
+-- not random: a colour that moves between runs makes the strip unreadable at a
+-- glance, which is the only thing the strip is for.
+local GENERATED_PALETTE = {
+    { 0.85, 0.35, 0.30 }, { 0.35, 0.65, 0.90 }, { 0.60, 0.80, 0.35 },
+    { 0.80, 0.60, 0.25 }, { 0.70, 0.45, 0.85 }, { 0.30, 0.80, 0.70 },
+    { 0.90, 0.55, 0.65 }, { 0.55, 0.60, 0.85 },
+}
+local function GeneratedColour(key)
+    local h = 0
+    for i = 1, string.len(key) do
+        h = (h * 31 + string.byte(key, i)) % 1000003
+    end
+    return GENERATED_PALETTE[(h % #GENERATED_PALETTE) + 1]
+end
+
 local ORDER = {
     "endlesstide", "storm", "wardingorbs",
     "sundered", "weakenedflesh", "cursed",
@@ -1251,7 +1324,7 @@ local function LayoutStrip()
             b = EnsureSlot(i)
             local a = AFFIX[active[i]]
             b.affixKey = active[i]
-            b.icon:SetTexture(ICON_DIR .. a.icon)
+            b.icon:SetTexture(AffixTexture(a))
             -- Reset alpha explicitly: an announcement dims its destination icon and
             -- only restores it on landing, so an interrupted one must not leave the
             -- slot permanently dimmed.
@@ -1402,7 +1475,7 @@ local function BeginNext()
     local a = AFFIX[key]
     if not a then return end
 
-    card.icon:SetTexture(ICON_DIR .. a.icon)
+    card.icon:SetTexture(AffixTexture(a))
     card.name:SetText(a.name)
     card.name:SetTextColor(a.color[1], a.color[2], a.color[3])
     card.tag:SetText((a.tag and a.tag ~= "") and ('"' .. a.tag .. '"') or "")
@@ -1426,7 +1499,11 @@ local function BeginNext()
     PlaceCard(0.7)
     card:Show()
 
-    if cfg.sound then PlaySoundFile(SOUND_DIR .. a.sound .. ".wav") end
+    -- ⚠ a.sound is nil for a generated affix: there are over two thousand of them
+    --   and no voice line was recorded for any. Concatenating nil here would throw
+    --   inside the announcement, which runs during the opening freeze -- so the
+    --   whole intro would die on the first generated affix of the run.
+    if cfg.sound and a.sound then PlaySoundFile(SOUND_DIR .. a.sound .. ".wav") end
 end
 
 -- The animation is driven by its own always-shown, contentless frame, NOT by the
@@ -1560,7 +1637,10 @@ end)
 function UncappedMythicAffix_Announce(key, force)
     if not AFFIX[key] then return end
     if not cfg.animate and not force then
-        if cfg.sound then PlaySoundFile(SOUND_DIR .. AFFIX[key].sound .. ".wav") end
+        -- nil for generated affixes; see the same guard in the animated path.
+        if cfg.sound and AFFIX[key].sound then
+            PlaySoundFile(SOUND_DIR .. AFFIX[key].sound .. ".wav")
+        end
         return
     end
     queue[#queue + 1] = key
@@ -1681,6 +1761,50 @@ affixListener:SetScript("OnEvent", function(self, event, a1, a2)
     if a1 ~= ADDON_PIPE_PREFIX then return end
     local msg = a2
     if not msg then return end
+
+    -- UMG:<key>:<spellId>:<ctrKey>:<name>:<description> -- a SELF-DESCRIBING affix.
+    --
+    -- ★★ WITHOUT THIS THE GENERATED AFFIXES ARE INVISIBLE. UncappedMythicAffix_SetActive
+    --    drops every key it cannot find in AFFIX, and there are over two thousand
+    --    generated affixes that cannot possibly be listed here by hand. The server
+    --    sends a card for each one immediately BEFORE the UMA/UMI that names it, so
+    --    by the time the list arrives the key resolves like any other.
+    --
+    -- ⚠ Registered, not merged into the hand-written entries: the fifteen bespoke
+    --   affixes have better copy than anything derivable and must keep it, so a card
+    --   never overwrites an existing key.
+    local gkey, gspell, gctr, grest = msg:match("^UMG:([^:]+):(%d+):([^:]+):(.*)$")
+    if gkey then
+        -- Rewritten every time a card arrives, but ONLY over another generated
+        -- entry. The description carries live numbers, so a cached card from an
+        -- earlier run must not outlive a retune; the fifteen bespoke affixes have
+        -- hand-written copy and voice lines that nothing derivable can improve on,
+        -- and a card must never overwrite one of those.
+        if (not AFFIX[gkey]) or AFFIX[gkey].generated then
+            local isNew = not AFFIX[gkey]
+            -- The name is up to the first colon; everything after it is the
+            -- description, which may legitimately contain colons and percent signs.
+            local gname, gdesc = grest:match("^([^:]*):(.*)$")
+            if not gname then gname, gdesc = grest, "" end
+            AFFIX[gkey] = {
+                name    = gname,
+                tag     = gname,
+                desc    = gdesc,
+                counter = COUNTERPLAY_COPY[gctr] or "Read the affix and react to it.",
+                -- The minted spell id, not a texture path: the client already has
+                -- that Spell.dbc row, so this is art for free and cannot go stale.
+                iconID  = tonumber(gspell),
+                sound   = nil,
+                color   = GeneratedColour(gkey),
+                generated = true,
+            }
+            -- ⚠ Only once. ORDER is walked on every SetActive, and re-appending a
+            --   key on every refresh would grow it without bound and let one affix
+            --   claim several slots on the strip.
+            if isNew then ORDER[#ORDER + 1] = gkey end
+        end
+        return
+    end
 
     -- UMI:<freezeSeconds>:<key>,<key>,... -- run start. Sent once, when the server
     -- has just rooted the group; drives the countdown and the full intro sequence.
