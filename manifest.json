@@ -1988,8 +1988,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/UncappedMythic.lua",
-                      "sha256":  "caa1c86a0730d7b197e28ee5539f16f5959fb412407ffb60fd73bcacaa215aa9",
-                      "size":  87572
+                      "sha256":  "fb344bfce745969a7b1af2acee41aeaafaa6f83be4ff064c3b10ae8264d7b748",
+                      "size":  88084
                   },
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.toc",
@@ -2280,10 +2280,16 @@
                       "size":  2062
                   },
                   {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Frames/Glow.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Frames/Glow.tga",
+                      "sha256":  "f1e6f4f0dd02b109f9fd8717e0c038d1fa54d8bb51692bad8cd60deef6213f89",
+                      "size":  65580
+                  },
+                  {
                       "path":  "Interface/AddOns/UncappedUI/Controls/Button.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Controls/Button.lua",
-                      "sha256":  "6000fb6e1584b1e79788cc8a09b543f223e1a60a08d1c71ecc77e4933be7ef26",
-                      "size":  5164
+                      "sha256":  "24b820cfaf4f6b33378d9c8d0de18988d16311e3624f5e63df9b7be3b4ae127a",
+                      "size":  6406
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Controls/Checkbox.lua",
@@ -2316,16 +2322,22 @@
                       "size":  956
                   },
                   {
+                      "path":  "Interface/AddOns/UncappedUI/Effects/Glow.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Effects/Glow.lua",
+                      "sha256":  "373f8331c8842c9980b4b00b2c4db0a4dadde23487c5b3a28938c7832b132e33",
+                      "size":  4372
+                  },
+                  {
                       "path":  "Interface/AddOns/UncappedUI/Frames/Panel.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Frames/Panel.lua",
-                      "sha256":  "18222fb136e12323aee2aefdd791c1533fa7d9a6750e8a9f05fcbc6494a36c5d",
-                      "size":  1432
+                      "sha256":  "093825d452362fbbeacb1fb125bdea5364fdbc8e379ff9a6658982b47b3d617c",
+                      "size":  1555
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Navigation/Sidebar.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Navigation/Sidebar.lua",
-                      "sha256":  "1f004ed826acee5a952627bea36fc2d37ffe7d640cca2698f583233a5815e57c",
-                      "size":  3767
+                      "sha256":  "276994d33e30bcca2e38b7c887a73ffa94a3d80d43ec0564908c6335319704ce",
+                      "size":  4231
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Navigation/Tabs.lua",
@@ -2336,8 +2348,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedUI/Themes/DefaultTheme.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Themes/DefaultTheme.lua",
-                      "sha256":  "ba0aac9e76d7bace3062f997f8436a430cada0f8700464ee62976ca1461bcbb4",
-                      "size":  2512
+                      "sha256":  "e9299dca8966031b8b7b10385ba9c8306cc419a964341913e86c4bc0e9de06aa",
+                      "size":  4996
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Themes/ThemeManager.lua",
@@ -2348,14 +2360,14 @@
                   {
                       "path":  "Interface/AddOns/UncappedUI/Themes/UncappedTheme.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Themes/UncappedTheme.lua",
-                      "sha256":  "c28a3ff585016ea07026f9f07e424e7c544d309b6f71ba8d2b01cbbcdfbee9c3",
-                      "size":  1957
+                      "sha256":  "f7cec8cd52cbb951d65a155fc23c4ff8b1eb97b39dcdc773fe82e4c113a9bad4",
+                      "size":  3243
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Windows/Window.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Windows/Window.lua",
-                      "sha256":  "44b3d5eb450444fae8f979d3736070c38b8829d17f79903ec9d90a608008aacd",
-                      "size":  7665
+                      "sha256":  "43df589ce15af83fcf8455569b835a3c86f2e1c4dcf84fe0462726184bcd227c",
+                      "size":  8137
                   },
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",

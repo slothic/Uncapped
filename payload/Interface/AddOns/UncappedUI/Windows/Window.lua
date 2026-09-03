@@ -16,7 +16,18 @@ local function ApplyWindowSkin(win, theme)
         tile = true, tileSize = 32, edgeSize = theme.metrics.windowEdgeSize,
         insets = theme.metrics.windowInsets,
     })
+
+    -- ★ Tint. CreateWindow never set a backdrop colour at all, which is the
+    --   same as multiplying the art by white -- so the whole window was locked
+    --   to whatever hue Blizzard's dialog texture happens to be, no matter what
+    --   the theme said. Tinting the STOCK art is what turns this chrome violet
+    --   without a single new asset: the corner gem goes amethyst on its own.
+    local c = theme.colors
+    win:SetBackdropColor(unpack(c.windowTint or { 1, 1, 1, 1 }))
+    win:SetBackdropBorderColor(unpack(c.windowBorderTint or { 1, 1, 1, 1 }))
+
     win.banner:SetTexture(theme.textures.windowBanner)
+    win.banner:SetVertexColor(unpack(c.bannerTint or { 1, 1, 1 }))
     win.titleText:SetTextColor(unpack(theme.colors.gold))
     if win.resizeGrip then
         win.resizeGrip:SetNormalTexture(theme.textures.resizeGripUp)

@@ -1149,7 +1149,14 @@ local AFFIX = {
 -- path to a file the player does not have.
 local function AffixTexture(a)
     if a.iconID then
-        return GetSpellTexture(a.iconID) or "Interface\\Icons\\INV_Misc_QuestionMark"
+        -- ⚠⚠ GetSpellInfo, NOT GetSpellTexture. On 3.3.5a GetSpellTexture(n)
+        --    treats n as a SPELLBOOK INDEX, not a spell id -- so every minted
+        --    affix id fell straight through to the fallback and the whole strip
+        --    rendered question marks. GetSpellInfo(id) reads Spell.dbc directly
+        --    and returns the icon path as its third value, which is how every
+        --    other addon here does it (UncappedAnima.lua:245, UncappedForge:479).
+        local _, _, tex = GetSpellInfo(a.iconID)
+        return tex or "Interface\\Icons\\INV_Misc_QuestionMark"
     end
     return ICON_DIR .. a.icon
 end

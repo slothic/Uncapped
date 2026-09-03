@@ -18,6 +18,8 @@ local function ApplyPanelSkin(panel, theme)
     })
     local c = theme.colors.panelTint or { 1, 1, 1, 1 }
     panel:SetBackdropColor(c[1], c[2], c[3], c[4] or 1)
+    local e = theme.colors.panelBorderTint or { 1, 1, 1, 1 }
+    panel:SetBackdropBorderColor(e[1], e[2], e[3], e[4] or 1)
 end
 
 -- opts.light: use the light marble background instead of the dark one.

@@ -16,6 +16,12 @@ local function ApplyButtonSkin(button, theme)
     if button:GetHighlightTexture() then
         button:GetHighlightTexture():SetTexture(theme.textures.buttonHighlight)
     end
+
+    -- Every kit button gets a halo attached. Under a theme with glowAlpha 0
+    -- (i.e. "Default") this is one permanently hidden texture and nothing else
+    -- -- see Effects\Glow.lua -- so the stock look is unaffected and unbilled.
+    if UncappedUIKit.AttachGlow then UncappedUIKit.AttachGlow(button) end
+
     UncappedUIKit.SetButtonActive(button, button.active)
 end
 
@@ -84,9 +90,10 @@ function UncappedUIKit.CreateButton(parent, label, width, height)
         -- textDisabled has existed in the theme since it was written and was
         -- used by nothing until now.
         local c = theme.colors
-        self:SetBackdropColor(0.05, 0.05, 0.05, 0.55)
-        self:SetBackdropBorderColor(0.20, 0.18, 0.15, 0.70)
+        self:SetBackdropColor(unpack(c.buttonFillDisabled or { 0.05, 0.05, 0.05, 0.55 }))
+        self:SetBackdropBorderColor(unpack(c.buttonBorderDisabled or { 0.20, 0.18, 0.15, 0.70 }))
         if self.text then self.text:SetTextColor(unpack(c.textDisabled or { 0.5, 0.5, 0.5 })) end
+        if UncappedUIKit.SetGlowActive then UncappedUIKit.SetGlowActive(self, false) end
     end
 
     UncappedUIKit.Register(b, ApplyButtonSkin)
@@ -103,19 +110,27 @@ function UncappedUIKit.SetButtonActive(button, active)
     --   highlighter) would repaint a disabled button as enabled -- and the theme
     --   hook calls this on every /uitheme, so it would happen on its own too.
     if button.uncappedDisabled then
-        button:SetBackdropColor(0.05, 0.05, 0.05, 0.55)
-        button:SetBackdropBorderColor(0.20, 0.18, 0.15, 0.70)
+        button:SetBackdropColor(unpack(c.buttonFillDisabled or { 0.05, 0.05, 0.05, 0.55 }))
+        button:SetBackdropBorderColor(unpack(c.buttonBorderDisabled or { 0.20, 0.18, 0.15, 0.70 }))
         if button.text then button.text:SetTextColor(unpack(c.textDisabled or { 0.5, 0.5, 0.5 })) end
+        if UncappedUIKit.SetGlowActive then UncappedUIKit.SetGlowActive(button, false) end
         return
     end
 
+    -- ★ These four used to be literals here, which meant a theme could restyle
+    --   every texture in the kit and still not change the colour of a selected
+    --   button. They fall back to the old gold values, so a theme that defines
+    --   none of them looks exactly as this did before.
     if button.active then
-        button:SetBackdropColor(0.25, 0.18, 0.02, 0.92)
-        button:SetBackdropBorderColor(unpack(c.gold))
-        button.text:SetTextColor(unpack(c.gold))
+        button:SetBackdropColor(unpack(c.buttonFillActive or { 0.25, 0.18, 0.02, 0.92 }))
+        button:SetBackdropBorderColor(unpack(c.buttonBorderActive or c.gold))
+        button.text:SetTextColor(unpack(c.buttonTextActive or c.gold))
     else
-        button:SetBackdropColor(0.05, 0.05, 0.05, 0.88)
-        button:SetBackdropBorderColor(0.30, 0.27, 0.20, 0.95)
-        button.text:SetTextColor(unpack(c.text))
+        button:SetBackdropColor(unpack(c.buttonFill or { 0.05, 0.05, 0.05, 0.88 }))
+        button:SetBackdropBorderColor(unpack(c.buttonBorder or { 0.30, 0.27, 0.20, 0.95 }))
+        button.text:SetTextColor(unpack(c.buttonText or c.text))
     end
+
+    -- The selected button is the one that breathes.
+    if UncappedUIKit.SetGlowActive then UncappedUIKit.SetGlowActive(button, button.active) end
 end

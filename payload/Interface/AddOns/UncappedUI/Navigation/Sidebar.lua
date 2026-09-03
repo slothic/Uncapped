@@ -11,15 +11,24 @@ local unpack = unpack
 
 local function ApplyRowSkin(row, theme)
     local c = theme.colors
+    local sel = c.rowSelected or { c.gold[1], c.gold[2], c.gold[3], 0.18 }
     if row.active then
-        row.selected:SetTexture(c.gold[1], c.gold[2], c.gold[3], 0.18)
+        row.selected:SetTexture(sel[1], sel[2], sel[3], sel[4] or 0.18)
         row.selected:Show()
-        row.label:SetTextColor(unpack(c.gold))
+        row.label:SetTextColor(unpack(c.rowSelectedText or c.gold))
     else
         row.selected:Hide()
         row.label:SetTextColor(unpack(c.text))
     end
     row.count:SetTextColor(unpack(c.textMuted))
+
+    -- The hairline between rows was a literal at construction time, so it
+    -- stayed cold white under every theme. Guarded because ApplyRowSkin also
+    -- runs from RenderVisible, which can reach a row before .line exists.
+    if row.line then
+        local l = c.rowLine or { 1, 1, 1, 0.06 }
+        row.line:SetTexture(l[1], l[2], l[3], l[4] or 0.06)
+    end
 end
 
 -- opts: rowHeight (default 24), visibleRows (default 8 -- tune this to
