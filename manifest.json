@@ -1988,8 +1988,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/UncappedMythic.lua",
-                      "sha256":  "300b7ee46055a9db76c249dbab634edc648dc8fbba7ab1acc517307218d4006f",
-                      "size":  86978
+                      "sha256":  "caa1c86a0730d7b197e28ee5539f16f5959fb412407ffb60fd73bcacaa215aa9",
+                      "size":  87572
                   },
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.toc",

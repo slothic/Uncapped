@@ -1788,7 +1788,15 @@ affixListener:SetScript("OnEvent", function(self, event, a1, a2)
             if not gname then gname, gdesc = grest, "" end
             AFFIX[gkey] = {
                 name    = gname,
-                tag     = gname,
+                -- ⚠ The flying intro card shows the NAME and the TAG and nothing
+                --   else -- desc and counter are only ever read from the strip
+                --   tooltip. So the tag has to be what the affix DOES, not the
+                --   name again: a card reading 'Trailing Vengeance' over
+                --   '"Trailing Vengeance"' tells a player nothing in the ten
+                --   seconds they have to read it. The bespoke fifteen put a
+                --   flavour line here because they also have a voice line saying
+                --   it; these do not.
+                tag     = gdesc,
                 desc    = gdesc,
                 counter = COUNTERPLAY_COPY[gctr] or "Read the affix and react to it.",
                 -- The minted spell id, not a texture path: the client already has
