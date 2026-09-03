@@ -12,9 +12,20 @@
       in one go, without turning the all-quality standing sweep on. Preview
       first, confirm second -- the server arms the confirmation, exactly as it
       does for Auto-consume.
-    * Soulbinding -- feed an EXACT DUPLICATE of an item you're WEARING onto it to
-      extract (the current multiplier) of its stats and ramp its procs. "Soulbind
-      Duplicates" does it in bulk from your bags + vault.
+    * Soulbinding -- feed an EXACT DUPLICATE of a piece of gear onto the copy you
+      are keeping, to extract (the current multiplier) of its stats and ramp its
+      procs. "Soulbind Duplicates" does it in bulk from your bags + vault.
+
+      [#1119] WHICH COPY RECEIVES IT. The one you are WEARING, first and always.
+      If you are not wearing one, an ALREADY-SOULBOUND copy in your BAGS receives
+      it instead -- so an off-set piece you have been feeding for weeks keeps
+      growing without having to be equipped for the click. A copy that has never
+      been soulbound is never chosen as the receiver: it would be indistinguishable
+      from the duplicates around it, and the sweep would eat one of a matched pair.
+
+      ⚠ Only the BULK sweep (ICSBALL) has that fallback. The server's single-item
+        soulbind is still equipped-only, which is why the "you can only soulbind a
+        duplicate of an item you're wearing" refusal below is still correct.
 
   Transport (matches the rest of the UNC pipe):
     * SEND    : SendAddonMessage("REAGENTBANK", body, "WHISPER", UnitName("player"))
@@ -54,6 +65,11 @@ end
 local SEND_PREFIX = "REAGENTBANK"
 local PIPE_PREFIX = "UNC"
 local QUESTION    = "Interface\\Icons\\INV_Misc_QuestionMark"
+
+-- [#1124] Scroll of Extraction as an ITEM ENTRY, i.e. one sitting in your bags
+-- rather than one already absorbed into the server-side balance. See the scroll
+-- count in the Extraction panel's Refresh for why both terms are needed.
+local SCROLL_EXTRACTION = 500208
 
 -- ---- debug ---------------------------------------------------------------
 local DEBUG = false
@@ -433,6 +449,75 @@ local function groupDigits(n)
   return out
 end
 
+--[[ ==========================================================================
+     [#1227] THE ON-USE CLICKY'S COOLDOWN -- READ FROM THE SERVER, NOT INVENTED.
+
+     UseProc stamps the SOURCE spell's own RecoveryTime (falling back to
+     CategoryRecoveryTime) with needSendToClient = true, so the client is told
+     over SMSG_SPELL_COOLDOWN like any other cooldown. That is what makes it
+     survive a /reload instead of living only in this addon's memory, and it is
+     why the swipe below is the server's number rather than a client-side guess.
+
+     ⚠ Deliberately the spell's OWN timing rather than a flat module value: an
+       extracted effect should fire exactly as often as the item it came from, or
+       extraction becomes a way to make a clicky strictly better than its source.
+
+     ⚠ A 1.5s swipe over a three-minute trinket effect is WORSE than no swipe at
+       all -- the button would look ready and every click would be refused. So the
+       local throttle paints NOTHING; it is a double-click guard and nothing else.
+
+     ⚠ GetSpellCooldown IS AMBIGUOUS IN 3.3.5a. It takes either a spell NAME or a
+       (spellbook index, bookType) pair, so a bare number can in principle be read
+       as an INDEX. Both forms are therefore tried, both inside pcall, and an
+       answer is only believed when it is a live cooldown of sane length:
+
+         * the id form is what the cooldown packet actually feeds, and proc spell
+           ids are five and six digits -- far past any spellbook index, so an
+           index collision cannot happen with real data;
+         * the name form is the fallback for a proc that IS in the player's book;
+         * anything longer than a day is rejected as a misread rather than drawn.
+     ========================================================================== ]]
+local CD_SANE_MAX = 86400
+
+local function useCooldownOf(spellId)
+  if not spellId then return nil end
+
+  local function believe(ok, start, duration)
+    if not ok then return nil end
+    start, duration = tonumber(start), tonumber(duration)
+    if not start or not duration then return nil end
+    if start <= 0 or duration <= 0 or duration > CD_SANE_MAX then return nil end
+    return start, duration
+  end
+
+  local s, d = believe(pcall(GetSpellCooldown, spellId))
+  if s then return s, d end
+
+  local name = GetSpellInfo(spellId)
+  if name then
+    s, d = believe(pcall(GetSpellCooldown, name))
+    if s then return s, d end
+  end
+  return nil
+end
+
+-- Paint one clicky button's swipe from whatever the server says is left.
+--
+-- Cleared rather than left alone when there is no cooldown: the row pool is
+-- reused by whichever item scrolls into it, so a swipe belonging to the previous
+-- occupant's spell would otherwise sit on top of a ready button.
+local function armUseButton(b)
+  if not b or not b.cd then return end
+  if b.spellId then
+    local start, duration = useCooldownOf(b.spellId)
+    if start then
+      CooldownFrame_SetTimer(b.cd, start, duration, 1)
+      return
+    end
+  end
+  CooldownFrame_SetTimer(b.cd, 0, 0, 0)
+end
+
 -- ---- state ---------------------------------------------------------------
 local state = {
   -- autoopen is a MODE, not a flag: 0 off / 1 melt (destroys the gear) / 2 keep
@@ -455,6 +540,34 @@ local state = {
   wlSuggest = {},        -- item-name search suggestions (server ICINAME search)
   wlSuggestStaging = {},
   equipped = {},         -- rendered rows: your equipped items that carry bonuses
+
+  --[[ ★★ [#1227] THE ON-USE CLICK SURFACE, AND WHOSE COOLDOWN THIS IS.
+
+       PROC_ON_USE (trigger 0) is a clicky. Nothing on the server ever fires one:
+       ItemCustomization::UseProc sits complete, wired to the ICUSE verb, waiting
+       for a client to send it -- and no shipped addon ever has. So an on-use
+       effect pulled with a Scroll of Extraction landed in custom_item_proc, was
+       listed in this panel labelled "On Use", and could never be used by anyone.
+       Report #240 spent a scroll and a Staff of Disintegration on exactly that,
+       and ExtractProc clears the target's existing procs first, so the trade was
+       strictly negative. Eleven rows realm-wide are stuck in that state. These
+       buttons are the missing half.
+
+       ★★ THE SWIPE IS THE SERVER'S NUMBER. UseProc stamps the SOURCE spell's own
+          RecoveryTime and sends it to the client, and useCooldownOf above reads it
+          back -- see the long note there. THIS is not that:
+
+       ⚠ useReadyAt/useCooldown are a DOUBLE-CLICK GUARD AND NOTHING ELSE, and
+         they paint NO SWIPE. There is a round trip between the press and the
+         cooldown packet, and without this a held button sends one
+         CMSG_MESSAGECHAT per frame into that window. Drawing a 1.5s swipe for it
+         would be actively harmful -- the button would read as ready 1.5s into a
+         three-minute trinket effect and every click after that would be refused.
+
+       Keyed by spellId, not by item: the server matches ICUSE on the spell id
+       alone, so two items carrying the same on-use proc are one clicky. ]]
+  useReadyAt = {},       -- spellId -> GetTime() before which another press is dropped
+  useCooldown = 1.5,     -- seconds; the send guard only -- never drawn (see above)
 
   --[[ ★ [DE-09] Client-side pacing for "Soulbind Duplicates".
 
@@ -524,6 +637,9 @@ local UI
 local eqRows = {}
 local EQ_ROWS_MAX, EQ_H = 20, 34
 local eqVisibleRows = 6
+-- [#1227] On-use clicky buttons reserved per gear row. Two is enough for anything
+-- that exists; the row's name/sub strings reserve exactly this much width.
+local EQ_USE_MAX = 2
 
 -- [DE-15] `isWhitelistedName` was here: a linear scan over state.whitelist with
 -- no callers anywhere in client_addons/. It was superseded by the lowercase
@@ -600,7 +716,9 @@ local function BuildUI(parent)
   sfExtract:SetPoint("TOPLEFT", 6, -50); f.sfExtract = sfExtract
   local sfHint = f:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
   sfHint:SetPoint("TOPLEFT", 6, -72); sfHint:SetPoint("TOPRIGHT", -6, -72); sfHint:SetJustifyH("LEFT")
-  sfHint:SetText("Feed junk gear to the forge to raise the extraction rate. Soulbinding a duplicate onto gear you're wearing extracts that share of its stats.")
+  -- [#1119] "gear you're wearing" was a promise this button stopped keeping: the
+  -- bulk sweep will now also feed an already-soulbound copy sitting in your bags.
+  sfHint:SetText("Feed junk gear to the forge to raise the extraction rate. Soulbinding a duplicate onto the copy you're wearing -- or onto an already-soulbound copy in your bags -- extracts that share of its stats.")
 
   -- ---- controls ----
   local ac = CreateFrame("CheckButton", "UncappedSoulforgeAC", f, "InterfaceOptionsCheckButtonTemplate")
@@ -911,15 +1029,108 @@ local function BuildUI(parent)
     r.icon = r:CreateTexture(nil,"ARTWORK"); r.icon:SetSize(28,28)
     r.icon:SetPoint("LEFT",2,0); r.icon:SetTexCoord(0.08,0.92,0.08,0.92)
     r.name = r:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
-    r.name:SetPoint("TOPLEFT",36,-1); r.name:SetPoint("TOPRIGHT",-4,-1); r.name:SetJustifyH("LEFT")
+    -- ⚠ The right inset is EQ_USE_MAX * 26 + 6, not 4: the on-use buttons below
+    --   overlay this strip, and a long item name would otherwise run underneath
+    --   them. Reserved unconditionally rather than re-anchored per refresh --
+    --   this list redraws on every ICINVEND and every scroll tick.
+    r.name:SetPoint("TOPLEFT",36,-1); r.name:SetPoint("TOPRIGHT",-58,-1); r.name:SetJustifyH("LEFT")
     r.sub = r:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
-    r.sub:SetPoint("TOPLEFT",36,-15); r.sub:SetPoint("TOPRIGHT",-4,-15); r.sub:SetJustifyH("LEFT")
+    r.sub:SetPoint("TOPLEFT",36,-15); r.sub:SetPoint("TOPRIGHT",-58,-15); r.sub:SetJustifyH("LEFT")
+
+    --[[ [#1227] ONE BUTTON PER ON-USE PROC ON THIS PIECE.
+
+         ★ ON THE EQUIPPED LIST AND NOWHERE ELSE, because that is precisely the
+           set the server will accept. UseProc reads _equippedProcs -- the live
+           cache built when a piece is put on -- so a clicky sitting on a spare in
+           your bags cannot be fired, and offering a button for it would be a
+           control that always answers "not_equipped".
+
+         Built as a fixed pool of EQ_USE_MAX per row, like every other list in this
+         file, so scrolling can never leak frames. The pool is small on purpose: an
+         item with four separate on-use effects does not exist, and the ones past
+         the pool are still readable in the tooltip. ]]
+    r.useBtns = {}
+    for k = 1, EQ_USE_MAX do
+      local b = CreateFrame("Button", nil, r)
+      b:SetWidth(24); b:SetHeight(24)
+      b:SetPoint("RIGHT", r, "RIGHT", -6 - (k - 1) * 26, 0)
+      b:SetNormalTexture(QUESTION)
+      b:GetNormalTexture():SetTexCoord(0.08, 0.92, 0.08, 0.92)
+      b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+      b:SetPushedTexture("Interface\\Buttons\\UI-Quickslot-Depress")
+      -- A purple ring, so it reads as "a Soulforge power" rather than as an
+      -- ordinary bag icon that happened to land in the list.
+      local ring = b:CreateTexture(nil, "OVERLAY")
+      ring:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+      ring:SetBlendMode("ADD")
+      ring:SetPoint("CENTER"); ring:SetWidth(44); ring:SetHeight(44)
+      ring:SetVertexColor(0.62, 0.38, 1)
+      -- The swipe. See state.useReadyAt: this is the ADDON's throttle, not a
+      -- server cooldown -- the server has none for ICUSE.
+      b.cd = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
+      b.cd:SetAllPoints(b)
+      b:SetScript("OnClick", function(self)
+        local sid = self.spellId
+        if not sid then return end
+        local now = GetTime() or 0
+        -- Send guard only. NOT drawn: the swipe belongs to the server's cooldown,
+        -- which lands a round trip later on SPELL_UPDATE_COOLDOWN.
+        if now < (state.useReadyAt[sid] or 0) then return end
+        state.useReadyAt[sid] = now + state.useCooldown
+        send("ICUSE:" .. sid)
+        -- Repaint from whatever the client already knows. Usually nothing yet on
+        -- the first press, and the cooldown packet arrives moments later.
+        armUseButton(self)
+      end)
+      b:SetScript("OnEnter", function(self)
+        local p = self.proc
+        if not p then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(procDisplayName(p) or "?", 0.75, 0.5, 0.94)
+        GameTooltip:AddLine(triggerLabel(p.trigger) .. " \226\128\148 " .. procMechanic(p),
+          0.8, 0.8, 0.8, true)
+        local desc = fixStackCount(spellDescription(p.spellId), p.stackCap)
+        local scaled = scaleDescription(desc, p.bases or {}, (p.mag or 100) / 100) or desc
+        if scaled then GameTooltip:AddLine(scaled, 0.62, 0.62, 0.72, true) end
+        GameTooltip:AddLine(" ")
+
+        --[[ [#1227] The cooldown, in words as well as in the swipe.
+
+             It is the SOURCE spell's own RecoveryTime -- an extracted clicky fires
+             exactly as often as the item it was pulled from -- and a player looking
+             at a greyed button wants the number, not just the wedge. Read from the
+             same place the swipe is, so the two can never disagree. ]]
+        local cdStart, cdDur = useCooldownOf(p.spellId)
+        local left = cdStart and (cdStart + cdDur - (GetTime() or 0)) or 0
+        if left > 0 then
+          local mins = math.floor(left / 60)
+          GameTooltip:AddLine(mins > 0
+            and string.format("On cooldown \226\128\148 %dm %ds left.", mins, math.floor(left % 60))
+            or string.format("On cooldown \226\128\148 %ds left.", math.ceil(left)),
+            1, 0.5, 0.4, true)
+        else
+          GameTooltip:AddLine("Click to fire it. It hits your current target.", 0.6, 1, 0.6, true)
+        end
+
+        -- Said out loud, because the alternative is a player concluding the button
+        -- is broken when a harmful effect with nothing to hit refuses politely.
+        GameTooltip:AddLine("A harmful effect needs an enemy target; a helpful one lands on you.",
+          0.6, 0.6, 0.7, true)
+        GameTooltip:Show()
+      end)
+      b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+      b:Hide()
+      r.useBtns[k] = b
+    end
+
     eqRows[i] = r; r:Hide()
   end
   local eqEmpty = f:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
   eqEmpty:SetPoint("TOP", scroll, "TOP", 0, -30); eqEmpty:SetPoint("LEFT", scroll, "LEFT", 20, 0)
   eqEmpty:SetPoint("RIGHT", scroll, "RIGHT", -20, 0)
-  eqEmpty:SetText("No soulbound bonuses yet. Soulbind duplicates onto gear you're wearing.")
+  -- [#1119] Same correction as the hint above: the receiving copy is the worn one,
+  -- or an already-soulbound one in your bags.
+  eqEmpty:SetText("No soulbound bonuses yet. Soulbind duplicates onto the copy you're wearing, or onto an already-soulbound copy in your bags.")
   f.eqEmpty = eqEmpty
 
   -- ---- ding flash ----
@@ -1087,8 +1298,10 @@ local function attachMethods()
         local link = GetInventoryItemLink("player", slot)
         local name = link and GetItemInfo(link) or (INV_NAMES[slot] or ("Slot " .. slot))
         local tex = GetInventoryItemTexture("player", slot)
+        -- [#1227] `procs` is carried through so the row can offer a button for each
+        -- PROC_ON_USE (trigger 0) entry. The counts below stay as they were.
         list[#list+1] = { slot = slot, name = name, tex = tex,
-          nStats = #e.stats, nProcs = #e.procs }
+          nStats = #e.stats, nProcs = #e.procs, procs = e.procs }
       end
     end
     table.sort(list, function(a, b) return a.slot < b.slot end)
@@ -1104,6 +1317,35 @@ local function attachMethods()
         r.name:SetText(e.name)
         r.sub:SetText(string.format("|cff20ff20%d stat%s|r, |cffc080f0%d proc%s|r",
           e.nStats, e.nStats == 1 and "" or "s", e.nProcs, e.nProcs == 1 and "" or "s"))
+
+        --[[ [#1227] Paint the on-use buttons for this piece.
+
+             Nothing is cached across refreshes: the row pool is reused by whichever
+             item scrolls into it, so a stale spellId left on a button would fire the
+             PREVIOUS row's clicky. Every button is either re-pointed at a proc here
+             or has its spellId cleared and is hidden. ]]
+        local nUse = 0
+        for _, p in ipairs(e.procs or {}) do
+          if p.trigger == 0 and nUse < EQ_USE_MAX then
+            nUse = nUse + 1
+            local b = r.useBtns[nUse]
+            b.spellId, b.proc = p.spellId, p
+            local _, _, icon = GetSpellInfo(p.spellId)
+            b:SetNormalTexture(icon or QUESTION)
+            b:GetNormalTexture():SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            -- Re-arm from the SERVER's cooldown rather than leaving it blank: a
+            -- scroll or an ICINVEND redraw part-way through a three-minute clicky
+            -- would otherwise show a ready-looking button that is refused.
+            armUseButton(b)
+            b:Show()
+          end
+        end
+        for k = nUse + 1, EQ_USE_MAX do
+          local b = r.useBtns[k]
+          b.spellId, b.proc = nil, nil
+          b:Hide()
+        end
+
         r:Show()
       else
         r:Hide()
@@ -1875,13 +2117,27 @@ local function BuildExtractor(parent)
 
   function f:Refresh()
     local mode = state.exMode or "coll"
-    -- ⚠ The BALANCE, not GetItemCount. Scrolls became a held currency on
-    --   2026-08-16: the server absorbs any loose ones out of the bags, so
-    --   GetItemCount is normally 0 even for someone with hundreds banked.
-    --   state.scrolls is nil until the first ICSCROLLS arrives, and nil must not
-    --   read as "none" -- it reads as "not told yet", which is why the button
-    --   gating below tests `scrolls == 0` rather than `not scrolls`.
-    local scrolls = state.scrolls or 0
+    --[[ THE BALANCE **PLUS** WHAT IS STILL LOOSE IN THE BAGS.
+
+         Scrolls became a held currency on 2026-08-16: the server absorbs any loose
+         ones out of the bags, so GetItemCount is normally 0 even for someone with
+         hundreds banked, and the balance is the number that matters. state.scrolls
+         is nil until the first ICSCROLLS arrives, and nil must not read as "none" --
+         it reads as "not told yet", which is why the gating below tests
+         `scrolls == 0` rather than `not scrolls`.
+
+         ★ [#1124] But the balance ONLY moves when an ICSCROLLS lands, and nothing
+           sends one because a scroll dropped into your bags. So a scroll looted with
+           this tab already open was in NEITHER term -- the panel kept saying "0
+           scrolls held", the Unlock/Apply buttons stayed greyed, and the only way to
+           see it was /reload. Adding the bag count makes the loot visible in the
+           frame it lands.
+
+         ⚠ NOT a double count. The server destroys the bag item in the very same call
+           that raises the balance (the absorb is atomic), so an entry is in exactly
+           one of the two terms at any instant -- never both.
+    ]]
+    local scrolls = (state.scrolls or 0) + (GetItemCount(SCROLL_EXTRACTION) or 0)
     self.sub:SetText("Unlock an effect once, then stamp it on anything.  "
       .. "|cffffd100" .. scrolls .. "|r scroll" .. (scrolls == 1 and "" or "s") .. " held")
 
@@ -3177,7 +3433,10 @@ local function OnLine(body)
     elseif reason == "no_equipped_match" then
       msg("|cffff8040You can only soulbind a duplicate of an item you're wearing.|r")
     elseif reason == "nothing" then
-      msg("|cffff8040No duplicates of your equipped gear were found.|r")
+      -- [#1119] Not "of your equipped gear" any more -- the sweep also feeds an
+      -- already-soulbound bag copy, so that wording sent people to equip a piece
+      -- that was never the reason nothing happened.
+      msg("|cffff8040Nothing to soulbind. A duplicate goes onto the copy you are wearing, or onto an already-soulbound copy in your bags.|r")
     elseif op == "socket" then
       local m = {
         no_scroll = "You have no Scroll of Socket.", no_item = "That item is gone.",
@@ -3191,6 +3450,21 @@ local function OnLine(body)
         same_item = "Pick a different item.",
       }
       msg("|cffff8040Socketing failed:|r " .. (m[reason] or tostring(reason)))
+    elseif op == "use" then
+      -- [#1227] The on-use clicky. Named refusals rather than a slug, because this
+      -- is a button a player presses in combat and "use failed: notarget" tells
+      -- them nothing about what to do differently.
+      local m = {
+        notarget = "Nothing to aim that at -- a harmful effect needs an enemy target.",
+        -- The proc is on a piece you are not wearing (UseProc reads the equipped
+        -- cache), or it is on the banned register and suppressed.
+        not_equipped = "That effect is not active on anything you are wearing.",
+        -- UseProc checks HasSpellCooldown BEFORE resolving a target, so this is the
+        -- refusal a click during the cooldown actually gets. The swipe should have
+        -- said so already; this covers the gap before the cooldown packet lands.
+        cooldown = "That effect is still on cooldown.",
+      }
+      msg("|cffff8040" .. (m[reason] or tostring(reason)) .. "|r")
     elseif op == "extract" then
       local m = {
         no_source = "The item to pull from is gone.", no_target = "The item to receive it is gone.",
@@ -3272,7 +3546,16 @@ StaticPopupDialogs["UNCAPPED_SF_RENDER_JUNK"] = {
 }
 
 StaticPopupDialogs["UNCAPPED_SF_SOULBIND_ALL"] = {
-  text = "Soulbind every exact duplicate of the gear you're wearing (from bags AND vault) onto it?\n\nThe duplicates are consumed. This cannot be undone.",
+  -- ⚠ [#1119] THIS SENTENCE IS THE CONSENT, so it names exactly what the server
+  --   will now do. It used to say "the gear you're wearing", which stopped being
+  --   true when the sweep gained its bag-target fallback: a duplicate whose worn
+  --   copy does not exist is fed to an ALREADY-SOULBOUND copy in your bags
+  --   instead. Saying only "wearing" would consume items on a rule the player was
+  --   never shown.
+  text = "Soulbind every exact duplicate you own (from bags AND vault) onto the copy you keep?\n\n"
+      .. "Each duplicate goes onto the copy you are |cffffffffwearing|r -- or, if you are not "
+      .. "wearing one, onto an |cffffffffalready-soulbound|r copy of it in your bags.\n\n"
+      .. "The duplicates are consumed. This cannot be undone.",
   button1 = ACCEPT, button2 = CANCEL,
   -- [DE-09] The arm lives here, not on the button: this is the only path that
   -- sends. Re-checked because the popup can sit on screen indefinitely
@@ -3562,6 +3845,10 @@ listener:RegisterEvent("CHAT_MSG_ADDON")
 listener:RegisterEvent("PLAYER_LOGIN")
 listener:RegisterEvent("BAG_UPDATE")
 listener:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+-- [#1227] Fired when the client receives SMSG_SPELL_COOLDOWN, i.e. exactly when
+-- UseProc's AddSpellCooldown(..., needSendToClient) lands. This is what turns the
+-- clicky swipes into the server's real number instead of a guess.
+listener:RegisterEvent("SPELL_UPDATE_COOLDOWN")
 listener:SetScript("OnEvent", function(self, event, a1, a2)
   if event == "CHAT_MSG_ADDON" then
     if a1 == PIPE_PREFIX and a2 and a2:sub(1,2) == "IC" then OnLine(a2) end
@@ -3572,8 +3859,50 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
     send("ICSF")             -- get the forge bar
     return
   end
+
+  --[[ [#1227] Repaint the clicky swipes from the cooldown the server just sent.
+
+       Only the swipes -- NOT a RefreshEquipped. This event fires for every
+       cooldown the player starts, which in combat is constantly, and rebuilding
+       the whole gear list off it would put a full inventory walk on the global
+       cooldown. Walking the row pool is 40 buttons at the absolute worst and most
+       of them are hidden with no spellId.
+
+       Ungated on visibility on purpose: CooldownFrame_SetTimer on a hidden frame
+       is free, and arming it here means the swipe is already correct the moment
+       the tab is opened rather than a frame later. ]]
+  if event == "SPELL_UPDATE_COOLDOWN" then
+    for i = 1, EQ_ROWS_MAX do
+      local r = eqRows[i]
+      if r and r.useBtns then
+        for k = 1, EQ_USE_MAX do armUseButton(r.useBtns[k]) end
+      end
+    end
+    return
+  end
   if event == "BAG_UPDATE" then
     requestInvIn(0.3)
+
+    --[[ [#1124] Repaint the Extraction panel if it is open.
+
+         A Scroll of Extraction looted while that tab was up stayed invisible until
+         /reload: the scroll count is (balance + bag count), and BAG_UPDATE is the
+         only event that can move the second term. One local redraw answers it.
+
+         ⚠ NO send("ICCOLL") HERE, DELIBERATELY. ICCOLL is the collection burst --
+           one ICCOLLROW per unlocked proc on the whole ACCOUNT -- and BAG_UPDATE
+           fires several times for a single loot. That is a message storm per pickup
+           for data that a bag change cannot possibly have altered. The Refresh below
+           re-reads GetItemCount, which is all that actually moved.
+
+         ⚠ IsVisible, not IsShown. EXT is a Dashboard tab: EmbedInto calls Show()
+           on it once and never hides it again -- the Dashboard hides the GROUP
+           around it. So IsShown() stays true for the rest of the session and this
+           would redraw the whole grid on every bag change with the window shut.
+           IsVisible walks the parents, which is the question actually being asked.
+    ]]
+    if EXT and EXT:IsVisible() then EXT:Refresh() end
+
     -- Keep the sack count honest while the panel is open with the mode OFF, when
     -- nothing else is pushing. Gated on the panel being VISIBLE and throttled to
     -- 2s, because BAG_UPDATE fires several times for one loot and this is the

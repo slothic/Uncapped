@@ -99,6 +99,44 @@ local recipesBySpell = {}
 -- see the FRGVEND note in forge_comms_playerscript.cpp for why it is not an 11th
 -- FRGREC field. Empty against an old server, which simply hides the extra rows.
 local buyableSet = {}
+
+--[[ ===========================================================================
+     [#1199] RECIPES THAT ENCHANT SOMETHING YOU ALREADY OWN.
+
+     spellId -> { class = <ITEM_CLASS_*>, sub = <subclass bitmask>,
+                  inv = <inventory-type bitmask>, minlvl = <required-level floor> }
+
+     43 profession recipes -- all nine engineering tinkers, the tailoring
+     embroideries, the eight leatherworking fur linings, the inscriptions and the
+     ring enchants -- do not CREATE an item. They enchant a piece of gear you are
+     already carrying. CraftingIndex only indexes SPELL_EFFECT_CREATE_ITEM and the
+     enchants that carry a vellum ItemType, so these have never appeared in the
+     Forge at all: not craftable, not listed, not searchable.
+
+     The three numbers are the spell's own `EquippedItemClass`,
+     `EquippedItemSubClassMask` and `EquippedItemInventoryTypeMask` -- the same
+     three the core itself checks in Item::IsFitToSpellRequirements. Passing them
+     to the client rather than making the client guess is the whole point: nothing
+     in the addon knows that a Frag Belt goes on a WAIST and only a WAIST.
+
+     ⚠ A SET, ON ITS OWN ROW TYPE (FRGGEAR), never an 11th FRGREC field. The recipe
+       pattern has exactly ten captures and an eleventh field makes it MISS, which
+       is an EMPTY RECIPE LIST rather than a cosmetic glitch -- forge_comms_
+       playerscript.cpp spells this out at the FRGVEND site, and this follows it.
+       A new client against an old server simply receives none of these rows and
+       shows no gear-target recipes, which is exactly today's behaviour.
+
+     ⚠ On their ordinary FRGREC row these recipes carry item = 0, yield = 0 and
+       target = 0, and there is no FRGPROD for them. `maxc` is how many
+       APPLICATIONS the materials support. Everything downstream that reads
+       `recipe.item` has to tolerate a zero -- see RecipeIcon and RecipeName.
+
+     ⚠ Replaced wholesale at FRGEND and NOT touched at FRGCNTEND. A counts-only
+       refresh does not carry these rows (the masks cannot change), so committing
+       an empty staging table there would wipe the set on the first craft.
+     ========================================================================== ]]
+local gearTargets = {}
+
 local filtered = {}         -- current visible subset of `recipes`
 local filteredProc = {}     -- current visible subset of `processable`
 
@@ -431,6 +469,17 @@ local function ItemIcon(itemId, serverIcon)
     return QUESTION_MARK
 end
 
+-- [#1199] A gear-target recipe has NO product item, so ItemIcon(0) would draw a
+-- question mark for all 43 of them. The spell's own icon is the right picture --
+-- it is what the trade window shows for a tinker -- so fall back to that.
+local function RecipeIcon(recipe)
+    if recipe.item and recipe.item ~= 0 then
+        return ItemIcon(recipe.item, prodIcon and prodIcon[recipe.spell])
+    end
+    local _, _, spellIcon = GetSpellInfo(recipe.spell)
+    return spellIcon or QUESTION_MARK
+end
+
 local function Commafy(n)
     n = tostring(n or 0)
     local out = n:reverse():gsub("(%d%d%d)", "%1,"):reverse()
@@ -589,6 +638,364 @@ function ShowModelPreview(itemId)
     end)
 end
 
+--[[ ===========================================================================
+     [#1199] THE GEAR-TARGET PICKER.
+
+     A tinker, an embroidery, a fur lining or a ring enchant needs an ITEM to be
+     applied to. The craft button opens this list instead of starting a job, the
+     player picks a piece, and the bag/slot of that piece rides along with the
+     craft request.
+
+     ---------------------------------------------------------------------------
+     WIRE FORMAT -- agreed with the server half, 2026-09-03. Both ends match this.
+
+       server -> client, in the FRGGET burst, flushed BEFORE FRGEND, chunked at
+       230 bytes like every other row type:
+
+         FRGGEAR:spell,class,subClassMask,invTypeMask,minItemLevel;spell,...;
+
+           class         SpellInfo::EquippedItemClass -- always >= 0 on these rows
+           subClassMask  SpellInfo::EquippedItemSubClassMask
+           invTypeMask   SpellInfo::EquippedItemInventoryTypeMask
+           minItemLevel  floor on the target's RequiredLevel (ItemLevel if it has none)
+
+         ⚠ The two masks are int32 and MAY CARRY THE TOP BIT, so they arrive as
+           signed decimals and are compared with bit.band -- not with arithmetic
+           that would read a negative as "unrestricted". 0 means "any".
+
+       client -> server, when the player picks a target:
+
+         FRGENCH:<spellId>:<bag>:<slot>
+
+         ★★ ITS OWN VERB, NOT EXTRA FRGCRAFT FIELDS. HandleCraft does
+            ParseFields(args, 4) and returns on any other count, so widening
+            FRGCRAFT would break every ordinary craft against a server that has
+            not updated -- and this realm patches the CLIENT FIRST, always, so
+            that window is real and people are inside it. An unknown verb is
+            simply dropped by an old server.
+
+         ★★ THERE IS NO COUNT FIELD AND THERE MUST NOT BE ONE. The server casts
+            exactly once per message. "Apply this tinker to twenty items" is not a
+            feature anyone agreed to, and a count field is how it would arrive.
+
+         ★★ bag/slot are the CLIENT's own coordinates, 1-BASED IN EVERY CASE:
+              bag 0        backpack,        slot 1..GetContainerNumSlots(0)
+              bag 1..4     equipped bags,   slot 1..GetContainerNumSlots(bag)
+              bag 255      your own EQUIPPED gear, slot = INVSLOT_* (1 head .. 19 tabard)
+            No translation to server inventory positions happens here -- the
+            server half does that. (This is deliberately NOT the ICEXI/ICSOCKI
+            convention on the UNC pipe, which sends server positions; FRG* is a
+            different protocol with a different owner.)
+
+       server -> client on success, immediately before its FRGDONE:
+
+         FRGENCHOK:<spellId>:<itemEntry>
+         FRGDONE:0:
+
+         ⚠ THAT FRGDONE PRINTS NOTHING. Its success branch needs crafted > 0, and
+           "produced 0 item(s) into your Vault" would be a lie. So the success
+           sentence a player actually reads is written off FRGENCHOK, in this
+           addon. Without it the craft succeeds in silence -- which is the exact
+           shape of report #240, and the whole reason this feature exists.
+
+     ⚠ THE SERVER RE-CHECKS THE ITEM AND IS THE AUTHORITY. The filter here is a
+       convenience and deliberately FAILS OPEN (see ItemFitsTarget): 3.3.5a's
+       GetItemInfo returns LOCALISED class/subclass NAMES rather than ids, so an
+       unmappable name lets the item through to be judged properly rather than
+       hiding gear the player can see in their own bags with no explanation.
+     ========================================================================== ]]
+
+-- INVTYPE token (GetItemInfo's 9th return) -> the numeric INVTYPE_* that
+-- EquippedItemInventoryTypeMask is a bitmask over. A fixed 3.3.5a enum.
+local INVTYPE_ID = {
+    INVTYPE_HEAD = 1, INVTYPE_NECK = 2, INVTYPE_SHOULDER = 3, INVTYPE_BODY = 4,
+    INVTYPE_CHEST = 5, INVTYPE_WAIST = 6, INVTYPE_LEGS = 7, INVTYPE_FEET = 8,
+    INVTYPE_WRIST = 9, INVTYPE_HAND = 10, INVTYPE_FINGER = 11, INVTYPE_TRINKET = 12,
+    INVTYPE_WEAPON = 13, INVTYPE_SHIELD = 14, INVTYPE_RANGED = 15, INVTYPE_CLOAK = 16,
+    INVTYPE_2HWEAPON = 17, INVTYPE_BAG = 18, INVTYPE_TABARD = 19, INVTYPE_ROBE = 20,
+    INVTYPE_WEAPONMAINHAND = 21, INVTYPE_WEAPONOFFHAND = 22, INVTYPE_HOLDABLE = 23,
+    INVTYPE_AMMO = 24, INVTYPE_THROWN = 25, INVTYPE_RANGEDRIGHT = 26,
+    INVTYPE_QUIVER = 27, INVTYPE_RELIC = 28,
+}
+
+--[[ Bit N of a server mask.
+
+     ⚠ bit.band, NOT arithmetic. These are int32 and may carry the top bit, so a
+       mask can arrive NEGATIVE -- and `mask <= 0 means unrestricted` would then
+       silently accept every item for exactly the rules most worth honouring.
+       ZERO, and only zero, is "any"; that is the server's own rule and matches
+       Item::IsFitToSpellRequirements.
+
+     bit.lshift rather than 2^n so nothing is handed a float to normalise. ]]
+local function MaskHas(mask, n)
+    mask = tonumber(mask) or 0
+    if mask == 0 then return true end
+    if not n or n < 0 or n > 31 then return false end
+    return bit.band(mask, bit.lshift(1, n)) ~= 0
+end
+
+--[[ Numeric item class / subclass, which 3.3.5a's GetItemInfo does NOT give us --
+     it returns the localised NAMES ("Armor", "Cloth"). The auction API returns the
+     same names in a fixed order, so the ids are recovered by position, once, on
+     first use.
+
+     Only Weapon and Armor subclasses are mapped: an enchant's EquippedItemClass is
+     one of those two in every case this feature covers, and a table for the other
+     nine classes would be nine more chances to be wrong about an order nothing
+     here reads. ]]
+local classIds, subclassIds
+local AH_CLASS_ID = { 2, 4, 1, 0, 16, 7, 6, 11, 9, 3, 15 }
+local AH_SUBCLASS_ID = {
+    [2] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 13, 14, 15, 16, 18, 19, 20 },  -- weapon
+    [4] = { 0, 1, 2, 3, 4, 6, 7, 8, 9, 10 },                              -- armor
+}
+
+local function BuildItemTypeMap()
+    if classIds then return end
+    classIds, subclassIds = {}, {}
+    local names = { GetAuctionItemClasses() }
+    for i = 1, #names do
+        local id = AH_CLASS_ID[i]
+        if id then
+            classIds[names[i]] = id
+            local order = AH_SUBCLASS_ID[id]
+            if order then
+                local subNames = { GetAuctionItemSubClasses(i) }
+                local map = {}
+                for k = 1, #subNames do
+                    if order[k] then map[subNames[k]] = order[k] end
+                end
+                subclassIds[id] = map
+            end
+        end
+    end
+end
+
+-- Does this item satisfy the recipe's three equipped-item rules?
+--
+-- ⚠ FAILS OPEN on anything it cannot resolve. A nil GetItemInfo (uncached item) or
+--   an unmapped class name lets the piece through to the server, which checks it
+--   properly. Hiding a piece the player can see in their bags, with no explanation,
+--   is the worse failure -- and the server refusing it says why.
+local INV_WEAPON   = 13   -- ⚠ NOT named INVTYPE_WEAPON: that is a real Blizzard
+                          --   global holding the localised string "One-Hand", and a
+                          --   file-scope local of that name would shadow it chunk-wide.
+local INV_MAINHAND = 21
+local INV_OFFHAND  = 22
+
+local function ItemFitsTarget(link, req)
+    if not link or not req then return false end
+    local _, _, _, iLevel, reqLevel, cls, sub, _, equipLoc = GetItemInfo(link)
+    -- Not equippable at all: never a target, whatever the masks say.
+    if not equipLoc or equipLoc == "" then return false end
+
+    --[[ The inventory-type rule, with the core's own special case.
+
+         Item::IsFitToSpellRequirements accepts a plain INVTYPE_WEAPON item against
+         a mask that asks for a MAINHAND or an OFFHAND -- a one-handed sword is a
+         legal target for "main hand only". Leaving that out would hide every
+         one-hander from Socket One-Handed Weapon, which is one of the 43. ]]
+    local invId = INVTYPE_ID[equipLoc]
+    local invMask = tonumber(req.inv) or 0
+    if invMask ~= 0 then
+        local ok = MaskHas(invMask, invId)
+        if not ok and invId == INV_WEAPON then
+            ok = MaskHas(invMask, INV_MAINHAND)
+                or MaskHas(invMask, INV_OFFHAND)
+        end
+        if not ok then return false end
+    end
+
+    -- The level floor. RequiredLevel first, ItemLevel when the piece has none --
+    -- the same fallback the server applies, so the two agree on a heirloom.
+    local floorLvl = tonumber(req.minlvl) or 0
+    if floorLvl > 0 then
+        local lvl = (reqLevel and reqLevel > 0) and reqLevel or (iLevel or 0)
+        if lvl < floorLvl then return false end
+    end
+
+    BuildItemTypeMap()
+    local clsId = cls and classIds[cls]
+    if req.class and req.class >= 0 and clsId and clsId ~= req.class then return false end
+    if clsId and subclassIds[clsId] then
+        local subId = sub and subclassIds[clsId][sub]
+        if subId and not MaskHas(req.sub, subId) then return false end
+    end
+    return true
+end
+
+-- Every eligible piece, equipped first and then the bags.
+--
+-- ★ The bag/slot pair stored on each row is EXACTLY what FRGENCH sends: the
+--   client's own numbering, 1-based, with 255 standing for "worn". No translation
+--   to server inventory positions happens on this side -- see the wire note above.
+local function CollectTargets(req)
+    local out = {}
+
+    -- Worn gear. bag 255, slot = the client's INVSLOT_* (1 head .. 19 tabard).
+    for slot = 1, 19 do
+        local link = GetInventoryItemLink("player", slot)
+        if link and ItemFitsTarget(link, req) then
+            out[#out + 1] = { link = link, bag = 255, slot = slot,
+                              where = "Equipped",
+                              tex = GetInventoryItemTexture("player", slot) }
+        end
+    end
+
+    -- Backpack (bag 0) and the four equipped bags, slots 1-based as the client
+    -- numbers them.
+    for bag = 0, NUM_BAG_SLOTS do
+        for s = 1, (GetContainerNumSlots(bag) or 0) do
+            local link = GetContainerItemLink(bag, s)
+            if link and ItemFitsTarget(link, req) then
+                out[#out + 1] = { link = link, bag = bag, slot = s,
+                                  where = (bag == 0) and "Backpack" or ("Bag " .. bag),
+                                  tex = (GetContainerItemInfo(bag, s)) }
+            end
+        end
+    end
+
+    return out
+end
+
+local targetPicker
+local TP_ROWS, TP_H = 9, 28
+
+local function BuildTargetPicker()
+    if targetPicker then return targetPicker end
+
+    local f = CreateFrame("Frame", "UncappedForgeTargetPicker", UIParent)
+    f:SetWidth(320)
+    f:SetHeight(TP_ROWS * TP_H + 96)
+    f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    -- Escape closes it and it follows the Dashboard zoom -- both of which the model
+    -- preview above had to be retrofitted with. Done here at build time instead.
+    tinsert(UISpecialFrames, "UncappedForgeTargetPicker")
+    if UncappedScale_Register then UncappedScale_Register(f, { group = "dashboard" }) end
+    f:SetFrameStrata("DIALOG")
+    f:SetMovable(true)
+    f:EnableMouse(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", function(self) self:StartMoving() end)
+    f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+    f:SetBackdrop({
+        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 },
+    })
+
+    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -16)
+    f.title:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -16)
+    f.title:SetJustifyH("LEFT")
+
+    f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    f.hint:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -36)
+    f.hint:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -36)
+    f.hint:SetJustifyH("LEFT")
+    f.hint:SetText("Pick the piece to apply it to.")
+
+    f.empty = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    f.empty:SetPoint("TOPLEFT", f, "TOPLEFT", 20, -76)
+    f.empty:SetPoint("TOPRIGHT", f, "TOPRIGHT", -20, -76)
+    f.empty:SetJustifyH("LEFT")
+    f.empty:Hide()
+
+    local scroll = CreateFrame("ScrollFrame", "UncappedForgeTargetScroll", f,
+                               "FauxScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -56)
+    scroll:SetWidth(262)
+    scroll:SetHeight(TP_ROWS * TP_H)
+    scroll:SetScript("OnVerticalScroll", function(self, offset)
+        FauxScrollFrame_OnVerticalScroll(self, offset, TP_H, function() f:Fill() end)
+    end)
+    f.scroll = scroll
+
+    f.rows = {}
+    for i = 1, TP_ROWS do
+        local r = CreateFrame("Button", nil, f)
+        r:SetHeight(TP_H - 2)
+        r:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, -(i - 1) * TP_H)
+        r:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", 0, -(i - 1) * TP_H)
+        r:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+
+        r.icon = r:CreateTexture(nil, "ARTWORK")
+        r.icon:SetWidth(24); r.icon:SetHeight(24)
+        r.icon:SetPoint("LEFT", 2, 0)
+        r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+        r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        r.name:SetPoint("TOPLEFT", 30, -1); r.name:SetPoint("TOPRIGHT", -4, -1)
+        r.name:SetJustifyH("LEFT")
+
+        r.where = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        r.where:SetPoint("TOPLEFT", 30, -13); r.where:SetPoint("TOPRIGHT", -4, -13)
+        r.where:SetJustifyH("LEFT")
+
+        r:SetScript("OnClick", function(self)
+            if not self.data or not f.onChoose then return end
+            local chosen, cb = self.data, f.onChoose
+            -- Closed BEFORE the callback: the callback sends the craft and the
+            -- job progress bar takes over, and a picker still sitting on top of it
+            -- invites a second click on a slot that is already being enchanted.
+            f:Hide()
+            cb(chosen)
+        end)
+        r:SetScript("OnEnter", function(self)
+            if not self.data then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetHyperlink(self.data.link)
+            GameTooltip:Show()
+        end)
+        r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        r:Hide()
+        f.rows[i] = r
+    end
+
+    f.close = KitButton(f, "", 90, 22)
+    f.close:SetPoint("BOTTOM", f, "BOTTOM", 0, 16)
+    f.close:SetText("Cancel")
+    f.close:SetScript("OnClick", function() f:Hide() end)
+
+    function f:Fill()
+        local list = self.items or {}
+        FauxScrollFrame_Update(self.scroll, #list, TP_ROWS, TP_H)
+        local offset = FauxScrollFrame_GetOffset(self.scroll)
+        for i = 1, TP_ROWS do
+            local r, d = self.rows[i], list[i + offset]
+            if d then
+                r.data = d
+                r.icon:SetTexture(d.tex or QUESTION_MARK)
+                r.name:SetText(d.link)          -- the link renders with its quality colour
+                r.where:SetText("|cff808080" .. d.where .. "|r")
+                r:Show()
+            else
+                r.data = nil
+                r:Hide()
+            end
+        end
+        if #list == 0 then self.empty:Show() else self.empty:Hide() end
+    end
+
+    targetPicker = f
+    return f
+end
+
+local function ShowTargetPicker(title, req, onChoose)
+    local f = BuildTargetPicker()
+    f.title:SetText(title or "Choose an item")
+    f.onChoose = onChoose
+    f.items = CollectTargets(req)
+    f.empty:SetText("|cffff8040Nothing you are carrying can take this.|r\n\n"
+        .. "It goes on a specific kind of gear -- check the recipe's own requirement, "
+        .. "and remember it can be applied to a piece you are wearing.")
+    local sb = _G["UncappedForgeTargetScrollScrollBar"]
+    if sb then sb:SetValue(0) end
+    f:Show()
+    f:Fill()
+end
+
 -- How many of this recipe the stored materials support.
 --
 -- The server sends this per recipe in FRGREC, because working it out here would
@@ -616,7 +1023,8 @@ end
 -- Server comms
 -- ===========================================================================
 local staging = { profs = {}, recs = {}, steps = {}, needs = {}, proc = {}, vend = {},
-                  pattr = {}, pmats = {} }
+                  pattr = {}, pmats = {},
+                  gear = {} }  -- [#1199] FRGGEAR rows, committed at FRGEND only
 local syncNeedsFull = false   -- a rank row for an unknown profession forces a full fetch
 
 -- Sorting is done once over the MASTER list, not once per filter pass. The
@@ -899,6 +1307,51 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
             staging.vend[tonumber(spell)] = true
         end
 
+    --[[
+        [#1199] FRGGEAR:spell,class,subClassMask,invTypeMask,minItemLevel;...
+
+        Recipes that enchant a piece of gear you already own. Its own row type for
+        exactly the reason FRGVEND is -- see the long note at `gearTargets` and at
+        the FRGVEND site in forge_comms_playerscript.cpp.
+
+        ⚠ The two masks are int32 and may carry the TOP BIT, so they can arrive as
+          negative decimals. The pattern accepts a leading minus -- written `%-`,
+          because a bare `-` after a capture group is Lua's lazy quantifier -- and
+          MaskHas compares them with bit.band rather than arithmetic.
+
+        Staged, and committed ONLY at FRGEND (not at FRGCNTEND) -- the counts
+        refresh does not carry these rows, so replacing there would empty the set.
+    ]]
+    elseif body:find("^FRGGEAR:") then
+        for spell, cls, sub, inv, minlvl in
+            body:gmatch("(%d+),(%-?%d+),(%-?%d+),(%-?%d+),(%-?%d+);") do
+            staging.gear[tonumber(spell)] = {
+                class = tonumber(cls), sub = tonumber(sub), inv = tonumber(inv),
+                minlvl = tonumber(minlvl) }
+        end
+
+    --[[
+        [#1199] FRGENCHOK:<spellId>:<itemEntry> -- the enchant landed.
+
+        ★ THIS IS THE ONLY THING THAT TELLS THE PLAYER IT WORKED. The FRGDONE that
+          follows carries crafted = 0 and an empty failure, and that handler's
+          success branch requires crafted > 0 -- correctly, because "produced 0
+          item(s) into your Vault" would be a lie about a recipe that produces
+          nothing. So a silent FRGDONE plus no line here is a craft that appears to
+          do nothing at all, which is precisely the report #240 shape this whole
+          feature exists to end.
+
+        Arrives BEFORE its FRGDONE, so nothing here has to be deferred.
+    ]]
+    elseif body:find("^FRGENCHOK:") then
+        local spellId, itemEntry = body:match("^FRGENCHOK:(%d+):(%d+)$")
+        if spellId then
+            local what = GetSpellInfo(tonumber(spellId)) or "That enchantment"
+            local onto = ItemName(tonumber(itemEntry)) or "your item"
+            DEFAULT_CHAT_FRAME:AddMessage(string.format(
+                "|cffff8040[Forge]|r applied |cffffffff%s|r to |cffffffff%s|r.", what, onto))
+        end
+
     elseif body:find("^FRGCNT:") then
         for spell, maxc in body:gmatch("(%d+),(%d+);") do
             local recipe = recipesBySpell[tonumber(spell)]
@@ -927,6 +1380,12 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
         -- never run against a buyable set belonging to a previous fetch.
         buyableSet = staging.vend
         staging.vend = {}
+
+        -- [#1199] Same commit point, same reason: a gear-target rule must never be
+        -- attached to a recipe list from a previous fetch. Replaced wholesale, so a
+        -- recipe that stops being gear-targeted stops opening the picker.
+        gearTargets = staging.gear
+        staging.gear = {}
 
         recipesBySpell = {}
         for _, recipe in ipairs(recipes) do
@@ -1112,6 +1571,18 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
             cancelled = "cancelled",
             offline   = "you went offline",
             noplan    = "nothing to do",
+
+            -- [#1199] The gear-enchant refusals (FRGENCH). Named rather than left
+            -- to the "failed (token)" fallback, because every one of them has an
+            -- action attached and a raw token has none.
+            noitem       = "that item isn't there any more -- it moved or was used",
+            badtarget    = "that enchant doesn't go on that item",
+            itemlowlevel = "that item's level is too low for this enchant",
+            -- The core refuses to overwrite a use-effect enchant, because doing so
+            -- would destroy the clicky the item was carrying.
+            onuseenchant = "that item already carries a use-effect enchant, and this "
+                .. "would replace it",
+            maxsockets   = "that item already has as many sockets as it can hold",
         }
 
         -- A bulk craft that runs out of a scarcer reagent partway through (e.g.
@@ -1504,7 +1975,9 @@ function RefreshList()
                 if entry.yield > 1 then name = name .. " |cff808080x" .. entry.yield .. "|r" end
 
                 local colour = DifficultyColor(entry)
-                button.icon:SetTexture(ItemIcon(entry.item))
+                -- [#1199] RecipeIcon, not ItemIcon: a gear-target recipe has no
+                -- product item and would otherwise draw a question mark.
+                button.icon:SetTexture(RecipeIcon(entry))
                 button.label:SetText(name)
                 button.label:SetTextColor(colour[1], colour[2], colour[3])
 
@@ -1737,9 +2210,17 @@ function RefreshDetail()
         return
     end
 
+    -- [#1199] Resolved HERE rather than at the button block below, because it also
+    -- decides the material arithmetic: a gear-target recipe is always one
+    -- application, so the "have / need" column must be priced at 1 and not at
+    -- whatever number is still sitting in the (hidden) Amount box.
+    local gearReq = gearTargets[recipe.spell]
+
     local name = RecipeName(recipe)
     detail.title:SetText(recipe.yield > 1 and (name .. " x" .. recipe.yield) or name)
-    detail.productIcon:SetTexture(ItemIcon(recipe.item, prodIcon[recipe.spell]))
+    -- [#1199] RecipeIcon falls back to the spell's own icon for the 43 recipes
+    -- that produce no item at all.
+    detail.productIcon:SetTexture(RecipeIcon(recipe))
 
     -- [#697] Only wearable products can be modelled. Re-evaluated on every refresh
     -- rather than cached, because GetItemInfo may simply not have answered yet the
@@ -1751,7 +2232,7 @@ function RefreshDetail()
         detail.preview:Hide()
     end
 
-    local amount = RequestedAmount()
+    local amount = gearReq and 1 or RequestedAmount()
 
     AddLine("Materials (Vault + bags)  |cff808080-- click one to find it|r", 1, 0.82, 0)
     local list = mats[recipe.spell]
@@ -1821,6 +2302,37 @@ function RefreshDetail()
             AddLine(string.format("%d must be gathered", quote.unbuyable), 1, 0.8, 0.4)
         end
     end
+
+    --[[ [#1199] A recipe that enchants gear you already own.
+
+         Neither the Amount box nor "Craft All" means anything here: the recipe
+         applies ONE enchant to ONE item, and offering "Craft All" over a tinker
+         would promise a number the server can never deliver. The craft button
+         becomes the door to the picker instead, and says so on its face. ]]
+    if gearReq then
+        AddLine(" ")
+        AddLine("Applied to an item you already own.", 0.7, 0.85, 1)
+        AddLine("Nothing is created -- pick the piece when you press the button.", 0.6, 0.6, 0.6)
+
+        detail.craftAll:Hide()
+        if frame.amount then frame.amount:Hide() end
+        if frame.amountLabel then frame.amountLabel:Hide() end
+        detail.preview:Hide()   -- there is no product to model
+        detail.craft:SetText("Choose item\226\128\166")
+        detail.craft:Enable()
+
+        -- The shortfall pricing still applies -- a tinker has reagents like anything
+        -- else -- so this row keeps behaving exactly as it does for every other
+        -- recipe rather than being hidden along with the amount box.
+        if plan.spell == recipe.spell and #plan.needs > 0 then
+            detail.buy:Show()
+            detail.buy:SetText(quote and quote.buy > 0 and "Buy them" or "Price missing mats")
+        else
+            detail.buy:Hide()
+        end
+        return
+    end
+    detail.craft:SetText("Craft")
 
     -- Both buttons stay enabled even at zero direct materials: with
     -- intermediates on, the server may well be able to make it anyway by
@@ -2441,16 +2953,43 @@ local function BuildFrame(parent)
 
     local function StartCraft(count)
         if not selectedSpell then return end
+        -- ⚠ EXACTLY FOUR FIELDS, unchanged. HandleCraft does ParseFields(args, 4)
+        --   and returns on any other count, so this line must never grow -- see
+        --   [#1199], which needed a target and got its own verb (FRGENCH) rather
+        --   than a fifth field here.
         Send(string.format("FRGCRAFT:%d:%d:%d:%d", selectedSpell, count,
             db.autoIntermediates and 1 or 0, 0))
         job = { done = 0, total = count, crafted = 0 }
         RefreshProgress()
     end
 
+    --[[ [#1199] Apply a gear enchant to one chosen item.
+
+         ★ NO JOB IS OPENED. There is no slice runner behind this: the server casts
+           once per FRGENCH and answers with FRGENCHOK + FRGDONE:0:. Setting `job`
+           here would raise a progress bar that nothing ever advances and that only
+           the FRGDONE would clear.
+
+         ★ NO COUNT ON THE WIRE, by agreement. One message, one application. ]]
+    local function StartEnchant(target)
+        if not selectedSpell or not target then return end
+        Send(string.format("FRGENCH:%d:%d:%d", selectedSpell, target.bag, target.slot))
+    end
+
     detail.craft = KitButton(frame, "", 90, 22)
     detail.craft:SetPoint("LEFT", amount, "RIGHT", 8, 0)
     detail.craft:SetText("Craft")
-    detail.craft:SetScript("OnClick", function() StartCraft(RequestedAmount()) end)
+    detail.craft:SetScript("OnClick", function()
+        -- [#1199] A gear-target recipe has no amount and no product: it applies
+        -- ONE enchant to ONE piece you already own, so the button asks which piece
+        -- rather than starting a job.
+        local req = selectedSpell and gearTargets[selectedSpell]
+        if req then
+            ShowTargetPicker(RecipeName(recipesBySpell[selectedSpell]), req, StartEnchant)
+            return
+        end
+        StartCraft(RequestedAmount())
+    end)
 
     detail.craftAll = KitButton(frame, "", 90, 22)
     detail.craftAll:SetPoint("LEFT", detail.craft, "RIGHT", 4, 0)

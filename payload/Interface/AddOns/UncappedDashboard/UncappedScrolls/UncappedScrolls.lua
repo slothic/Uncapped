@@ -72,6 +72,105 @@ local frame, fortuneScroll
 local lines = {}
 local fortuneRows = {}
 
+-- ⚠ FORWARD DECLARATION, and it is load-bearing. Render (below) builds a checkbox
+--   whose OnClick calls Request(), but Request is defined ~180 lines further down;
+--   without this line that call compiled as a read of the nil GLOBAL `Request` and
+--   the checkbox errored instead of refreshing. See the note at the definition.
+local Request
+
+--[[ ==========================================================================
+     [#1092] MASS-CONSUME -- "Use all", and why it is a SERVER VERB.
+
+     ★★ IT CANNOT BE A LUA LOOP. UseContainerItem is a PROTECTED function: the
+        3.3.5a client refuses it unless the call is inside the same execution
+        frame as a real hardware event, and one keypress buys exactly one call.
+        An addon cannot iterate 200 scrolls out of a bag no matter how it is
+        written -- "Interface action failed because of an AddOn" is the whole of
+        what a loop achieves. So the client's only honest job here is to name the
+        item and ask; the consuming has to happen server-side, in one message.
+
+     ⚠ BULK-SAFE ENTRIES ONLY, AND THE LIST IS NOT A CONVENIENCE.
+        Three of the ten scrolls open a CLIENT PICKER when used and consume
+        nothing at the moment of use -- Transmog (500201), Extraction (500208)
+        and Socket (500209). Firing 200 of those server-side either does nothing
+        200 times or destroys 200 scrolls for one picker, and neither is a thing
+        a player asked for. They are absent from this table on purpose; do not
+        add one because it "looks like the others".
+
+     The names here are a FALLBACK for an uncached item. GetItemInfo is asked
+     first (see bulkName) so a renamed scroll reads correctly without an addon
+     patch.
+     ========================================================================== ]]
+local BULK_H = 22
+local BULK_SCROLLS = {
+    { entry = 500202, name = "Scroll of Honor" },
+    { entry = 500203, name = "Scroll of Reach" },
+    { entry = 500204, name = "Scroll of Bounty" },
+    { entry = 500205, name = "Scroll of Mastery" },
+    { entry = 500206, name = "Scroll of Fortune" },
+    { entry = 500207, name = "Scroll of the Delver" },
+    { entry = 500211, name = "Scroll of Contagion" },
+}
+local bulkRows = {}
+
+-- GetItemInfo first, the table's own label second. The table is only a fallback for
+-- an item the client has not cached yet -- which is normal for a scroll that went
+-- straight from a loot table into the Vault and never passed through a bag.
+local function bulkName(entry)
+    local live = GetItemInfo(entry)
+    if live and live ~= "" then return live end
+    for _, s in ipairs(BULK_SCROLLS) do
+        if s.entry == entry then return s.name end
+    end
+    return "item " .. tostring(entry)
+end
+
+-- Only the types actually in the bags, in the table's order. Everything visible
+-- in this section is a client-side GetItemCount -- unlike the rest of the window,
+-- which is server-authoritative -- because these scrolls are still loose items and
+-- the server keeps no balance for them.
+local function bulkHeld()
+    local out = {}
+    for _, s in ipairs(BULK_SCROLLS) do
+        local n = GetItemCount(s.entry) or 0
+        if n > 0 then
+            out[#out + 1] = { entry = s.entry, name = bulkName(s.entry), count = n }
+        end
+    end
+    return out
+end
+
+local function hideBulkRows()
+    for _, row in ipairs(bulkRows) do
+        row.label:Hide()
+        row.btn.entry = nil
+        row.btn:Hide()
+    end
+end
+
+--[[ ⚠ A CONFIRMATION, BECAUSE THIS DESTROYS ITEMS.
+
+     Every scroll in the stack is spent in one server call and there is no undo.
+     The count and the item name are both in the sentence -- a bare "Are you
+     sure?" over a stack of 300 Scrolls of Fortune is not consent to anything.
+
+     3.3.5a hands the payload through differently depending on how the dialog was
+     raised, so `data` is read from either place -- same shape as the Soulforge
+     dialogs. ]]
+StaticPopupDialogs["UNCAPPED_SCROLLS_USE_ALL"] = {
+    text = "Use all |cffffffff%d|r %s?\n\nThey are consumed immediately and cannot be recovered.",
+    button1 = ACCEPT,
+    button2 = CANCEL,
+    OnAccept = function(self, data)
+        local d = data or (self and self.data)
+        if not d or not d.entry then return end
+        -- Same call shape as the ICSC toggle below: the shared client -> server
+        -- transport, whispered to yourself.
+        SendAddonMessage(TRANSPORT_PREFIX, "SCRALL:" .. d.entry, "WHISPER", UnitName("player"))
+    end,
+    timeout = 0, whileDead = 1, hideOnEscape = 1, showAlert = 1,
+}
+
 -- Body lines: a fixed column of font strings, filled top-down by Render(). Using
 -- a fixed pool rather than creating strings per refresh keeps the window from
 -- leaking frames every time it is opened.
@@ -135,6 +234,10 @@ local function Render()
         for n = i, #lines do lines[n]:Hide() end
         fortuneScroll:Hide()
         for n = 1, FORTUNE_ROWS do fortuneRows[n]:Hide() end
+        -- [#1092] These are a separate pool from `lines`, so the loop above does
+        -- not reach them -- they have to be put away by hand or they hang over the
+        -- "Waiting for the server..." placeholder.
+        hideBulkRows()
         return
     end
 
@@ -241,6 +344,46 @@ local function Render()
         frame.convCheck:Hide()
     end
 
+    --[[ [#1092] "Use all", one row per bulk-safe scroll type you are actually
+         carrying. Rows for types you hold none of are not drawn at all: a column
+         of seven greyed buttons is a worse answer than a section that simply is
+         not there, and the height this section costs is reported to the Dashboard
+         from the same count (see GetMinHeight).
+
+         Laid out off the running `y` like every other block here, so it cannot
+         collide with however many professions the character happened to have. ]]
+    local held = bulkHeld()
+    if #held > 0 then
+        y = y - 6
+        Head("Use in bulk")
+        for idx, row in ipairs(bulkRows) do
+            local h = held[idx]
+            if h then
+                row.label:ClearAllPoints()
+                row.label:SetPoint("TOPLEFT", frame, "TOPLEFT", 22, y - 4)
+                row.label:SetText(string.format("%s%s|r", COLOR_LABEL, h.name))
+                row.label:Show()
+
+                row.btn:ClearAllPoints()
+                row.btn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -22, y - 1)
+                -- The count lives on the BUTTON, not beside the name: it is the
+                -- number the confirmation is about to quote back, so it should be
+                -- the number under the cursor.
+                row.btn.entry, row.btn.count, row.btn.scrollName = h.entry, h.count, h.name
+                row.btn:SetText(string.format("Use all (%d)", h.count))
+                row.btn:Show()
+
+                y = y - BULK_H
+            else
+                row.label:Hide()
+                row.btn.entry = nil
+                row.btn:Hide()
+            end
+        end
+    else
+        hideBulkRows()
+    end
+
     y = y - 6
     if state.fortuneAll > #state.fortune then
         Head(string.format("Scroll of Fortune  (showing %d of %d)", #state.fortune, state.fortuneAll))
@@ -290,22 +433,123 @@ local function BuildFrame(parent)
         fortuneRows[i] = fs
     end
 
+    -- [#1092] One reusable row per bulk-safe scroll TYPE (there are seven and there
+    -- will never be many), built once for the same reason AcquireLine pools its
+    -- font strings: this window is opened and closed constantly.
+    for i = 1, #BULK_SCROLLS do
+        local row = {}
+
+        row.label = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.label:SetJustifyH("LEFT")
+        row.label:SetWidth(WIDTH - 160)
+        row.label:Hide()
+
+        local btn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        btn:SetWidth(110)
+        btn:SetHeight(20)
+        btn:SetText("Use all")
+        btn:SetScript("OnClick", function(self)
+            -- Re-read nothing here: `count` was written by the same Render pass
+            -- that drew this label, and the confirmation quotes it. If the stack
+            -- moved in between, the SERVER uses whatever is actually there -- the
+            -- number in the dialog is a description, never an instruction.
+            if not self.entry or (self.count or 0) <= 0 then return end
+            StaticPopup_Show("UNCAPPED_SCROLLS_USE_ALL",
+                self.count, self.scrollName or "scrolls", { entry = self.entry })
+        end)
+        btn:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(self.scrollName or "Use all", 1, 1, 1)
+            GameTooltip:AddLine("Uses every one of these in your bags, in one go.",
+                0.8, 0.8, 0.8, true)
+            GameTooltip:AddLine("They are destroyed. You are asked to confirm first.",
+                1, 0.5, 0.4, true)
+            -- Said plainly, because the obvious question on seeing this button is
+            -- "why is there no such button for my Scrolls of Transmog?".
+            GameTooltip:AddLine("Scrolls that open a window when used -- Transmog, Extraction, "
+                .. "Socket -- have no bulk button: they consume nothing until you pick "
+                .. "something in that window.", 0.6, 0.6, 0.7, true)
+            GameTooltip:Show()
+        end)
+        btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        btn:Hide()
+
+        row.btn = btn
+        bulkRows[i] = row
+    end
+
     frame:Hide()
 end
 
 -- ---------------------------------------------------------------------------
 -- Comms
 -- ---------------------------------------------------------------------------
-local function Request()
+--[[ ⚠ ASSIGNED, NOT DECLARED, and the `local Request` forward declaration above
+     Render is what makes that legal.
+
+     The auto-convert checkbox built inside Render (see the SCRCONV block) calls
+     Request() from its OnClick. Render is compiled ~180 lines ABOVE this point, so
+     with a plain `local function Request` here that call compiled as a read of the
+     GLOBAL `Request` -- which is nil, so ticking the box threw "attempt to call
+     global 'Request' (a nil value)" and never refreshed. Hoisting the local fixes
+     it for that caller and for the [#1092] SCRDONE handler below, which needs the
+     same function from a closure defined earlier in the file. ]]
+function Request()
     SendAddonMessage(TRANSPORT_PREFIX, "SCRGET", "WHISPER", UnitName("player"))
 end
 
 local comms = CreateFrame("Frame")
 comms:RegisterEvent("CHAT_MSG_ADDON")
+-- [#1092] The "Use all" labels are client-side GetItemCount, so a bag change is
+-- the only thing that can move them. Gated on the window being open and doing
+-- nothing but a local repaint -- no message is sent from here.
+comms:RegisterEvent("BAG_UPDATE")
 comms:SetScript("OnEvent", function(_, event, a1, a2)
+    if event == "BAG_UPDATE" then
+        -- ⚠ IsVisible, not IsShown. This panel is a Dashboard tab: EmbedInto shows
+        --   the frame once and the Dashboard hides the GROUP around it, so IsShown
+        --   stays true for the whole session and this would repaint on every bag
+        --   change with the window shut. IsVisible walks the parents.
+        if frame and frame:IsVisible() then Render() end
+        return
+    end
+
     local prefix, text = a1, a2
     if prefix ~= ADDON_PIPE_PREFIX or not text then return end
     if text:sub(1, 3) ~= "SCR" then return end
+
+    --[[ [#1092] SCRDONE:<itemEntry>:<used> -- the mass-consume reply.
+
+         ★ MATCHED BEFORE THE BURST ACCUMULATOR BELOW, deliberately. Every other
+           SCR verb belongs to a status burst and opens `pending` on arrival; this
+           one is an answer to an action and carries none of that data. Letting it
+           fall through would open an accumulator that no SCREND ever closes, and
+           the next real burst would then be merged into it instead of replacing
+           it.
+
+         `used` is what the server ACTUALLY consumed, which is not necessarily what
+         the button offered -- the stack can move between the click and the call,
+         and a Scroll of Mastery with nothing left to raise may be converted rather
+         than spent. Reporting the server's number is the whole reason this is a
+         reply and not a fire-and-forget. ]]
+    local doneEntry, doneUsed = text:match("^SCRDONE:(%d+):(%d+)$")
+    if doneEntry then
+        doneEntry, doneUsed = tonumber(doneEntry), tonumber(doneUsed) or 0
+        local nm = bulkName(doneEntry)
+        if doneUsed > 0 then
+            DEFAULT_CHAT_FRAME:AddMessage(string.format("%s[Scrolls]|r Used |cffffffff%d|r %s.",
+                COLOR_HEAD, doneUsed, nm))
+        else
+            DEFAULT_CHAT_FRAME:AddMessage(COLOR_HEAD .. "[Scrolls]|r Nothing to use \226\128\148 "
+                .. "no " .. nm .. " left in your bags.")
+        end
+        -- The bonuses those scrolls bought are server-side, so the panel is only
+        -- right again once the server has re-sent them. Render() first so the
+        -- button labels drop immediately; Request() repaints the rest when it lands.
+        if frame and frame:IsShown() then Render() end
+        Request()
+        return
+    end
 
     -- Any SCR line other than SCREND belongs to a burst in flight. The first one
     -- seen opens a fresh accumulator, so a second request while one is arriving
@@ -438,7 +682,20 @@ function Scrolls.UI.GetMinHeight()
     -- +14 for the detail line under it added by #902 ("n innate + m of 10 scrolls").
     -- Reserved unconditionally: this is a fixed number, and a priest opening the tab
     -- must not be the case that overflows it.
-    return 540
+    --
+    -- [#1092] ...plus the "Use in bulk" section, which is the one part of this panel
+    -- whose height genuinely varies -- it draws a row only for a scroll type you are
+    -- carrying, and there are seven. Measured rather than reserved at the maximum:
+    -- reserving 7 rows would make the window 154px taller for everyone including the
+    -- majority holding none. The Dashboard re-asks on every tab activation, and the
+    -- floor it sets is clamped to the screen by Buttons.SetMinContentHeight, so a
+    -- number that grows here can never push the window off-screen.
+    local extra = 0
+    for _, s in ipairs(BULK_SCROLLS) do
+        if (GetItemCount(s.entry) or 0) > 0 then extra = extra + BULK_H end
+    end
+    if extra > 0 then extra = extra + 22 end   -- the section heading
+    return 540 + extra
 end
 
 -- Switches the Dashboard to the Soul Scrolls tab, opening it if it's closed.

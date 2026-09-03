@@ -436,6 +436,11 @@ end
 local db = {
     auto = true,
     aoeloot = false,
+    -- [#1231] The coin chime on a gold pickup. Default TRUE because that is what
+    -- the realm does today and a default must never silently change a setting
+    -- nobody asked about; the report is that with auto-loot on it fires constantly,
+    -- not that it should be off to begin with.
+    coinsound = true,
 }
 
 local refreshers = {}
@@ -538,6 +543,21 @@ do
     refreshers[#refreshers + 1] = L:Check("AOE loot (loot all nearby corpses at once)",
         function() return db.aoeloot end,
         function(v) db.aoeloot = v; RunDotCommand(".aoeloot " .. (v and "on" or "off")) end).uncappedRefresh
+
+    --[[ [#1231] The coin chime.
+
+         ⚠ A SERVER TOGGLE, NOT A CLIENT MUTE, and that is not a preference. The
+           3.3.5a client has no MuteSoundFile (7.x) and no scriptable way to
+           suppress one sound of the loot event, so the only place this can be
+           switched off is where the sound is played from -- hence a dot-command,
+           exactly like the two boxes above it.
+
+         Phrased POSITIVELY ("play it") so the tick reads the same way round as the
+         other two: ticked = the thing happens. The dot-command follows the tick,
+         so `.coinsound off` is what an unticked box sends. ]]
+    refreshers[#refreshers + 1] = L:Check("Play the coin sound when you loot gold",
+        function() return db.coinsound end,
+        function(v) db.coinsound = v; RunDotCommand(".coinsound " .. (v and "on" or "off")) end).uncappedRefresh
 
     L:Gap(6)
     L:Note("|cff808080These toggles send server commands and remember your last choice here. If you change them with a chat command instead, this page won't know -- reopen it after /reload to resync.|r", 40)
@@ -787,6 +807,10 @@ loader:SetScript("OnEvent", function(self, event, name)
         -- resurrect keys nothing reads.
         if s.auto ~= nil then db.auto = s.auto end
         if s.aoeloot ~= nil then db.aoeloot = s.aoeloot end
+        -- [#1231] `~= nil`, not truthiness: `false` is the whole point of this key,
+        -- and `if s.coinsound then` would quietly restore the default for everyone
+        -- who had turned it off.
+        if s.coinsound ~= nil then db.coinsound = s.coinsound end
     end
     UncappedOptionsDB = db   -- persist edits to our live table
     refreshLoot()
