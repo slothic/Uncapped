@@ -3,6 +3,5 @@
 ## Notes: Withdraws reagent bank materials for the selected recipe into your bags so the normal Create button works, and can buy missing vendor-sold reagents for a chosen number of crafts. Auto-redeposits leftovers when you close the window.
 ## Author: Uncapped
 ## OptionalDeps: UncappedOptions
-## SavedVariables: ReagentBankCraftDB
 
 ReagentBankCraft.lua

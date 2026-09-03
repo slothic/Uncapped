@@ -60,7 +60,6 @@ local ADDON = "UncappedLootFeed"
 local LF = _G.UncappedLootFeed or {}
 _G.UncappedLootFeed = LF
 
-LF.ADDON = ADDON
 LF.version = "0.3"
 
 local DEFAULTS = {
@@ -139,7 +138,6 @@ local function LinkToItemId(link)
     local id = link:match("|Hitem:(%d+):")
     return id and tonumber(id) or nil
 end
-LF.LinkToItemId = LinkToItemId
 
 -- Accept a link, a bare id, or a name. Returns id, name -- or nil when it cannot
 -- be resolved, which the caller must treat as "reject", never as a silent no-op.
@@ -176,7 +174,6 @@ local function ResolveItem(input)
 
     return nil
 end
-LF.ResolveItem = ResolveItem
 
 -- ---------------------------------------------------------------------------
 -- Feed
@@ -211,16 +208,16 @@ LF.Notify = Notify
 -- capped at maxLines and drops its oldest entries: a session total computed from
 -- it would silently stop rising after 100 items, which is exactly the sort of
 -- quietly-wrong number that makes people distrust the whole panel.
-local session = { items = 0, stacks = 0, vault = 0, watched = 0, started = nil }
+local session = { items = 0, vault = 0, watched = 0, started = nil }
 
 function LF.SessionStats()
     local elapsed = 0
     if session.started then elapsed = math.max(0, (GetTime() or 0) - session.started) end
-    return session.items, session.vault, session.watched, elapsed, session.stacks
+    return session.items, session.vault, session.watched, elapsed
 end
 
 function LF.ResetSession()
-    session.items, session.stacks, session.vault, session.watched = 0, 0, 0, 0
+    session.items, session.vault, session.watched = 0, 0, 0
     session.started = GetTime and GetTime() or 0
     Notify()
 end
@@ -229,7 +226,6 @@ local function CountSession(entry)
     if entry.overflow then return end
     if not entry.mine then return end     -- someone else's drop is not your haul
     session.items = session.items + (entry.count or 1)
-    session.stacks = session.stacks + 1
     if entry.src == SRC_VAULT then session.vault = session.vault + 1 end
     if entry.watched then session.watched = session.watched + 1 end
 end
@@ -288,7 +284,6 @@ local function Passes(e)
 
     return true
 end
-LF.Passes = Passes
 
 -- Newest first, which is what a scrolling panel wants (the old chat-style
 -- window put newest at the bottom because it had no scrollbar to speak of).
@@ -729,7 +724,7 @@ end)
 -- to it; putting a second copy of them in here would give two controls over one
 -- state and no clue which one you last touched.
 if UncappedUI then
-    local panel, L = UncappedUI.CreatePanel("Loot Feed",
+    local _, L = UncappedUI.CreatePanel("Loot Feed",
         "The scrolling loot stream: its pop-out window, and what it does when something you are farming for drops.")
 
     L:Header("Pop-out window")

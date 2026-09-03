@@ -5,7 +5,19 @@
 local UncappedUIKit = _G.UncappedUIKit
 if not UncappedUIKit then return end
 
-UncappedUIDemoDB = UncappedUIDemoDB or {}
+-- [#1256] A FILE-LOCAL TABLE, AND DELIBERATELY NOT A SAVEDVARIABLE.
+--
+-- This was `UncappedUIDemoDB = UncappedUIDemoDB or {}` with a matching
+-- `## SavedVariables` line, and that global is the only reason the whole file
+-- sat unloaded: a developer harness has no business writing into every
+-- player's SavedVariables just to remember where a demo window was dragged.
+-- Now it ships loaded (see the .toc) and costs a player nothing on disk.
+--
+-- CreateWindow guards every `db` read and bails early on save, so a plain
+-- table is a supported argument, not a trick -- the window simply remembers
+-- its size and position for the session and forgets on reload, which is the
+-- right lifetime for a demo. Do NOT promote this back to a global.
+local demoDB = {}
 
 local demoWindow
 
@@ -19,7 +31,7 @@ local function BuildDemo()
         minWidth = 420, minHeight = 300,
         maxWidth = 900, maxHeight = 700,
         resizable = true,
-        db = UncappedUIDemoDB,
+        db = demoDB,
     })
 
     -- Left inner frame: themed bordered panel (Frames\Panel.lua) holding

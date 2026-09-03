@@ -4,9 +4,9 @@
 -- currently-active Mythic+ hotzones: RAIDS in red, DUNGEONS in cyan, each with a
 -- live "time left" countdown.
 --
--- The server pushes the list on the player's personal channel (UHOT) on login
+-- The server pushes the list as a UHOT payload on the UNC addon pipe on login
 -- and every ~15s (so it also picks up the hourly rotation); the countdown is
--- ticked down locally between pushes. The UHOT lines are filtered out of chat.
+-- ticked down locally between pushes.
 
 -- ---------------------------------------------------------------------------
 -- Settings. Live values live in `db`; they are persisted to the account-wide
@@ -291,7 +291,7 @@ local function OnData(payload, append)
     BuildText()
 end
 
--- Prefix for the whole server->client pipe (see the transport note below).
+-- Prefix for the whole server->client addon pipe.
 local ADDON_PIPE_PREFIX = "UNC"
 
 local listener = CreateFrame("Frame")
@@ -317,15 +317,7 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         return
     end
 
-    -- ONE transport. The per-player chat channel this used to also listen on was
-    -- retired when the server moved the whole UNC pipe to CHAT_MSG_ADDON
-    -- (ReagentBankChannelProtocol.cpp:79-96 -- SendResponse is now the only
-    -- sender and it never Say()s). The channel branch, its JoinChannelByName and
-    -- the CHAT_MSG_CHANNEL chat filter are gone: they cost every real World-chat
-    -- line a pass through a dead filter, and the join burned one of the client's
-    -- ten channel slots on a channel nothing publishes to.
-    --
-    --   CHAT_MSG_ADDON : a1 = prefix, a2 = body
+    -- ONE transport: CHAT_MSG_ADDON, a1 = prefix, a2 = body.
     if a1 ~= ADDON_PIPE_PREFIX then return end
     local msg = a2
     if not msg then

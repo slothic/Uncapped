@@ -135,12 +135,6 @@ function UQ.SetIgnored(questID, on)
     if t then t[questID] = on and true or nil end
 end
 
-function UQ.ToggleIgnored(questID)
-    local on = not UQ.IsIgnored(questID)
-    UQ.SetIgnored(questID, on)
-    return on
-end
-
 -- Count + clear, for the settings page: an override a player cannot find again
 -- is a trap, so both sets need a visible escape hatch.
 function UQ.CountOverrides()
@@ -212,7 +206,6 @@ end
 
 local defaults = {
     enabled       = true,
-    showCompleted = true,
     showNumbers   = true,
     iconSize      = 36,
     -- Where to hand in. Only ever drawn for quests that are actually finished.
@@ -632,21 +625,6 @@ local function PinPosOnMap(o, currentMap)
 end
 
 -- ---------------------------------------------------------------------------
--- objectives
--- ---------------------------------------------------------------------------
-
--- Every quest in the log that has a recorded objective location, in log order.
--- Returns entries of { questIndex, questID, areaID, x, y, title, isComplete }
--- with x/y normalised to the quest's OWN map area (areaID), not the map the
--- player happens to be looking at -- which is what lets the arrow route across
--- zones while the pins filter down to the visible one.
--- Objective locations used to be collected here from the client's own POI
--- API. That is gone: it could only ever answer for the 25 quests with client
--- slots, and running it alongside the server-sent data meant two sources in
--- two coordinate spaces. UQ.LedgerPins() in UncappedQuestsLedger.lua is now
--- the single source, for the map pins and the arrow alike.
-
--- ---------------------------------------------------------------------------
 -- update
 -- ---------------------------------------------------------------------------
 
@@ -848,7 +826,6 @@ local function Update()
             pin.questIndex = nil
             pin.pinTitle = g.title
             pin.pinComplete = false
-            pin.pinGiver = g.giver
             pin:SetWidth(db.iconSize)
             pin:SetHeight(db.iconSize)
             SafeSetTexture(pin.icon, ICON_GIVER)

@@ -199,15 +199,7 @@ function Filters.Build(parent, opts)
     -- Present ONLY while something is narrowing the feed, so it reads as "undo
     -- what you just did" rather than as a permanent button whose effect nobody
     -- can guess.
-    local reset
-    if UIKit and UIKit.CreateButton then
-        reset = UIKit.CreateButton(bar, "Show all", 74, 22)
-    else
-        reset = CreateFrame("Button", nil, bar, "UIPanelButtonTemplate")
-        reset:SetWidth(74)
-        reset:SetHeight(22)
-        reset:SetText("Show all")
-    end
+    local reset = UIKit.CreateButton(bar, "Show all", 74, 22)
     reset:SetPoint("TOPRIGHT", bar, "TOPRIGHT", -(opts.rightPad or 12), ROW2)
     reset:SetScript("OnClick", function()
         LF.ResetFilters()

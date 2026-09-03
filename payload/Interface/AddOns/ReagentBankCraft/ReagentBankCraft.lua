@@ -1,9 +1,7 @@
 -- ReagentBankCraft
 --
--- Talks to the server via the player's own personal channel (auto-joined
--- at login, built earlier this session for loot notifications) instead of
--- fighting the client's compiled-in local reagent check on the TradeSkill
--- window. Flow:
+-- Talks to the server over the addon-message pipe instead of fighting the
+-- client's compiled-in local reagent check on the TradeSkill window. Flow:
 --   1. Click "Withdraw Bank Mats" -> sends UWITHDRAWALL:<spellId>
 --   2. Server withdraws everything in the reagent bank for that recipe's
 --      reagents into your real bags, replies UWITHDRAWN:<spellId>
@@ -30,41 +28,9 @@
 -- Prefix for the whole server->client pipe (see the transport note at OnEvent).
 local ADDON_PIPE_PREFIX = "UNC"
 
--- ---------------------------------------------------------------------------
--- SavedVariables (ReagentBankCraftDB). Account-wide. Defaults are filled for
--- every key at load and again at ADDON_LOADED once the client has restored the
--- saved table, so callers can always index it.
---
--- Now empty: this addon's own settings all belonged to features that moved out
--- 2026-07-31 -- the /wishlist tracker (retired) and the "where to farm" panel
--- (ported into UncappedForge, which owns its sizing now). Stale keys left in a
--- player's saved table are simply ignored; the filler only adds, never prunes.
--- Kept as a table so adding a setting back needs no scaffolding.
-local RBC_DEFAULTS = {}
-
--- Ensures ReagentBankCraftDB is a table and every default key is present.
--- Idempotent: only ever fills gaps, so it is safe to call before AND after the
--- client restores SavedVariables (which replaces the global with the saved one).
-function ReagentBankCraft_InitDB()
-    if type(ReagentBankCraftDB) ~= "table" then
-        ReagentBankCraftDB = {}
-    end
-    local db = ReagentBankCraftDB
-    for k, v in pairs(RBC_DEFAULTS) do
-        if db[k] == nil then
-            if type(v) == "table" then
-                local t = {}
-                for i, vv in ipairs(v) do t[i] = vv end
-                db[k] = t
-            else
-                db[k] = v
-            end
-        end
-    end
-    return db
-end
-
-ReagentBankCraft_InitDB()
+-- This addon has no settings of its own: they all belonged to features that
+-- moved out 2026-07-31 -- the /wishlist tracker (retired) and the "where to
+-- farm" panel (ported into UncappedForge, which owns its sizing now).
 
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
@@ -170,12 +136,6 @@ StaticPopupDialogs["REAGENTBANK_BUY_CONFIRM"] = {
 local function OnEvent(self, event, ...)
     if event == "ADDON_LOADED" then
         local addonName = ...
-        if addonName == "ReagentBankCraft" then
-            -- Our own load: the client has now restored ReagentBankCraftDB (if
-            -- any), so re-fill any missing keys.
-            ReagentBankCraft_InitDB()
-            return
-        end
         if addonName ~= "Blizzard_TradeSkillUI" then
             return
         end
@@ -259,19 +219,8 @@ local function OnEvent(self, event, ...)
         end)
 
     elseif event == "CHAT_MSG_ADDON" then
-        -- ONE transport. The per-player chat channel this used to also listen on
-        -- was retired when the server moved the whole UNC pipe to CHAT_MSG_ADDON
-        -- (ReagentBankChannelProtocol.cpp:79-96 -- SendResponse is now the only
-        -- sender and it never Say()s). Gone with the channel branch: the
-        -- JoinChannelByName, and the CHAT_MSG_CHANNEL message filter.
-        --
-        -- ⚠ That filter was not merely dead weight. It suppressed ANY World-chat
-        -- line beginning "UWITHDRAWN:", "UREDEPOSITED:", "UMAX:", "UQUOTE:",
-        -- "UBOUGHT:" or "UBUYFAIL:", so a player typing one of those in World was
-        -- silently invisible to everyone running this addon. (Its "UMAX:" term
-        -- was doubly dead: nothing on either side has sent UMAX since UCHECK was
-        -- retired -- see AR-10/SC-10.)
-        --
+        -- ONE transport: SendResponse (ReagentBankChannelProtocol.cpp) is the
+        -- only sender and it only ever emits CHAT_MSG_ADDON.
         --   CHAT_MSG_ADDON : a1 = prefix, a2 = body
         local a1, a2 = ...
         -- Also catches our own outgoing REAGENTBANK messages echoing back.

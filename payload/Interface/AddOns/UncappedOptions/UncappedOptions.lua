@@ -6,8 +6,7 @@
 --   2. Register the parent "Uncapped" category in ESC > Interface > AddOns, so
 --      every addon's page nests under one heading (child.parent = "Uncapped").
 --   3. Host the "Looting" page, which drives the server-side .auto / .aoeloot
---      commands. (It was "Loot & Disenchant" until 2026-08-16; the disenchant
---      half drove `.autodisenchant`, which no longer exists.)
+--      commands.
 --
 -- This addon loads before every addon that builds a page (they list it in
 -- ## OptionalDeps), so the parent category and the widget library exist before
@@ -410,12 +409,6 @@ end
 
 -- ===========================================================================
 -- Looting page (drives the server-side .auto / .aoeloot commands).
---
--- ⚠ THE AUTO-DISENCHANT SECTION WAS REMOVED 2026-08-16 (owner ruling). It drove
---   `.autodisenchant`, which no longer exists on the server -- bulk disenchanting
---   lives in the Forge and nowhere else. Do not rebuild this UI: the command it
---   sent is gone, and the point of removing it was that a background process
---   which destroys gear had no quest check and ate quest turn-in items.
 -- ===========================================================================
 
 -- Runs a dot-command exactly as if the player had typed it into chat: the server
@@ -802,9 +795,6 @@ loader:SetScript("OnEvent", function(self, event, name)
     if name ~= "UncappedOptions" then return end
     if type(UncappedOptionsDB) == "table" then
         local s = UncappedOptionsDB
-        -- s.de (the old auto-disenchant qualities/ilvl) is deliberately ignored:
-        -- the feature is gone, and a saved table from before 2026-08-16 must not
-        -- resurrect keys nothing reads.
         if s.auto ~= nil then db.auto = s.auto end
         if s.aoeloot ~= nil then db.aoeloot = s.aoeloot end
         -- [#1231] `~= nil`, not truthiness: `false` is the whole point of this key,

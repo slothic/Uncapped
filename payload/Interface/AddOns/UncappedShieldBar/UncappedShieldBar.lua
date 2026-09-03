@@ -8,7 +8,8 @@
      stack count and a duration -- never the remaining absorb. So an addon can
      see that you have Ice Barrier and has no way to know whether it is holding
      ten points or ten million. Every number here arrives from the server over
-     the addon pipe (absorb_shield_feed.cpp, "UABS:<total>", once a second).
+     the addon pipe (absorb_shield_feed.cpp, "UABS:<total>", on change, plus a
+     10s heartbeat while an unchanged shield is up -- see STALE_AFTER).
 
      WHY THIS MATTERS MORE HERE THAN ON A STOCK REALM
      ------------------------------------------------
@@ -38,9 +39,24 @@ local ADDON_PIPE_PREFIX = "UNC"
 -- BAR_W is the fallback width only -- normally the bar takes the power bar's.
 local BAR_W, BAR_H = 119, 10
 
--- Server sends once a second; anything older than this means the feed stopped
--- (zoning, a disconnect, the script disabled) and a stale bar is worse than none.
-local STALE_AFTER = 3.0
+--[[ How long silence is allowed to last before the bar is assumed dead.
+
+     ⚠ THIS MUST STAY ABOVE THE SERVER'S HEARTBEAT. It was 3.0, written against
+     the comment "server sends once a second" -- but the server only sends when the
+     number CHANGES. An unchanged non-zero shield is re-sent every HEARTBEAT_TICKS
+     (10) x FEED_INTERVAL_MS (1000) = 10 seconds (absorb_shield_feed.cpp:55,59).
+
+     3 < 10, so a shield just sitting there -- out of combat, Ice Barrier or PW:S
+     up, nothing hitting you -- tripped this guard at t=3s, blanked the bar, and
+     then had it pop back at full on the t=10s heartbeat. Visible ~3s, gone ~7s,
+     repeating. Invisible in combat, where the value changes every second and the
+     server therefore sends every second.
+
+     12 leaves headroom over the heartbeat. It costs nothing: a shield that really
+     expires goes N -> 0, which IS a change, so the server sends UABS:0 at once and
+     the bar hides immediately. This guard only ever covered a genuinely dropped
+     message. ]]
+local STALE_AFTER = 12.0
 
 local db
 local lastValue, peakValue, lastStamp = 0, 0, 0

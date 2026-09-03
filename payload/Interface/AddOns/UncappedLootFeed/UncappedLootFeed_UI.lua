@@ -89,7 +89,6 @@ local function BuildList()
                 -- someone reads while deciding what to go and farm.
                 sub     = D.SourceLine and D.SourceLine(hit.id, false) or nil,
                 watched = LF.IsWatched(hit.id),
-                search  = true,
             }
         end
         return out

@@ -7,8 +7,7 @@
 --   * an enemy-forces bar that runs 0-100% of what you actually need to kill,
 --   * a boss log with engage markers and kill splits.
 --
--- Rides the player's personal channel like the other Uncapped addons, and
--- filters the UMS / UMT / UMR / UMB protocol lines out of chat.
+-- Receives its UMS / UMT / UMR / UMB protocol lines over CHAT_MSG_ADDON, prefix "UNC".
 --
 -- Two things the server owns that this addon used to guess at, and must not
 -- guess at again -- both were real bugs:
@@ -212,7 +211,6 @@ local function EnsureBossRow(i)
     frame.bossRows[i] = fs
     return fs
 end
-for i = 1, db.bossLines do EnsureBossRow(i) end
 
 -- ---------------------------------------------------------------------------
 -- Run state
@@ -693,15 +691,7 @@ local function RestoreRun()
     frame:Show()
 end
 
--- The two CHAT_MSG_CHANNEL message filters that used to live here are GONE, and
--- with them the "every new opcode must be added here too" tax on the protocol.
--- They only ever existed to keep the legacy channel transport from printing raw
--- "UMD:3" into chat, and that transport no longer carries anything -- see the
--- transport note on the dispatcher below. A chat filter runs for every channel
--- line in every registered chat frame, so ten anchored string.find per line were
--- being paid on a busy World channel for a payload that can no longer arrive.
-
--- Prefix for the whole server->client pipe (see the transport note below).
+-- Prefix for the whole server->client pipe.
 local ADDON_PIPE_PREFIX = "UNC"
 
 local listener = CreateFrame("Frame")
@@ -786,15 +776,9 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
     --
     --   CHAT_MSG_ADDON : a1 = prefix, a2 = body
     --
-    -- The CHAT_MSG_CHANNEL leg is gone (2026-08-22 audit, MQ-09), established by
-    -- reading the only sender: MythicPlus::SendRunHud and SendRunEnded both go
-    -- through ReagentBankChannelProtocol::SendResponse, which builds "UNC\t<body>"
-    -- and sends SMSG_MESSAGECHAT as CHAT_MSG_WHISPER / LANG_ADDON -- it can only
-    -- ever surface on the client as CHAT_MSG_ADDON. Nothing has been sent down a
-    -- channel for this protocol in a long time, so the branch, both message
-    -- filters and the JoinChannelByName in ADDON_LOADED were all unreachable --
-    -- and that join was permanently holding one of the client's ten chat-channel
-    -- slots, which players on this realm's custom channels do run out of.
+    -- ⚠ Never re-add a per-player chat channel as a second leg: the join
+    -- permanently holds one of the client's ten channel slots, which players on
+    -- this realm's custom channels do run out of.
     if a1 ~= ADDON_PIPE_PREFIX then return end
     local msg = a2
     if not msg then
@@ -805,14 +789,6 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
     local remaining, level, needed, token = msg:match("^UMS:(%d+):(%d+):(%d+):(%d+)$")
     if remaining then
         StartRun(tonumber(remaining), tonumber(level), tonumber(needed), tonumber(token))
-        return
-    end
-
-    -- Older 3-field form (a realm still on the previous worldserver). No run
-    -- token, so every one of these is treated as a fresh run.
-    local oldLimit, oldLevel, oldTotal = msg:match("^UMS:(%d+):(%d+):(%d+)$")
-    if oldLimit then
-        StartRun(tonumber(oldLimit), tonumber(oldLevel), tonumber(oldTotal), nil)
         return
     end
 
@@ -1166,7 +1142,6 @@ local AFFIX = {
     },
 }
 
--- Fixed display order, so the strip never reshuffles between runs.
 -- Fixed display order, so the strip never reshuffles between runs. Roughly grouped:
 -- environmental hazards, then debuffs, then death-triggered, then boss-only.
 -- ⚠ "finecorpse" is deliberately absent. Fine Corpses is affixtype 21 and its row
@@ -1338,9 +1313,6 @@ card.tag:SetWidth(230)
 card.tag:SetJustifyH("LEFT")
 card.tag:SetTextColor(0.72, 0.68, 0.58)
 
--- Offset of a frame's centre from UIParent's centre, in UIParent units.
--- Both frames can sit at different effective scales (the HUD is user-scalable),
--- so normalise through effective scale or the card lands short of the strip.
 -- A frame's centre in UIParent coordinate units, measured from UIParent's
 -- BOTTOM-LEFT. GetCenter() reports in the frame's own scale, so convert up to real
 -- pixels and back down into UIParent units -- the HUD is user-scalable, so its
@@ -1686,9 +1658,6 @@ end
 --   match them, so the first single-word reason would have fired an affix
 --   announcement instead. The affix meaning is dropped; the server has only ever
 --   sent the run-end form.
---
--- The CHAT_MSG_CHANNEL filter that sat here is gone with the transport -- see the
--- note on the main dispatcher above.
 
 -- Called from the main ADDON_LOADED handler above, deliberately NOT from a second
 -- handler of its own: both would fire on the same event with no defined order, and

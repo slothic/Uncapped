@@ -61,7 +61,6 @@ local function ResolveLink(e)
     local _, live = GetItemInfo(e.id)
     return live
 end
-Rows.ResolveLink = ResolveLink
 
 -- The "Drops from X in Y" line, or nil. Only ever asked for on a watched row:
 -- on every row it would be a wall of grey text, and for an item you are not

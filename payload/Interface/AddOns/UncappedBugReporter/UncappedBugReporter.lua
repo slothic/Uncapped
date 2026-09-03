@@ -60,9 +60,6 @@ local MAX_LONG_REPORT = 1500             -- under the server's 1800 commit trim
 UncappedBugReporter = UncappedBugReporter or {}
 local BR = UncappedBugReporter
 BR.MAX_TITLE = MAX_TITLE
--- Message budget: total cap minus "!bug ", the "[]" wrapper, and one space
--- before the message -- computed against the shortest possible title (empty)
--- so it's always a safe upper bound regardless of the title actually used.
 BR.MAX_REPORT = MAX_LONG_REPORT
 
 local DEFAULTS = {
@@ -129,14 +126,11 @@ local function DeriveTitle(message)
     return message:sub(1, MAX_TITLE)
 end
 
---- Sends one bug report over the World channel. Returns true if it went out,
+--- Sends one bug report as chunked addon messages. Returns true if it went out,
 --- false (with a chat explanation) if it couldn't.
--- `asSuggestion` picks the transport's kind byte. It is an explicit ARGUMENT
--- rather than the old BR.sendAsSuggestion field, which was read here and set
--- precisely nowhere -- the suggestion path existed on the server and in this
--- transport, and no client route could ever reach it (report #485). That read
--- has now been removed too; a sticky flag would also mean one /suggestion
--- silently turning every later /bug into a suggestion.
+--- `asSuggestion` picks the transport's kind byte. Deliberately an ARGUMENT and
+--- not a sticky field (report #485): one /suggestion must not silently turn
+--- every later /bug into a suggestion.
 function BR.Send(title, message, asSuggestion)
     local label = asSuggestion and "[Suggestion]" or "[Bug Report]"
 

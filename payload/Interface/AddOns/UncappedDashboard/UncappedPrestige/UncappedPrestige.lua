@@ -201,10 +201,6 @@ local function HasFlag(flags, mask)
     return math.floor(flags / mask) % 2 == 1
 end
 
-local function Plural(n, one, many)
-    return n == 1 and one or many
-end
-
 -- Hundredths of a percent -> a readable percentage, with trailing zeroes trimmed
 -- so 25 reads "0.25", 500 reads "5" and 250 reads "2.5" rather than "2.50".
 --

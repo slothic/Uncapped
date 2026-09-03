@@ -32,7 +32,6 @@
 ]]
 
 local ADDON_NAME   = "StatFeed"
-local BUNDLE_ADDON_NAME = "Uncapped"
 local ADDON_PREFIX = "DSTATS"
 local TICK_SECONDS = 1        -- how often the clock/pace repaint while shown
 local STARTUP_DELAY_SECONDS = 5
@@ -59,31 +58,13 @@ local STAT_TOP_GAP = 17       -- gap from the summary divider to Strength
 local CREDIT_H     = 16       -- reserved strip at the bottom for the credit
 local COMPACT_H    = HEADER_H + (SUMMARY_ROW * 3) + 14
 local MIN_WIDTH    = 220      -- narrower than this and the stat rows collide
--- Reported as "make the Stat Feed window re-sizeable" (#126). It always had a
--- grip; what it did not have was anywhere to go. The default width IS
--- MIN_WIDTH (220) and the default height IS the expanded minimum (330), so the
--- window opens pinned against both floors -- the only direction available is
--- bigger -- and the width ceiling sat at 400. Grabbing the grip and having it
--- stop after 180 pixels reads as "does not resize", not "resizes a little".
---
--- Every width-dependent measurement in here is proportional (LayoutStatColumns
--- splits the block by fraction; the earned-stat bars are a share of it), so
--- there was never a layout reason for a ceiling that low.
---
--- FOLLOW-UP: 720 was still a literal, while the HEIGHT ceiling right below it
--- had already been rewritten to measure the screen. Those two should never have
--- been decided differently -- frame sizes are UIParent units and UIParent is
--- ~1365 units wide at 16:9 default scale, so 720 was a little over half the
--- screen and, worse, OnSizeChanged actively SNAPS the frame back to it mid-drag.
--- A grip that yanks the window back out of your hand is the exact complaint in
--- #126, just at a bigger number than before. Derived the same way as the height.
+-- #126: both resize ceilings are DERIVED from UIParent (MaxWidth/MaxHeight
+-- below), never literals -- frame sizes are UIParent UNITS, not monitor pixels
+-- (~1365x768 at default scale), so a literal is wrong for anyone who moves the
+-- UI-scale slider. Every width-dependent measurement in here is proportional
+-- (LayoutStatColumns splits the block by fraction, the bars are a share of it),
+-- so there is no layout reason to cap the width at all.
 local MAX_WIDTH_ABS = 1400    -- absolute; the screen below is the real ceiling
--- Height is the honest half: frame sizes are UIParent units, not monitor
--- pixels, and UIParent is ~768 units tall at the default UI scale on any
--- monitor -- so the old 700 was already ~91% of the screen and there was
--- nothing to win. It only bites players who turn the UI-scale slider down,
--- which makes UIParent taller in units. Derived rather than a literal so that
--- case is covered without pretending the common one was broken.
 local MAX_HEIGHT_ABS = 1100   -- absolute; the screen below is the real ceiling
 -- Not cosmetic: size a window flush to the screen edge and the bottom-right
 -- grip ends up under that edge with no comfortable way to drag it back.
@@ -149,10 +130,9 @@ local function ExpandedMinHeight(showStats)
     return showStats and EXPANDED_MIN or FEED_ONLY_MIN
 end
 
--- Height ceiling, measured against the screen rather than a literal. The old
--- one was 700, which was most of a monitor when it was written and half a
--- window now. math.* spelled out because the floor/min/max locals are
--- declared further down the file than this.
+-- Height ceiling, measured against the screen rather than a literal. math.*
+-- spelled out because the floor/min/max locals are declared further down the
+-- file than this.
 local function MaxHeight()
     local screen = math.floor((UIParent:GetHeight() or 768) - SCREEN_MARGIN)
     return math.max(EXPANDED_MIN, math.min(MAX_HEIGHT_ABS, screen))
@@ -967,12 +947,9 @@ local function BuildWindow()
         dirty = true
     end)
     -- Bars are sized off the frame width, so a resize has to repaint them.
-    --
-    -- No width clamp here any more. SetMaxResize already stops the grip at the
-    -- ceiling, so this second clamp only ever fired when the two disagreed --
-    -- and when it did it called SetWidth from inside OnSizeChanged, i.e. it
-    -- re-entered itself mid-drag to yank the frame back. That is what "the
-    -- window won't resize" felt like from the player's side (#126).
+    -- ⚠ Never clamp the width here. SetMaxResize already stops the grip, and a
+    -- SetWidth from inside OnSizeChanged re-enters mid-drag and yanks the frame
+    -- out of the player's hand -- that IS the #126 "won't resize" complaint.
     frame:SetScript("OnSizeChanged", function()
         dirty = true
     end)
@@ -1214,7 +1191,7 @@ events:SetScript("OnEvent", function(self, evt, a1, a2)
     local p2 = a2 or arg2
 
     if e == "ADDON_LOADED" then
-        if p1 == ADDON_NAME or p1 == BUNDLE_ADDON_NAME then
+        if p1 == ADDON_NAME then
             GetDB()
             StartStartupDelay()
             BuildWindow()
@@ -1344,10 +1321,7 @@ function BuildOptions()
         end)
 
     -- Both sliders take their ceiling from the same functions the resize grip
-    -- does. They used to be literals (MAX_WIDTH, and a bare 700 for height),
-    -- which is how the height slider ended up capping 400px BELOW what the grip
-    -- would let you drag to after the grip's own ceiling was raised -- two
-    -- controls for one number, disagreeing. #126.
+    -- does -- two controls for one number must never disagree. #126.
     local widthSlider = L:Slider("Window width", MIN_WIDTH, MaxWidth(), 10,
         function() return GetDB().width end,
         function(v)
@@ -1423,10 +1397,6 @@ function BuildOptions()
         heightSlider.uncappedRefresh()
     end)
 end
-
-
-
-
 
 -- ---------------------------------------------------------------------------
 -- ★ [#952] Blizzard bug: Enter in a gossip code box throws the number away.

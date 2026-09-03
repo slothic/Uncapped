@@ -122,10 +122,9 @@ local ICON = {
 }
 local ICON_SEALED = "Interface\\Icons\\INV_Misc_Gem_Stone_01"
 
--- Published to UncappedShardsHUD.lua, which needs the same gems and the same
--- palette. Exported rather than duplicated: two copies of a colour table drift,
--- and the drift shows up as a HUD that does not match the panel it belongs to.
-UncappedShards_ICON  = ICON
+-- Published to UncappedShardsHUD.lua, which needs the same palette. Exported
+-- rather than duplicated: two copies of a colour table drift, and the drift
+-- shows up as a HUD that does not match the panel it belongs to.
 UncappedShards_COLOR = { GOLD = GOLD, RED = RED, DIM = DIM, PALE = PALE, GREEN = GREEN }
 
 -- ---------------------------------------------------------------------------

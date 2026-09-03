@@ -1,6 +1,6 @@
 ## Interface: 30300
 ## Title: Uncapped Bug Reporter
-## Notes: /bug opens a proper multi-line bug report window (or send one straight from chat with /bug <message>). Goes out over the same World-channel pipe the !bug command already relays to Discord.
+## Notes: /bug opens a proper multi-line bug report window (or send one straight from chat with /bug <message>). /suggestion files an idea instead. Reports are relayed to the dev Discord.
 ## Author: Uncapped
 ## Version: 1.0
 ## OptionalDeps: UncappedOptions, UncappedUI

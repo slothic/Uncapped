@@ -4,7 +4,7 @@
 -- default unit frames, plus the power (mana/rage/energy/runic) numbers, with
 -- Blizzard's own bar text suppressed so nothing flashes in behind ours.
 --
--- Wire (personal channel, filtered out of chat):
+-- Wire (server -> client over CHAT_MSG_ADDON, prefix UNC):
 --   UHP:S:<realCur>:<realMax>                     -- the player themselves
 --   UHP:T:<realCur>:<realMax>:<visMax>:<guidLow>  -- current target (may be a boss)
 --   UHP:U:<guidLow>:<realCur>:<realMax>           -- a group member (party/raid)
@@ -45,17 +45,9 @@ local ADDON_PIPE_PREFIX = "UNC"
 -- without ever inventing a number in the uncommon one.
 local HEALTH_PROXY_BUDGET = 2000000000
 
--- The dev-realm gate that used to sit here has been REMOVED (2026-07-23).
---
--- It bailed out of this entire file unless GetRealmName() contained "dev", because
--- at the time only the dev worldserver sent the RB* feeds and the overlays had to
--- stay dormant for live players. Both halves of that reasoning are now obsolete:
--- the 64-bit pipeline shipped to the live realm, so live sends the same feeds, and
--- this addon is the only thing filtering the RB* protocol out of chat. With the gate
--- in place, live players got the raw protocol spammed into chat several times a
--- second and no real numbers -- while the addon still showed as enabled, loaded
--- without error, and registered no slash commands, because execution stopped here.
---
+-- ⚠ A whole-file dev-realm gate lived here until 2026-07-23. It bailed out before
+-- anything below, so the addon showed as enabled, loaded without error, registered
+-- no slash commands and showed no real numbers -- with nothing anywhere to say why.
 -- If a realm ever needs it dormant again, gate the individual feeds, not the file.
 
 -- ---------------------------------------------------------------------------
@@ -196,7 +188,7 @@ local absorbSelf, absorbTarget = 0, 0
 
 -- [spell tooltips] Server-computed damage per spell, keyed by spellId, plus the
 -- set already asked about so a hover storm sends one request rather than one per
--- frame. Declared up here because the channel handler (above the tooltip code)
+-- frame. Declared up here because the message handler (above the tooltip code)
 -- writes into them. Both are wiped on a gear change -- see spellDmgWatcher.
 local spellDmgCache = {}
 local spellDmgAsked = {}
@@ -441,7 +433,7 @@ end
 -- Ask Blizzard to repaint a unit's bars.
 --
 -- The hook above only fires when Blizzard itself decides to repaint -- damage
--- taken, target switched, power spent. A line arriving on our channel changes a
+-- taken, target switched, power spent. A line arriving on the feed changes a
 -- number Blizzard has no reason to know changed, so the feed has to poke it.
 -- This is the replacement for the old 10Hz driver: instead of re-rendering
 -- everything 10 times a second on the chance something moved, we repaint the
@@ -456,15 +448,12 @@ local function RefreshUnitBars(unit)
 end
 
 -- ---------------------------------------------------------------------------
--- Channel plumbing.
--- ---------------------------------------------------------------------------
--- ---------------------------------------------------------------------------
 -- Uncapped character sheet (AllStats integration).
 --
 -- The AllStats addon paints the whole paperdoll stat panel using the stock
 -- client APIs, which read 32-bit wire fields -- so once a stat is inflated past
 -- ~2.1e9 they show a low, capped number when you press C. The server feeds us
--- the REAL values over the channel (UALL:...); right after AllStats repaints
+-- the REAL values over the addon pipe (UALLA/UALLB); right after AllStats repaints
 -- its panel we overwrite the affected lines with the real, truncated numbers.
 -- The percentage lines (crit/dodge/parry/block) and mana regen already carry
 -- real values (they live in float fields), so those we just truncate in place.
@@ -597,8 +586,7 @@ local function OnLine(msg)
     -- 255-byte addon-message cap -- it would have truncated silently on exactly
     -- the scaled characters this feed exists for. The halves are buffered and
     -- applied together, so a dropped or reordered one never paints a half-filled
-    -- stat panel. "UALL:" (undivided) is still accepted from any realm still
-    -- running the older worldserver.
+    -- stat panel.
     local function ApplyRealStats(p)
         realStats = {
             str = p[1], agi = p[2], sta = p[3], int = p[4], spi = p[5],
@@ -637,12 +625,6 @@ local function OnLine(msg)
             for i = 1, 9 do p[8 + i] = allPending.b[i] end
             ApplyRealStats(p)
         end
-        return
-    end
-
-    -- Legacy single-message form.
-    if msg:find("^UALL:") then
-        ApplyRealStats(Tokens(msg))
         return
     end
 
@@ -698,21 +680,9 @@ local function OnLine(msg)
     end
 end
 
--- Keep our protocol lines out of chat.
---
--- ⚠ UDMG:, UHEAL: and UCT: are RETIRED prefixes (2026-08-31) and are still listed
---   ON PURPOSE. Nothing parses them any more, but a worldserver that has not yet
---   taken the matching build keeps sending them, and an unfiltered protocol line is
---   a visible string in the player's chat window for the length of that window.
---   Three plain finds is a cheap price. Drop them once every realm is on the build
---   that stopped sending them.
-ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", function(self, event, msg)
-    if msg and (msg:find("^UHP:") or msg:find("^UALL:") or msg:find("^UDMG:")
-        or msg:find("^UHEAL:") or msg:find("^UCT:")) then
-        return true
-    end
-    return false
-end)
+-- No chat filter is needed any more: every feed arrives over CHAT_MSG_ADDON,
+-- which the client never renders. (The CHAT_MSG_CHANNEL protocol filter went
+-- 2026-09-03 with the per-player channel transport it existed for.)
 
 local function OnTargetChanged()
     -- Restore what we already know about this unit instead of blanking and
@@ -836,14 +806,12 @@ local listener = CreateFrame("Frame")
 listener:RegisterEvent("ADDON_LOADED")
 listener:RegisterEvent("PLAYER_ENTERING_WORLD")
 listener:RegisterEvent("PARTY_MEMBERS_CHANGED")
-listener:RegisterEvent("CHAT_MSG_CHANNEL")
 listener:RegisterEvent("CHAT_MSG_ADDON")
 listener:RegisterEvent("PLAYER_TARGET_CHANGED")
 listener:SetScript("OnEvent", function(self, event, a1, a2)
     if event == "ADDON_LOADED" then
         if a1 == ADDON_NAME then
             InitSavedVars()   -- SavedVariables are guaranteed present now
-            JoinChannelByName(UnitName("player"))
         end
         return
     end
@@ -881,24 +849,10 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         return
     end
 
-    -- Two transports, on purpose.
-    --
-    -- CHAT_MSG_ADDON is where the pipe is moving: the client never renders it,
-    -- so the protocol can no longer leak into chat when an addon fails to load.
-    -- CHAT_MSG_CHANNEL is the old transport, kept because one payload serves
-    -- both realms and a realm still running the previous worldserver would go
-    -- silent otherwise. Drop the channel branch once every realm is converted.
-    --
-    --   CHAT_MSG_ADDON   : a1 = prefix, a2 = body
-    --   CHAT_MSG_CHANNEL : a1 = body,   a2 = author (our own name on the pipe)
-    local msg
-    if event == "CHAT_MSG_ADDON" then
-        if a1 ~= ADDON_PIPE_PREFIX then return end
-        msg = a2
-    else
-        if a2 ~= UnitName("player") then return end
-        msg = a1
-    end
+    -- CHAT_MSG_ADDON is the only transport left: a1 = prefix, a2 = body. The
+    -- client never renders it, so the protocol cannot leak into chat.
+    if a1 ~= ADDON_PIPE_PREFIX then return end
+    local msg = a2
     if not msg then return end
 
     -- ★★ EVERY PREFIX OnLine PARSES MUST BE LISTED HERE. This is the only real
@@ -1301,14 +1255,8 @@ end
 -- The one surface left to Lua, and the only one that needs it: a chat line is TEXT,
 -- and nothing outside Lua can rewrite it. The floating numbers are the DLL's.
 --
--- ★ [AN-04] EVERYTHING THE CORRECTION FEED NEEDED IS GONE FROM HERE.
---
---   Deleted 2026-08-31: this addon's own floater renderer (pool, animator, nameplate
---   anchoring, MISS_TEXT, the font machinery), the Blizzard scrolling-region takeover
---   (CT_ClaimScrollRegion / CT_Scroll / CT_WE_DRAW / the CombatText_AddMessage
---   wrapper), the one-frame hold queue that existed to let a late correction catch
---   up, and the UCT ingest itself (ctPending, ctPendingChat, CT_Take, CT_TakeChat,
---   CT_TTL, CT_TOLERANCE, CT_MATCH_FLOOR, CT_WIRE_CEILING).
+-- ★ [AN-04] The UCT correction feed and this addon's own floater renderer were
+--   deleted 2026-08-31, and must not come back.
 --
 --   The feed was already dead in fact, not just in effect: every caller pinned on the
 --   ENCODED wire value, which tops out below the server's own send gate, so nothing
@@ -1535,21 +1483,10 @@ end)
 --   to back up. InitSavedVars still defaults nameplates ON for a fresh install.
 
 -- ---------------------------------------------------------------------------
--- Stat panel hover removal.
+-- Stat panel hover repair. (Rationale on FixStatTooltips below.)
 --
--- AllStats paints its rows with the stock PaperDollFrame_Set* helpers, which
--- also install Blizzard's tooltip handlers. Those recompute from the 32-bit
--- client fields, so on a scaled character the hover flatly contradicts the row
--- it is attached to: Strength shows 3.45B in the panel while its tooltip claims
--- "Increases Attack Power by -294967316" -- a plain int32 wrap of ~4.0e9.
---
--- The panel itself is already correct (ApplyAllStatsReal repaints it from the
--- UALL feed), so there is nothing worth salvaging in the tooltip. Remove it
--- rather than maintain a second source of the same numbers that we would have
--- to keep in sync and that can only ever be wrong past 2^31.
---
--- AllStats re-installs these handlers on every repaint, so this has to run
--- after each one, not just once at load.
+-- AllStats re-installs Blizzard's tooltip handlers on every repaint, so this has
+-- to run after each one, not just once at load.
 -- ---------------------------------------------------------------------------
 local STAT_ROWS = {
     "1", "2", "3", "4", "5",
@@ -2133,11 +2070,15 @@ end
 -- ---------------------------------------------------------------------------
 -- Load banner.
 --
--- This addon is the only thing filtering the RB* protocol out of chat and the
--- only thing rendering real numbers past the 32-bit wall, so "is it actually
--- running on this realm?" needs a definite answer rather than an inference from
--- whether chat looks wrong. Addon state is per character per realm, so it can
--- differ between realms on the same client with nothing else to show for it.
+-- This addon is the only thing rendering real numbers past the 32-bit wall, so
+-- "is it actually running on this realm?" needs a definite answer rather than an
+-- inference from whether a health bar looks wrong. Addon state is per character
+-- per realm, so it can differ between realms on the same client with nothing
+-- else to show for it.
+--
+-- (It used to also claim "RB* protocol filtered". That filter existed for the
+-- retired per-player CHAT_MSG_CHANNEL transport; the pipe is CHAT_MSG_ADDON now,
+-- which the client never renders, so there is nothing left to filter.)
 -- ---------------------------------------------------------------------------
 local banner = CreateFrame("Frame")
 banner:RegisterEvent("PLAYER_LOGIN")
@@ -2145,7 +2086,7 @@ banner:SetScript("OnEvent", function(self)
     local realm = GetRealmName and GetRealmName() or "?"
     DEFAULT_CHAT_FRAME:AddMessage(
         "|cff40ff40Uncapped 64-bit UI|r loaded on |cffffd100" .. realm ..
-        "|r - RB* protocol filtered, real numbers active.")
+        "|r - real numbers active.")
     self:UnregisterAllEvents()
 end)
 

@@ -34,7 +34,12 @@ Frames\Panel.lua
 Windows\Window.lua
 Navigation\Sidebar.lua
 Navigation\Tabs.lua
-# Demo.lua -- NOT LOADED. A developer harness for /uidemo that shipped in the
-# player payload, registering a slash command and reserving UncappedUIDemoDB in
-# every player's SavedVariables. The file stays for development; add this line
-# back (and UncappedUIDemoDB to SavedVariables above) to use it.
+# [#1256] LOADED since 2026-09-03, on kirei's ruling, for the addon authors who
+# asked for the widget library: /uidemo is a live gallery of every control here
+# and is far better documentation than reading Lua and guessing.
+#
+# ⚠ It was unloaded before this because it reserved UncappedUIDemoDB in every
+# player's SavedVariables -- that global is GONE (Demo.lua now keeps a file-local
+# table, see the comment there). Do NOT add a SavedVariables line for it: the
+# whole point of shipping the demo is that it costs a player nothing.
+Demo.lua

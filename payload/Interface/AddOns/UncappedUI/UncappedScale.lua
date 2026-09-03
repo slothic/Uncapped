@@ -63,7 +63,7 @@
 local UncappedUIKit = _G.UncappedUIKit
 if not UncappedUIKit then return end
 
-local math_floor, math_min, math_max, math_abs = math.floor, math.min, math.max, math.abs
+local math_floor, math_min, math_abs = math.floor, math.min, math.abs
 local tonumber, pairs, type = tonumber, pairs, type
 
 -- Player-facing bounds. 1.0 must remain the default: at 1.0 with no per-frame

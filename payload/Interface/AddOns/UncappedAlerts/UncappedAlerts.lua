@@ -510,21 +510,13 @@ end
 --                         built-in countdown which the client renders itself
 --                         from a localised string.
 --
--- Prefix for the whole server->client pipe (see the transport note below).
+-- Prefix for the whole server->client pipe.
 local ADDON_PIPE_PREFIX = "UNC"
 
 local quitListener = CreateFrame("Frame")
 quitListener:RegisterEvent("CHAT_MSG_ADDON")
 quitListener:SetScript("OnEvent", function(self, event, a1, a2)
-    -- ONE transport. The per-player chat channel this used to also listen on was
-    -- retired when the server moved the whole UNC pipe to CHAT_MSG_ADDON
-    -- (ReagentBankChannelProtocol.cpp:79-96 -- SendResponse is now the only
-    -- sender and it never Say()s). The channel branch and the CHAT_MSG_CHANNEL
-    -- chat filter are gone: an addon message is never rendered, so there is
-    -- nothing left to filter, and the dead filter was running on every real
-    -- World-chat line.
-    --
-    --   CHAT_MSG_ADDON : a1 = prefix, a2 = body
+    -- CHAT_MSG_ADDON : a1 = prefix, a2 = body
     if a1 ~= ADDON_PIPE_PREFIX then return end
     local text = a2
     if not text then

@@ -1,6 +1,6 @@
 ﻿## Interface: 30300
 ## Title: Uncapped 64-bit UI
-## Notes: Shows the server's REAL 64-bit health, stats and combat numbers past the 32-bit client wall, and keeps the RB* addon protocol out of chat. Required on this realm.
+## Notes: Shows the server's REAL 64-bit health, stats and combat numbers past the 32-bit client wall. Required on this realm.
 ## Author: Uncapped
 ## Version: 1.2
 ## OptionalDeps: UncappedOptions

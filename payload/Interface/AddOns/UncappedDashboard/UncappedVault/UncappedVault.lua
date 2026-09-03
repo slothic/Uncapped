@@ -126,7 +126,7 @@ Core.SLOT_LABELS = SLOT_LABELS
 
      custom_vault_item denormalises class/subclass/quality/item_level precisely
      so this browser can bucket items without touching the client's item cache,
-     and the VLTROW format ships all four. InventoryType is not among them, so
+     and the snapshot row format ships all four. InventoryType is not among them, so
      the thing report #218 asks for by name ("maybe even each equipment slot")
      is the only part with no server-side answer.
 
@@ -1812,10 +1812,59 @@ function Core.Send(msg)
     end
 end
 
+--[[ ★★ THE SNAPSHOT REQUEST RETRIES UNTIL AN ANSWER LANDS. This is
+     load-bearing, not belt-and-braces (2026-09-03).
+
+     The chunked addon-message fallback is GONE -- the snapshot rides the native
+     pipe and nothing else. But the pipe is only usable once UncappedUI has sent
+     its NATIVE: announce, and that capability flag is cleared on LOGIN, so a
+     VLTGET fired at world entry can genuinely arrive BEFORE the pipe is up. The
+     server discards it and, without this, nothing ever asks again: the player
+     gets a permanently empty window over a database full of items, which reads
+     to them as "the server lost my vault".
+
+     mod-shards shipped exactly that bug -- across a whole day the client
+     received ONE state frame -- because a one-shot push raced the same announce
+     and nothing retried. A periodic push hides the problem completely; one-shot
+     requests like this one are the only ones affected, and they are the ones
+     that matter.
+
+     ⚠ Bounded on purpose. SendVault runs a SYNCHRONOUS SELECT over
+     custom_vault_item on the character DB, so this asks a fixed number of times
+     and then gives up, rather than hammering on behalf of a client that is never
+     going to answer. It stops the instant a snapshot lands. ]]
+local SNAPSHOT_RETRY_INTERVAL = 3
+local SNAPSHOT_RETRY_LIMIT    = 10
+
+local snapshotRetry = CreateFrame("Frame")
+snapshotRetry:Hide()
+snapshotRetry.elapsed = 0
+snapshotRetry.tries   = 0
+snapshotRetry:SetScript("OnUpdate", function(self, dt)
+    self.elapsed = (self.elapsed or 0) + (dt or arg1 or 0)
+    if self.elapsed < SNAPSHOT_RETRY_INTERVAL then return end
+    self.elapsed = 0
+    self.tries = (self.tries or 0) + 1
+    if self.tries > SNAPSHOT_RETRY_LIMIT then
+        self:Hide()
+        return
+    end
+    Core.Send("VLTGET")
+end)
+
+-- Called from FinalizeSnapshot: an answer arrived, stop asking.
+local function StopSnapshotRetry()
+    snapshotRetry:Hide()
+    snapshotRetry.elapsed = 0
+    snapshotRetry.tries   = 0
+end
+
 function Core.RequestSnapshot(cleanCache)
     staging = {}
     if cleanCache then Core.ClearCache() end
     Core.Send("VLTGET")
+    StopSnapshotRetry()
+    snapshotRetry:Show()
 end
 
 local recacheTicker = CreateFrame("Frame")
@@ -1842,7 +1891,7 @@ end
 
 -- Manual refresh: same full resync the auto-recache does, and resets the
 -- ticker so it doesn't also fire moments later on its own. pendingManualRefresh
--- flags the chat confirmation below to fire once VLTEND actually lands --
+-- flags the chat confirmation below to fire once the snapshot actually lands --
 -- not on the click itself, so the message means the data really did arrive.
 local pendingManualRefresh = false
 function Core.ManualRefresh()
@@ -2003,25 +2052,13 @@ end
      transports from drifting apart. If the row format ever changes, it changes
      in exactly one place. ]]
 local function ParseRows(text)
-    local any8 = false
     for e, rp, c, q, cls, subc, ilvl, icon in gmatch(text, "(%-?%d+),(%-?%d+),(%d+),(%d+),(%d+),(%d+),(%d+),([^;]*);") do
-        any8 = true
         staging[#staging + 1] = {
             e = tonumber(e), rp = tonumber(rp), c = tonumber(c), q = tonumber(q),
             cls = tonumber(cls), sub = tonumber(subc), ilvl = tonumber(ilvl),
             icon = (icon ~= "" and ("Interface\\Icons\\" .. icon)) or nil,
             n = "",
         }
-    end
-    -- Legacy 5-field rows, for a server older than the 8-field format.
-    if not any8 then
-        for e, rp, c, q, icon in gmatch(text, "(%-?%d+),(%-?%d+),(%d+),(%d+),([^;]*);") do
-            staging[#staging + 1] = {
-                e = tonumber(e), rp = tonumber(rp), c = tonumber(c), q = tonumber(q),
-                icon = (icon ~= "" and ("Interface\\Icons\\" .. icon)) or nil,
-                n = "",
-            }
-        end
     end
 end
 
@@ -2183,6 +2220,7 @@ end
 Core.PushVaultCountsToClient = PushVaultCountsToClient
 
 local function FinalizeSnapshot()
+    StopSnapshotRetry()
     ClearItems()
     for idx, it in ipairs(staging) do
         it.added = #staging - idx
@@ -2217,8 +2255,11 @@ end
      truncated or the format drifted, and it is worth saying so out loud rather
      than silently showing someone a vault that is missing items.
 
-     Registration is conditional and failure is not an error: without the DLL,
-     UncappedNative is absent or unavailable and the server keeps chunking. ]]
+     This is the ONLY transport for a snapshot -- the chunked VLTROW:/VLTEND:
+     fallback is gone. UncappedCT.dll is a hard loader dependency (import
+     injection: a client without it exits 0xC0000135 and never starts), so no
+     player can reach a non-native path. The guard is only for load order --
+     UncappedNative is defined by UncappedUI, a separate addon. ]]
 if UncappedNative and UncappedNative.IsAvailable() then
     UncappedNative.Register("VAULT", function(payload)
         local nl = find(payload, "\n", 1, true)
@@ -2397,12 +2438,6 @@ comms:RegisterEvent("CHAT_MSG_ADDON")
 comms:SetScript("OnEvent", function(_, _, a1, a2)
     if a1 ~= ADDON_PIPE_PREFIX or not a2 then return end
     local text = a2
-    --[[ Tested BEFORE "^VLTROW:" deliberately.
-
-         The two are already unambiguous -- "^VLTROW:" requires the colon, and
-         this line spells VLTROWUPD: -- but that safety rests entirely on an
-         anchor and a colon that a later edit could relax without noticing.
-         Matching the longer token first makes the order do the work instead. ]]
     if find(text, "^VLTROWUPD:") then
         --[[ Stacks the server has just CREATED, in the full snapshot row format.
 
@@ -2457,10 +2492,6 @@ comms:SetScript("OnEvent", function(_, _, a1, a2)
         if touched then
             MarkVaultDirty("update")
         end
-    elseif find(text, "^VLTROW:") then
-        ParseRows(text)
-    elseif find(text, "^VLTEND:") then
-        FinalizeSnapshot()
     elseif find(text, "^VLTUPD:") then
         --[[ Rows the server changed since it last told us.
 
@@ -2695,7 +2726,7 @@ init:SetScript("OnEvent", function()
              Fix: still load the cache, so the window paints instantly with no blank
              frame, but ALWAYS ask for a fresh snapshot on top of it. Deliberately
              without cleanCache: FinalizeSnapshot already does a full ClearItems and
-             refill on VLTEND, so the cached rows stay on screen right up until the
+             refill when the snapshot lands, so the cached rows stay on screen until the
              authoritative ones replace them, instead of the window emptying while
              the snapshot is in flight.
 

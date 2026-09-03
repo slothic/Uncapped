@@ -76,11 +76,8 @@ local SPELL_TREMBLING = 850601
 local SPELL_AGONY     = 850602   -- Spell.dbc row carries StackAmount 99
 local SPELL_RAMPAGE   = 850604   -- Kharaz breakpoint 300, on the player
 
-local ICON  = UncappedShards_ICON  or {}
 local C     = UncappedShards_COLOR or {}
 local GOLD  = C.GOLD  or { 1.00, 0.82, 0.30 }
-local RED   = C.RED   or { 0.90, 0.16, 0.16 }
-local DIM   = C.DIM   or { 0.45, 0.45, 0.48 }
 local PALE  = C.PALE  or { 0.78, 0.78, 0.82 }
 
 -- Verified present in the shipped client MPQs, same sweep as the ledger's gems.
@@ -99,7 +96,7 @@ local DEFAULTS = {
 local db                     -- UncappedShardsDB.hud, filled at ADDON_LOADED
 
 local hud = {
-    momentum = 0, perStack = 0,
+    momentum = 0,
     windowSec = 0, remainSec = 0, baseAt = 0,
     falsehoods = 0, falsehoodCap = 0,
     reflect = 0, leech = 0,
@@ -200,7 +197,7 @@ hf:SetScript("OnEnter", function(self)
         -- hud.dmgPct, not stacks x perStack. The server sends the finished
         -- number; multiplying it out here is the "copy of a curve that will
         -- disagree the first time it is retuned" this file's own header warns
-        -- against, and the field was being parsed and thrown away.
+        -- against.
         GameTooltip:AddLine(string.format("Momentum x%d  --  %+.1f%% damage",
             hud.momentum, hud.dmgPct), PALE[1], PALE[2], PALE[3])
         GameTooltip:AddLine(string.format(
@@ -237,11 +234,7 @@ hf:SetScript("OnLeave", function() GameTooltip:Hide() end)
 -- The only way to find one is to walk WorldFrame's children and recognise the
 -- shape.
 --
--- ⚠ Uncapped64bitUI used to carry the same walk (LooksLikeNameplate/TargetPlate) to
---   position its own floating combat text. That renderer was retired 2026-08-08 and
---   deleted 2026-08-31 -- UncappedCT.dll draws over the unit's body and needs no
---   nameplate -- so THIS IS NOW THE ONLY COPY, not a duplicate of one. Do not go
---   looking for the other to share with; it is gone.
+-- ⚠ THIS IS THE ONLY COPY of the walk -- Uncapped64bitUI's was deleted 2026-08-31.
 --
 -- ⚠ THE MATCH IS BY NAME, AND THAT IS THE CEILING OF THE TECHNIQUE. Two mobs
 --   with the same name in one pack cannot be told apart, so the overlay follows
@@ -607,10 +600,10 @@ local function OnHud(payload)
     -- ⚠ EVERY state is zeroed before parsing, which is exactly why the server must send all
     --   three rows in ONE frame. A row absent from this frame means that shard has nothing
     --   live, and the HUD must stop drawing it.
-    hud.momentum, hud.perStack   = 0, 0
+    hud.momentum                 = 0
     hud.windowSec, hud.remainSec = 0, 0
-    hud.dmgPct, hud.cdrPct, hud.cdrTotal = 0, 0, 0
-    hud.flags, hud.rank, hud.rampage = 0, 0, false
+    hud.dmgPct                   = 0
+    hud.flags, hud.rampage       = 0, false
     hud.falsehoods, hud.falsehoodCap = 0, 0
     hud.reflect, hud.leech = 0, 0
     hud.momMalformed = false
@@ -637,18 +630,16 @@ local function OnHud(payload)
                  flags: 1 decay-one-at-a-time (50) | 2 cdr live (150)
                         4 rampage unlocked (300)   | 8 pause available (500)
                         16 rampage ACTIVE now ]]
-            local s, w, r, p, dmg, cdr, cdrTot, flags, rank =
+            -- The pattern still demands all NINE fields; only the four this HUD
+            -- draws are kept out of it.
+            local s, w, r, _, dmg, _, _, flags =
                 line:match("^MOM:(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
             if s then
                 hud.momentum   = tonumber(s)
                 hud.windowSec  = tonumber(w) / 1000
                 hud.remainSec  = tonumber(r) / 1000
-                hud.perStack   = tonumber(p) / 100
                 hud.dmgPct     = tonumber(dmg) / 100
-                hud.cdrPct     = tonumber(cdr) / 100
-                hud.cdrTotal   = tonumber(cdrTot) / 100
                 hud.flags      = tonumber(flags)
-                hud.rank       = tonumber(rank)
                 hud.rampage    = bit.band(hud.flags, 16) ~= 0
             else
                 hud.momMalformed = true

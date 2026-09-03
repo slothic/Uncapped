@@ -1080,10 +1080,6 @@ f:SetScript("OnEvent", function(_, event, arg1)
         end
         db = s
 
-        -- Retired: an earlier build cached a runtime-derived continent/zone
-        -- lookup here. It is gone, and so is the coordinate space it served.
-        s.mapLookup, s.mapLookupVersion = nil, nil
-
         ApplyLayout()
         for _, r in ipairs(panelRefreshers) do r() end
         return

@@ -4,8 +4,8 @@
     styled like the other rows, on an extended grey background so the section
     stays inside the box.
 
-    Alacrity (cast speed) and Swiftness (attack speed) are bought in the Tempo
-    window (/tempo, UncappedTempo); this only displays them.
+    Alacrity (cast speed) and Swiftness (attack speed) are bought on the Tempo
+    tab of the Anima window (/dashboard, UncappedAnima); this only displays them.
 
     Values come from the server (lua_scripts/time_stats_feed) over the "UTS"
     addon channel. We post-hook PrintStats so it refreshes with the panel.
@@ -293,7 +293,7 @@ local function SlotIsOffGcd(slot)
     -- empty tooltip, and the old code filed that silence as "not off-GCD" and kept it.
     -- That is report #392 restored by accident: a permanent phantom swipe over a
     -- Heroic Strike that was never on the global cooldown. Leaving a miss uncached
-    -- costs one re-scan, and it is what lets the blanket wipes below be deleted.
+    -- costs one re-scan.
     if read then
         offGcdSlot[slot] = off
         -- ⚠ A macro is the one action whose NAME changes with no ACTIONBAR_SLOT_CHANGED
@@ -314,12 +314,11 @@ local BUTTON_PREFIXES = {
     "BT4Button", "DominosActionButton",
 }
 local BUTTONS_PER_PREFIX = 120   -- stock bars stop at 12; Bartender/Dominos go higher
--- ★ [AN-13] The old loop asked the global table for all 8 x 120 names on every rebuild,
--- and about nine in ten of those names have never existed on any client. Button names
--- are contiguous inside a prefix -- stock runs 1..12, Dominos hands out
--- DominosActionButton1..N in order -- so the scan stops after a short run of misses.
--- The tolerance is 4 rather than 1 purely so a bar addon that skips an index cannot
--- silently truncate the list.
+-- ★ [AN-13] Button names are contiguous inside a prefix -- stock runs 1..12, Dominos
+-- hands out DominosActionButton1..N in order -- so the scan stops after a short run of
+-- misses instead of asking the global table for all 8 x 120 names, nine in ten of which
+-- have never existed on any client. The tolerance is 4 rather than 1 purely so a bar
+-- addon that skips an index cannot silently truncate the list.
 local GAP_TOLERANCE = 4
 
 local function CollectButtons()
@@ -367,11 +366,6 @@ end
 -- Paint one button, unless a REAL cooldown longer than the GCD is already
 -- running on it -- stomping that with a 1.4s swipe would hide a 5-minute
 -- cooldown and is the classic way these addons go wrong.
---
--- ★ [AN-11] Takes (btn, cd), not a table. The hook below runs this once per button per
--- ACTIONBAR_UPDATE_COOLDOWN, and it used to build a fresh { btn = , cd = } for every one
--- of them -- thousands of two-key tables a second, handed straight to the collector, for
--- a call that reads both fields and drops them on the next line.
 local function ApplyToButton(btn, cd)
     local slot = ButtonSlot(btn)
     if not slot or not HasAction(slot) then return end
@@ -398,11 +392,9 @@ local function ApplyGCD()
     for _, e in ipairs(gcdButtons) do ApplyToButton(e.btn, e.cd) end
 end
 
--- ★ [AN-11] The reason ACTIONBAR_UPDATE_COOLDOWN no longer calls ApplyGCD. Every button
--- built from ActionBarButtonTemplate is already repainted by the per-button hook, so
--- sweeping the whole list on that event was doing the identical work a second time,
--- hundreds of times a second. Only LibActionButton bars still need the sweep, and on the
--- shipped UI there are none -- so this is a length check and a return.
+-- ★ [AN-11] Buttons built from ActionBarButtonTemplate are already repainted by the
+-- per-button hook below, so only LibActionButton bars need this sweep -- and on the
+-- shipped UI there are none, so it is a length check and a return.
 local function ApplyForeign()
     if #gcdForeign == 0 then return end
     if not db.showGcd then return end
@@ -483,11 +475,9 @@ end
 -- about our GCD and would wipe the swipe the moment anything else changed. Put
 -- it back for the remainder of the window.
 --
--- ★ [AN-11] THIS IS NOW THE ONLY STEADY-STATE PAINTER, and Blizzard calls it once per
--- button out of its own ACTIONBAR_UPDATE_COOLDOWN handler. Two costs used to ride along
--- on every button on every event and both are gone: a throwaway table for the arguments,
--- and a GetName() + concat + global lookup to re-find a cooldown frame that never moves.
--- cdOf answers that once per button for the life of the session.
+-- ★ [AN-11] THIS IS THE ONLY STEADY-STATE PAINTER, and Blizzard calls it once per
+-- button out of its own ACTIONBAR_UPDATE_COOLDOWN handler. cdOf resolves each button's
+-- cooldown frame once for the life of the session, not once per event.
 --
 -- ⚠ cdOf is a side table on purpose. Stashing the frame on the button itself is the
 -- obvious version and it taints a secure frame -- this UI already logs ADDON_ACTION_BLOCKED
@@ -578,10 +568,9 @@ ev:SetScript("OnEvent", function(self, e, a1, a2)
         -- for the quiet variant, which does not always carry a name.
         if a1 == "player" and (a2 == nil or a2 == sentName) then sentName = nil end
     elseif e == "ACTIONBAR_UPDATE_COOLDOWN" then
-        -- ★ [AN-11] Was ApplyGCD() -- a sweep of every button on the bar, on an event the
-        -- client fires hundreds of times a second in combat, redoing work the per-button
-        -- hook had already done a moment earlier. Now only the bars Blizzard does not
-        -- repaint for us, which on the shipped UI is none of them.
+        -- ⚠ Only the bars Blizzard does not repaint for us. This event fires hundreds
+        -- of times a second in combat, so a full-bar sweep here redoes work the
+        -- per-button hook has already done.
         ApplyForeign()
     elseif e == "ACTIONBAR_SLOT_CHANGED" then
         -- slot 0 (or none) means "everything changed"

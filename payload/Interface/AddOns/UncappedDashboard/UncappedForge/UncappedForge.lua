@@ -1476,25 +1476,11 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
         -- 6-field rows carry the step kind and a preset label (harvest steps have
         -- no spell to name themselves from); label is last and may contain commas,
         -- so it is parsed as "up to the ;".
-        --
-        -- Falls back to the legacy 4-field row, so this addon keeps working against
-        -- a server that has not been updated yet -- otherwise publishing the client
-        -- ahead of the server empties the "Will also make first" list. Same
-        -- backward-compatible parse the Vault window uses for its row format.
-        local any6 = false
         for spell, item, crafts, depth, kind, label in
             body:gmatch("(%d+),(%d+),(%d+),(%d+),(%d+),([^;]*);") do
-            any6 = true
             staging.steps[#staging.steps + 1] = { spell = tonumber(spell), item = tonumber(item),
                 crafts = tonumber(crafts), depth = tonumber(depth), kind = tonumber(kind),
                 label = (label ~= "" and label) or nil }
-        end
-
-        if not any6 then
-            for spell, item, crafts, depth in body:gmatch("(%d+),(%d+),(%d+),(%d+);") do
-                staging.steps[#staging.steps + 1] = { spell = tonumber(spell), item = tonumber(item),
-                    crafts = tonumber(crafts), depth = tonumber(depth), kind = 0 }
-            end
         end
 
     elseif body:find("^FRGPLANNEED:") then

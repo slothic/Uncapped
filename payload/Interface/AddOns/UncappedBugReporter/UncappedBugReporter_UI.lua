@@ -245,12 +245,3 @@ function UI.Open()
     titleBox:SetFocus()
     UpdateCounter()
 end
-
-function UI.Toggle()
-    BuildFrame()
-    if frame:IsShown() then
-        frame:Hide()
-    else
-        UI.Open()
-    end
-end

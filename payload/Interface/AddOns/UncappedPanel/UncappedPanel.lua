@@ -31,7 +31,6 @@ local DEFAULTS = {
     y = 0,
     shown = true,
     aoeLoot = false,
-    visibleIcons = 10,
     layout = 4,
     orderLayout = 1,
 }
@@ -885,7 +884,7 @@ events:SetScript("OnEvent", function(_, evt, addonName)
     local eventName = evt or event
     local loadedName = addonName or arg1
     if eventName == "ADDON_LOADED" then
-        if loadedName == "Uncapped" or loadedName == "Uncapped Core" or loadedName == ADDON_NAME or loadedName == "UncappedOptions" then
+        if loadedName == ADDON_NAME or loadedName == "UncappedOptions" then
             TryBuild()
         end
     elseif eventName == "PLAYER_LOGIN" then

@@ -31,7 +31,6 @@
        time anyone looks, instead of quietly leaving a window reachable.
      ========================================================================== ]]
 
-local ADDON = "UncappedNoDungeonFinder"
 local COLOR = "|cff9CC243"
 
 -- Windows and popups that must never appear. Superset on purpose -- see the

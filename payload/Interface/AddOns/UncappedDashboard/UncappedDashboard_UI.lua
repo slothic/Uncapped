@@ -147,21 +147,6 @@ local function BuildDashboardGroup(group)
         y = y - 26
     end
 
-    -- Features that must not be one-click. Rendered as a pointer to the command
-    -- rather than a checkbox; see Core.MODULE_NOTES for why.
-    for _, note in ipairs(Core.MODULE_NOTES or {}) do
-        local label = UncappedUIKit.CreateText(group, "highlightSmall", "TOPLEFT", group, "TOPLEFT", PAD + 4, y - 4,
-            note.label)
-        label:SetWidth(140)
-        label:SetJustifyH("LEFT")
-
-        local hint = UncappedUIKit.CreateText(group, "disableSmall", "TOPLEFT", group, "TOPLEFT", PAD + 148, y - 4,
-            "type |cffffd100" .. note.hint .. "|r -- destroys items, so it is not a one-click toggle")
-        hint:SetWidth(300)
-        hint:SetJustifyH("LEFT")
-        y = y - 26
-    end
-
     -- Combat text threshold. Unlike the toggles above, this one is LIVE.
     --
     -- The value belongs to Uncapped64bitUI, which owns the floaters, and is read

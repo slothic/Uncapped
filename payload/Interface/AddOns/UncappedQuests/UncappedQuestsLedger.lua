@@ -1503,20 +1503,6 @@ function UQ.QuestsForTarget(entry)
     return out
 end
 
--- Which of a quest's objectives are already finished, keyed the way the POI
--- data keys them.
---
--- These are two different index spaces and they only agree by accident. Our own
--- objective index is the RAW TEMPLATE SLOT -- 0-3 for kill/interact objectives
--- and 4-9 for item objectives, which is how the server sends them. A POI's
--- ObjectiveIndex is a position in the quest log's objective LIST, which is
--- compacted: empty slots are skipped and what remains is numbered from zero,
--- kills first and then items.
---
--- "Heroes of Darrowshire" is the worked example: two item objectives, so our
--- slots are 4 and 5 while the POIs are 0 and 1. Matching those raw would have
--- found nothing and kept painting both areas -- which is the bug this exists to
--- fix. Sorting by slot and taking the ordinal converts one space to the other.
 --[[ Which objectives are finished, keyed by the index quest_poi uses.
 
      ★ KEY BY THE OBJECTIVE'S REAL INDEX, NOT ITS ORDINAL POSITION.
@@ -1574,9 +1560,9 @@ function UQ.LedgerPins()
                 if mapID and mx and mx >= 0 and mx <= 1 and my >= 0 and my <= 1 then
                     out[#out + 1] = {
                         questID = q.id, title = q.title, isComplete = q.complete,
-                        slotted = q.slotted, dbcArea = p.area, map = mapID,
+                        dbcArea = p.area, map = mapID,
                         x = mx, y = my, wx = p.wx, wy = p.wy,
-                        objIndex = p.index, isTurnIn = isTurnIn,
+                        isTurnIn = isTurnIn,
                         objDone = objDoneHere,
                         -- Yards, per axis. Converted to map pixels at draw time,
                         -- since that depends on the zone's world size and the

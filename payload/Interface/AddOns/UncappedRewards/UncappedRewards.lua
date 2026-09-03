@@ -311,7 +311,7 @@ local function SetRank(level, rank, total, durationMs, bestMs)
     frame.rank:SetText(line)
 end
 
--- Prefix for the whole server->client pipe (see the transport note below).
+-- Prefix for the whole server->client pipe.
 local ADDON_PIPE_PREFIX = "UNC"
 
 local listener = CreateFrame("Frame")
@@ -352,13 +352,7 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         return
     end
 
-    -- ONE transport. The per-player chat channel this used to also listen on was
-    -- retired when the server moved the whole UNC pipe to CHAT_MSG_ADDON
-    -- (ReagentBankChannelProtocol.cpp:79-96 -- SendResponse is now the only
-    -- sender and it never Say()s). The channel branch, its JoinChannelByName and
-    -- the CHAT_MSG_CHANNEL chat filter are gone: they cost every real World-chat
-    -- line a pass through a dead filter, and the join burned one of the client's
-    -- ten channel slots on a channel nothing publishes to.
+    -- ONE transport: the server sends the whole UNC pipe over CHAT_MSG_ADDON.
     --
     --   CHAT_MSG_ADDON : a1 = prefix, a2 = body
     if a1 ~= ADDON_PIPE_PREFIX then return end

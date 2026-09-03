@@ -84,19 +84,14 @@ local ui = {}                               -- every frame we build
 local list = {}                             -- filtered vendor rows, rebuilt on demand
 local view = { search = "", selected = nil, quantity = 1 }
 
--- quote[index] = { fresh = bool, asked = <GetTime()>, ... server fields ... }
+-- quote[index] = { asked = <GetTime()>, ... server fields ... }
 local quote = {}
 local pending = nil                         -- index we are mid-burst on
 local incoming = nil                        -- the quote being assembled
 
 -- Attaches the driver's OnUpdate. Forward-declared because every site that arms
 -- one of the three timers it watches lives above the driver frame itself.
---
--- The driver used to carry a permanently-installed OnUpdate that ran for the
--- whole session, accumulating a 0.2s tick to check three timers that can only be
--- armed by actually using the bulk-buy UI -- which most sessions never do. It is
--- now attached when a timer is armed and detached by the tick itself once none
--- is outstanding.
+-- Attached when a timer is armed, detached by the tick once none is outstanding.
 local ArmDriverTimer
 
 -- ---------------------------------------------------------------------------
@@ -209,7 +204,7 @@ local function RebuildList()
     local needle = view.search ~= "" and view.search:lower() or nil
 
     for index = 1, total do
-        local name, texture, price, stackCount, numAvailable, _, extendedCost = GetMerchantItemInfo(index)
+        local name, texture, price = GetMerchantItemInfo(index)
         if name then
             if not needle or name:lower():find(needle, 1, true) then
                 table.insert(list, {
@@ -218,9 +213,6 @@ local function RebuildList()
                     name = name,
                     texture = texture,
                     price = price or 0,
-                    stackCount = stackCount or 1,
-                    available = numAvailable or -1,
-                    extendedCost = extendedCost and true or false,
                 })
             end
         end
@@ -675,7 +667,6 @@ local function BuildFrame()
         Render()
     end)
     search:SetScript("OnEscapePressed", function(self) self:SetText("") self:ClearFocus() end)
-    ui.search = search
 
     local hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("LEFT", search, "LEFT", 4, 0)
@@ -829,7 +820,7 @@ end
 -- ---------------------------------------------------------------------------
 
 local function OnQuoteLine(msg)
-    local index, itemId, buyCount, copperEach, honorEach, arenaEach, stock, maxBuy, why, money, honor, arena =
+    local index, _, buyCount, copperEach, honorEach, arenaEach, stock, maxBuy, why, money, honor, arena =
         msg:match("^BVQ:(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%-?%d+):(%d+):(%a+):(%d+):(%d+):(%d+)$")
 
     if not index then return end
@@ -837,7 +828,6 @@ local function OnQuoteLine(msg)
     index = tonumber(index)
     incoming = {
         index = index,
-        itemId = tonumber(itemId),
         buyCount = tonumber(buyCount),
         copperEach = tonumber(copperEach),
         honorEach = tonumber(honorEach),
@@ -971,7 +961,6 @@ driver:RegisterEvent("CHAT_MSG_ADDON")
 driver:SetScript("OnEvent", function(self, event, a1, a2, a3, a4)
     if event == "ADDON_LOADED" then
         if a1 ~= ADDON then return end
-        UncappedBulkBuyDB = UncappedBulkBuyDB or {}
         BuildToggle()
         return
     end
@@ -1041,8 +1030,7 @@ end)
 -- reopens. Throttled to 5/sec; there is nothing here that needs a frame.
 --
 -- ATTACHED ON DEMAND. All three timers below are armed only by using the
--- bulk-buy UI, so for a session that never opens a vendor panel this script now
--- costs nothing at all instead of running every frame until logout.
+-- bulk-buy UI, so a session that never opens a vendor panel never runs this.
 local elapsedSince = 0
 local function DriverTick(self, elapsed)
     elapsedSince = elapsedSince + elapsed

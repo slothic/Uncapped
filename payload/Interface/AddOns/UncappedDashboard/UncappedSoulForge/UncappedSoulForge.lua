@@ -1631,12 +1631,6 @@ local exSrcRows, exTgtRows = {}, {}
 -- 36px taller, absorbed by the frame height bump below.
 local EXR_ROWS, EXR_H = 9, 30
 
--- The pixel budget a row's text actually has: row width 206, minus the icon and
--- its padding. Kept as a constant so fitText and the FontString widths cannot
--- drift apart -- that drift is what made the wrap invisible until a long name
--- arrived.
-local EXR_TEXT_W = 160
-
 --[[
   ★★ THE EXTRACTION LIST WAS DRAWING ROWS ON TOP OF EACH OTHER (owner screenshot,
      2026-08-16). Both font strings in a row carry SetWidth(168), and a FontString
