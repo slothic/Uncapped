@@ -1764,9 +1764,37 @@ local function OnLine(body)
     p.pending = false
     if not q then
       log("|cffffd100Could not read the consume forecast from the server.|r")
+    --[[ ⚠ A ZEROED FORECAST RIGHT AFTER A DONE IS THE SERVER'S OWN REDRAW, NOT A
+      "nothing found". RunOneShotConsume sends ICVCDONE and then immediately
+      ICVCFORECAST:<q>:<s>:0:0:0 so the button re-enables against the truth instead
+      of the numbers it was still showing. Both go out consecutively from the same
+      function with no async boundary between them, so they arrive together.
+      Without this test a SUCCESSFUL consume prints "Nothing matches that rarity"
+      directly underneath "Rendered 41 pieces into 9,300,000 souls", which reads as
+      a bug. The window is generous on purpose -- it costs nothing, because a real
+      user-initiated forecast cannot land within it.                             ]]
+    elseif tonumber(pieces) == 0 and state.vc.doneAt
+           and ((GetTime() or 0) - state.vc.doneAt) < 3 then
+      -- the redraw; the ICVCDONE line above it already said what happened
+
+    --[[ ★ ICVCFORECAST:0:0:0:0:0 IS THE EXPIRY REPLY, NOT A FORECAST.
+      A confirm with no live arm -- expired, already answered, or never armed --
+      answers with literal zeros for quality and scope, because the server never
+      got as far as reading the arm. Quality 0 is not a value the forecast form
+      can ever return (only 2/3/4/9 are accepted), so this is unambiguous.       ]]
+    elseif q == "0" then
+      log("That confirmation expired -- nothing was consumed. Press the button again.")
+
+    --[[ ⚠ A zeroed forecast WITH a real quality has two causes that are identical
+      on the wire: nothing of that rarity was found, OR the forge was already
+      walking your vault and refused the press (it shares one in-flight guard with
+      the standing sweep, the junk render and soulbind-all). The server explains
+      which in chat; the addon channel cannot tell them apart, so the wording
+      covers both rather than asserting the wrong one.                          ]]
     elseif tonumber(pieces) == 0 then
-      log("Nothing matches that rarity " ..
-          (tonumber(sc) == 1 and "in your Vault or bags." or "in your Vault."))
+      log("Nothing to consume there right now -- either you have no " ..
+          "gear of that rarity " .. (tonumber(sc) == 1 and "in your Vault or bags"
+          or "in your Vault") .. ", or the forge is still busy. Check the chat line.")
     else
       local QNAME = { ["2"] = "GREEN (uncommon)", ["3"] = "BLUE (rare)", ["4"] = "PURPLE (epic)",
                       ["9"] = "WHITE, GREEN, BLUE and PURPLE" }
@@ -1786,9 +1814,17 @@ local function OnLine(body)
   elseif cmd == "ICVCDONE" then
     local pieces, souls = rest:match("^(%d+):(%d+)$")
     if pieces then
-      log(string.format("Rendered %s piece(s) into %s souls.",
-                        groupDigits(pieces), groupDigits(souls)))
-      if UI then UI:Ding() end
+      -- Stamped BEFORE anything else: the zeroing forecast redraw follows this
+      -- line immediately and is recognised by this timestamp.
+      state.vc.doneAt = GetTime() or 0
+      if tonumber(pieces) == 0 then
+        -- The re-walk found nothing left. The server has already said so in chat.
+        log("Nothing was left to consume by the time you confirmed.")
+      else
+        log(string.format("Rendered %s piece(s) into %s souls.",
+                          groupDigits(pieces), groupDigits(souls)))
+        if UI then UI:Ding() end
+      end
       send("ICSF")
     end
 

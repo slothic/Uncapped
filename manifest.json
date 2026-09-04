@@ -842,8 +842,8 @@
                   {
                       "path":  "Interface/AddOns/Moonforge/Moonforge.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Moonforge/Moonforge.lua",
-                      "sha256":  "5d27e96ef1768b2ad640d378f7044fc6250009e895d5a5e669b486ecf6c9b48c",
-                      "size":  85334
+                      "sha256":  "201bbedb7af9e43a3307700647c1a38350760ee99b6d7ad02e8201a1f4f5d103",
+                      "size":  87780
                   },
                   {
                       "path":  "Interface/AddOns/Moonforge/Moonforge.toc",
