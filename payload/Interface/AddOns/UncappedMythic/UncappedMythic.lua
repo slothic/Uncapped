@@ -1120,7 +1120,12 @@ local AFFIX = {
         name = "Frenzy",
         tag  = "You're almost not worth it.",   -- Taunt 0099
         desc = "Past 60% of the run timer, bosses deal 50% more damage for the\nrest of the fight. Dungeons only -- raid keys are untimed.",
-        counter = "A kill window, not a healing check. Hold burst for it.",
+        -- [#1284] WAS "Hold burst for it", WHICH WAS THE OPPOSITE OF THE ANSWER.
+        -- Frenzy is not a window that opens at 60% -- it is a permanent +50% boss
+        -- damage that switches on once you pass 60% of the timer and never switches
+        -- off. Banking cooldowns for it therefore GUARANTEES you enter the enraged
+        -- phase, which is exactly what the reporter worked out and we had not.
+        counter = "Beat the 60% mark. Past it, bosses hit 50% harder for the rest of\nthe run -- spend cooldowns early, do not bank them.",
         icon = "Ability_Racial_BloodRage", sound = "frenzy",
         color = { 0.95, 0.30, 0.20 },
     },

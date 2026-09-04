@@ -573,7 +573,7 @@ comms:SetScript("OnEvent", function(_, event, a1, a2)
     if prefix ~= ADDON_PIPE_PREFIX or not text then return end
     if text:sub(1, 3) ~= "SCR" then return end
 
-    --[[ [#1092] SCRDONE:<itemEntry>:<used> -- the mass-consume reply.
+    --[[ [#1092] SCRDONE:<itemEntry>:<used>:<held> -- the mass-consume reply.
 
          ★ MATCHED BEFORE THE BURST ACCUMULATOR BELOW, deliberately. Every other
            SCR verb belongs to a status burst and opens `pending` on arrival; this
@@ -582,18 +582,51 @@ comms:SetScript("OnEvent", function(_, event, a1, a2)
            the next real burst would then be merged into it instead of replacing
            it.
 
-         `used` is what the server ACTUALLY consumed, which is not necessarily what
-         the button offered -- the stack can move between the click and the call,
-         and a Scroll of Mastery with nothing left to raise may be converted rather
-         than spent. Reporting the server's number is the whole reason this is a
-         reply and not a fire-and-forget. ]]
-    local doneEntry, doneUsed = text:match("^SCRDONE:(%d+):(%d+)$")
+         ★★ [#1247] THREE FIELDS, NOT TWO -- AND THIS BLOCK HAD NEVER RUN, ONCE,
+           FOR ANYONE. The server has built SCRDONE with three fields since the verb
+           shipped (scroll_status_comms.cpp, "SCRDONE:{}:{}:{}"), while the pattern
+           here was the anchored two-field "^SCRDONE:(%d+):(%d+)$". An anchored match
+           with a trailing ":<held>" left over does not match -- so every press, for
+           every player, fell straight through this branch: no acknowledgement line,
+           no Render(), no Request(). The panel looked like it worked only because
+           the server's ordinary status burst follows a moment later.
+
+           The comment that stood here described the two-field wire as if it were
+           correct, which is exactly what let a dead branch survive being read. The
+           format is now written out at the top of this block for the next reader,
+           and it is the one the server actually sends.
+
+         `used` is what the server ACTUALLY spent, which is not necessarily what the
+         button offered -- the stack can move between the click and the call, a
+         Scroll of Mastery with nothing left to raise is CONVERTED into a Scroll of
+         the Delver instead of applied ([#986] / [#1247]) and still counts as spent,
+         and a Contagion already at its cap refuses outright.
+
+         `held` is what remains AFTER, counted server-side across bags and bank and
+         deliberately NOT the Vault. It is authoritative where our own GetItemCount
+         is merely local, so it is the number the acknowledgement quotes and the
+         number that tells "spent none because you had none" apart from "spent none
+         because none of them could do anything". ]]
+    local doneEntry, doneUsed, doneHeld = text:match("^SCRDONE:(%d+):(%d+):(%d+)$")
     if doneEntry then
-        doneEntry, doneUsed = tonumber(doneEntry), tonumber(doneUsed) or 0
+        doneEntry = tonumber(doneEntry)
+        doneUsed  = tonumber(doneUsed) or 0
+        doneHeld  = tonumber(doneHeld) or 0
         local nm = bulkName(doneEntry)
         if doneUsed > 0 then
-            DEFAULT_CHAT_FRAME:AddMessage(string.format("%s[Scrolls]|r Used |cffffffff%d|r %s.",
-                COLOR_HEAD, doneUsed, nm))
+            local left = (doneHeld > 0)
+                and string.format(" |cffffffff%d|r left.", doneHeld)
+                or " None left."
+            DEFAULT_CHAT_FRAME:AddMessage(string.format("%s[Scrolls]|r Spent |cffffffff%d|r %s.%s",
+                COLOR_HEAD, doneUsed, nm, left))
+        elseif doneHeld > 0 then
+            -- You are holding some and none of them could be spent. The server's own
+            -- line arrives just behind this one and says WHY -- every profession
+            -- capped, contagion at its cap, no bag room to convert -- so this must
+            -- not guess at a reason it cannot know.
+            DEFAULT_CHAT_FRAME:AddMessage(string.format(
+                "%s[Scrolls]|r None of your |cffffffff%d|r %s could be used.",
+                COLOR_HEAD, doneHeld, nm))
         else
             DEFAULT_CHAT_FRAME:AddMessage(COLOR_HEAD .. "[Scrolls]|r Nothing to use \226\128\148 "
                 .. "no " .. nm .. " left in your bags.")

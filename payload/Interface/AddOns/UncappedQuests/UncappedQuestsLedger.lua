@@ -1286,8 +1286,30 @@ local function OnLine(body)
         -- Pins and arrow read this too, so a fresh burst has to redraw them
         -- even when the ledger window itself is closed.
         if UQ.RefreshPins then UQ.RefreshPins() end
-        -- The ledger just changed, so the available-quest verdict is suspect.
-        if UQ.ResetVerifiedAvailable then UQ.ResetVerifiedAvailable() end
+        --[[ ★★★ [#1277] SOFT, AND THIS ONE LINE WAS THE WHOLE BUG.
+
+             "Suspect" is exactly right and the code did not say it: this used
+             to call the HARD reset, which nils the verdict AND zeroes the
+             timestamp its 60-second TTL is measured from. A ledger burst
+             arrives at most every three seconds, so the TTL could never expire
+             -- and every burst made the next scan re-ask the entire
+             continent's candidate list, unpaced, in one frame.
+
+             Measured cost on the live realm: 20,721 dropped addon commands in
+             one boot across 27 characters, 10,137 of them on one reporter over
+             34 separate minutes. It starved every OTHER Uncapped feature that
+             player used, because they all share one token bucket.
+
+             SOFT keeps the verdict, rebuilds the derived list (so a quest you
+             just accepted still leaves the arrow immediately -- that filter is
+             local), and lets a shortened TTL decide whether the server is worth
+             asking. See the big block in UncappedQuestsAvailable.lua.
+
+             ⚠ The fallback is not decoration: these two files ship together but
+               are separate files on a player's disk, and a partial publish that
+               updated only the ledger must not silently stop invalidating. ]]
+        if UQ.SoftInvalidateAvailable then UQ.SoftInvalidateAvailable()
+        elseif UQ.ResetVerifiedAvailable then UQ.ResetVerifiedAvailable() end
         return
     end
 

@@ -39,7 +39,6 @@ local BASE_TOOL_BUTTONS = {
     { id = "dungeonStats", label = "Dungeon Stats", command = ".ds",       icon = "Interface\\Icons\\INV_Misc_Note_01" },
     { id = "reset",        label = "Reset",         command = ".reset",    icon = "Interface\\Icons\\INV_Misc_Rune_01" },
     { id = "auto",         label = "Auto",          command = ".auto",     icon = "Interface\\Icons\\Ability_Rogue_Sprint" },
-    { id = "solo",         label = "Solo",          command = ".solo",     icon = "Interface\\Icons\\Ability_Warrior_BattleShout" },
     { id = "aoeLoot",      label = "Aoe Loot",      toggle = "aoeLoot",    icon = "Interface\\Icons\\INV_Misc_Bag_08" },
     { id = "statFeed",     label = "Stat Feed",     command = "/statfeed", icon = "Interface\\Icons\\INV_Misc_Book_09" },
     -- [#892] Both of these were already live on the server and neither was
@@ -75,7 +74,6 @@ end
 
 local DEFAULT_ORDER = {
     "statFeed",
-    "solo",
     "reset",
     "dungeonStats",
     "auto",

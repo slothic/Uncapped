@@ -658,6 +658,127 @@ local EQ_USE_MAX = 2
 -- [DE-15] `isWhitelistedName` was here: a linear scan over state.whitelist with
 -- no callers anywhere in client_addons/. It was superseded by the lowercase
 -- `state.wlSet` built at ICWLEND, for exactly the reason its own comment gave.
+--
+-- ★★★ [#1249] AND `state.wlSet` ALONE IS WRONG, which is what wlProtectedBy below
+--     is for. The set answers "is this item name EXACTLY a whitelist entry". The
+--     SERVER asks something else entirely:
+--
+--         ItemCustomization::IsWhitelisted  ->  lower.find(w) != npos
+--
+--     i.e. the whitelist entry is a SUBSTRING of the item name. So an account
+--     with "serpent slicer" on the list has every item whose name contains that
+--     phrase protected -- and the client drew no padlock on any of them, greyed
+--     nothing, and let the player click Unlock expecting to spend a Scroll of
+--     Extraction. The server then refused with a reason the panel did not
+--     render. That is exactly report #1249.
+--
+-- ⚠ The DE-15 performance objection is still real -- this is asked once per
+--   VISIBLE ROW on every redraw -- so the scan is memoised per item name and the
+--   memo is thrown away wholesale at ICWLEND, which is the only moment the
+--   answer can change. A player's whitelist is a handful of entries, so the scan
+--   runs once per distinct item name per whitelist version.
+
+-- Returns: the whitelist entry protecting `name`, and whether it matched
+-- EXACTLY. nil when the item is not protected.
+--
+-- The distinction matters at the toggle: ICWLREM deletes a row by its stored
+-- name, so "un-protect" only works on an exact entry. An item protected by a
+-- broader phrase has to be un-protected by editing that phrase, and saying so
+-- is far better than a button that reports success and changes nothing.
+local function wlProtectedBy(name)
+  if type(name) ~= "string" or name == "" then return nil end
+  local lower = name:lower()
+
+  if state.wlSet and state.wlSet[lower] then return lower, true end
+
+  local memo = state.wlMatch
+  if not memo then memo = {}; state.wlMatch = memo end
+
+  local hit = memo[lower]
+  if hit ~= nil then
+    if hit == false then return nil end
+    return hit, false
+  end
+
+  for _, n in ipairs(state.whitelist or {}) do
+    n = tostring(n):lower()
+    if n ~= "" and lower:find(n, 1, true) then
+      memo[lower] = n
+      return n, false
+    end
+  end
+
+  memo[lower] = false
+  return nil
+end
+
+--[[ ★★★ [#1249] SAME-NAMED PROCS, AND WHY A NAME IS NOT AN IDENTITY HERE.
+
+     Spells 16401, 17511 and 18197 are ALL literally named "Poison" in
+     Spell.dbc. procDisplayName resolves every one of them to the single word
+     "Poison", so the Unlock list showed a row reading "already unlocked --
+     Poison (On Hit)" next to a row the player could still unlock reading
+     "Poison (On Hit)", and there was no way -- none, anywhere in the UI -- to
+     tell which of the three they actually owned.
+
+     The reporter had unlocked 17511 off a Serpent Slicer three days earlier.
+     From his chair the panel was simply refusing to let him extract an item
+     that had never been extracted.
+
+     So: when a display name is shared by more than one spell the player can
+     currently SEE, the spell id is appended. Only then -- putting "#16401"
+     after every "Drain Life" would be noise on the 99% of rows that are
+     unambiguous.
+
+     ⚠ Ambiguity is judged over the collection AND the visible unlock sources
+       TOGETHER, because that is the pair of lists the player is comparing. A
+       name unique within either one but shared across both is precisely the case
+       that produced the report. ]]
+local procNameIds = {}
+
+local function rebuildProcNames()
+  local seen = {}
+  local function note(id)
+    local n = (procDisplayName({ spellId = id }) or ""):lower()
+    if n == "" then return end
+    if seen[n] == nil then seen[n] = id
+    elseif seen[n] ~= id then seen[n] = false end
+  end
+  for _, e in ipairs(state.collection or {}) do note(e.spell) end
+  for _, s in ipairs(state.exSources or {}) do note(s.spell) end
+  procNameIds = seen
+end
+
+--[[ ★★ [#1278] THE BANNED-PROC HOLDER, AND WHY IT IS A FORWARD DECLARATION.
+
+     The Extraction tab renders the disabled-effects list, and it must do so with
+     the SAME filter and the SAME row painter the pop-out window uses -- two
+     surfaces drawing one register from two code paths is how they drift.
+
+     But bpVisible / bpPaintRow / bpRowTooltip are file locals declared ~1,300
+     lines BELOW BuildExtractor, and in Lua a name referenced from a closure
+     defined above its `local` does not bind to that local at all: it compiles to
+     a read of the nil GLOBAL of the same name, forever, with no error until the
+     moment it is called. The file's own header calls this trap out for UIKit.
+
+     So the table is declared HERE and filled in down there. The closures capture
+     `bpAPI` as an upvalue and read it at call time, by which point it is
+     populated. Reordering the file would be a much larger and riskier edit for
+     the same result.
+
+  ⚠ Every consumer must therefore guard on `bpAPI` being non-nil -- it is nil
+    for the whole of load, and would be nil permanently if the assignment below
+    were ever moved or deleted. ]]
+local bpAPI
+
+-- The name to put in front of a player, disambiguated only when it has to be.
+local function procLabel(spellId)
+  local n = procDisplayName({ spellId = spellId }) or ("Spell #" .. tostring(spellId))
+  if procNameIds[n:lower()] == false then
+    return n .. " |cff808080#" .. tostring(spellId) .. "|r"
+  end
+  return n
+end
 
 local function BuildUI(parent)
   if UI then return UI end
@@ -1716,6 +1837,26 @@ local function itemDisplay(entry)
   return name or ("Item #" .. tostring(entry)), tex or QUESTION, r, g, b
 end
 
+-- [#1249] "from Serpent Slicer" -- the clause the report asked for.
+--
+-- The server has been sending source_entry in every ICCOLLROW since unlocking
+-- existed; the client parsed it, stored it, and then only ever showed it on the
+-- Collection tab's detail pane, which is not the screen anyone reads when a
+-- row refuses to unlock. Returns nil for anything unlocked before the column
+-- was recorded, and the clause is simply left off rather than replaced with the
+-- word "unknown".
+--
+-- ⚠ Below itemDisplay ON PURPOSE. A local referenced from a closure defined
+--   above its declaration reads the nil GLOBAL of that name -- the trap this
+--   file's header calls out for UIKit -- and this one would only have shown up
+--   as "from Item #7999" on the exact rows it was written for.
+local function collectedFrom(spellId, trigger)
+  local c = state.collByKey and state.collByKey[spellId .. ":" .. trigger]
+  if not c or not c.src or c.src == 0 then return nil end
+  local nm = itemDisplay(c.src)
+  return (nm and nm ~= "") and nm or nil
+end
+
 -- Wheel-scroll a FauxScrollFrame, CLAMPED.
 --
 -- Blizzard's FauxScrollFrame_OnVerticalScroll sets frame.offset from the raw value it is
@@ -1776,6 +1917,11 @@ end
 -- Collection grid geometry. 6 x 4 cells of 42px, scrolled a ROW at a time
 -- (FauxScrollFrame's unit is one row, and one row here is six icons).
 local EXC_COLS, EXC_ROWS, EXC_CELL = 6, 4, 42
+
+-- [#1278] Disabled-effects list geometry. 12 x 22 = 264px, which sits inside the
+-- 270px the unlock list (EXR_ROWS x EXR_H) already occupies, so the tab costs the
+-- panel no extra height in the Dashboard's content group.
+local EXB_ROWS, EXB_H = 12, 22
 
 -- The filter buttons across the top of the collection. `test` is handed the
 -- collection entry and answers "does this belong under that tab".
@@ -1839,22 +1985,94 @@ local function BuildExtractor(parent)
   f.sub:SetPoint("TOP", 0, yTop)
 
   -- ---- mode tabs --------------------------------------------------------
+  --
+  -- ⚠ 88 wide rather than the old 110, and the search box moved right with them.
+  --   Three tabs at 110 would have run under the search box; the alternative was
+  --   a second row of chrome above a panel that is already tight vertically in
+  --   the Dashboard's content group.
   local function ModeButton(text, mode, x)
-    local b = KitButton(f, "", 110, 22)
+    local b = KitButton(f, "", 88, 22)
      b:SetPoint("TOPLEFT", x, yTop - 18); b:SetText(text)
     b:SetScript("OnClick", function()
       state.exMode = mode
       state.collSel = nil
+      --[[ [#1278] REQUESTED LAZILY, ON FIRST SIGHT OF THE TAB.
+
+           The register is ~150 spells and arrives as about fifteen addon
+           messages. Most players never open this tab at all, so asking at
+           login -- or worse, on every zone-in alongside the rest of the
+           PLAYER_ENTERING_WORLD burst -- would spend a MEDIUM verb and a
+           fifteen-message reply on nothing, for everyone, forever. Paying it
+           on a click the player actually made is the right trade, and it is
+           the same reason the 640 KB quest-giver table is LoadOnDemand. ]]
+      if mode == "banned" and not state.bpAsked then
+        state.bpAsked = true
+        send("ICBPGET")
+
+        -- [#1277] And if that one message is dropped, ask again -- twice, with
+        -- backoff, then stop and let the panel say so. Without this the tab
+        -- would sit on "Asking the server..." forever and the player would file
+        -- the fifth report of this shape.
+        local UT = _G.UncappedThrottle
+        if UT and UT.Reask then
+          UT.Reask("banned-procs", function()
+            send("ICBPGET")
+            if EXT and EXT:IsShown() then EXT:Refresh() end
+          end, { tries = 2, base = 3, maxDelay = 8, onGiveUp = function()
+            -- Let the player try again by re-entering the tab.
+            state.bpAsked = false
+            if EXT and EXT:IsShown() then EXT:Refresh() end
+          end })
+        end
+      end
       EXT:Refresh()
     end)
     return b
   end
   f.tabColl   = ModeButton("Collection", "coll",   20)
-  f.tabUnlock = ModeButton("Unlock",     "unlock", 134)
+  f.tabUnlock = ModeButton("Unlock",     "unlock", 112)
+
+  --[[ ★★ [#1278] "Cannot see banned proc list."
+
+       IT ALREADY EXISTED. There is a "Banned Procs..." button on the Soul Forge
+       tab, a window titled "Disabled Effects", and a /bannedprocs slash command.
+       The owner could not find any of them -- which is a finding about the
+       INFORMATION ARCHITECTURE, not a missing feature, and the fix is to put it
+       where someone goes looking for it rather than to build a second one.
+
+       Here, specifically, because "why can I not extract this effect" and "which
+       effects are switched off" are the same question asked twice, and this is
+       the screen where the first one gets asked.
+
+       ⚠ NOT A DASHBOARD NAV TAB, and this is not a style preference:
+         UncappedDashboardConfig.lua records that the nav column's required
+         height reaches ~700 units at 16 entries, which collapses the whole
+         window's zoom ceiling to ~1.01 for every player. Extraction itself only
+         exists because it could take the dead `tutorial` slot. There is no free
+         slot left, so a nav tab would cost the zoom feature.
+
+       ⚠ AND NOT A SECOND WINDOW. The pop-out stays exactly as it is -- same
+         frame, same rows, same /bannedprocs -- and this tab renders the same
+         data through the same filter and the same row painter (see bpAPI). Two
+         surfaces that can drift apart is how the realm ended up with two
+         whitelists once already. ]]
+  f.tabBanned = ModeButton("Disabled",   "banned", 204)
+  -- HookScript, not SetScript: UncappedUIKit.CreateButton installs its own
+  -- OnEnter/OnLeave to drive the hover glow (Controls/Button.lua), and replacing
+  -- them would silently take the glow off this one button.
+  f.tabBanned:HookScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:SetText("Disabled effects")
+    GameTooltip:AddLine("Effects switched off on this realm -- the \"banned procs\" list. "
+      .. "An item carrying one still shows it on its tooltip, but it does nothing, "
+      .. "and it cannot be extracted or soulbound.", 0.8, 0.8, 0.8, true)
+    GameTooltip:Show()
+  end)
+  f.tabBanned:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
   -- ---- search -----------------------------------------------------------
   local search = CreateFrame("EditBox", "UncappedExtractSearch", f, "InputBoxTemplate")
-  search:SetSize(180, 20); search:SetPoint("TOPLEFT", 260, yTop - 18)
+  search:SetSize(170, 20); search:SetPoint("TOPLEFT", 300, yTop - 18)
   search:SetAutoFocus(false)
   search:SetScript("OnTextChanged", function(self)
     state.exSearch = (self:GetText() or ""):lower()
@@ -1971,8 +2189,19 @@ local function BuildExtractor(parent)
         -- what ICWLADD takes.
         local nm = itemDisplay(self.data.entry)
         if nm then
-          if state.wlSet and state.wlSet[nm:lower()] then send("ICWLREM:" .. nm)
-          else send("ICWLADD:" .. nm) end
+          local wl, exact = wlProtectedBy(nm)
+          if exact then
+            send("ICWLREM:" .. nm)
+          elseif wl then
+            -- [#1249] ICWLREM deletes a row BY NAME, so un-protecting an item
+            -- that is only covered by a broader phrase would delete nothing and
+            -- report success. Say which entry is doing it instead.
+            msg(string.format("|cffffffff%s|r is protected by the whitelist entry "
+              .. "|cffffd100%s|r. Remove that entry in the Whitelist window to unprotect it.", nm, wl))
+            return
+          else
+            send("ICWLADD:" .. nm)
+          end
           send("ICWLIST")
         end
         return
@@ -1980,8 +2209,92 @@ local function BuildExtractor(parent)
       state.exSelSrc = self.data
       EXT:Refresh()
     end)
+    -- [#1249] The row text is width-clamped and ellipsised (fitText), so the
+    -- disambiguated name and the "already unlocked, from ..." clause are exactly
+    -- the things most likely to be cut off. The tooltip is where they are
+    -- guaranteed to be readable, spell id included -- which is also the number
+    -- anyone filing a report about this will be asked for.
+    r:SetScript("OnEnter", function(self)
+      local d = self.data
+      if not d then return end
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:SetText((itemDisplay(d.entry)))
+      GameTooltip:AddLine(procLabel(d.spell) .. "  (" .. triggerLabel(d.trigger) .. ")", 0.7, 0.55, 1)
+      GameTooltip:AddLine("Spell ID " .. tostring(d.spell), 0.6, 0.6, 0.6)
+
+      if state.collSet and state.collSet[d.spell .. ":" .. d.trigger] then
+        local from = collectedFrom(d.spell, d.trigger)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("You have already unlocked this effect"
+          .. (from and (", from " .. from) or "") .. ".", 1, 0.5, 0.25, true)
+      end
+
+      local wl, exact = wlProtectedBy((itemDisplay(d.entry)))
+      if wl then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(exact
+          and "On your Soulforge whitelist, so it cannot be destroyed here."
+          or ("Protected by the whitelist entry \"" .. wl .. "\", so it cannot be destroyed here."),
+          1, 0.82, 0, true)
+      end
+      GameTooltip:Show()
+    end)
+    r:SetScript("OnLeave", function() GameTooltip:Hide() end)
     r:Hide()
     f.urows[i] = r
+  end
+
+  --[[ ---- disabled effects [#1278] --------------------------------------
+       Full width, because this mode has no detail column -- the reason sentence
+       is the second half of every row. Same footprint as the grid otherwise, so
+       only one of the three lists is ever visible.
+
+       TOPLEFT + TOPRIGHT + SetHeight, never TOPLEFT + RIGHT: anchoring RIGHT
+       also pins the frame's vertical CENTRE, which fights the TOPLEFT anchor and
+       leaves the height undefined. ]]
+  local blist = CreateFrame("ScrollFrame", "UncappedExtractBanned", f, "FauxScrollFrameTemplate")
+  blist:SetPoint("TOPLEFT", 20, yTop - 70)
+  blist:SetPoint("TOPRIGHT", -34, yTop - 70)
+  blist:SetHeight(EXB_ROWS * EXB_H)
+  blist.uncappedRowH = EXB_H
+  blist:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, EXB_H, function() if EXT then EXT:Refresh() end end)
+  end)
+  blist:SetScript("OnMouseWheel", function(self, delta)
+    wheelScroll(self, delta, self.uncappedCount or 0, EXB_ROWS, EXB_H,
+      function() if EXT then EXT:Refresh() end end)
+  end)
+  blist:Hide()
+  f.blist = blist
+
+  f.brows = {}
+  for i = 1, EXB_ROWS do
+    local r = CreateFrame("Button", nil, f)
+    r:SetHeight(EXB_H)
+    r:SetPoint("TOPLEFT", blist, "TOPLEFT", 0, -(i - 1) * EXB_H)
+    r:SetPoint("TOPRIGHT", blist, "TOPRIGHT", 0, -(i - 1) * EXB_H)
+
+    local hl = r:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetTexture(1, 1, 1, 0.10)
+
+    r.icon = r:CreateTexture(nil, "ARTWORK")
+    r.icon:SetSize(18, 18); r.icon:SetPoint("LEFT", 0, 0)
+    r.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+
+    r.name = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    r.name:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
+    r.name:SetWidth(180); r.name:SetJustifyH("LEFT")
+
+    r.reason = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    r.reason:SetPoint("LEFT", r.name, "RIGHT", 8, 0)
+    r.reason:SetPoint("RIGHT", r, "RIGHT", -4, 0)
+    r.reason:SetJustifyH("LEFT")
+
+    -- The SAME tooltip the pop-out draws, through the same function.
+    r:SetScript("OnEnter", function(self) if bpAPI then bpAPI.tip(self) end end)
+    r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    r:Hide()
+    f.brows[i] = r
   end
 
   -- ---- right-hand detail / target panel ---------------------------------
@@ -2087,8 +2400,16 @@ local function BuildExtractor(parent)
     if not s then return end
     local nm = itemDisplay(s.entry)
     if not nm then return end
-    if state.wlSet and state.wlSet[nm:lower()] then send("ICWLREM:" .. nm)
-    else send("ICWLADD:" .. nm) end
+    local wl, exact = wlProtectedBy(nm)
+    if exact then
+      send("ICWLREM:" .. nm)
+    elseif wl then
+      msg(string.format("|cffffffff%s|r is protected by the whitelist entry "
+        .. "|cffffd100%s|r. Remove that entry in the Whitelist window to unprotect it.", nm, wl))
+      return
+    else
+      send("ICWLADD:" .. nm)
+    end
     send("ICWLIST")
   end)
   f.wlBtn:SetScript("OnEnter", function(self)
@@ -2151,8 +2472,19 @@ local function BuildExtractor(parent)
 
     -- Tab highlight: the active one is disabled, which is the cheapest honest
     -- "you are here" this template gives us.
-    if mode == "coll" then self.tabColl:Disable(); self.tabUnlock:Enable()
-    else self.tabColl:Enable(); self.tabUnlock:Disable() end
+    self.tabColl:Enable(); self.tabUnlock:Enable(); self.tabBanned:Enable()
+    if mode == "coll" then self.tabColl:Disable()
+    elseif mode == "unlock" then self.tabUnlock:Disable()
+    else self.tabBanned:Disable() end
+
+    -- [#1278] Shown here rather than in two of the three branches. The Disabled
+    -- tab has no action button, no summary and no detail column, and it hides
+    -- them below -- so whichever branch does NOT re-show them would leave them
+    -- hidden for the rest of the session once the player had visited that tab.
+    self.actBtn:Show(); self.summary:Show()
+    self.detTitle:Show(); self.detSub:Show()
+    self.blist:Hide()
+    for _, r in ipairs(self.brows) do r:Hide() end
 
     for i, fl in ipairs(EXC_FILTERS) do
       if (state.exFilter or "all") == fl.key then self.filterBtns[i]:Disable()
@@ -2251,7 +2583,7 @@ local function BuildExtractor(parent)
         end
       end
 
-    else   -- ---- unlock mode ----
+    elseif mode == "unlock" then   -- ---- unlock mode ----
       self.grid:Hide()
       for _, c in ipairs(self.cells) do c:Hide() end
       self.empty:Hide()
@@ -2272,11 +2604,20 @@ local function BuildExtractor(parent)
           r.icon:SetTexture(tex)
           local known = state.collSet and state.collSet[d.spell .. ":" .. d.trigger]
           fitText(r.name, nm, 180); r.name:SetTextColor(cr, cg, cb)
-          fitText(r.sub, (known and "already unlocked -- " or "")
-            .. (procDisplayName({ spellId = d.spell }) or "?")
-            .. "  (" .. triggerLabel(d.trigger) .. ")", 180,
-            known and "|cff808080" or "|cffb384ff")
-          if state.wlSet and state.wlSet[(nm or ""):lower()] then r.lock:Show() else r.lock:Hide() end
+          --[[ ★★ [#1249] THE ROW THE REPORT WAS ABOUT.
+               It used to read "already unlocked -- Poison (On Hit)" and stop
+               there, which is unreadable when three different spells are all
+               named "Poison" and the player owns exactly one of them. procLabel
+               appends the spell id when -- and only when -- the name is shared,
+               and collectedFrom names the item the copy was pulled from. ]]
+          local sub = procLabel(d.spell) .. "  (" .. triggerLabel(d.trigger) .. ")"
+          if known then
+            local from = collectedFrom(d.spell, d.trigger)
+            sub = "already unlocked -- " .. sub .. (from and (", from " .. from) or "")
+          end
+          fitText(r.sub, sub, 180, known and "|cff808080" or "|cffb384ff")
+          -- [#1249] Substring, matching the server. See wlProtectedBy.
+          if wlProtectedBy(nm) then r.lock:Show() else r.lock:Hide() end
           if state.exSelSrc and state.exSelSrc.bag == d.bag and state.exSelSrc.slot == d.slot
              and state.exSelSrc.spell == d.spell then r.sel:Show() else r.sel:Hide() end
           r:Show()
@@ -2293,15 +2634,113 @@ local function BuildExtractor(parent)
       self.wlBtn:Show()
 
       local known = s and state.collSet and state.collSet[s.spell .. ":" .. s.trigger]
-      if s and scrolls > 0 and not known then
+      --[[ ★★ [#1249] THE PADLOCKED ROW IS NOW A DISABLED BUTTON, NOT A REFUSAL.
+
+           The server refuses a whitelisted source (UnlockProc ->
+           RefuseWhitelisted -> "whitelisted"), and it always did. The client
+           offered the button anyway, so the player clicked, braced for a scroll
+           to be spent, and got a refusal for a rule the panel had never shown
+           them -- made worse by the padlock not being drawn at all when the
+           protection came from a SUBSTRING entry rather than an exact one.
+
+           Refusing here, with the reason on screen before the click, is the
+           friendly half. RefuseWhitelisted is still the real gate. ]]
+      local wl, wlExact = nil, false
+      if s then wl, wlExact = wlProtectedBy((itemDisplay(s.entry))) end
+
+      if s and scrolls > 0 and not known and not wl then
         self.actBtn:Enable()
         self.summary:SetText(string.format("Destroy |cffffffff%s|r to learn |cffb384ff%s|r forever.",
-          (itemDisplay(s.entry)), procDisplayName({ spellId = s.spell }) or "?"))
+          (itemDisplay(s.entry)), procLabel(s.spell)))
       else
         self.actBtn:Disable()
-        if scrolls == 0 then self.summary:SetText("|cffff8040You have no Scrolls of Extraction.|r")
-        elseif known then self.summary:SetText("|cff808080You have already unlocked that effect.|r")
-        else self.summary:SetText("Choose a piece of gear to pull an effect from.") end
+        if scrolls == 0 then
+          self.summary:SetText("|cffff8040You have no Scrolls of Extraction.|r")
+        elseif not s then
+          self.summary:SetText("Choose a piece of gear to pull an effect from.")
+        elseif known then
+          -- Names WHICH "Poison" they already own, and where it came from.
+          local from = collectedFrom(s.spell, s.trigger)
+          self.summary:SetText(string.format(
+            "|cff808080You have already unlocked |r|cffb384ff%s|r|cff808080 (%s)%s.|r",
+            procLabel(s.spell), triggerLabel(s.trigger),
+            from and ("|cff808080, from |r|cffffffff" .. from .. "|r") or ""))
+        elseif wl then
+          self.summary:SetText(wlExact
+            and string.format("|cffffd100%s|r is on your Soulforge whitelist, so it cannot be "
+              .. "destroyed. Right-click the row to unprotect it.", (itemDisplay(s.entry)))
+            or string.format("|cffffd100%s|r is protected by the whitelist entry |cffffffff%s|r, "
+              .. "so it cannot be destroyed. Remove that entry in the Whitelist window first.",
+              (itemDisplay(s.entry)), wl))
+        else
+          self.summary:SetText("Choose a piece of gear to pull an effect from.")
+        end
+      end
+
+    else   -- ---- disabled effects [#1278] ----
+      self.grid:Hide()
+      for _, c in ipairs(self.cells) do c:Hide() end
+      self.ulist:Hide()
+      for _, r in ipairs(self.urows) do r:Hide() end
+      self.tgtHead:Hide(); self.tscroll:Hide()
+      for _, r in ipairs(self.trows) do r:Hide() end
+      self.srcBtn:Hide(); self.wlBtn:Hide()
+      self.actBtn:Hide(); self.summary:Hide()
+      self.detTitle:Hide(); self.detSub:Hide()
+      self.blist:Show()
+
+      -- Same sentence the pop-out leads with, because it is the thing the
+      -- original report (#688) was actually about: the client draws an item's
+      -- tooltip from its own files, so a disabled effect still LOOKS live.
+      self.sub:SetText("|cffb0b0b0Switched off on this realm. An item carrying one of these still "
+        .. "shows it on its tooltip -- the client draws that from its own files -- but the effect "
+        .. "does nothing, and it cannot be extracted or soulbound.|r")
+
+      -- The tab's own search box drives the SAME filter function the pop-out
+      -- uses, passed as an argument rather than by writing bpFilter, so the two
+      -- windows cannot fight over one string.
+      -- `or ""` matters: bpVisible treats nil as "use my own bpFilter", and
+      -- state.exSearch is nil until the player types something. Without it an
+      -- untouched search box would silently inherit the pop-out window's filter.
+      local data = (bpAPI and bpAPI.visible(state.exSearch or "")) or {}
+
+      self.blist.uncappedCount = #data
+      FauxScrollFrame_Update(self.blist, #data, EXB_ROWS, EXB_H)
+      local bo = clampOffset(self.blist, #data, EXB_ROWS)
+      for i = 1, EXB_ROWS do
+        local r, e = self.brows[i], data[i + bo]
+        if e and bpAPI then
+          bpAPI.paint(r, e)
+          r:Show()
+        else
+          r.entry = nil; r:Hide()
+        end
+      end
+
+      --[[ ★ [#1277] AN EMPTY LIST THAT SAYS WHICH KIND OF EMPTY IT IS.
+
+           "Nothing here" and "the server refused the request and nobody told
+           you" looked identical on every panel in this addon, and that is the
+           whole reason four separate reports were filed for one throttle bug.
+           Three distinguishable states, and the busy one is read live from
+           UncappedThrottle rather than latched, so it clears itself. ]]
+      local total = (bpAPI and bpAPI.count()) or 0
+      if #data == 0 then
+        local UT = _G.UncappedThrottle
+        local txt
+        if total > 0 then
+          txt = "|cff808080Nothing matches that search.|r"
+        elseif bpAPI and bpAPI.answered() then
+          txt = "|cff808080Nothing is switched off on this realm right now.|r"
+        elseif UT and UT.IsThrottled() then
+          txt = "|cffffd100" .. (UT.StatusText() or "The server is busy.") .. "|r"
+        else
+          txt = "|cff808080Asking the server\226\128\166|r"
+        end
+        self.empty:SetText(txt)
+        self.empty:Show()
+      else
+        self.empty:Hide()
       end
     end
   end
@@ -2339,6 +2778,10 @@ local function commitExtractItems()
   table.sort(sources, byName); table.sort(targets, byName)
   state.exSources = sources
   state.exTargets = targets
+  -- [#1249] Ambiguity is judged over the collection and these rows TOGETHER --
+  -- see rebuildProcNames. Both commit points have to refresh it, or a name that
+  -- only becomes ambiguous once the second list arrives stays undisambiguated.
+  rebuildProcNames()
   -- drop selections that no longer exist
   local function stillThere(list, sel, isSrc)
     if not sel then return nil end
@@ -2494,6 +2937,22 @@ local function BuildSocketUI()
     sockGearRows[i] = r
   end
   f.gearScroll = gearScroll
+
+  --[[ ⚠⚠ [#1277] THIS PANEL DREW NOTHING AT ALL WHEN THE LIST WAS EMPTY.
+
+       No string, no placeholder, not even a greyed line -- so "the server threw
+       your request away", "you own no socketable gear" and "your filter matches
+       nothing" were one identical blank rectangle. That is the exact reason a
+       throttle bug arrived as four separate reports about four features rather
+       than as one report about the throttle.
+
+       The three states are distinguished below in Refresh, and the busy one is
+       read LIVE from UncappedThrottle rather than latched, so it clears itself
+       without needing another event. ]]
+  f.gearEmpty = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  f.gearEmpty:SetPoint("TOPLEFT", gearScroll, "TOPLEFT", 2, -8)
+  f.gearEmpty:SetWidth(218); f.gearEmpty:SetJustifyH("LEFT")
+  f.gearEmpty:Hide()
 
   -- ---- left footer: colour tally ----------------------------------------
   f.tally = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -2689,6 +3148,34 @@ local function BuildSocketUI()
       end
     end
 
+    -- [#1277] Say WHICH kind of empty this is. See gearEmpty above.
+    if #gear == 0 then
+      local st = state.sockState
+      local UT = _G.UncappedThrottle
+      local txt
+      if st == "failed" then
+        txt = "|cffff8040The server did not answer.|r\n\n|cff808080Close this window and open it "
+           .. "again in a moment. If it keeps happening, /uthrottle will say whether the server is "
+           .. "dropping your requests.|r"
+      elseif st == "retrying" or (st ~= "ready" and UT and UT.IsThrottled()) then
+        txt = "|cffffd100" .. ((UT and UT.StatusText()) or "The server is busy.") .. "|r"
+      elseif st ~= "ready" then
+        txt = "|cff808080Loading your gear\226\128\166|r"
+      elseif (state.sockFilter or "") ~= "" then
+        txt = "|cff808080Nothing matches that search.|r"
+      elseif state.sockScope ~= "All" then
+        txt = "|cff808080No socketable gear " .. (state.sockScope == "Worn" and "equipped" or "in your bags")
+           .. ".|r\n\n|cff808080Press |cffffffff" .. state.sockScope .. "|r|cff808080 above to widen the scope.|r"
+      else
+        txt = "|cff808080No weapons or armour found.|r\n\n|cff808080Any weapon or armour piece can be "
+           .. "socketed with a Scroll of Socket -- it does not need to have sockets already.|r"
+      end
+      self.gearEmpty:SetText(txt)
+      self.gearEmpty:Show()
+    else
+      self.gearEmpty:Hide()
+    end
+
     self.scopeBtn:SetText(state.sockScope)
 
     local t = state.sockTally
@@ -2800,6 +3287,24 @@ end
 
 -- Rebuild the gear list from the staged ICSOCKI / ICSOCKG lines.
 local function commitSocketItems()
+  -- [#1277] ICSOCKEND is the LAST line of the burst, which is why the panel
+  -- leaves its "loading" state here and not when the first ICSOCKI lands: a
+  -- half-arrived list is still not an answer.
+  state.sockState = "ready"
+  local UT = _G.UncappedThrottle
+  if UT and UT.Settled then UT.Settled("socket-open") end
+
+  -- [#1277] The legacy rung of the re-ask ladder sends ICSOCKLIST ALONE and parks
+  -- its companion here. ICSOCKLIST is the half that ends in this ICSOCKEND, so it
+  -- is the half that unblocks the panel; ICSOCKBAG produces its own
+  -- ICSOCKGEM/ICSOCKGEMEND burst and settles nothing. Sending the second one now
+  -- rather than beside the first keeps every rung at 6 tokens instead of 12, and
+  -- it only goes out once we have proof the bucket had room for the first.
+  if state.sockLegacyBag then
+    state.sockLegacyBag = false
+    send("ICSOCKBAG")
+  end
+
   local items = {}
   for _, it in pairs(state.sockStaging) do tinsert(items, it) end
   table.sort(items, function(a, b)
@@ -2820,13 +3325,106 @@ local function commitSocketItems()
   if SOCK and SOCK:IsShown() then SOCK:Refresh() end
 end
 
+--[[ ★★ [#1277] ONE VERB, NOT TWO HEAVY ONES IN THE SAME FRAME.
+
+     This used to send ICSOCKLIST and ICSOCKBAG back to back. Both are HEAVY on
+     the server's inbound throttle (6 tokens each), so TWELVE tokens had to be
+     banked at the instant of the click, out of a 60-token burst that refills at
+     6 per second. Anyone who had zoned in, opened another panel, or simply
+     played during the preceding two seconds had one or both silently thrown
+     away -- and the socket window drew an empty gear list with no explanation
+     whatsoever.
+
+     ICSOCKWIN runs both senders server-side and is priced ONCE, at 8: more than
+     a single heavy verb because it genuinely is more work, less than two
+     because one inventory walk feeds both replies.
+
+  ⚠ The OLD pair is not dead code. The ladder below still falls back to it,
+    because it covers a second failure mode as well as the first: a client that
+    has taken this addon publish talking to a server that has not yet taken the
+    matching build. This realm ships those on separate cadences and has shipped
+    them out of order before. ]]
+local function sockRequestMerged()
+  send("ICSOCKWIN")
+end
+
+-- The old pair, SPLIT. ICSOCKLIST is the half that ends in ICSOCKEND and so the
+-- half that unblocks the panel; commitSocketItems sends the companion ICSOCKBAG
+-- once this one has actually been answered.
+local function sockRequestLegacyList()
+  state.sockLegacyBag = true
+  send("ICSOCKLIST")
+end
+
+--[[ ★★ [#1277] THE RE-ASK LADDER, AND WHY NO RUNG COSTS MORE THAN THE FIRST ASK.
+
+     The first version of this retried with the legacy pair in one frame:
+     ICSOCKLIST + ICSOCKBAG, 6 + 6 = 12 tokens, sent to answer a bucket that had
+     just refused an 8-token ICSOCKWIN. On the per-player bucket the backoff
+     usually covered the difference. On the SHARED-ADDRESS bucket -- a household,
+     a dual-boxer, anyone behind CGNAT, which is the bucket most likely to have
+     refused in the first place -- it did not: the fallback was strictly more
+     expensive than the thing that had just been denied, so the retry was more
+     likely to be dropped than the original.
+
+     Each rung is now at most what the first ask cost:
+
+       1  ICSOCKWIN            8   exactly what was refused; the right retry for
+                                   a drop, which is the common case by far
+       2  ICSOCKLIST           6   cheaper, AND the only rung a server without
+                                   ICSOCKWIN understands. Its ICSOCKBAG follows
+                                   from commitSocketItems, in a later frame.
+       3  (sends nothing)      0   see below
+
+  ★ RUNG 3 SENDS NOTHING ON PURPOSE. UncappedThrottle's tick() calls onGiveUp in
+    the SAME frame as the final attempt, so with a two-rung ladder the panel
+    painted "The server did not answer" the instant the last request went out --
+    before any reply could possibly have come back. A third rung that sends
+    nothing buys rung 2 a full backoff interval (>= 8s here, and never less than
+    the server's own retry-after) to be answered before the panel calls it. ]]
+local sockReaskLadder =
+{
+  sockRequestMerged,
+  sockRequestLegacyList,
+  function() end,
+}
+
 local function openSockets()
   BuildSocketUI()
   state.sockStaging = {}
+  state.sockLegacyBag = false
+  state.sockRung = 0
+  state.sockState = "loading"
   SOCK:Show()
   SOCK:Refresh()
-  send("ICSOCKLIST")
-  send("ICSOCKBAG")
+  sockRequestMerged()
+
+  -- [#1277] If that is dropped, walk the ladder above and only then say so,
+  -- rather than sitting on an empty list forever. Settled() in commitSocketItems
+  -- cancels the whole thing the moment the real reply lands.
+  local UT = _G.UncappedThrottle
+  if UT and UT.Reask then
+    UT.Reask("socket-open", function()
+      state.sockRung = (state.sockRung or 0) + 1
+      local rung = sockReaskLadder[state.sockRung]
+      if not rung then return end
+
+      -- The silent last rung must not repaint: there is nothing new to report.
+      if state.sockRung < #sockReaskLadder then
+        state.sockState = "retrying"
+        if SOCK and SOCK:IsShown() then SOCK:Refresh() end
+      end
+
+      rung()
+    end, { tries = #sockReaskLadder, base = 3, maxDelay = 8, onGiveUp = function()
+      -- Guarded: a reply that landed while the ladder was running has already
+      -- set "ready", and must not be overwritten with a failure.
+      if state.sockState ~= "ready" then
+        state.sockState = "failed"
+        if SOCK and SOCK:IsShown() then SOCK:Refresh() end
+      end
+    end })
+  end
 end
 
 -- ============================ banned procs [#688] =========================
@@ -2853,6 +3451,11 @@ local bpReasons = {}          -- index -> sentence, replaced wholesale per burst
 local bpEntries = {}          -- { spellId, reasonIdx, name } committed on ICBPEND
 local bpStaging = nil
 local bpFilter = ""
+-- [#1278] Has a burst ever landed? An EMPTY register and a register we have not
+-- been told about yet look identical, and the Disabled sub-tab has to render a
+-- different sentence for each -- that indistinguishability is the shape behind
+-- every "the feature is empty" report this pass closes.
+local bpAnswered = false
 
 -- Cheap and safe: GetSpellInfo returns nil for anything the client's DBC has no
 -- row for, which is the only failure mode worth handling here.
@@ -2866,16 +3469,46 @@ local function bpSpellIcon(id)
   return icon or "Interface\\Icons\\INV_Misc_QuestionMark"
 end
 
-local function bpVisible()
-  if bpFilter == "" then return bpEntries end
+-- [#1278] The query is a PARAMETER now. The pop-out passes nothing and keeps
+-- using its own bpFilter exactly as before; the Extraction tab's Disabled
+-- sub-tab passes its own search string. One filter, two windows, and neither can
+-- overwrite the other's search box -- which is what sharing bpFilter would have
+-- done the first time someone typed in either of them.
+local function bpVisible(query)
+  if query == nil then query = bpFilter end
+  if query == "" then return bpEntries end
   local out = {}
   for _, e in ipairs(bpEntries) do
     local reason = bpReasons[e.reasonIdx] or ""
-    if e.name:lower():find(bpFilter, 1, true) or reason:lower():find(bpFilter, 1, true) then
+    if e.name:lower():find(query, 1, true) or reason:lower():find(query, 1, true) then
       tinsert(out, e)
     end
   end
   return out
+end
+
+-- [#1278] One row of the register, painted. Factored out of BuildBannedProcs so
+-- the Extraction tab draws its rows through exactly this code rather than a
+-- second copy that can drift. A "row" is anything carrying .icon/.name/.reason.
+local function bpPaintRow(row, e)
+  row.entry = e
+  row.icon:SetTexture(bpSpellIcon(e.spellId))
+  row.name:SetText("|cffffffff" .. e.name .. "|r")
+  row.reason:SetText(bpReasons[e.reasonIdx] or "Disabled on this realm.")
+end
+
+-- The reason is truncated to one line in the row, so the full sentence -- and
+-- the spell id, which is what anyone reporting a problem will be asked for --
+-- lives on the tooltip.
+local function bpRowTooltip(row)
+  local e = row.entry
+  if not e then return end
+  GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+  GameTooltip:AddLine(e.name, 1, 0.82, 0)
+  GameTooltip:AddLine("Spell ID " .. tostring(e.spellId), 0.6, 0.6, 0.6)
+  GameTooltip:AddLine(" ")
+  GameTooltip:AddLine(bpReasons[e.reasonIdx] or "Disabled on this realm.", 1, 1, 1, true)
+  GameTooltip:Show()
 end
 
 local function BuildBannedProcs()
@@ -2963,19 +3596,7 @@ local function BuildBannedProcs()
     row.reason:SetPoint("RIGHT", row, "RIGHT", -4, 0)
     row.reason:SetJustifyH("LEFT")
 
-    -- The reason is truncated to one line in the row, so the full sentence (and
-    -- the spell id, which is what anyone reporting a problem will be asked for)
-    -- lives on the tooltip.
-    row:SetScript("OnEnter", function(self)
-      local e = self.entry
-      if not e then return end
-      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-      GameTooltip:AddLine(e.name, 1, 0.82, 0)
-      GameTooltip:AddLine("Spell ID " .. tostring(e.spellId), 0.6, 0.6, 0.6)
-      GameTooltip:AddLine(" ")
-      GameTooltip:AddLine(bpReasons[e.reasonIdx] or "Disabled on this realm.", 1, 1, 1, true)
-      GameTooltip:Show()
-    end)
+    row:SetScript("OnEnter", bpRowTooltip)
     row:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     row:Hide()
@@ -2992,10 +3613,7 @@ local function BuildBannedProcs()
       local row = bpRows[i]
       local e = data[i + offset]
       if e then
-        row.entry = e
-        row.icon:SetTexture(bpSpellIcon(e.spellId))
-        row.name:SetText("|cffffffff" .. e.name .. "|r")
-        row.reason:SetText(bpReasons[e.reasonIdx] or "Disabled on this realm.")
+        bpPaintRow(row, e)
         row:Show()
       else
         row.entry = nil
@@ -3024,6 +3642,12 @@ local function commitBannedProcs()
   bpReasons = bpStaging.reasons
   bpEntries = bpStaging.entries
   bpStaging = nil
+  bpAnswered = true
+
+  -- [#1277] The burst arrived, so stop the bounded re-ask. Harmless when no
+  -- re-ask is outstanding, which is the common case.
+  local UT = _G.UncappedThrottle
+  if UT and UT.Settled then UT.Settled("banned-procs") end
 
   for _, e in ipairs(bpEntries) do e.name = bpSpellName(e.spellId) end
   table.sort(bpEntries, function(a, b)
@@ -3032,6 +3656,9 @@ local function commitBannedProcs()
   end)
 
   if BP and BP:IsShown() then BP:Refresh() end
+  -- [#1278] The Extraction tab's Disabled sub-tab renders the same register, and
+  -- is very often the surface that asked for it.
+  if EXT and EXT:IsShown() and state.exMode == "banned" then EXT:Refresh() end
 end
 
 local function openBannedProcs()
@@ -3040,6 +3667,27 @@ local function openBannedProcs()
   BP:Refresh()
   send("ICBPGET")
 end
+
+--[[ ★★ [#1278] FILLING IN THE HOLDER DECLARED AT THE TOP OF THE FILE.
+
+     Read the comment on `local bpAPI` up there before touching this: the whole
+     reason it is a forward declaration is that BuildExtractor is defined ~1,300
+     lines above these functions, and a closure that names a local declared below
+     it silently reads a nil GLOBAL instead.
+
+     Everything here is a REFERENCE to the pop-out's own machinery, never a copy.
+     If a future change makes the two lists disagree, it will be because
+     something was added beside this table rather than inside it. ]]
+bpAPI = {
+    visible  = bpVisible,
+    paint    = bpPaintRow,
+    tip      = bpRowTooltip,
+    -- Functions rather than values: both tables are REPLACED wholesale by
+    -- commitBannedProcs, so capturing them here would freeze the empty ones the
+    -- file loaded with.
+    count    = function() return #bpEntries end,
+    answered = function() return bpAnswered end,
+}
 
 -- ============================ receive =====================================
 local function OnLine(body)
@@ -3153,6 +3801,10 @@ local function OnLine(body)
     --   lag once someone has a long whitelist.
     state.wlSet = {}
     for _, n in ipairs(state.whitelist) do state.wlSet[tostring(n):lower()] = true end
+    -- [#1249] The substring memo wlProtectedBy builds is only valid for the list
+    -- it was built from. This is the one moment that list changes, so it is the
+    -- one place the memo has to go.
+    state.wlMatch = {}
     if WLM then WLM:Update() end
     if EXT and EXT:IsShown() then EXT:Refresh() end
   elseif cmd == "ICINAME" then          -- <name>  item-name search hit
@@ -3302,9 +3954,16 @@ local function OnLine(body)
     -- Same reasoning as wlSet: the Unlock list asks "do I already know this?" for
     -- every visible row on every redraw.
     state.collSet = {}
+    -- [#1249] The ROW as well as the flag. collSet answers "do I know this", which
+    -- is all the greying-out ever needed; naming the item it came from needs the
+    -- source_entry the server has been sending in ICCOLLROW all along and the
+    -- client was dropping on the floor everywhere except one detail pane.
+    state.collByKey = {}
     for _, e in ipairs(state.collection) do
       state.collSet[e.spell .. ":" .. e.trigger] = true
+      state.collByKey[e.spell .. ":" .. e.trigger] = e
     end
+    rebuildProcNames()
     -- Sorted by name so the grid has a stable, readable order rather than
     -- whatever order the rows happened to arrive in.
     table.sort(state.collection, function(a, b)
@@ -3433,7 +4092,38 @@ local function OnLine(body)
       -- someone's worn gear, and it should read like a reason.
       msg("|cffff8040You are wearing that. Unlocking destroys the item -- take it off first if you really mean to.|r")
     elseif reason == "already_known" then
-      msg("|cffff8040You have already unlocked that effect.|r")
+      --[[ ★★ [#1249] NAMES WHICH ONE, AND WHERE IT CAME FROM.
+
+           "You have already unlocked that effect" is unanswerable when spells
+           16401, 17511 and 18197 are all literally named "Poison" and the player
+           owns exactly one of them. The selected row IS the request that was
+           refused, so the collection entry behind it can be named -- with its
+           spell id when the name is shared, and with the item it was first
+           pulled from. That sentence is the whole of report #1249. ]]
+      local s = state.exSelSrc
+      if s then
+        local from = collectedFrom(s.spell, s.trigger)
+        msg("|cffff8040You have already unlocked|r |cffb384ff" .. procLabel(s.spell)
+          .. "|r |cffff8040(" .. triggerLabel(s.trigger) .. ")|r"
+          .. (from and (" |cffff8040from|r |cffffffff" .. from .. "|r") or ""))
+      else
+        msg("|cffff8040You have already unlocked that effect.|r")
+      end
+    elseif reason == "whitelisted" then
+      --[[ [#1249] DELIBERATELY SILENT HERE.
+
+           ItemCustomization::RefuseWhitelisted has already PSendSysMessage'd the
+           full sentence, naming the item, before this token was sent. A second
+           line would be the same refusal printed twice.
+
+           What the CLIENT owes is the padlock it failed to draw -- the server
+           matches whitelist entries as SUBSTRINGS and the client used to match
+           them exactly, so an item covered by a broader phrase showed no lock,
+           offered an enabled button, and got refused. wlProtectedBy now mirrors
+           the server's rule; re-asking for the list makes the panel agree with
+           it immediately rather than at the next open. ]]
+      send("ICWLIST")
+      if EXT and EXT:IsShown() then EXT:Refresh() end
     elseif reason == "item_locked" then
       msg("|cffff8040You marked that piece finished. Right-click it to unmark it first.|r")
     elseif reason == "not_unlocked" then
@@ -3473,6 +4163,20 @@ local function OnLine(body)
         cooldown = "That effect is still on cooldown.",
       }
       msg("|cffff8040" .. (m[reason] or tostring(reason)) .. "|r")
+    elseif op == "unlock" then
+      -- [#1249] Unlock had NO branch at all and fell through to the generic
+      -- "<op> failed: <token>" slug at the bottom, so a player was shown a
+      -- server-side identifier and nothing they could act on. The reasons
+      -- handled above (equipped / already_known / whitelisted / no_proc) short
+      -- circuit before this; these are the rest of what UnlockProc can return.
+      local m = {
+        parse     = "Something went wrong reading that request -- pick the row again.",
+        noplayer  = "You have to be in the world to do that.",
+        no_source = "That item is gone.",
+        no_proc   = "That item no longer carries that effect.",
+        no_scroll = "You have no Scrolls of Extraction.",
+      }
+      msg("|cffff8040Unlock failed:|r " .. (m[reason] or tostring(reason)))
     elseif op == "extract" then
       local m = {
         no_source = "The item to pull from is gone.", no_target = "The item to receive it is gone.",

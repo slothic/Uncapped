@@ -12,6 +12,17 @@ UncappedNative.lua
 # nothing in this addon -- it only hooks SendChatMessage, and `.dropcombat` being
 # reachable while dead should not rest on the UI toolkit having initialised.
 UncappedCommand.lua
+# [#1277] Shared view of server backpressure: the client half of AddonThrottle's
+# "UTHR:<retryAfterMs>" notice. Loaded here, next to UncappedCommand.lua and for
+# the same reason -- it is TRANSPORT, it depends on nothing in this addon (not
+# even UncappedUIKit), and a panel being able to say "the server is busy" should
+# not rest on the UI toolkit having initialised.
+#
+# It is in UncappedUI rather than in each addon that needs it because the state
+# it tracks is per-CLIENT, not per-panel: one bucket, one retry-after window, one
+# place that knows about it. Four separate bug reports were four features each
+# failing to notice the same drop.
+UncappedThrottle.lua
 UncappedUI.lua
 # Right after the namespace bootstrap: every other file may register a frame
 # with it, and CreateWindow does so for free.

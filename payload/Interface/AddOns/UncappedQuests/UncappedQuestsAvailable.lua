@@ -151,6 +151,115 @@ end
 -- id. Empty until the first QLOK reply lands.
 local verified, verifiedPending, verifiedAt = nil, false, 0
 
+--[[ ★★★ [#1277] THIS FILE WAS THE SINGLE BIGGEST SOURCE OF DROPPED ADDON
+     COMMANDS ON THE REALM, and the two bugs behind it are both here.
+
+     Measured on the live worldserver log for one boot: 27 distinct characters,
+     20,721 commands dropped by AddonThrottle, against a peak of 13 players
+     online. The reporter alone ate 10,137 drops spread over 34 SEPARATE
+     MINUTES -- which is the shape that matters: a bucket pinned at zero all
+     day, not one unlucky burst. Game masters hold
+     RBAC_PERM_SKIP_CHECK_CHAT_SPAM and are exempt from the throttle, which is
+     why nobody on staff could ever reproduce any of it.
+
+     BUG ONE -- INVALIDATION HAD ONE GEAR, AND IT WAS THE VIOLENT ONE.
+     UncappedQuestsLedger.lua calls back at the end of EVERY ledger burst, and
+     the ledger is server-throttled to one burst per three seconds. That call
+     used to run the FULL reset below: `verified` nilled AND `verifiedAt`
+     zeroed. Zeroing the timestamp is what did the damage -- it made the
+     60-second VERIFY_TTL structurally unreachable, because the clock it
+     measures was reset before it could ever expire. So every three seconds the
+     next scan re-asked the WHOLE continent's candidate list from scratch.
+
+     BUG TWO -- AND IT RE-ASKED IT IN ONE FRAME. VerifyCandidates sent one
+     QLCHK per 15 candidate ids with no pacing at all. A populated continent is
+     several hundred candidates, so a single scan emitted twenty to forty
+     messages in one frame at 2 tokens each, against a bucket of 60 that
+     refills at 6 per second. The first handful landed; everything after that
+     was thrown away, unanswered, and took the player's budget for every OTHER
+     Uncapped feature down with it.
+
+     ★★ SO INVALIDATION IS NOW TWO THINGS, and the distinction is the fix:
+
+       HARD  the verdict is WRONG and must not be used -- drop it, re-ask.
+             PLAYER_LEVEL_UP (every gate moves at once) and
+             QUEST_QUERY_COMPLETE (the completed set was replaced wholesale).
+
+       SOFT  the verdict is SUSPECT -- keep it, mark it stale, and let a much
+             shortened TTL decide whether it is worth a round trip. The ledger
+             burst and QUEST_LOG_UPDATE, i.e. everything that fires on the beat
+             rather than on a real change.
+
+     A soft invalidation still sets eligibleDirty, so BuildEligible re-runs and
+     the quest you just accepted disappears from the arrow immediately -- that
+     filtering is LOCAL (`inLog`) and costs no messages. What it no longer does
+     is spend a continent's worth of QLCHK to learn something the client
+     already knew.
+
+     ⚠ The Vault-push / QUEST_LOG_UPDATE-storm theory was investigated and is
+       REFUTED -- UncappedVault explicitly refuses to synthesise that event, and
+       its PUSH_INTERVAL_MS is 0 under a static_assert that forbids anything
+       else (a non-zero value there reintroduces a documented SIGSEGV shape).
+       Do not go back and "fix" it there.
+]]
+local verifiedStale = false
+
+-- Which map the outstanding verdict was asked FOR. The verdict is a set of
+-- quest ids drawn from ONE map's candidate bucket, so carrying it across a
+-- continent change means BuildEligible filters the new map's quests against a
+-- verdict that was never asked about them -- and, because `verified` is
+-- non-nil, never re-asks. That read to the player as the pick-up arrow simply
+-- dying for a minute after every zone-in.
+local verifiedMap
+
+--[[ ★★ THE SEND QUEUE. QLCHK messages are BUILT here and SENT by the OnUpdate
+     driver further down, a couple per second, instead of all at once.
+
+     2 per second x 2 tokens = 4 tokens/s against a 6/s refill, so the pick-up
+     arrow can now run flat out forever and still leave a third of the player's
+     budget for everything else. Before this it could exhaust a full 60-token
+     burst in a single frame.
+
+     ⚠ DRAINED OUTSIDE THE `db.availEnabled` GATE. The map's giver-pin layer
+       (UQ.AvailableGiverPins) drives BuildEligible too, so this queue can be
+       filled with the arrow switched off. Draining it only while the arrow is
+       on would park those asks forever.
+]]
+local askQueue = {}
+local askNextAt = 0
+local askActivityAt = 0
+
+-- One QLCHK carries 15 ids; a continent is tens of messages. Two per second is
+-- slow enough to be invisible in the budget and fast enough that a full
+-- continent settles inside half a minute -- against a TTL of sixty.
+local ASK_PER_SEC = 2
+
+-- ⚠ THE WATCHDOG, and it is not optional. `verifiedPending` is a re-entry guard;
+--   if it can ever get stuck true, BuildEligible stops re-asking and the feature
+--   is dead until /reload. A dropped LAST chunk produces exactly that -- its
+--   QLOKEND never arrives, so nothing ever clears the guard. Any silence this
+--   long with an empty queue finalises the batch instead.
+local ASK_SILENCE = 10
+
+-- The server's verdict has a shelf life. Quest-log changes and levelling are
+-- re-asked immediately, but availability also moves on reputation, skill, and
+-- chains completed elsewhere -- none of which raise an event this addon sees.
+-- Left alone, the set silently ages and the arrow keeps pointing at givers whose
+-- quests are long gone.
+local VERIFY_TTL = 60
+
+-- The stale TTL, used after a SOFT invalidation. Short, because something did
+-- happen and we would like to be right soon; not zero, because the whole point
+-- is that the thing which happened fires every three seconds.
+local VERIFY_TTL_STALE = 8
+
+local function VerifyFinished()
+    verifiedPending = false
+    verifiedStale = false
+    verifiedAt = GetTime()
+    eligibleDirty = true
+end
+
 -- The client CANNOT decide this on its own. Prerequisite chains, exclusive
 -- groups, class/skill/reputation gates and quest-chain state are all server
 -- side; a local guess at level and race points the player at quest givers who
@@ -158,6 +267,14 @@ local verified, verifiedPending, verifiedAt = nil, false, 0
 local function VerifyCandidates(ids)
     if #ids == 0 or verifiedPending then return end
     verifiedPending = true
+
+    -- ⚠ Stamped NOW, not when the batch finishes. The TTL check in Scan reads
+    --   this, and a batch that takes twenty seconds to drain would otherwise be
+    --   measured against a timestamp of 0 the moment its first chunk answered --
+    --   i.e. instantly expired, hard-reset mid-drain, and re-asked forever.
+    verifiedAt = GetTime()
+    askActivityAt = verifiedAt
+    askNextAt = 0
 
     -- Sent as questId,giverEntry pairs. The entry lets the server confirm that
     -- giver actually offers the quest right now, which is the only way to catch
@@ -168,9 +285,29 @@ local function VerifyCandidates(ids)
         local e = UncappedQuestGivers and UncappedQuestGivers[ids[i]]
         chunk[#chunk + 1] = ids[i] .. "," .. tostring((e and e[9]) or 0)
         if #chunk >= 15 or i == #ids then
-            if UQ.Send then UQ.Send("QLCHK:" .. table.concat(chunk, ",")) end
+            askQueue[#askQueue + 1] = "QLCHK:" .. table.concat(chunk, ",")
             chunk = {}
         end
+    end
+end
+
+-- Called every frame by the driver below. Sends at most one queued QLCHK per
+-- 1/ASK_PER_SEC seconds, and finalises a batch whose tail never came back.
+local function DrainAskQueue()
+    local now = GetTime()
+
+    if #askQueue > 0 then
+        if now >= askNextAt then
+            local body = table.remove(askQueue, 1)
+            if UQ.Send then UQ.Send(body) end
+            askActivityAt = now
+            askNextAt = now + (1 / ASK_PER_SEC)
+        end
+        return
+    end
+
+    if verifiedPending and (now - askActivityAt) > ASK_SILENCE then
+        VerifyFinished()
     end
 end
 
@@ -179,16 +316,57 @@ function UQ.OnVerifiedAvailable(list, done)
     for id in tostring(list):gmatch("%d+") do
         verified[tonumber(id)] = true
     end
+
+    askActivityAt = GetTime()
+
+    -- Show what has been ruled on so far rather than nothing until the last
+    -- chunk lands. Cheap: eligibleDirty is only CONSUMED on the 3-second scan
+    -- tick, so however many chunks arrive it costs at most one extra rebuild
+    -- per three seconds.
+    eligibleDirty = true
+
     if done then
-        verifiedPending = false
-        verifiedAt = GetTime()
-        eligibleDirty = true
+        --[[ ⚠⚠ [#1277] QLOKEND IS PER CHUNK, NOT PER BATCH.
+
+             quest_ledger_comms_playerscript.cpp sends QLOK+QLOKEND at the end
+             of every single QLCHK it handles. That was invisible while the
+             whole batch went out in one frame -- the guard cleared after the
+             last reply either way. The moment sending is PACED it becomes a
+             live bug: the first chunk's QLOKEND would clear `verifiedPending`
+             while twenty more were still queued, BuildEligible would see an
+             idle verifier and start a SECOND batch on top of the first, and
+             the pacing would be defeated by the thing it was added for.
+
+             So the guard clears on the QUEUE being empty as well. Fixed here
+             rather than server-side because a one-QLOKEND-per-batch server
+             would break every already-shipped client that expects one per
+             chunk. ]]
+        if #askQueue == 0 then
+            VerifyFinished()
+        end
     end
 end
 
+--[[ HARD invalidation: the verdict is wrong, drop it and ask again.
+
+     ⚠ Reserved for the events where every gate really did move at once --
+       PLAYER_LEVEL_UP and QUEST_QUERY_COMPLETE. Anything that fires on a timer
+       must use UQ.SoftInvalidateAvailable instead; calling this one on the
+       ledger beat is precisely the bug #1277 was.
+]]
 function UQ.ResetVerifiedAvailable()
     verified, verifiedPending = nil, false
-    verifiedAt = 0
+    verifiedAt, verifiedStale = 0, false
+    verifiedMap = nil
+
+    -- Anything still queued was built for the verdict we are throwing away, so
+    -- sending it would spend budget on an answer nobody will read.
+    --
+    -- ⚠ Chunks already ON THE WIRE cannot be recalled, and their QLOK replies
+    --   will land against the NEXT batch. Benign, and deliberately not worth a
+    --   generation counter: the ids are additive, so the worst case is a batch
+    --   finalising one chunk early and the shortened stale TTL asking again.
+    for i = #askQueue, 1, -1 do askQueue[i] = nil end
 
     -- `eligible` is DERIVED from the verdict, so dropping one must drop the
     -- other. Without this, Scan happily kept using a list built from a verdict
@@ -199,14 +377,33 @@ function UQ.ResetVerifiedAvailable()
     eligibleDirty = true
 end
 
--- The server's verdict has a shelf life. Quest-log changes and levelling are
--- re-asked immediately, but availability also moves on reputation, skill, and
--- chains completed elsewhere -- none of which raise an event this addon sees.
--- Left alone, the set silently ages and the arrow keeps pointing at givers whose
--- quests are long gone.
-local VERIFY_TTL = 60
+--[[ SOFT invalidation: the verdict is SUSPECT, not wrong.
+
+     Keeps the verdict, marks it stale so the shortened TTL applies, and
+     rebuilds `eligible` -- which is the part that actually matters to the
+     player, because dropping the quest they just accepted out of the arrow is
+     a LOCAL filter (`inLog`) and costs no server messages at all.
+
+     This is what the ledger burst and QUEST_LOG_UPDATE call. Both fire on the
+     beat rather than on a real change in availability.
+]]
+function UQ.SoftInvalidateAvailable()
+    -- Nothing to make stale yet, and nothing to gain from asking sooner.
+    if not verified then return end
+
+    verifiedStale = true
+    eligibleDirty = true
+end
 
 local function BuildEligible(mapID)
+    -- ⚠ A verdict asked about ANOTHER map's candidates answers nothing about
+    --   this one, and because it is non-nil it also stops the re-ask below from
+    --   ever firing. That left the pick-up arrow blank after every continent
+    --   change until the 60s TTL happened to expire.
+    if verified and verifiedMap ~= mapID and not verifiedPending then
+        UQ.ResetVerifiedAvailable()
+    end
+
     eligible, eligibleMap, eligibleDirty = {}, mapID, false
 
     local bucket = byMap and byMap[mapID]
@@ -243,6 +440,7 @@ local function BuildEligible(mapID)
 
     if not verified then
         VerifyCandidates(candidates)
+        verifiedMap = mapID
         return          -- nothing shown until the server has ruled
     end
 
@@ -312,7 +510,14 @@ local function Scan(player)
     if not player then return end
 
     -- Age out a stale verdict even when nothing raised an event.
-    if verified and (GetTime() - verifiedAt) > VERIFY_TTL then
+    --
+    -- ⚠ `not verifiedPending` is load-bearing, not tidiness. A batch takes
+    --   seconds to drain now, and `verified` becomes non-nil on its FIRST chunk
+    --   -- so without this guard the very next scan would age out a verdict that
+    --   is still arriving, hard-reset it, and re-ask the whole continent. That
+    --   is an infinite re-ask loop, i.e. a worse version of the bug being fixed.
+    local ttl = verifiedStale and VERIFY_TTL_STALE or VERIFY_TTL
+    if verified and not verifiedPending and (GetTime() - verifiedAt) > ttl then
         UQ.ResetVerifiedAvailable()
         eligibleDirty = true
     end
@@ -453,6 +658,13 @@ end
 driver:SetScript("OnUpdate", function(_, elapsed)
     local self = arrow
 
+    -- ⚠ AHEAD OF THE ENABLED GATE, deliberately. UQ.AvailableGiverPins drives
+    --   BuildEligible for the map's giver-pin layer, which is a separate opt-in
+    --   from the arrow -- so QLCHK work can be queued with `availEnabled` false.
+    --   Draining below the gate would park those asks until the player happened
+    --   to switch the arrow on.
+    DrainAskQueue()
+
     if not db.availEnabled then
         HideIf(self); HideIf(note)
         return
@@ -549,11 +761,23 @@ f:SetScript("OnEvent", function(_, event, arg1)
         return
     end
 
-    if event == "QUEST_LOG_UPDATE" or event == "PLAYER_LEVEL_UP" then
-        -- Taking, finishing or levelling can all change what is takeable, so
-        -- the server's verdict has to be re-asked rather than reused.
+    if event == "PLAYER_LEVEL_UP" then
+        -- HARD. A level changes minLevel, questLevel and half the satisfy chain
+        -- at once, so the whole verdict really is wrong. It also happens rarely
+        -- enough that a full re-ask costs nothing.
         UQ.ResetVerifiedAvailable()
         eligibleDirty = true
+        return
+    end
+
+    if event == "QUEST_LOG_UPDATE" then
+        -- SOFT. [#1277] This fires on accepting, abandoning, completing, an
+        -- objective ticking over, and repeatedly during a zone-in -- far more
+        -- often than availability actually moves. The part the player sees (the
+        -- quest just accepted leaving the arrow) is a LOCAL filter and needs no
+        -- server round trip; the part that does need one can wait for the
+        -- shortened stale TTL.
+        UQ.SoftInvalidateAvailable()
         return
     end
 
@@ -670,6 +894,21 @@ SlashCmdList["UNCAPPEDQAVAIL"] = function(arg)
         say(string.format("server verdict: %s   |   awaiting reply: %s",
             verified and (nVerified .. " takeable") or "NEVER REPLIED",
             tostring(verifiedPending)))
+
+        -- [#1277] The pacing state. Without this the only symptom of a starved
+        -- bucket was an arrow that pointed at nothing, which is indistinguishable
+        -- from having no quests nearby -- and that is how 20,721 dropped commands
+        -- went unnoticed for as long as they did.
+        say(string.format("queued asks: %d   |   verdict age: %s   |   %s",
+            #askQueue,
+            verifiedAt > 0 and string.format("%.0fs", GetTime() - verifiedAt) or "n/a",
+            verifiedStale and "|cffffd100STALE (short TTL)|r" or "fresh"))
+
+        local UT = _G.UncappedThrottle
+        if UT and UT.DropCount and UT.DropCount() > 0 then
+            say(string.format("|cffff8040the server has dropped %d of this session's addon "
+                .. "commands|r (/uthrottle)", UT.DropCount()))
+        end
 
         local inLog = QuestsInLog()
         local level = UnitLevel("player") or 1

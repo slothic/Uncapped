@@ -137,6 +137,37 @@ local buyableSet = {}
      ========================================================================== ]]
 local gearTargets = {}
 
+--[[ ===========================================================================
+     [#1251] WHAT KIND OF THING EACH RECIPE MAKES.
+
+     Alicia: "I love levelling professions but I struggle to find what I want if I
+     don't know the name." The window filters by profession and searches by name,
+     and neither is any use without a name. This is the third axis: category.
+
+     recipeCat[spellId] = <categoryId>, and categoryNames[<categoryId>] = "Gems".
+
+     ⚠ THE NAMES COME FROM THE SERVER (FRGCATN) AND ARE NOT INVENTED HERE. The
+       classification is a function of the product's item class, subclass and
+       inventory type, none of which this client can read: GetItemInfo returns nil
+       forever for an item that has never been in a bag, and a crafter's products
+       go straight to the Vault. Shipping an id->name table on this side as well
+       would be the same constant written in two trees with nothing that fails
+       loudly when they disagree.
+
+     `categoryOrder` keeps the server's order, which is deliberate rather than
+     alphabetical -- armour comes out head to foot.
+
+     ⚠ Replaced wholesale at FRGEND and NOT at FRGCNTEND, on exactly the same terms
+       as gearTargets: a counts refresh does not carry these rows, so committing an
+       empty staging table there would empty the dropdown on the first craft.
+
+     Empty against an old server, which leaves the dropdown showing "All categories"
+     and nothing else -- i.e. today's behaviour, with no error.
+     ========================================================================== ]]
+local recipeCat = {}
+local categoryNames = {}
+local categoryOrder = {}
+
 local filtered = {}         -- current visible subset of `recipes`
 local filteredProc = {}     -- current visible subset of `processable`
 
@@ -295,6 +326,11 @@ local function MatchesSearch(lower, fallbackId)
 end
 
 local selectedSkill = nil   -- profession tab
+-- [#1251] nil = every category. Deliberately NOT saved to `db`: it is scoped to the
+-- profession showing (Tailoring has no "Gems"), and a filter that survives a reload
+-- pointed at a category the current tab does not contain is an empty list with no
+-- visible cause -- which is the #922 complaint, one control over.
+local selectedCategory = nil
 local selectedSpell = nil
 local mats = {}             -- spellId -> { {item=, per=, have=, icon=} }
 local prodIcon = {}         -- spellId -> icon path
@@ -1024,7 +1060,13 @@ end
 -- ===========================================================================
 local staging = { profs = {}, recs = {}, steps = {}, needs = {}, proc = {}, vend = {},
                   pattr = {}, pmats = {},
-                  gear = {} }  -- [#1199] FRGGEAR rows, committed at FRGEND only
+                  gear = {},   -- [#1199] FRGGEAR rows, committed at FRGEND only
+                  -- [#1251] FRGCAT / FRGCATN rows, committed at FRGEND only.
+                  -- ⚠ The order is kept in its OWN array. Ids and array indices in
+                  --   one table would collide the moment a category id is also a
+                  --   valid position -- id 10 vs the tenth entry -- and the bug
+                  --   would be a category that silently renames itself.
+                  cat = {}, catn = {}, catorder = {} }
 local syncNeedsFull = false   -- a rank row for an unknown profession forces a full fetch
 
 -- Sorting is done once over the MASTER list, not once per filter pass. The
@@ -1145,6 +1187,11 @@ local function ApplyFilter()
     for _, recipe in ipairs(recipes) do
         local ok = (not selectedSkill) or recipe.skill == selectedSkill
 
+        -- [#1251] Composes with the profession dropdown and the search box rather
+        -- than replacing either: the category narrows what the profession chose,
+        -- and typing narrows that again.
+        if ok and selectedCategory then ok = (recipeCat[recipe.spell] == selectedCategory) end
+
         if ok then ok = MatchesSearch(RecipeNameLower(recipe), recipe.item) end
 
         if ok and db.craftableOnly then
@@ -1213,6 +1260,10 @@ end
 -- Forward locals: the comms handler below fires before these are defined, and
 -- professions/recipes arrive asynchronously after the window is already open.
 local RefreshList, RefreshDetail, RefreshProgress, BuildProfessionTabs, ResetScroll
+-- [#1251] Repopulates the category dropdown for whichever profession is showing.
+-- Forward-declared for the same reason as everything else on this line: the FRGEND
+-- handler commits the categories and has to rebuild the control immediately.
+local BuildCategoryFilter
 -- [#922] Shows/hides and repopulates the controls that belong to one list or the
 -- other. Forward-declared because the FRGPROCEND handler calls it and the UI that
 -- defines it is built several hundred lines below.
@@ -1343,6 +1394,36 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
 
         Arrives BEFORE its FRGDONE, so nothing here has to be deferred.
     ]]
+    --[[
+        [#1251] FRGCAT:spell,categoryId;...  and  FRGCATN:categoryId,name;...
+
+        What kind of thing each recipe makes, and the display name of every category
+        the burst used. Own row types for exactly the reason FRGVEND and FRGGEAR are
+        -- an 11th FRGREC field would make the anchored recipe pattern MISS and blank
+        the whole list on any client that has not updated.
+
+        ⚠ FRGCATN is matched BEFORE FRGCAT. Both are anchored, so it does not matter
+          today, but "FRGCAT" is a prefix of "FRGCATN" and a future `find` without
+          the `^` would silently route every name row into the id handler.
+
+        Staged and committed ONLY at FRGEND, never at FRGCNTEND: the counts refresh
+        does not carry these rows, and committing an empty table there would empty
+        the dropdown the first time anybody crafted anything.
+    ]]
+    elseif body:find("^FRGCATN:") then
+        for id, name in body:gmatch("(%d+),([^;]*);") do
+            local catId = tonumber(id)
+            if catId and not staging.catn[catId] then
+                staging.catn[catId] = name
+                staging.catorder[#staging.catorder + 1] = catId    -- order, as sent
+            end
+        end
+
+    elseif body:find("^FRGCAT:") then
+        for spell, id in body:gmatch("(%d+),(%d+);") do
+            staging.cat[tonumber(spell)] = tonumber(id)
+        end
+
     elseif body:find("^FRGENCHOK:") then
         local spellId, itemEntry = body:match("^FRGENCHOK:(%d+):(%d+)$")
         if spellId then
@@ -1387,6 +1468,18 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
         gearTargets = staging.gear
         staging.gear = {}
 
+        -- [#1251] Same commit point, same reason. Replaced wholesale so a category
+        -- that no longer has any recipe in it disappears from the dropdown instead
+        -- of lingering as an entry that filters to nothing.
+        recipeCat = staging.cat
+        categoryNames = staging.catn
+        categoryOrder = staging.catorder
+        staging.cat, staging.catn, staging.catorder = {}, {}, {}
+
+        -- The list this was pointing at is gone; a stale pick would show an empty
+        -- window with no way to see why.
+        selectedCategory = nil
+
         recipesBySpell = {}
         for _, recipe in ipairs(recipes) do
             recipesBySpell[recipe.spell] = recipe
@@ -1401,6 +1494,11 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
         -- asynchronously, so on the very first open there was nothing to build
         -- from yet and the window came up with no tabs at all.
         BuildProfessionTabs()
+        -- [#1251] After BuildProfessionTabs, because the profession it settles on
+        -- above is what decides which categories are on offer. RefreshProcControls
+        -- then decides whether the control is worth showing at all.
+        if BuildCategoryFilter then BuildCategoryFilter() end
+        if RefreshProcControls then RefreshProcControls() end
         ApplyFilter()
         RefreshList()
         RefreshDetail()
@@ -1804,7 +1902,17 @@ local ROWS, ROW_HEIGHT = 14, 22
 local MAX_ROWS = 30
 -- No title/banner/close row anymore (see BuildFrame) -- shifted up ~30px
 -- from the original standalone-window offsets.
-local LIST_TOP = -46
+--
+-- [#1251] Was -46, one control row. The category dropdown needs a SECOND row and
+-- there is genuinely no horizontal space left on the first: at the window's own
+-- minimum content width (GetMinWidth, 732) the profession picker, the search box,
+-- the two craftable ticks and the sort picker already run edge to edge. A 200px
+-- dropdown squeezed in there would sit on top of "...or buyable".
+--
+-- ⚠ The row is reserved whether or not the dropdown is showing. Reclaiming it on
+--   the bulk-processing tabs would make the list jump 26px every time you switched
+--   tab, which is a worse thing to look at than one row of empty space.
+local LIST_TOP = -72
 -- Space reserved at the bottom of the frame for the amount/craft/buy row,
 -- the process-mode buttons, the output checkboxes, and the progress bar --
 -- listFrame/detail stop this far above the frame's bottom edge rather than
@@ -2398,6 +2506,12 @@ function BuildProfessionTabs()
             info.func = function()
                 frame.mode = "craft"
                 selectedSkill = prof.skill
+                -- [#1251] Categories are scoped to the profession showing -- there
+                -- are no Gems under Tailoring -- so a pick made on one tab must not
+                -- survive onto another. It would filter the new tab to nothing with
+                -- nothing on screen to say why.
+                selectedCategory = nil
+                if BuildCategoryFilter then BuildCategoryFilter() end
                 -- [#922] Before ApplyFilter: the material filter only applies on the
                 -- disenchant view, and the controls have to agree with the list the
                 -- filter is about to build.
@@ -2444,6 +2558,85 @@ function BuildProfessionTabs()
 
     UIDropDownMenu_SetWidth(frame.profDrop, 190)
     UIDropDownMenu_SetText(frame.profDrop, ProfessionLabel())
+end
+
+--[[ ===========================================================================
+     [#1251] The category dropdown.
+
+     ★ ONLY THE CATEGORIES THE CURRENT PROFESSION ACTUALLY HAS. The server sends
+       every category on the realm that any of your recipes falls into -- about
+       thirty across all professions -- and offering all thirty under Cooking
+       would be a control where most entries filter to an empty list. So the
+       entries are recomputed from the recipes of the selected profession each
+       time this runs, which is on every profession switch and on every FRGEND.
+
+     ⚠ A profession with ONE category is left showing the "All categories" entry
+       alone rather than a single redundant pick. Nothing is hidden by that: the
+       list already shows exactly those recipes.
+
+     Order comes from `categoryOrder`, which is the server's send order -- chosen
+     so armour reads head to foot instead of alphabetically. Filtered here rather
+     than re-sorted, so this cannot disagree with the server about the order.
+     ========================================================================== ]]
+local function CategoryLabel()
+    if not selectedCategory then return "All categories" end
+    return categoryNames[selectedCategory] or "All categories"
+end
+
+function BuildCategoryFilter()
+    if not frame or not frame.catDrop then return end
+
+    -- Which of them this profession has anything in.
+    local present = {}
+    for _, recipe in ipairs(recipes) do
+        if (not selectedSkill) or recipe.skill == selectedSkill then
+            local catId = recipeCat[recipe.spell]
+            if catId then present[catId] = true end
+        end
+    end
+
+    local entries = {}
+    for _, catId in ipairs(categoryOrder) do
+        if present[catId] then entries[#entries + 1] = catId end
+    end
+
+    UIDropDownMenu_Initialize(frame.catDrop, function(_, level)
+        local all = UIDropDownMenu_CreateInfo()
+        all.text = "All categories"
+        all.value = 0
+        all.checked = (selectedCategory == nil)
+        all.func = function()
+            selectedCategory = nil
+            UIDropDownMenu_SetText(frame.catDrop, CategoryLabel())
+            ApplyFilter()
+            ResetScroll()
+            RefreshList()
+        end
+        UIDropDownMenu_AddButton(all, level)
+
+        for _, catId in ipairs(entries) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = categoryNames[catId] or ("category " .. catId)
+            info.value = catId
+            info.checked = (selectedCategory == catId)
+            info.func = function()
+                selectedCategory = catId
+                UIDropDownMenu_SetText(frame.catDrop, CategoryLabel())
+                ApplyFilter()
+                ResetScroll()
+                RefreshList()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+
+    UIDropDownMenu_SetWidth(frame.catDrop, 150)
+    UIDropDownMenu_SetText(frame.catDrop, CategoryLabel())
+
+    -- Remembered so RefreshProcControls can leave it hidden when there is nothing
+    -- to pick -- an old server sends no categories at all, and a dropdown offering
+    -- only "All categories" is a control that cannot do anything.
+    frame.catCount = #entries
 end
 
 -- Lives inside the Dashboard's content panel (see EmbedInto below) -- no own
@@ -2674,6 +2867,23 @@ local function BuildFrame(parent)
     matDrop:SetPoint("RIGHT", sortLabel, "LEFT", -8, 0)
     frame.matDrop = matDrop
 
+    --[[
+        [#1251] Category filter -- "I struggle to find what I want if I don't know
+        the name."
+
+        Its own row, directly under the profession picker it refines, because the
+        first row is full at the window's minimum width -- see the note on LIST_TOP.
+        Reading top to bottom it says what it does: profession, then what kind of
+        thing within it.
+
+        RefreshProcControls owns whether it is showing: craft views only, and only
+        when the profession has more than one category to choose between.
+    ]]
+    local catDrop = CreateFrame("Frame", "UncappedForgeCatDrop", frame, "UIDropDownMenuTemplate")
+    catDrop:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -36)
+    catDrop:Hide()
+    frame.catDrop = catDrop
+
     local function MaterialText()
         if db.procMaterial == 0 then return "Any material" end
         return ItemName(db.procMaterial) or ("item " .. db.procMaterial)
@@ -2748,6 +2958,23 @@ local function BuildFrame(parent)
             UIDropDownMenu_SetText(matDrop, MaterialText())
         else
             matDrop:Hide()
+        end
+
+        --[[
+            [#1251] Craft views only, and only when there is more than one category
+            to choose between.
+
+            The second half is not fussiness: an old server sends no FRGCAT rows at
+            all, and a profession can legitimately have everything in one bucket. A
+            dropdown whose only entry is "All categories" is a control that cannot
+            change anything, which is exactly the complaint #922 was filed about one
+            control over.
+        ]]
+        if not view and (frame.catCount or 0) > 1 then
+            catDrop:Show()
+            UIDropDownMenu_SetText(catDrop, CategoryLabel())
+        else
+            catDrop:Hide()
         end
 
         -- The sort dropdown stays on every tab -- it now has something real to do on
@@ -3138,6 +3365,11 @@ function Forge.UI.Activate()
     Send("FRGPROCLIST")
     if selectedSpell then Send("FRGMATS:" .. selectedSpell) end
     BuildProfessionTabs()
+    -- [#1251] Rebuilt on open as well as on FRGEND: the categories from the last
+    -- fetch are still valid, and waiting for the reply would leave the control
+    -- blank for as long as the burst takes.
+    if BuildCategoryFilter then BuildCategoryFilter() end
+    if RefreshProcControls then RefreshProcControls() end
     RefreshList()
     RefreshDetail()
     RefreshProgress()
