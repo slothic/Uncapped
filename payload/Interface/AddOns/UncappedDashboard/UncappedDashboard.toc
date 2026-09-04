@@ -10,6 +10,7 @@ UncappedDashboardConfig.lua
 UncappedDashboard.lua
 DashboardButtons.lua
 UncappedDashboard_UI.lua
+UncappedAppearance\UncappedAppearance.lua
 UncappedSoulForge\UncappedSoulForge.lua
 UncappedAnima\UncappedAnima.lua
 UncappedForge\UncappedForge.lua

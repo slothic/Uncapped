@@ -22,6 +22,36 @@ local function ApplyButtonSkin(button, theme)
     -- -- see Effects\Glow.lua -- so the stock look is unaffected and unbilled.
     if UncappedUIKit.AttachGlow then UncappedUIKit.AttachGlow(button) end
 
+    -- Decoration is built lazily HERE rather than in CreateButton, because this
+    -- function also runs on every theme change and must be able to bring a
+    -- layer into existence that the previous theme never asked for.
+    if not button.rim and UncappedUIKit.CreateNineSlice then
+        button.rim = UncappedUIKit.CreateNineSlice(button, { layer = "BORDER", sublayer = 1 })
+    end
+    if not button.gloss then
+        button.gloss = button:CreateTexture(nil, "ARTWORK")
+        -- Anchored across the TOP EDGE ONLY, so width comes from the anchors
+        -- and height stays under SetHeight's control below. Anchoring both
+        -- TOPLEFT and BOTTOMRIGHT would fully define the rect and silently make
+        -- that SetHeight a no-op -- the sheen would render as a hairline.
+        button.gloss:SetPoint("TOPLEFT", 1, -1)
+        button.gloss:SetPoint("TOPRIGHT", -1, -1)
+        button.gloss:Hide()
+    end
+
+    -- ★ The sheen is a VERTICAL gradient stretched horizontally, which is why it
+    --   is a plain stretched texture and not nine-sliced: it has no horizontal
+    --   detail to distort, so it survives any button width.
+    local gloss = theme.metrics.buttonGlossAlpha or 0
+    if theme.textures.gloss and gloss > 0 then
+        button.gloss:SetTexture(theme.textures.gloss)
+        button.gloss:SetAlpha(gloss)
+        button.gloss:SetHeight((theme.metrics.buttonGlossHeight or 0.5) * button:GetHeight())
+        button.gloss:Show()
+    else
+        button.gloss:Hide()
+    end
+
     UncappedUIKit.SetButtonActive(button, button.active)
 end
 
@@ -43,6 +73,16 @@ function UncappedUIKit.CreateButton(parent, label, width, height)
     end)
     b:SetScript("OnMouseUp", function(self)
         self.text:SetPoint("CENTER", self, "CENTER", 0, 0)
+    end)
+    -- A faint halo follows the cursor. Without this only the SELECTED button
+    -- ever reacts, and a panel full of inert buttons reads as a screenshot.
+    b:SetScript("OnEnter", function(self)
+        if UncappedUIKit.SetGlowHover and not self.uncappedDisabled then
+            UncappedUIKit.SetGlowHover(self, true)
+        end
+    end)
+    b:SetScript("OnLeave", function(self)
+        if UncappedUIKit.SetGlowHover then UncappedUIKit.SetGlowHover(self, false) end
     end)
     b.active = false
 
@@ -109,11 +149,29 @@ function UncappedUIKit.SetButtonActive(button, active)
     --   that re-asserts active state (Keystone's tab strip, the Vault's row
     --   highlighter) would repaint a disabled button as enabled -- and the theme
     --   hook calls this on every /uitheme, so it would happen on its own too.
+    -- Rounded outline. Nil texture (stock "Default") leaves it hidden and the
+    -- backdrop's own square edge remains the border, exactly as before.
+    local function paintRim(col)
+        if not button.rim then return end
+        local t = theme.textures.buttonRim
+        if t and col and (col[4] or 1) > 0 then
+            button.rim:SetTexture(t)
+            button.rim:SetVertexColor(col[1], col[2], col[3])
+            button.rim:SetAlpha(col[4] or 1)
+            button.rim:SetGeometry(0, theme.metrics.buttonCorner or 10)
+            button.rim:Show()
+        else
+            button.rim:Hide()
+        end
+    end
+
     if button.uncappedDisabled then
         button:SetBackdropColor(unpack(c.buttonFillDisabled or { 0.05, 0.05, 0.05, 0.55 }))
         button:SetBackdropBorderColor(unpack(c.buttonBorderDisabled or { 0.20, 0.18, 0.15, 0.70 }))
         if button.text then button.text:SetTextColor(unpack(c.textDisabled or { 0.5, 0.5, 0.5 })) end
         if UncappedUIKit.SetGlowActive then UncappedUIKit.SetGlowActive(button, false) end
+        paintRim(c.buttonRimDisabled)
+        if button.gloss then button.gloss:SetAlpha((theme.metrics.buttonGlossAlpha or 0) * 0.3) end
         return
     end
 
@@ -130,6 +188,8 @@ function UncappedUIKit.SetButtonActive(button, active)
         button:SetBackdropBorderColor(unpack(c.buttonBorder or { 0.30, 0.27, 0.20, 0.95 }))
         button.text:SetTextColor(unpack(c.buttonText or c.text))
     end
+
+    paintRim(button.active and c.buttonRimActive or c.buttonRim)
 
     -- The selected button is the one that breathes.
     if UncappedUIKit.SetGlowActive then UncappedUIKit.SetGlowActive(button, button.active) end

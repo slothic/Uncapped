@@ -119,11 +119,38 @@ local UIKit = _G.UncappedUIKit
 -- here turns what would be a nil-index error into a clean no-op.
 if not UIKit then return end
 
-local GOLD = UIKit.GetActiveTheme().colors.gold or { 1.00, 0.82, 0.22 }
-local BLUE = { 0.30, 0.62, 1.00 }
-local GREEN = { 0.32, 1.00, 0.20 }
-local PURPLE = { 0.68, 0.28, 1.00 }
-local RED = { 0.72, 0.10, 0.06 }
+-- ★ THE PALETTE IS LIVE, AND THE TABLES ARE REUSED IN PLACE.
+--
+--   GOLD used to be `UIKit.GetActiveTheme().colors.gold` evaluated ONCE at file
+--   load. Running /uitheme afterwards left every gold accent in this tab -- the
+--   category headings, the selected-row highlight, the Deposit button's label --
+--   frozen on whichever theme happened to be active at login, while text built
+--   through UIKit.CreateText re-skinned around them. The other four were flat
+--   literals that merely re-typed DefaultTheme's values and would drift silently
+--   the moment anyone tuned them.
+--
+--   ⚠ Refresh MUTATES these tables rather than reassigning them, because they
+--     are captured by closures and passed straight to RGB() all over this file.
+--     Rebinding the locals would leave every existing reference pointing at the
+--     old table.
+local GOLD, BLUE, GREEN, PURPLE, RED = {}, {}, {}, {}, {}
+
+local function setColor(dst, src, fallback)
+    local c = src or fallback
+    dst[1], dst[2], dst[3] = c[1], c[2], c[3]
+end
+
+local function RefreshPalette()
+    local c = (UIKit.GetActiveTheme() or {}).colors or {}
+    setColor(GOLD,   c.gold,   { 1.00, 0.82, 0.22 })
+    setColor(BLUE,   c.blue,   { 0.30, 0.62, 1.00 })
+    setColor(GREEN,  c.green,  { 0.32, 1.00, 0.20 })
+    setColor(PURPLE, c.purple, { 0.68, 0.28, 1.00 })
+    setColor(RED,    c.red,    { 0.72, 0.10, 0.06 })
+end
+
+RefreshPalette()
+if UIKit.OnThemeChanged then UIKit.OnThemeChanged(RefreshPalette) end
 
 local function RGB(c) return c[1], c[2], c[3] end
 
@@ -589,9 +616,49 @@ local function SlotText(it)
     return label
 end
 
+-- ★ THE VAULT HAD NO EMPTY STATE AT ALL. Both the list and the grid simply hid
+--   every row when there was nothing to show, leaving a blank panel under a
+--   footer that always reads "Page 1 of 1" (PageCount is max(1, ...)). Four
+--   completely different situations produced the identical picture: the vault is
+--   genuinely empty, the search matched nothing, the snapshot has not arrived
+--   yet, or the server never answered and the retry loop gave up thirty seconds
+--   ago. The player could not tell "you own nothing" from "this is broken".
+--
+--   Every sibling panel in the suite already does this -- Forge, Soul Forge and
+--   Transmog all carry an emptyText widget. This one was the outlier.
+local function UpdateEmptyState(panel, count)
+    if not panel then return end
+    if not panel.emptyText then
+        panel.emptyText = Text(panel, "GameFontNormal",
+            "CENTER", panel, "CENTER", 0, 10, "")
+        panel.emptyText:SetJustifyH("CENTER")
+    end
+    local fs = panel.emptyText
+    if (count or 0) > 0 then
+        fs:Hide()
+        return
+    end
+
+    local sync = Core.syncState
+    local searching = (Core.state.query or "") ~= ""
+        or (Core.state.category or "all") ~= "all"
+
+    if sync == "waiting" then
+        fs:SetText("Loading your Vault...")
+    elseif sync == "failed" then
+        fs:SetText("The server hasn't answered -- use the refresh button to try again.")
+    elseif searching then
+        fs:SetText("Nothing here matches what you're looking for.")
+    else
+        fs:SetText("Your Vault is empty.")
+    end
+    fs:Show()
+end
+
 local function RefreshRows()
     if not tablePanel or not tablePanel.pageText then return end
     local pageItems = Core.PageItems()
+    UpdateEmptyState(tablePanel, #pageItems)
     -- Always walks the full MAX_ROWS pool, not just the current pageSize --
     -- pageSize can shrink between refreshes (window got shorter), and rows
     -- beyond the new size need to actually hide, not just stop being touched.
@@ -678,6 +745,7 @@ function RefreshGrid()
 
     local cols = GridCols()
     local entries = Core.PageGridEntries()
+    UpdateEmptyState(gridPanel, #entries)
     local headerIndex, slotIndex = 0, 0
     -- Starts below the sort strip, not at the panel's own top edge.
     local x, y = 12, -12 - GRID_SORT_H

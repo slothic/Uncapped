@@ -60,7 +60,15 @@ Core.TABS = {
     -- for everyone. Same trade the Beastiary slot took. If a tutorial is ever
     -- built it needs the scrolling nav column first.
     { key = "extraction", label = "Extraction", addon = "UncappedSoulForge", hint = "/extract" },
-    { key = "utilities", label = "Utilities", addon = "UncappedOptions", hint = "/uncapped", disabled = true },
+    -- ★ THIS SLOT WAS "Utilities" -- a DISABLED row pointing at UncappedOptions,
+    -- which is a real addon but an ESC-menu settings hub with no UI.EmbedInto,
+    -- so the tab could never have opened anything. Taken for Appearance on
+    -- 2026-09-04 rather than adding a SIXTEENTH tab, for the reason the block
+    -- above spells out: at 16 the nav column needs ~700 units and the window's
+    -- zoom ceiling collapses to ~1.01, which ends zooming here for everyone.
+    -- Same trade the Extraction and Keystone slots already took.
+    -- UncappedOptions is untouched and still reachable via /uncapped and ESC.
+    { key = "appearance", label = "Appearance", addon = "UncappedAppearance", hint = "/dashboard" },
     -- ★ THIS SLOT WAS "Beastiary" -- a disabled placeholder with no addon behind
     -- it, never built. Taken rather than adding a SIXTEENTH tab, because the
     -- comment above is not decoration: at 16 the nav column's required height

@@ -26,6 +26,7 @@ UncappedUIKit.RegisterTheme("Default", {
         text = { 0.85, 0.85, 0.85 },
         textMuted = { 0.62, 0.62, 0.62 },
         textDisabled = { 0.50, 0.50, 0.50 },
+        textValue = { 1.00, 1.00, 0.00 },
         -- Near-white so the marble/cloud pattern in panelBG(Light) actually
         -- shows -- a dark tint here multiplies the texture toward solid
         -- black and hides the pattern entirely.
@@ -58,6 +59,32 @@ UncappedUIKit.RegisterTheme("Default", {
         -- metrics.glowAlpha is 0, but kept real so a theme that only turns the
         -- glow on still gets a sane colour.
         glow = { 0.68, 0.28, 1.00 },
+        -- Per-state halo colours. Omitted by a theme, both fall back to `glow`.
+        glowActive = { 0.68, 0.28, 1.00 },
+        glowHover = { 0.68, 0.28, 1.00 },
+        checkBoxTint = { 1, 1, 1 },
+        checkBoxTintChecked = { 1, 1, 1 },
+        checkBoxTintPushed = { 1, 1, 1 },
+        checkBoxTintHighlight = { 1, 1, 1 },
+        checkMarkTint = { 1, 1, 1 },
+        checkMarkTintDisabled = { 0.5, 0.5, 0.5 },
+        closeGlyphTint = { 1, 1, 1 },
+        closeGlyphTintHover = { 1, 1, 1 },
+        scrollThumbTint = { 1, 1, 1 },
+        scrollTrackTint = { 1, 1, 1 },
+        editBoxTint = { 1, 1, 1 },
+        editBoxIconTint = { 1, 1, 1 },
+
+        -- Decorative layers, all alpha 0 = off. A theme turns one on simply by
+        -- giving it a non-zero alpha; nothing else has to change.
+        panelRimTint = { 1, 1, 1, 0 },
+        buttonRim = { 1, 1, 1, 0 },
+        buttonRimActive = { 1, 1, 1, 0 },
+        buttonRimDisabled = { 1, 1, 1, 0 },
+        nebulaBase = { 0, 0, 0, 0 },
+        nebulaTintA = { 1, 1, 1 },
+        nebulaTintB = { 1, 1, 1 },
+        nebulaTintStars = { 1, 1, 1 },
     },
     fonts = {
         title = "GameFontNormalLarge",
@@ -77,12 +104,35 @@ UncappedUIKit.RegisterTheme("Default", {
         buttonBG = "Interface\\Buttons\\WHITE8x8",
         buttonEdge = "Interface\\Tooltips\\UI-Tooltip-Border",
         buttonHighlight = "Interface\\QuestFrame\\UI-QuestTitleHighlight",
-        rowHighlight = "Interface\\QuestFrame\\UI-QuestTitleHighlight",
         searchIcon = "Interface\\Common\\UI-Searchbox-Icon",
         resizeGripUp = "Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up",
         resizeGripHighlight = "Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight",
         resizeGripDown = "Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down",
         glow = "Interface\\AddOns\\UncappedUI\\Assets\\Frames\\Glow",
+        -- Decorative art. Present here so the keys are discoverable, but every
+        -- one is switched off below by a zero alpha/metric, so "Default" draws
+        -- none of them and stays stock.
+        panelRim = "Interface\\AddOns\\UncappedUI\\Assets\\Frames\\PanelRim",
+        panelVignette = "Interface\\AddOns\\UncappedUI\\Assets\\Frames\\PanelVignette",
+        buttonRim = "Interface\\AddOns\\UncappedUI\\Assets\\Frames\\PanelRim",
+        gloss = "Interface\\AddOns\\UncappedUI\\Assets\\Frames\\Gloss",
+        nebulaA = "Interface\\AddOns\\UncappedUI\\Assets\\Patterns\\Cloud01",
+        nebulaB = "Interface\\AddOns\\UncappedUI\\Assets\\Patterns\\Cloud11",
+        -- ⚠ A STARFIELD, not a cloud tile. This pointed at Cloud18 for a while
+        --   after the hand-authored Stars.tga was superseded by the pattern
+        --   library, which meant the star layer was quietly a third cloud and
+        --   the panel had no stars in it at all.
+        nebulaStars = "Interface\\AddOns\\UncappedUI\\Assets\\Patterns\\Star02",
+        -- Stock checkbox/close/scrollbar art. Named here so "Default" restores
+        -- Blizzard's own textures through exactly the same code path a custom
+        -- theme uses, rather than the widgets special-casing an absent key.
+        checkBox = "Interface\\Buttons\\UI-CheckBox-Up",
+        checkBoxPushed = "Interface\\Buttons\\UI-CheckBox-Down",
+        checkBoxHighlight = "Interface\\Buttons\\UI-CheckBox-Highlight",
+        checkMark = "Interface\\Buttons\\UI-CheckBox-Check",
+        closeGlyph = nil,      -- nil = keep UIPanelCloseButton's own art
+        scrollThumb = nil,
+        scrollTrack = nil,
     },
     metrics = {
         panelEdgeSize = 12,
@@ -101,5 +151,26 @@ UncappedUIKit.RegisterTheme("Default", {
         glowAlpha = 0,
         glowPulsePeriod = 0,
         glowPulseMin = 0.5,
+
+        panelCorner = 12,
+        panelVignetteAlpha = 0,
+        buttonCorner = 10,
+        buttonGlossAlpha = 0,
+        buttonGlossHeight = 0.5,
+
+        -- ★ Nebula. All three alphas at 0 means Effects\Nebula.lua never enrols
+        --   in its scroll driver at all, so the stock theme costs zero per-frame
+        --   work -- not "a cheap OnUpdate", none.
+        nebulaAlphaA = 0,
+        nebulaAlphaB = 0,
+        nebulaAlphaStars = 0,
+        nebulaSpeedA = 0.0060,
+        nebulaSpeedB = 0.0105,
+        nebulaSpeedStars = 0.0016,
+        nebulaTwinklePeriod = 0,
+        nebulaScaleA = 0.5,
+        nebulaScaleB = 0.5,
+        nebulaScaleStars = 0.5,
+        checkMarkInset = 0,
     },
 })

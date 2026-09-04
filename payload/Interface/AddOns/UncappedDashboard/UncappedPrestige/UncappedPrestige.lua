@@ -65,10 +65,37 @@ local TRANSPORT_PREFIX  = "REAGENTBANK"  -- client -> server (shared addon trans
 -- again, which is the manual retry.
 local REPLY_TIMEOUT = 6.0
 
-local COLOR_HEAD  = "|cff9CC243"   -- section headings (the StatFeed green)
-local COLOR_LABEL = "|cffffffff"
-local COLOR_VALUE = "|cffffff00"
-local COLOR_DIM   = "|cff888888"
+-- ★ Heading / label / value / dim, taken from the shared theme instead of the
+--   hand-typed hex this file used to carry. Six Dashboard tabs each had their
+--   own copy of this quadruplet and they had drifted: five headed sections in
+--   |cff9CC243 green, one in |cff33ff99 mint, while every other tab headed its
+--   sections with the theme's gold. A third of the Dashboard disagreed with the
+--   rest about what a heading looks like.
+--
+--   Snapshots, not live bindings -- Hex() returns a plain string -- so they are
+--   recomputed on /uitheme. Text already drawn keeps its old colour until the
+--   panel next re-renders, which is what every consumer here does on show.
+local COLOR_HEAD, COLOR_LABEL, COLOR_VALUE, COLOR_DIM
+local function RefreshThemeColors()
+    local Kit = _G.UncappedUIKit
+    if Kit and Kit.Hex then
+        COLOR_HEAD  = Kit.Hex("gold")
+        COLOR_LABEL = Kit.Hex("text")
+        COLOR_VALUE = Kit.Hex("textValue")
+        COLOR_DIM   = Kit.Hex("textMuted")
+    else
+        -- ⚠ MUST still assign. UncappedUI is an OptionalDep, so it can be absent
+        --   or disabled -- and every one of these is used as `COLOR_HEAD .. text`,
+        --   where a nil is not a missing colour but a Lua error that takes the
+        --   whole panel down. These literals are the pre-theme values.
+        COLOR_HEAD, COLOR_LABEL, COLOR_VALUE, COLOR_DIM =
+            "|cffffd100", "|cffffffff", "|cffffff00", "|cff888888"
+    end
+end
+RefreshThemeColors()
+if _G.UncappedUIKit and _G.UncappedUIKit.OnThemeChanged then
+    _G.UncappedUIKit.OnThemeChanged(RefreshThemeColors)
+end
 local COLOR_GOOD  = "|cff1eff00"
 local COLOR_WARN  = "|cffff6060"
 

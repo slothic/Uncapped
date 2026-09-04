@@ -56,10 +56,37 @@ local state = {
 
 local pending = nil     -- burst being assembled; swapped into `state` at SCREND
 
-local COLOR_HEAD  = "|cff33ff99"   -- section headings (matches the scroll chat colour)
-local COLOR_LABEL = "|cffffffff"
-local COLOR_VALUE = "|cffffff00"
-local COLOR_DIM   = "|cff888888"
+-- ★ Heading / label / value / dim, taken from the shared theme instead of the
+--   hand-typed hex this file used to carry. Six Dashboard tabs each had their
+--   own copy of this quadruplet and they had drifted: five headed sections in
+--   |cff9CC243 green, one in |cff33ff99 mint, while every other tab headed its
+--   sections with the theme's gold. A third of the Dashboard disagreed with the
+--   rest about what a heading looks like.
+--
+--   Snapshots, not live bindings -- Hex() returns a plain string -- so they are
+--   recomputed on /uitheme. Text already drawn keeps its old colour until the
+--   panel next re-renders, which is what every consumer here does on show.
+local COLOR_HEAD, COLOR_LABEL, COLOR_VALUE, COLOR_DIM
+local function RefreshThemeColors()
+    local Kit = _G.UncappedUIKit
+    if Kit and Kit.Hex then
+        COLOR_HEAD  = Kit.Hex("gold")
+        COLOR_LABEL = Kit.Hex("text")
+        COLOR_VALUE = Kit.Hex("textValue")
+        COLOR_DIM   = Kit.Hex("textMuted")
+    else
+        -- ⚠ MUST still assign. UncappedUI is an OptionalDep, so it can be absent
+        --   or disabled -- and every one of these is used as `COLOR_HEAD .. text`,
+        --   where a nil is not a missing colour but a Lua error that takes the
+        --   whole panel down. These literals are the pre-theme values.
+        COLOR_HEAD, COLOR_LABEL, COLOR_VALUE, COLOR_DIM =
+            "|cffffd100", "|cffffffff", "|cffffff00", "|cff888888"
+    end
+end
+RefreshThemeColors()
+if _G.UncappedUIKit and _G.UncappedUIKit.OnThemeChanged then
+    _G.UncappedUIKit.OnThemeChanged(RefreshThemeColors)
+end
 
 -- ---------------------------------------------------------------------------
 -- Window
@@ -67,6 +94,15 @@ local COLOR_DIM   = "|cff888888"
 local WIDTH, HEIGHT = 360, 454
 local ROW_H         = 14
 local FORTUNE_ROWS  = 8
+
+-- ★ Reply watchdog. Without it "Waiting for the server..." below had no time
+--   bound at all: against a server build with no SCRGET handler -- which is a
+--   SUPPORTED state, since this addon can ship in a payload before the matching
+--   worldserver is deployed -- the panel sat on that sentence forever and read
+--   as broken. Prestige and Progress already do exactly this; Scrolls and Anima
+--   were the two that never got it.
+local REPLY_TIMEOUT = 6.0
+local requested, waited, timedOut = false, 0, false
 
 local frame, fortuneScroll
 local lines = {}
@@ -230,7 +266,16 @@ local function Render()
 
     if not state.received then
         Head("Account-wide")
-        Note("Waiting for the server...")
+        if timedOut then
+            -- The honest message, matching Prestige's wording for the same
+            -- situation: a server that has not been updated for this panel is
+            -- not a fault, and must not read as one.
+            Note("This realm's server hasn't sent your scrolls. That usually means the server "
+                .. "hasn't been updated for this panel yet -- nothing is wrong with your account. "
+                .. "Reopen the tab to try again.")
+        else
+            Note("Waiting for the server...")
+        end
         for n = i, #lines do lines[n]:Hide() end
         fortuneScroll:Hide()
         for n = 1, FORTUNE_ROWS do fortuneRows[n]:Hide() end
@@ -416,6 +461,15 @@ local function BuildFrame(parent)
     if frame then return end
 
     frame = CreateFrame("Frame", "UncappedScrollsFrame", parent or UIParent)
+    -- 3.3.5a has no C_Timer, so the timeout is an OnUpdate accumulator -- the
+    -- standard shape on this client. It idles unless a request is outstanding.
+    frame:SetScript("OnUpdate", function(_, elapsed)
+        if not requested then return end
+        waited = waited + (elapsed or 0)
+        if waited < REPLY_TIMEOUT then return end
+        requested, timedOut = false, true
+        Render()
+    end)
     frame:SetPoint("TOPLEFT"); frame:SetPoint("BOTTOMRIGHT")
 
     fortuneScroll = CreateFrame("ScrollFrame", "UncappedScrollsFortuneScroll", frame, "FauxScrollFrameTemplate")
@@ -495,6 +549,7 @@ end
      it for that caller and for the [#1092] SCRDONE handler below, which needs the
      same function from a closure defined earlier in the file. ]]
 function Request()
+    requested, waited, timedOut = true, 0, false
     SendAddonMessage(TRANSPORT_PREFIX, "SCRGET", "WHISPER", UnitName("player"))
 end
 
@@ -638,6 +693,7 @@ comms:SetScript("OnEvent", function(_, event, a1, a2)
         pending.received   = true
         state   = pending
         pending = nil
+        requested, timedOut = false, false   -- an answer landed; stop the watchdog
         if frame and frame:IsShown() then Render() end
         return
     end

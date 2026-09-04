@@ -183,6 +183,10 @@ end
 -- times as the player reorders.
 local function CreateNavButton(panel, tab)
     local b = UncappedUIKit.CreateButton(panel, tab.label, BUTTON_WIDTH, BUTTON_HEIGHT)
+    -- ⚠ Deliberately NOT b:Disable(). A disabled button refuses every click,
+    --   and shift/ctrl-click on these tabs is how the player REORDERS them --
+    --   which stays useful for a tab that is not available yet. So they are
+    --   dimmed and denied the hover glow (see OnEnter) rather than disabled.
     if tab.disabled then b:SetAlpha(0.5) end
     b:SetScript("OnClick", function()
         if IsShiftKeyDown() then
@@ -194,6 +198,18 @@ local function CreateNavButton(panel, tab)
         end
     end)
     b:SetScript("OnEnter", function(self)
+        -- ★ THE HOVER HALO HAS TO BE RE-ARMED HERE. CreateButton installs its own
+        --   OnEnter/OnLeave to drive the glow, and SetScript REPLACES that rather
+        --   than adding to it -- so the moment this file attached a tooltip, the
+        --   kit's hover glow stopped firing on the fifteen buttons the player
+        --   uses most. It was dead on the main navigation and nowhere else,
+        --   which is the hardest kind of gap to notice.
+        --
+        -- ⚠ Not on a disabled tab. Those already say "Not available yet"; making
+        --   one light up under the cursor tells the player the opposite.
+        if not tab.disabled and UncappedUIKit.SetGlowHover then
+            UncappedUIKit.SetGlowHover(self, true)
+        end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText(tab.label)
         if tab.disabled then
@@ -203,7 +219,10 @@ local function CreateNavButton(panel, tab)
         GameTooltip:AddLine("Ctrl-click: move down", 0.7, 0.7, 0.7)
         GameTooltip:Show()
     end)
-    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    b:SetScript("OnLeave", function(self)
+        if UncappedUIKit.SetGlowHover then UncappedUIKit.SetGlowHover(self, false) end
+        GameTooltip:Hide()
+    end)
     return b
 end
 

@@ -1790,8 +1790,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/DashboardButtons.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/DashboardButtons.lua",
-                      "sha256":  "ab9919f1089f89c857aa4f9a7885128f7bd18fc442497786cb0879e4686aab51",
-                      "size":  21237
+                      "sha256":  "bc8127717d27e598496789e5368e58067d21be013306baa85af639df11c3c9b1",
+                      "size":  21946
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedDashboard.lua",
@@ -1802,20 +1802,20 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedDashboard.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedDashboard.toc",
-                      "sha256":  "0efeded57b99853db3a2373bf7e1ecba747583730724cb01d0b2789aa2d9e072",
-                      "size":  1890
+                      "sha256":  "1bb8e9f5aaf1b47d67bbcdd12205e6b5125c8c299fb64d4bf1151c54c56181e5",
+                      "size":  1932
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedDashboardConfig.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedDashboardConfig.lua",
-                      "sha256":  "f2e73d5b9f212dc0c593d340d26f0eabd6985afaf3c32c9935b4cb18bc4b22b6",
-                      "size":  10147
+                      "sha256":  "e0ac4ad499c2461da072b8cdbfc5c26b412f0e340e19eec7b091565d9a5182b5",
+                      "size":  10569
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedDashboard_UI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedDashboard_UI.lua",
-                      "sha256":  "0cf506d43a9b6454e4be719b7fefce715a6c4f3bbd9fefb324c344ff4753aca0",
-                      "size":  14142
+                      "sha256":  "bcb93c42f02e1ddd77e61e19529b995e139a1bd7b41e0145130517b4c04d8f9b",
+                      "size":  14339
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedNoDungeonFinder.lua",
@@ -1826,8 +1826,14 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedAnima/UncappedAnima.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedAnima/UncappedAnima.lua",
-                      "sha256":  "7e72a09c5fceff9705961d2e5060c7b6cab04e0abc07f0272d139f5562ff87ae",
-                      "size":  45563
+                      "sha256":  "14cfcd12f1ef7a05690d61fd7d6ff97b89d1885b61d52012ba17fed0b766cf9c",
+                      "size":  47395
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedDashboard/UncappedAppearance/UncappedAppearance.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedAppearance/UncappedAppearance.lua",
+                      "sha256":  "437b20d2e91859d17593599f6a786bd15c845fae1625bd60bcd1693f5bd1ffea",
+                      "size":  25946
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedForge/UncappedForge.lua",
@@ -1838,38 +1844,38 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedKeystone/UncappedKeystone.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedKeystone/UncappedKeystone.lua",
-                      "sha256":  "a89609ddd565ec70045419a835ba1f202b59afc8ff6b162143a9d6bd93dc05df",
-                      "size":  54326
+                      "sha256":  "6c1e503aeb4b55b52b9ea021ec58d068b8451beb87d023c95fb33c9fb3f2f8c7",
+                      "size":  55797
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedKeystone/UncappedKeystoneRun.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedKeystone/UncappedKeystoneRun.lua",
-                      "sha256":  "7875b5e77f026609683997b0a9d618235aab63a02bfe95926cd996e469ac514b",
-                      "size":  16176
+                      "sha256":  "967b90ceebd3c0973550ffe13219b6fb26766561a8e9065234ce239a120fadec",
+                      "size":  17647
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedKeystone/UncappedLFG.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedKeystone/UncappedLFG.lua",
-                      "sha256":  "4b203f9d2076a3506492829a5dd2c66b03f0edf499515a224616abb5b4f5cdbe",
-                      "size":  16150
+                      "sha256":  "1efe919f71aed54338929fb31f0564c72787fea69f5c493b03c37bc848c65b85",
+                      "size":  17621
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedPrestige/UncappedPrestige.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedPrestige/UncappedPrestige.lua",
-                      "sha256":  "412fa9eab2356a7bd6c5f2a83b06fe7e01265b2ad0c839f5d9678ffbaf82a3b9",
-                      "size":  45323
+                      "sha256":  "f84c8056d65db2436753ed19e88661bfa4427e37f77afed45905bcf8e62a4f6f",
+                      "size":  46751
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedProgress/UncappedProgress.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedProgress/UncappedProgress.lua",
-                      "sha256":  "a1a034a7ab854b46b7457d29618a11964dae16595e035fb285a7ec3b0d5c5c78",
-                      "size":  73270
+                      "sha256":  "053ca09d1f4f739048a964b1867e21c13da6bc1e092b6b99d3a08d6a501c26e2",
+                      "size":  74698
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedScrolls/UncappedScrolls.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedScrolls/UncappedScrolls.lua",
-                      "sha256":  "fcd885c6ed5bacf5b81552904cf8719918e4dd5617b9cdb4ba12f33341c26406",
-                      "size":  34137
+                      "sha256":  "f9693c9543748fb5cac08d821505015c96990791d57da56cb31c6b7f89d736fe",
+                      "size":  36380
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedSoulForge/UncappedSoulForge.lua",
@@ -1886,14 +1892,14 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault.lua",
-                      "sha256":  "30533f0f4bf7a124d18a95c3beda4c644f265595428206fbb6c1b72c41526352",
-                      "size":  122332
+                      "sha256":  "1c1dde9427e919d2bf68d52a4e41ede2a6bfa0fc592b013abbd97130728c05ab",
+                      "size":  123283
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault_UI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedVault/UncappedVault_UI.lua",
-                      "sha256":  "87b89ded7d605a95b5786df48658d8408e6f4b3ddb453fe8ee1058d4dc5abd7a",
-                      "size":  60075
+                      "sha256":  "c875dad587d73922372813b9bb7ac4eec5692c5a20673ef0c730d09b6828b307",
+                      "size":  63023
                   },
                   {
                       "path":  "Interface/AddOns/UncappedGCD/UncappedGCD.lua",
@@ -2276,26 +2282,1628 @@
                   {
                       "path":  "Interface/AddOns/UncappedUI/UncappedUI.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/UncappedUI.toc",
-                      "sha256":  "2b3dcbe37bd5c44f51e401c523361dec117fef168ec37a81fcddc9d1a0f1aead",
-                      "size":  2062
+                      "sha256":  "cf20b0221d56db22dec4920efc12d3f398a826dc39bb6dbb8a741189eda51786",
+                      "size":  2949
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/PatternList.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/PatternList.lua",
+                      "sha256":  "0f649afdf39e430cf81faca5e48851279ff179d35dc13e3be26b583d8cb91afd",
+                      "size":  8665
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Frames/CheckBox.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Frames/CheckBox.tga",
+                      "sha256":  "65ac13b7d4bde1889468354fc2203182ab01ce49bf5127821ec00079ca5a225a",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Frames/CheckMark.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Frames/CheckMark.tga",
+                      "sha256":  "c24fab7933989e72cdd91a3b4745f6e41eacb359e905499ed4862fc3809e7805",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Frames/CloseX.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Frames/CloseX.tga",
+                      "sha256":  "3952ced795741232ffc2be5fe1aa8e51082c76076476deb05c985228cb566df3",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Frames/Gloss.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Frames/Gloss.tga",
+                      "sha256":  "402736d1bc2a23814bb72d1e5bbaf36e813fe6fefa236ef799f187833423cd7e",
+                      "size":  16428
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Assets/Frames/Glow.tga",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Frames/Glow.tga",
-                      "sha256":  "f1e6f4f0dd02b109f9fd8717e0c038d1fa54d8bb51692bad8cd60deef6213f89",
+                      "sha256":  "6074d014a642600c35d7e2a6731c26848bbc22eebaa60bffe2f828acc4ba64d1",
                       "size":  65580
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Frames/PanelRim.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Frames/PanelRim.tga",
+                      "sha256":  "43384ce3279bc7620aafedf98a411f78279bf6f5a141f9afba6949e3c63ea942",
+                      "size":  65580
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Frames/PanelVignette.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Frames/PanelVignette.tga",
+                      "sha256":  "a4f9a8ae8913b278e58545d60f7e1bf21a5bdb58c181bd1f79af65bf00057f59",
+                      "size":  65580
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Frames/ScrollThumb.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Frames/ScrollThumb.tga",
+                      "sha256":  "051b6836d9d22b0d28ccdd074d0eb0f42e2b59e3f6f4ed5b7c37c52668188bd6",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Frames/ScrollTrack.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Frames/ScrollTrack.tga",
+                      "sha256":  "8feff0287d8591972f2ea8396173cb9464de450b336f7822b5641ddbb248f77d",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane01.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane01.tga",
+                      "sha256":  "a4ccace71d9e61a56efed012523428d6b98966bbed2f796bbfda843b2f73f48c",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane01_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane01_t.tga",
+                      "sha256":  "d7ad2236665f062bc37f30e9b981fb7adc531e0d2c3744199b31e8c1b187fead",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane02.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane02.tga",
+                      "sha256":  "1b6e5eb3160f1734276d27e83bccb7bf590a657732fd7cd72b9172c70324a41b",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane02_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane02_t.tga",
+                      "sha256":  "791ab46320afe6da8bb5ffd78346e82ad709d76ae1b568ea186ef8a72ebee815",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane03.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane03.tga",
+                      "sha256":  "aeb8a342327269b9ab16dd2d430782b5f1f47a514f82194da341d4781c58c411",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane03_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane03_t.tga",
+                      "sha256":  "5fe6f4ac5dbbcd90fd0622894d08fd2e110f1b630b4fff5fcdbd2b9396c2f2f1",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane04.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane04.tga",
+                      "sha256":  "9cc06bb2472411b542a568df92cf73b52baaa0a402a8a20f0e4b3ccec70ee244",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane04_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane04_t.tga",
+                      "sha256":  "872c47b9d10e29886ece514e10d0ffcf7e4ffe7dda986eabce60d708c3eddde4",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane05.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane05.tga",
+                      "sha256":  "6ee090067427ab45ee8f7fb2e45651e84383e2e5b5d4075c4869459e505272b4",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane05_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane05_t.tga",
+                      "sha256":  "1802f581f78d5ecf76bc57ba1d976f0804b0c4d8a48460505cb16b64ef906171",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane06.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane06.tga",
+                      "sha256":  "9f2f3dc7e4b70c58d98b400ac9a9366baa3169b562d8571bcbd182cbd21e596b",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane06_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane06_t.tga",
+                      "sha256":  "6b72d1c5f157109f91b6e3e8b9b9400a0dd5878358e2207ba89cd78bfe899b7c",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane07.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane07.tga",
+                      "sha256":  "2650ab321dda80c75bd30c8cb1ff15932c8ab2d174ddb56dba7cb605454d122b",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane07_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane07_t.tga",
+                      "sha256":  "8ae4c243335708e3c3ff691cd11ef50ca2f26f0d16aaa794aa8b7f1dd8979d41",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane08.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane08.tga",
+                      "sha256":  "308a70dbac309c21735cfa10b7e8e7468574ad6bbd2dd0532797247d0ab68212",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane08_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane08_t.tga",
+                      "sha256":  "333d3a277993f105d2a324f388cfad3a5d74781e301c9e417bed09395ad3e8db",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane09.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane09.tga",
+                      "sha256":  "d59ab5adf80cfa917e497aba6df5df19b1bf710faeec21ff9fb727752b8163b9",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane09_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane09_t.tga",
+                      "sha256":  "c5ca45fcfba3067a40142b2235c7b26e9bb5caa3d3e03695adc54b4b0e2db0ba",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane10.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane10.tga",
+                      "sha256":  "cb9137e0ddd900a7d3b5eddeb7c834390169cb1d7ad837b938f01c2fb11542a8",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Arcane10_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Arcane10_t.tga",
+                      "sha256":  "a710a166336949255135b1acad58d74ce9652585c3e30fe7690ed3b8f5dbd36d",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood01.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood01.tga",
+                      "sha256":  "e158a6dbe8951b5436cd2e948754352c21551ba570d2bccdc0de2c864d2d47e0",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood01_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood01_t.tga",
+                      "sha256":  "1fc57c7bf5d908c430a3b3a253a8e7033d12beda72b4fc839e441aec6ec3a4ae",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood02.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood02.tga",
+                      "sha256":  "77503171abb5defdb47aadd579b81d4250b7f2b0013d8d5f984d1aed7ac39d45",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood02_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood02_t.tga",
+                      "sha256":  "348f611528f6089343831e3eee7e694519778a432eaa26d7e8d064e25254cf35",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood03.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood03.tga",
+                      "sha256":  "55ff035d7bff5482db1bad92ed026dc300a0cc95c8bf844a2ef31eee688bd212",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood03_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood03_t.tga",
+                      "sha256":  "1b2297891bada52b1ea97a9f8f246a2ce947e0fa50cde6e258ce9321d4ffc172",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood04.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood04.tga",
+                      "sha256":  "df10cf1c1a6d136c47e8f03d8ce8c15957cef9ee7d2d4c3f920c337884b6cf1d",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood04_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood04_t.tga",
+                      "sha256":  "a915b306d80d49c256d9aab731a3e1272c8834735062fe46782fadd70efcc321",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood05.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood05.tga",
+                      "sha256":  "876c42c6257fdca84286bef7bd41df000ed5e5086ed3be7b9f928aa03ba7ba0c",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood05_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood05_t.tga",
+                      "sha256":  "0046cef7be52f71795a30fe0217883f7a6559d45a7fa43975fef0414678e1739",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood06.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood06.tga",
+                      "sha256":  "f4ef9cfabf31211dea0cd1c78c29550941a1d97a8eec3d501f88113736e1f117",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood06_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood06_t.tga",
+                      "sha256":  "08cf854de02dfb2052273896d4b8018dcabe45b067360a237d59e8f6e883fcd1",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood07.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood07.tga",
+                      "sha256":  "c080133871e16b4c421b7dda3471f6e36dd2546bd6e6733ab5bb3f94fe05be98",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood07_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood07_t.tga",
+                      "sha256":  "21f6975762686166ba0633d92e1c6d1ab4e501eb6ce0c99097ba99be3b83d007",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood08.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood08.tga",
+                      "sha256":  "c08e8e971c80af30230e6ba191e902b4185bc009973756bb5de18f1524937bb0",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood08_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood08_t.tga",
+                      "sha256":  "5b8e180c5d5eec1aefd960d5519628822016e6a62e8faa99439a03264865f0c7",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood09.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood09.tga",
+                      "sha256":  "e1f99c8c5d471c4aef434418d53b4ad41f4aa6f750b6d6fd86055a380fd491d0",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood09_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood09_t.tga",
+                      "sha256":  "d867dbc4efcd47504f37edbd2025b52b7e4f5a7bcb7d7159da7a8bef08c2f722",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood10.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood10.tga",
+                      "sha256":  "9d0edf79f55fd5a000efea6042064710dfebbd953449c3f5bf6247a0de8b0c3d",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Blood10_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Blood10_t.tga",
+                      "sha256":  "206ab8061962f3598613b2b68c0216cbfc07c88d355a2722a4bbec34b9845c0b",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud01.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud01.tga",
+                      "sha256":  "def99b860d16ff5792d705545275b8bd9f4377aca78224cd9558f623a8fdbcf9",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud01_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud01_t.tga",
+                      "sha256":  "53147ebe105b048f32c8ea9e0e1dc448fc39e884c569dcbe1889773bd2fb44c3",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud02.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud02.tga",
+                      "sha256":  "fddec8b24c337e6f9442a412d7c128cd91732b8b0f72248948c27fa6c977949d",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud02_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud02_t.tga",
+                      "sha256":  "2b7232fe2f5de1920930adba3b38899b54a4b52c1ab055bacfad45fdcffef52a",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud03.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud03.tga",
+                      "sha256":  "d78c4a57d462938b4f0b1db78fd4540da5aae7fc57d568bd211927cf1578e83f",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud03_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud03_t.tga",
+                      "sha256":  "133aa4b6755d87f30b0bc76f86491cbf0429bb67acccc982a5d7a089c6c21e48",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud04.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud04.tga",
+                      "sha256":  "b38ebf9ba13bb06e6728b21b8e78ceed6f958093baee61c23e0029239ed88867",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud04_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud04_t.tga",
+                      "sha256":  "515662ff521d9b6d015b9372c1dd1abcf849b99c40604daeae92b0de4dd4e411",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud05.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud05.tga",
+                      "sha256":  "6e1f614afd6f73bfd42b8dbada9f0f4765be6eff11ca075ffcdbea2817dc1206",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud05_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud05_t.tga",
+                      "sha256":  "af2ab0f745f323224ba8196875a8bcef65df05494eb772e2e0a8bbcd1fd6e92c",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud06.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud06.tga",
+                      "sha256":  "1f1f7584d9b3db8b54092d42ba85d7afa8dd6399492187c057031b762e9e1eea",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud06_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud06_t.tga",
+                      "sha256":  "c9a1dc40b0f71182f6307216d19271a93417b4b6ea8989f52cb3278eea61138f",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud07.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud07.tga",
+                      "sha256":  "c1e50a1a7662c63e18af946cc6e2ff00b06326ae3a789bdd08aa3400a73a85c4",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud07_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud07_t.tga",
+                      "sha256":  "170130901bdb210dc38361d459f29ce2a5e5cf6288a85046f70046de89971214",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud08.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud08.tga",
+                      "sha256":  "a0b1f753050e24d9706653132193f802ac665a4ae85ec11e951712bffbb0f15e",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud08_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud08_t.tga",
+                      "sha256":  "f4ea56f6c353a59b06e54463009b6b71865db58040eba51c5be15aa98f166800",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud09.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud09.tga",
+                      "sha256":  "5833449aeba18dc263b3c4c56cfacd98a58c5b79cf84e2cf8d584ebeba75019b",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud09_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud09_t.tga",
+                      "sha256":  "d434491189efcf07e5b160b8b1769c80468c68ae374fbcf63edd67b2aaeab57c",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud10.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud10.tga",
+                      "sha256":  "90eb23b08e7df51ecb7e1f67c0df648a6aebb7d10fed92cdebbea7ed1c2fa172",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud10_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud10_t.tga",
+                      "sha256":  "5a03bdc02c1758a53cf742d4442a112103e0e3017aaa1a42c07abc998cb8875a",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud11.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud11.tga",
+                      "sha256":  "ad11fcc12a42040721dc31c22e6863bda31f48c300589b14dab525fe975f1b33",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud11_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud11_t.tga",
+                      "sha256":  "2dbe3fa64d616446a4ca91c69ee1ca40b5ffc0fd54f13c87644997d4d92bb1b1",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud12.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud12.tga",
+                      "sha256":  "4b4ce1e5e5c93c21fc9071866062cc630c727b62392e8dcdce11ae8591e65a72",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud12_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud12_t.tga",
+                      "sha256":  "55eb74a302f73024927b8ada68b7c390af4772f86153ad57c7a8754bdcf4b251",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud13.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud13.tga",
+                      "sha256":  "7d056e5f60e8d0dc8cb2e8558850da1610b92f645c984df8c09bf7a229c680ca",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud13_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud13_t.tga",
+                      "sha256":  "fc9a800ecbc5e6aa01e35eca9bb82b919f244cc18512e4831a27dc52b7feebac",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud14.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud14.tga",
+                      "sha256":  "897317cec2996382e6f4a05bc29501f24165feb5a6a64167ca2a5668d9ced830",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud14_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud14_t.tga",
+                      "sha256":  "77269a4a7958c65482c02e7311a5c3173fd218c8416de2659174672677dfc199",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud15.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud15.tga",
+                      "sha256":  "dea1271d75ee106f04749db328613190064e18fd8123c952d619db110a665a1f",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud15_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud15_t.tga",
+                      "sha256":  "cdf615cf0f04a81bcec051003d5beb1c1e15cac1449446b84e6a9a903d80d804",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud16.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud16.tga",
+                      "sha256":  "5b53cb9c08c9a301e34e4a757b053532e640f494165315405340aba1eab89cda",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud16_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud16_t.tga",
+                      "sha256":  "a3e38707999e7b23dd4beb5b0e8acd06adc771709c03941b897a7e6216cf927e",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud17.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud17.tga",
+                      "sha256":  "e94b29963923d404a8d7d7682b7d9c9b43c5aaa3e45224b93bb1e3cc94b7c405",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud17_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud17_t.tga",
+                      "sha256":  "2feea2e7cfa765aba3504184993e69719b13b4967ef79bcf01b45bd218005e99",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud18.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud18.tga",
+                      "sha256":  "89201e7f9fed4dd81b9deca42a699d5e263eb01fc082f53976ad871865038069",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud18_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud18_t.tga",
+                      "sha256":  "20762e45310ad96f787b4a2903f74581b2891c0ac335bb3bf1aff0dd44e88d15",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud19.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud19.tga",
+                      "sha256":  "79e76db2c5379eebfa216de3c89e6e048abe271ceb3e7e4eacf96de5149b2c74",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud19_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud19_t.tga",
+                      "sha256":  "fe881d6525e01fdf1b6dc7b6ed10ac3dbe69e92c113cf271dafbeb33f5faae5b",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud20.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud20.tga",
+                      "sha256":  "19abf7ccc3187cb6a64f3c1f30c9eb74d8d2eb36cc38abfaa561c9c3de065e1e",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud20_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud20_t.tga",
+                      "sha256":  "b5e2a39d02dbb684be664fb0069c877e4b002543e74f14a0faff436bf6340512",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud21.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud21.tga",
+                      "sha256":  "4e0c2852ff12f084412320593c87832175c325429fad57a1280d99f6f858f916",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud21_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud21_t.tga",
+                      "sha256":  "2a0053bdac428ccfeb85884bf392bbe0d106074b70dabfb2e030520ceb7dbee0",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud22.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud22.tga",
+                      "sha256":  "ba5de1d328cb98894c7682f9e922a020376d409a4f7fc4750cf77bf9d5c640fb",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud22_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud22_t.tga",
+                      "sha256":  "f11b7aedf52a801fc21c28beff999c12f2f4da9d53f71609192f5635ee93a0a3",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud23.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud23.tga",
+                      "sha256":  "d166a37f3bbcf5419386c27261aa5fa41a7653061562329ced5a3610c5811511",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud23_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud23_t.tga",
+                      "sha256":  "a4bf13bb6c54db2aea3f5e5f6471b55b7c3de984633ffe0a537ffd7bdf45cd87",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud24.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud24.tga",
+                      "sha256":  "d662c9f4699937d022b889c596671f626d7158723679a13fb096c20c5ec870d2",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Cloud24_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Cloud24_t.tga",
+                      "sha256":  "d59c010dfaad21d87d1ec8d315c13605439ae7d95ee4cee7693e2ed3163858c6",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember01.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember01.tga",
+                      "sha256":  "c822fbc37fc86b6ea5f899e944f7a6e789b660171eaed3119098a8f64c3cfd0b",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember01_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember01_t.tga",
+                      "sha256":  "2b77b7854d4b60795c5fbfbd76acbbe532d492fe1a57593b4ded15a5043ea6c8",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember02.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember02.tga",
+                      "sha256":  "448ac55f9fa28408bfe9f33795639ace555d302be849cb005ecc771f1e2d91ee",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember02_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember02_t.tga",
+                      "sha256":  "cc192c110f5217fce9c985d7beb2d3330f732d6bef2ab6f21eceefa5d7531838",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember03.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember03.tga",
+                      "sha256":  "9ba2f89c2f519c18e352565a19027d5b674d6bf43ff185e216be9e64d9f871eb",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember03_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember03_t.tga",
+                      "sha256":  "e6bfe8f94368126e018bc6b37e69637b51de8e68416c5432614cc1ae331f2364",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember04.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember04.tga",
+                      "sha256":  "12407614766f8b4873b7661bd49bcf468993f85c4d7c325b39fa0eceb845f19a",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember04_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember04_t.tga",
+                      "sha256":  "e260239eddaf62792f8eedc7ce4be6f3e9e0f477bc2d033e4ceda795bf4c4d74",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember05.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember05.tga",
+                      "sha256":  "5bc39ce288b9bdaa6d8e5617e1c15656a169af8f34229373b013d4709c041e2d",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember05_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember05_t.tga",
+                      "sha256":  "6fc5a3f6f6cc593bcb1c50258fd3c4442f94d3df241cb5c278820b9e46633b35",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember06.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember06.tga",
+                      "sha256":  "e83493bffdd7ee53f0a38b33e1cba338370632c8d99bbe0e4b6ab1cfd6869b58",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember06_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember06_t.tga",
+                      "sha256":  "a975721675aff9ad36f59ece9ebeefee3ee12e3ab52f444f0185c270dbd98c05",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember07.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember07.tga",
+                      "sha256":  "27db6f9209c9c6e347510380f206d5f9e779260da8df8d9260fcd6cca7cc891d",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember07_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember07_t.tga",
+                      "sha256":  "3655972ac10d6138a0b563c8e81b455e9015049ad0db5241a9837a5f2383c96e",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember08.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember08.tga",
+                      "sha256":  "3e620b7dfc9f35f8e45a73282bf84918bc1654f029cbe11404712532516b227d",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember08_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember08_t.tga",
+                      "sha256":  "28de54b07b3de6372d812c648415439327b2d80dbeb73e9ee3742b8ac3dde9fc",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember09.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember09.tga",
+                      "sha256":  "f522dd17690bdd91fe70df6bf66ee8b01acb7358e52fefe0dfde7f9e3cc64960",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember09_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember09_t.tga",
+                      "sha256":  "c2303d30e2163d52815f6a068981730a874cc6ef233823063bb128ece4747dd2",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember10.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember10.tga",
+                      "sha256":  "5adb91e7e92b1f93b3dbb5ea601307a08234cc38914beee472d46b5b65199471",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ember10_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ember10_t.tga",
+                      "sha256":  "00a04990a9d1132a6587a0f8fdfa81a4aacc0a94761279dfef4501a040f9e2cf",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove01.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove01.tga",
+                      "sha256":  "eb42a2988eadf64dba6c227302128b501b604033042a0260f6553028f849091d",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove01_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove01_t.tga",
+                      "sha256":  "0930c094a18ed8a48d385443b8f70906a57f014676c5cab2bdd8173fcb5a4881",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove02.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove02.tga",
+                      "sha256":  "3d4e7fec9a9617fea0b6daeea554decc8fde93b398a6d8d858f607950297e93a",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove02_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove02_t.tga",
+                      "sha256":  "97fbd73e80132d978958c37d86c394e38e0a01297ca9b45414a048a1aa928908",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove03.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove03.tga",
+                      "sha256":  "4b7099f59e4bd1ebd64e9a40cea36a37b1bd30624b7032a5807700d05a044bc3",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove03_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove03_t.tga",
+                      "sha256":  "7baf46545b92b8ac891900223bd58f6a64982c86b0aac2073e6b6e175e2602c1",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove04.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove04.tga",
+                      "sha256":  "d8465748d2be97e66c3c20c2852ac95be4e04e49da227616944ebcf518270a79",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove04_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove04_t.tga",
+                      "sha256":  "7ecdf134c2702c4d85c66d893f15d8411ffc207a849175e5dee57ca4d65dc185",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove05.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove05.tga",
+                      "sha256":  "f10385cbd9121decced0388ad33d39355f920e1dc36e6ca2e56449c7c4f59fea",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove05_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove05_t.tga",
+                      "sha256":  "c88fceac4151c91599c0b57e51ceda627013ba0e42a2347f884edf87abe73e2e",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove06.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove06.tga",
+                      "sha256":  "1162a5b16d146b2c1ceafa5fb84dfd61da1d7ff5140f7548e6e6c838399c6871",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove06_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove06_t.tga",
+                      "sha256":  "dbe51ffbd87cc1be5216c8c6de39a44ff12b831b0bca5081894ef8923a42e22b",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove07.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove07.tga",
+                      "sha256":  "5cbf62826b3cc916b5bb75ec1add3ad9535f9bdc205ea47e26a6473dff871034",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove07_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove07_t.tga",
+                      "sha256":  "2ab430d5c06a596adb25553fe79e0a71d7bd49007862d8ac030c25b8df90f51d",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove08.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove08.tga",
+                      "sha256":  "af01bb515f516030524e8016393f48a45ad8df355e7f43a9157ea9039a100f18",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove08_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove08_t.tga",
+                      "sha256":  "6ed0d02a3b438dde3c444ca3592296ff493f6869dc39f10db3b2de1dc9ae6f03",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove09.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove09.tga",
+                      "sha256":  "c0930eb33286a4b6b4656dd6136c8d1bc6ae3e3db7a20e0e7a57c5106e92a63e",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove09_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove09_t.tga",
+                      "sha256":  "f9ac6baef4752398b6d1efd92bb034d5520c18c88bd0cd1deb986d68d0d78cbc",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove10.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove10.tga",
+                      "sha256":  "9f475345bf6bc704482763bb6c85e357b2e0b82bb6aebd10fdd294f3ab979c84",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Grove10_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Grove10_t.tga",
+                      "sha256":  "ca39a556228d161b52426a95326d2f0ff542618ebe9fa63bb3932b2baf06cf76",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice01.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice01.tga",
+                      "sha256":  "a7d9781b358a611176a76c08588b06865492b055b4d0fd85d2960a62649a6731",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice01_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice01_t.tga",
+                      "sha256":  "4a8622a8491427f1050a9951b590b5656f11b9706c63b4fb0977a5f547b0a878",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice02.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice02.tga",
+                      "sha256":  "ba059ec9ce7fa3a7a2d081775008424e8fcaf0578f0645e07fed4b8fb10be4c3",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice02_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice02_t.tga",
+                      "sha256":  "88168df961d79e7f2987401c9b469a2044fd789609cfcb454834deca0bf67497",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice03.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice03.tga",
+                      "sha256":  "87ac34a2e38cb8e9d31036a386e97df4708b36df7cb15992422b3a34cdc1d967",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice03_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice03_t.tga",
+                      "sha256":  "f3907cf6ae1f47898649a5bc58a5250161957816398d3b467fb841cc660f2395",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice04.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice04.tga",
+                      "sha256":  "6c6cb489a07041baff5ddae10a7c619e359d43d6f7050e437e68a32aa15890e5",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice04_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice04_t.tga",
+                      "sha256":  "857afef790ab19d6c30518f418464f88ae154ecaf8beb725bae99d040122b8cc",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice05.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice05.tga",
+                      "sha256":  "ad466e076773eb0bc424aaaa269c4e5684fa4740d235201a153a1dbaf374371a",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice05_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice05_t.tga",
+                      "sha256":  "f1387f7dc3f78c21eee4e8248bad6d306e75a2229af63b21a3b4681a5cc847bc",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice06.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice06.tga",
+                      "sha256":  "83e24b7b5f04e58077a27d326b0376d9fe6cf4bd1fe0a306295bfa997bc3d7d1",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice06_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice06_t.tga",
+                      "sha256":  "0a45956dfbc0f0519164c4b68db580cdc0978d3b597e39f6b763840bf2c2e07e",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice07.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice07.tga",
+                      "sha256":  "3c39623b2c8645c4b05bda884fae70da8e752c4b6b0713dedcbaab644469650f",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice07_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice07_t.tga",
+                      "sha256":  "731ff5101d973c1844695985fd58acae98c0dd44694b3baf48b462894da68506",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice08.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice08.tga",
+                      "sha256":  "71a6da9218a8d6705410b6b3a269066d01e19a7c9907bd78b1bfd7c29c47cd0c",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice08_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice08_t.tga",
+                      "sha256":  "54a3c8cf71b437c618ab784a798db5cd9e1355e29e2f1248b61ea363bce3e19c",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice09.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice09.tga",
+                      "sha256":  "bceca068031a85512bb02a2af4ff4c15660545241a110dddeef2ebc3001795f0",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice09_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice09_t.tga",
+                      "sha256":  "57e802a69dd30983ff222f46d6e4de16795dac5aca97ddb13e7b7ea934862903",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice10.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice10.tga",
+                      "sha256":  "0bb55af699a9214eb7e70013da4d0ac4422a7c238578fcda319a12ad4bd5ef89",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Ice10_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Ice10_t.tga",
+                      "sha256":  "314ae98a8c2b80fb473952ae1966fe53e431673a809c605920d42b33e9dce8fc",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro01.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro01.tga",
+                      "sha256":  "98f359b980b49cecf438f3ce247540b65ee9b042a3d8e15534601538552d6e88",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro01_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro01_t.tga",
+                      "sha256":  "ffd74b7926a31eb01a33bdd0682b61d0104875961aaf5e09eb4adf5de3e2be88",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro02.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro02.tga",
+                      "sha256":  "6ba86b3274caaa4ceb442c993c32b741fb05e5e28445c5d4fab9b3d3e4e1184d",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro02_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro02_t.tga",
+                      "sha256":  "63dd4c313de1f8b5165234d42d2f3f4caac9cff52bc9d260bdcc1f67bc08fef2",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro03.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro03.tga",
+                      "sha256":  "06c028b320ecbe36aa8c68b777db437e96a582e7c42a4d6c387115d480f0d703",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro03_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro03_t.tga",
+                      "sha256":  "bb3c8e4a426df9164831cc2115a7d65ce08edfd221bcff6557ad93484d126a23",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro04.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro04.tga",
+                      "sha256":  "916d7300b336eb3226da215037021a92838c8494d7481a25649bd8785c4d8b4a",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro04_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro04_t.tga",
+                      "sha256":  "a8b4b9e752b86bb04da89ce98f805d80a5a1dc5cceaeb1340b213bc931466932",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro05.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro05.tga",
+                      "sha256":  "acd1ce15e843750a20ef5a3b7e89ef57304cf7d12bd578a542cd328af06bcfdf",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro05_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro05_t.tga",
+                      "sha256":  "598b32d0c50ac84605e8a0bb9e52001348f10ec0623446c34389be195a482a96",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro06.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro06.tga",
+                      "sha256":  "cb9482afce8675f0a19bb0e6d28f195c955fc0e1a2473d818bf31b5bbece654f",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro06_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro06_t.tga",
+                      "sha256":  "52f6d2b96256e29830608c7bf8c9bce8ecf0ce91652a335fc6fd44418deff41c",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro07.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro07.tga",
+                      "sha256":  "afd03c5795e886ba11a07d102f65b5c31d472227bf7716d08b188c8cdbd5f744",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro07_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro07_t.tga",
+                      "sha256":  "564233a7e5e02bfa63f119c8c7d2f0480b193be9e4aa2f52081e99d91265cba7",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro08.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro08.tga",
+                      "sha256":  "9317377c7ec756e9c5337e948bcaeddd031b600ec0dc07998cde430141ab9cb8",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro08_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro08_t.tga",
+                      "sha256":  "8731d33e568de90f01a8cff91892281e634c581e4e340cc351a9bafbc13382ba",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro09.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro09.tga",
+                      "sha256":  "a5fcc488358c855b135d05a23f95c9e05d8f876c6448fce171826802764223f4",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro09_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro09_t.tga",
+                      "sha256":  "2df19a798124c65a89ff80a58496fb739c402c2141d0d2bfb622a34cd67fd59f",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro10.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro10.tga",
+                      "sha256":  "543e9a32f4c200465a4253384f328986af02f9165d35fa3a0f9640a4117a1c52",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Necro10_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Necro10_t.tga",
+                      "sha256":  "fc5fdac63c2f69c5e2bbf5eb4596df909b77dcb8f5af2581d689500f2e5dafc8",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance01.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance01.tga",
+                      "sha256":  "8d812d0a492f7c26eef8e63f121acc23d8e6bec3cc362524ef4aeba909c0c7e9",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance01_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance01_t.tga",
+                      "sha256":  "85cc37454574f234837000a386cf6704351c46209878eae4eed4988c6270c54e",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance02.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance02.tga",
+                      "sha256":  "4f74f296e7cea1b735851aa3d4cf34fd12cbd3f06a902c288f9a22cc5ce7a955",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance02_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance02_t.tga",
+                      "sha256":  "866223a661cb886a69b716ac25ea493979eed366b140b14ba41dde4a55093e5a",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance03.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance03.tga",
+                      "sha256":  "5b4e92e72bb68e3739544a7605e01f3b613660159811a86e0b7bac3a9b282728",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance03_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance03_t.tga",
+                      "sha256":  "d5901da3ed0fbfa4a9f80c40480bf8694f248fd89a15bb3f77d196cf4f2bbc6d",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance04.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance04.tga",
+                      "sha256":  "f3ce67dc5ee8f8dd6fb45f68aa2705242c84a0af484e346ea76d66757e142f6e",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance04_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance04_t.tga",
+                      "sha256":  "fc0b7b95d7485452dadc3b74e58eb1c1a18af2fd1b5c75b653c6b0ad9c52e4e7",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance05.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance05.tga",
+                      "sha256":  "e7519e5ad751dc346fca33467298b26addcc0a02bc78df777922d27ba6aaf221",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance05_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance05_t.tga",
+                      "sha256":  "3d5a4f1b59b963c06638c7840a2a187b3311fc0b3a87804f4f00c06ef5fc4555",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance06.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance06.tga",
+                      "sha256":  "9d8bd545a60a38cbf1334213a87680d261bb2e7eb900e49c1f70e03717396bb7",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance06_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance06_t.tga",
+                      "sha256":  "f34871a5fcc16be72881f62acbda17b2f098ddfd8e0140a7561338b4d31e183f",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance07.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance07.tga",
+                      "sha256":  "b200395660d6c686b38c3b057fd8601eaae894a406769247ebd6aa434603dd93",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance07_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance07_t.tga",
+                      "sha256":  "78bcac8ef8c3e6124271b90682f139fcb1a962a86ea474ae9af31d373bde3724",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance08.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance08.tga",
+                      "sha256":  "6ece2a30666418d3af7740270a53cdb4fce765c6c3f2de70a0a9a6ad2032d5c8",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance08_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance08_t.tga",
+                      "sha256":  "4e1fb41d0bae02b2eefb5197f0bb58e971c81ad40e42ac6720325e15d43396f9",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance09.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance09.tga",
+                      "sha256":  "a39c3e8c1109beee9f700d537ea7cc8c1c96facf83d4aa7b11cc6d5f706b25db",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance09_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance09_t.tga",
+                      "sha256":  "b4181725e7f161086ab34f46ab5ff91523e2807e505e44023e3564fceda0903c",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance10.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance10.tga",
+                      "sha256":  "145f716c93301e5ceaa009fe8ca8bdcb2a1590a9c09a246e33c7cf6a72a17bb5",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Radiance10_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Radiance10_t.tga",
+                      "sha256":  "7a0761306263aa41300d24e75c7eae2a1359af0d2037fa85df02e4c3f26353a4",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Star01.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Star01.tga",
+                      "sha256":  "3bdb72b5f3b7cfc3ec9b857cae35bc5bcbb6d1598601793869905b13564d136b",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Star01_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Star01_t.tga",
+                      "sha256":  "ff3ed860b39f6ac16ace232016dcbae4166efb6b183d42c267875b2c7fce7752",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Star02.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Star02.tga",
+                      "sha256":  "88b4e0526b9857040a46071410f4aa2953ae4e8abdba368ea4cbf3ba8dd8e4ca",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Star02_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Star02_t.tga",
+                      "sha256":  "7a48dbf15630826c6eda4889b3557ec51a54b75ff5743d3d128613cecd72b585",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Star03.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Star03.tga",
+                      "sha256":  "a57d94ef2173051168259dc95dce0150441ed22a4f629647ddb8f05319b75937",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Star03_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Star03_t.tga",
+                      "sha256":  "ec237022ab2c8cc0c99a8a55d4375470a80f525ae15482bf1d99071a2829b475",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Star04.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Star04.tga",
+                      "sha256":  "8c33d5ade4d11379e4ce99e0ccf3217414ff737fef0187adebbe055fdad90eb2",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Star04_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Star04_t.tga",
+                      "sha256":  "1b7833b3cd04e055bcb7166523649ba98a5288bff15a4625f51fc91c1b3270ab",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Star05.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Star05.tga",
+                      "sha256":  "51a7a76226b52d76fd1489d51299aec51fa7f48e0fc8304e8e56b5cc019657e7",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Star05_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Star05_t.tga",
+                      "sha256":  "64efd946a0268ce8143e893d7d3ed169d923239a145111f152264576b5138a52",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm01.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm01.tga",
+                      "sha256":  "4daa088db4d6c1a9fa89c676a2c0ff59d17b2c913bba3f6ebe7334da9c50ca20",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm01_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm01_t.tga",
+                      "sha256":  "993245dfefa449ec9a1bd15ad65791ae3d1338e81958356d24e8bb1fe6e4dd1b",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm02.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm02.tga",
+                      "sha256":  "5647d3fe9e1fc5b71e868b1c1ba09230ea818310fb5490ad927ab7cd0d3f77d7",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm02_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm02_t.tga",
+                      "sha256":  "495ee0d6b5bcc4cc89fec2272d7d2cbbb94b8b17681ead2207d4ce6e92422674",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm03.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm03.tga",
+                      "sha256":  "f2060e8bf5f318cf3bb56fa5ca067c60f2a0a0edb33ed795120d68785e1bda21",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm03_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm03_t.tga",
+                      "sha256":  "bd745cb309a58881e1a65fba416968187ac26663c526e316c17db5b9a3a35981",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm04.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm04.tga",
+                      "sha256":  "0d54ed93d1bb20434f5d4ce694003cf14af7696f815419ba8b013185b7a5ceee",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm04_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm04_t.tga",
+                      "sha256":  "018e38c59b2d1e4f94fd2143a610bf45323e2c6eda8ca5d9c6309a1d6c42d8f4",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm05.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm05.tga",
+                      "sha256":  "332e44fa092bcf4792c25f09e9d3a3e8eed8b1adb22a39aacd639330bc71d88c",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm05_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm05_t.tga",
+                      "sha256":  "662a4444b16ad6dd3b1d05a1bf832f0353b34cdb8e441b35e5c5a5b3d526f270",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm06.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm06.tga",
+                      "sha256":  "07a5604ef07f5795e8158299f5eb68cf961288f19bb6eb81fa565b98ab34b8cc",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm06_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm06_t.tga",
+                      "sha256":  "2b0550b7a9ed2deb3f0f5797e445b735f46cb39880ce4bcc97981df37af06294",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm07.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm07.tga",
+                      "sha256":  "157bdbb0e24f04717c6b996aaa3e32d086b03a60484d78a91743f8a78ca18d47",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm07_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm07_t.tga",
+                      "sha256":  "b8d992bb945e333831465a0642fdae8cf7539d9c97aa6225b9f8af45011b059d",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm08.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm08.tga",
+                      "sha256":  "9232ea0904ffaf7ffa06f31c884e1ab682a6887cf41cef69a5970e98b95a413e",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm08_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm08_t.tga",
+                      "sha256":  "54fdfa35625eb73f7c87bcd2fbdf332f35443dc059ba760f7e82a798fbf36bd7",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm09.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm09.tga",
+                      "sha256":  "3ed55dd993311e99e71dd43eccc06a9e27557ee7f4da7bb4716ec5be482079ac",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm09_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm09_t.tga",
+                      "sha256":  "3dbda943b3cd659e155aaa485e5d702d9c43310dcbed8cf08884704d1e2e04ea",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm10.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm10.tga",
+                      "sha256":  "931164942193abb5bfd1c7be5d5a899f0c0b78489237437ec78296c43693c9e3",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Storm10_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Storm10_t.tga",
+                      "sha256":  "e935a6b474d90638bce641208d630cc1c9295d10702bab9b166d94cdf0841118",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin01.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin01.tga",
+                      "sha256":  "a734ed27e1a7984631d211212a256ddec9317e6f9456b1ac5a59d7166314cf93",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin01_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin01_t.tga",
+                      "sha256":  "48d76a93ea52dd35a77671ee6de9206c856a56603648e241ac7b87f5227f95cf",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin02.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin02.tga",
+                      "sha256":  "de251589023564c78cf0f7d54b84607a162a72cfad2dce7038eaac847d7e5c9e",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin02_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin02_t.tga",
+                      "sha256":  "99b0b220448a17709e63dab0fe22475279b2dc690bfb8e76764560ca62e37e1c",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin03.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin03.tga",
+                      "sha256":  "394d62f6270a127dd404e4e0364700fe1e165592982ccd5ea3a61fe71ce402d1",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin03_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin03_t.tga",
+                      "sha256":  "45f57acabd50fae1cd6c84782f05621c6385d56b94b80c22a62d6de8021f935c",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin04.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin04.tga",
+                      "sha256":  "2049de920ad18ae7e73a191f60eb50cc7bf16fe6d3982ca8eaaade87d718ea18",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin04_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin04_t.tga",
+                      "sha256":  "5be7e0e954d450bd56b4328fd898e126931ee1e898515a13f2181f9d50fa4531",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin05.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin05.tga",
+                      "sha256":  "f428262a88e6fb9767be041a86e47138d908c6485c2fbc9bde93a14e1caf4a4a",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin05_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin05_t.tga",
+                      "sha256":  "e51bf0666e955f674be8c96168b4591196ef8d56b6e16f5529241f0564823470",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin06.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin06.tga",
+                      "sha256":  "31fe8286b13499571bd15ce17786949c6e7d4200d39cbd70eff8a8cdeccd0b01",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin06_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin06_t.tga",
+                      "sha256":  "1ff24d8f7af96cae3e919642c93ed4a380fd1147169b60a6fcf0e57043150831",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin07.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin07.tga",
+                      "sha256":  "b4d3086222c69009a4b3f76cf46ecea9ed171f1cb1d65d23369acba62670d359",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin07_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin07_t.tga",
+                      "sha256":  "51ffdd3045ee46106ee01d23f81a30a98c6b223e2ae217040f16e40a5df56c02",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin08.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin08.tga",
+                      "sha256":  "50ec7bff5c86ecfbb78ba06406abd51b66fe33114591671b3c99232012a7a08a",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin08_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin08_t.tga",
+                      "sha256":  "46733c328705ccb3d48784c0730ac792a90a06420f18e3a585f9ca377f6fe829",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin09.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin09.tga",
+                      "sha256":  "7573d2036f08c46f0bf9c624c80cc45acaeeed734136b1b4917c4784f07b00f6",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin09_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin09_t.tga",
+                      "sha256":  "2e75291435322d0e6f5b01d0f014d224658360ccb2b22898d495352307905871",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin10.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin10.tga",
+                      "sha256":  "d6724d21e8ad1c748f703e148efafece040fe8a4489245c1b62d59c2f0d24452",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Toxin10_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Toxin10_t.tga",
+                      "sha256":  "b81893277ff947cec4ad83eee7857a71bda6321670238c534a9869f3d5d2e54f",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void01.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void01.tga",
+                      "sha256":  "4d3c6c9d39cb61ce07615ece2af0a2fa8514f3f8171a7197dce9ac53aa23284d",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void01_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void01_t.tga",
+                      "sha256":  "6639362a36a566ba5c845a66f915a420f636512f6578a5eb6af3df38237d579b",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void02.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void02.tga",
+                      "sha256":  "a1604bf834c53b237405ca5aa3afcaaca24afe35df38a76dc48b36a5a113a634",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void02_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void02_t.tga",
+                      "sha256":  "02b3a8ec1d12979082c5fdb4cab2f4458265d6d3595fe4d01444b9df2e99cfb1",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void03.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void03.tga",
+                      "sha256":  "6a8f61e526b865450f950107c88ba97a9cd9d58fb2e863c99a1421b15a3b4f36",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void03_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void03_t.tga",
+                      "sha256":  "7c61d190d9aab78e5ce2df0697038a8efcb55aa1b32f5950027d2dd8ee45f98d",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void04.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void04.tga",
+                      "sha256":  "8915745702383d8ca0aab9a8f3dde009527d8de163eb50d3bbf3c1514d2db7a5",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void04_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void04_t.tga",
+                      "sha256":  "9be06a7ccff90595139b7c99fd4c5bbdb8ed073fe9fc62c581f108817e36fa3a",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void05.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void05.tga",
+                      "sha256":  "69ab288deac68158c2e29d60a6627d93b5543ed6d7c1a8830b5f14a8bcf6cceb",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void05_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void05_t.tga",
+                      "sha256":  "7df1aa05f9fe9c0780b859ba5e921b758d73281214c9e33579bbd7e31e551f39",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void06.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void06.tga",
+                      "sha256":  "0cad43638b319bced89db6c69cfa93d1362d24005b6146b8b17288e6727a01d8",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void06_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void06_t.tga",
+                      "sha256":  "31eddc53778038a28af79724e52872b4e92bcb1b09123b3e89dd563ce4ab76ae",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void07.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void07.tga",
+                      "sha256":  "48a6c24467ddae74ac79098f3399326bedb7fa690db772add1bf7c6c7200183f",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void07_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void07_t.tga",
+                      "sha256":  "86d56aee428f8e0b22a22cd4a9bf8960ee50f59a4e8aae66832be913d3e25408",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void08.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void08.tga",
+                      "sha256":  "8f0f815164437d47d6068592f5af4298ceb91d3bde18a40ab27a11cc8f9709a9",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void08_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void08_t.tga",
+                      "sha256":  "21acc642f689fcad0f9468f8fa438991e57b17455b452dd4104b9dc959173f1a",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void09.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void09.tga",
+                      "sha256":  "a1c0f2711697f0b938ce98ebdeab3eb38b480ebaf816c218944407a268d79b8b",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void09_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void09_t.tga",
+                      "sha256":  "58799469914132f57ad73b04417d584c18f5c71af2e271d8644db59145177109",
+                      "size":  16428
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void10.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void10.tga",
+                      "sha256":  "e3a8abf98862d133b8ad3a05cefefeb6f41dbb7cf97552f24b5e5dd8a9293de5",
+                      "size":  1048620
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Assets/Patterns/Void10_t.tga",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Assets/Patterns/Void10_t.tga",
+                      "sha256":  "791080d124bd22c7ce007179dcf9c505bb5c3240262c7d3021771e53c07b470f",
+                      "size":  16428
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Controls/Button.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Controls/Button.lua",
-                      "sha256":  "24b820cfaf4f6b33378d9c8d0de18988d16311e3624f5e63df9b7be3b4ae127a",
-                      "size":  6406
+                      "sha256":  "837588d7020c1c4324673438ce0e6fdbb47bf747041ae06540b1b6d44d52675e",
+                      "size":  9227
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Controls/Checkbox.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Controls/Checkbox.lua",
-                      "sha256":  "7a614f3464e236d5197c033861a1a36940c0743d38ecc1c9ad9de07b3e9121b9",
-                      "size":  1659
+                      "sha256":  "f1ee5af5197465105be6d3e420456d673a320722da344bc9cf9892a4ed56e8f7",
+                      "size":  5224
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Controls/Dropdown.lua",
@@ -2306,14 +3914,20 @@
                   {
                       "path":  "Interface/AddOns/UncappedUI/Controls/EditBox.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Controls/EditBox.lua",
-                      "sha256":  "f7f89a9c8ad2c1cf097efaf8f38c94d97ea08c682db93ee1563d5b38d2f904cb",
-                      "size":  5217
+                      "sha256":  "bb3ea7ad4c32004b10d1cd592c03aac8cd4e9e8cd945b06120c07e8dcc8ea9e5",
+                      "size":  6778
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Controls/Picker.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Controls/Picker.lua",
+                      "sha256":  "9ee2fb3195fe68f45bb62d17aeb31531a491d6963a08c68c4a7b2d59f44e3b3f",
+                      "size":  6322
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Controls/ScrollFrame.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Controls/ScrollFrame.lua",
-                      "sha256":  "3cb7918784703ccd1cb30296fd7c3d3dbfd7fff2baf4b0e513437bba4ec6a110",
-                      "size":  2900
+                      "sha256":  "206f87e5496fedc2fdef88e04a4b0962f662e58088d04724e6c68216eb2d7c55",
+                      "size":  7534
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Controls/Text.lua",
@@ -2324,14 +3938,26 @@
                   {
                       "path":  "Interface/AddOns/UncappedUI/Effects/Glow.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Effects/Glow.lua",
-                      "sha256":  "373f8331c8842c9980b4b00b2c4db0a4dadde23487c5b3a28938c7832b132e33",
-                      "size":  4372
+                      "sha256":  "c49c696c612f27bd2101b344abbdc23429fe23447cbafb56b50ece81afe18725",
+                      "size":  4980
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Effects/Nebula.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Effects/Nebula.lua",
+                      "sha256":  "0ec18e17b05a490b9f3849c3cd673147ef60532b8a23bb3a61129e480b544073",
+                      "size":  7679
+                  },
+                  {
+                      "path":  "Interface/AddOns/UncappedUI/Effects/NineSlice.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Effects/NineSlice.lua",
+                      "sha256":  "4a2043c9938846956dcf17da2fdcb80d4f1521a0693d5115d7cd61f9a256c379",
+                      "size":  5156
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Frames/Panel.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Frames/Panel.lua",
-                      "sha256":  "093825d452362fbbeacb1fb125bdea5364fdbc8e379ff9a6658982b47b3d617c",
-                      "size":  1555
+                      "sha256":  "45f2ce6c205dbf1e911c18ba9ad6c058283bde2901fcc2a1edfaa421502cc6e3",
+                      "size":  4029
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Navigation/Sidebar.lua",
@@ -2342,32 +3968,32 @@
                   {
                       "path":  "Interface/AddOns/UncappedUI/Navigation/Tabs.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Navigation/Tabs.lua",
-                      "sha256":  "55f70894d9ea8b51abb077e812c31aea0e42a2fa883415b652fec9d95a754c92",
-                      "size":  1030
+                      "sha256":  "b696f0b2de282b2c4e676dc8ce0e48c31a7d111c69ed792b29f42809a37110a0",
+                      "size":  1466
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Themes/DefaultTheme.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Themes/DefaultTheme.lua",
-                      "sha256":  "e9299dca8966031b8b7b10385ba9c8306cc419a964341913e86c4bc0e9de06aa",
-                      "size":  4996
+                      "sha256":  "1dd823f7fd210a2ce8bafce2e6a8a6051083984adc284afd653226e2ec21125f",
+                      "size":  8431
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Themes/ThemeManager.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Themes/ThemeManager.lua",
-                      "sha256":  "c3d202305b4e9cad735618b5625445ca4309c0a64c4b211d2d1531f485dfde8d",
-                      "size":  5412
+                      "sha256":  "8666c997ae5bedb9d60bedd44c721ff620e7f9cfa7b4ac73e02809517a42a613",
+                      "size":  14404
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Themes/UncappedTheme.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Themes/UncappedTheme.lua",
-                      "sha256":  "f7cec8cd52cbb951d65a155fc23c4ff8b1eb97b39dcdc773fe82e4c113a9bad4",
-                      "size":  3243
+                      "sha256":  "1e6d2c487cfedc4d15a856e9461ad6465b890eb6c2d80e1c026348f359f9d12f",
+                      "size":  8833
                   },
                   {
                       "path":  "Interface/AddOns/UncappedUI/Windows/Window.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedUI/Windows/Window.lua",
-                      "sha256":  "43df589ce15af83fcf8455569b835a3c86f2e1c4dcf84fe0462726184bcd227c",
-                      "size":  8137
+                      "sha256":  "90e51198ed55befd1275f7c76a422d5a4526dfc1ed46f5555997dfd81419772f",
+                      "size":  9712
                   },
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",

@@ -211,6 +211,27 @@ local state = {}          -- [wireIndex] = { rank, maxRank, pct, maxPct, cost = 
 local arenaPoints = 0
 local haveData = false
 
+-- ★ Reply watchdog -- see the identical note in UncappedScrolls.lua. Without a
+--   time bound, "Waiting for the server..." was permanent whenever ANIMAEND
+--   never arrived, with every stat card stuck on "--" and its buttons disabled.
+--   Prestige and Progress have had this since they were written.
+-- ⚠ Recomputed on theme change, NOT captured once. As a bare load-time
+--   snapshot this was the seventh copy of a bug the other six tabs had already
+--   been fixed for: recolour "quiet text" in the Appearance panel and this one
+--   string kept the colour it had at login until the next /reload.
+local COLOR_DIM_TEXT = "|cff888888"
+local function RefreshDimColor()
+    local Kit = _G.UncappedUIKit
+    COLOR_DIM_TEXT = (Kit and Kit.Hex and Kit.Hex("textMuted")) or "|cff888888"
+end
+RefreshDimColor()
+if _G.UncappedUIKit and _G.UncappedUIKit.OnThemeChanged then
+    _G.UncappedUIKit.OnThemeChanged(RefreshDimColor)
+end
+
+local REPLY_TIMEOUT = 6.0
+local requested, waited, timedOut = false, 0, false
+
 -- Server-supplied stat DEFINITIONS (name/icon/blurb/help/tree), as opposed to
 -- the live numeric `state` above -- see ANIMALIST/ANIMADEF/... further down.
 -- `defStaging[index]` accumulates ANIMADEF/ANIMABLURB/ANIMAHELP lines as they
@@ -230,6 +251,7 @@ local function Send(msg)
 end
 
 local function RequestState()
+    requested, waited, timedOut = true, 0, false
     Send("ANIMAOPEN")
 end
 
@@ -582,7 +604,15 @@ local function RefreshAll()
     -- the addon should keep working fine off DEFAULT_STATS + live ANIMASTAT
     -- numbers in that case rather than showing "Waiting..." forever.
     if statusText then
-        statusText:SetText(haveData and "" or "|cff888888Waiting for the server...|r")
+        if haveData then
+            statusText:SetText("")
+        elseif timedOut then
+            statusText:SetText(COLOR_DIM_TEXT .. "This realm's server hasn't sent your anima. "
+                .. "That usually means the server hasn't been updated for this panel yet. "
+                .. "Reopen the tab to try again.|r")
+        else
+            statusText:SetText(COLOR_DIM_TEXT .. "Waiting for the server...|r")
+        end
     end
     for _, card in ipairs(cards or {}) do
         RefreshCard(card)
@@ -599,6 +629,14 @@ local function BuildFrame(parent)
     if frame then return end
 
     frame = CreateFrame("Frame", "UncappedAnimaFrame", parent or UIParent)
+    -- No C_Timer on 3.3.5a: an OnUpdate accumulator, idle unless a request is out.
+    frame:SetScript("OnUpdate", function(_, elapsed)
+        if not requested then return end
+        waited = waited + (elapsed or 0)
+        if waited < REPLY_TIMEOUT then return end
+        requested, timedOut = false, true
+        RefreshAll()
+    end)
     frame:SetPoint("TOPLEFT"); frame:SetPoint("BOTTOMRIGHT")
     frame:Hide()
 
@@ -889,6 +927,7 @@ local function HandleMessage(body)
 
     if body == "ANIMAEND" then
         haveData = true
+        requested, timedOut = false, false   -- an answer landed; stop the watchdog
         RefreshAll()
         return
     end

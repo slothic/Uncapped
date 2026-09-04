@@ -16,20 +16,39 @@ UncappedUI.lua
 # Right after the namespace bootstrap: every other file may register a frame
 # with it, and CreateWindow does so for free.
 UncappedScale.lua
+# Generated index of the background pattern library (Assets\Patterns).
+# Only sets a table on the namespace, so it can load early.
+Assets\PatternList.lua
 Themes\ThemeManager.lua
 Themes\DefaultTheme.lua
-# Themes\UncappedTheme.lua -- NOT LOADED. Every key in it is commented out
-# pending custom art, so ThemeManager deep-merged it into an exact copy of
-# Default: /uitheme listed an "Uncapped" theme and /uitheme uncapped reported
-# success while changing nothing. Re-add this line the moment the file has real
-# art in it. (Anyone who had selected it degrades cleanly -- GetActiveTheme falls
-# back to Default for an unknown name, which is what they were already seeing.)
+# ★ LOADED since 2026-09-04, and now the theme a player gets by
+# default (see INITIAL_THEME_NAME in ThemeManager.lua). It sat unloaded for a
+# month because every key in it was commented out "pending custom art" and it
+# therefore deep-merged into an exact copy of Default -- /uitheme listed an
+# "Uncapped" theme that reported success and changed nothing.
+#
+# It never needed the art. The look is stock Blizzard textures multiplied by a
+# violet tint, which is why the dialog border keeps its relief and the corner
+# gem just turns amethyst. `/uitheme default` returns the old stock look.
+Themes\UncappedTheme.lua
+# Must precede any control that can glow -- Controls\Button.lua calls
+# AttachGlow from its skin function, which runs the moment a button is built.
+# Geometry helper shared by every decorative layer (glow, rims, vignettes).
+# Must precede them all.
+Effects\NineSlice.lua
+Effects\Glow.lua
+# Depends on NineSlice only for load order tidiness; it builds plain textures.
+# ⚠ Panels only -- never an always-on HUD. See the header in the file.
+Effects\Nebula.lua
 Controls\Text.lua
 Controls\Button.lua
 Controls\EditBox.lua
 Controls\Dropdown.lua
 Controls\Checkbox.lua
 Controls\ScrollFrame.lua
+# Colour swatch + slider. After NineSlice (the swatch draws a rim) and after
+# Glow (it lights on hover).
+Controls\Picker.lua
 Frames\Panel.lua
 Windows\Window.lua
 Navigation\Sidebar.lua

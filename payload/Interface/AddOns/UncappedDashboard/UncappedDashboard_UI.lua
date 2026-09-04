@@ -62,6 +62,7 @@ local EMBEDDED_TABS = {
     -- one -- it embeds the same way regardless, since this lookup is by global
     -- name and happens at BuildContent time, long after every addon has loaded.
     lootfeed    = "UncappedLootFeed",
+    appearance  = "UncappedAppearance",
 }
 local embeddedGroups = {}
 
@@ -199,7 +200,14 @@ local function BuildContent()
     local window = Core.Buttons.GetWindow()
     local navPanel = Core.Buttons.GetNavPanel()
 
-    contentPanel = UncappedUIKit.CreatePanel(window)
+    -- ★ nebula = the scrolling starfield background (Effects/Nebula.lua). This is
+    --   the big surface the player actually looks at, so it is the one that gets
+    --   it. The nav panel next door deliberately does NOT -- two competing
+    --   parallax fields side by side read as a bug, not as depth.
+    --
+    --   Safe here because the Dashboard is a panel the player opens: the scroll
+    --   driver is gated on OnShow/OnHide and a closed Dashboard costs nothing.
+    contentPanel = UncappedUIKit.CreatePanel(window, { nebula = true })
     contentPanel:SetPoint("TOPLEFT", navPanel, "TOPRIGHT", 10, 0)
     contentPanel:SetPoint("BOTTOMRIGHT", -16, 16)
 

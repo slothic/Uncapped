@@ -34,6 +34,40 @@ local function ApplyWindowSkin(win, theme)
         win.resizeGrip:SetHighlightTexture(theme.textures.resizeGripHighlight)
         win.resizeGrip:SetPushedTexture(theme.textures.resizeGripDown)
     end
+
+    -- ★ THE CLOSE BUTTON. UIPanelCloseButton ships Blizzard's red-on-gold disc,
+    --   which is the single loudest thing left on a violet window -- it is the
+    --   only saturated red anywhere on the panel. Replaced with a plain glyph
+    --   that tints from the theme, and which goes gold under the cursor because
+    --   gold is what "you are about to act on this" means everywhere else here.
+    --
+    -- ⚠ Its four textures are cleared, not just re-pointed. The template sets a
+    --   Pushed AND a Disabled texture as well, and leaving those pointing at
+    --   Blizzard's disc means the red ring flashes back on every click.
+    local glyph = theme.textures.closeGlyph
+    if glyph then
+        win.closeButton:SetNormalTexture(glyph)
+        win.closeButton:SetPushedTexture(glyph)
+        win.closeButton:SetHighlightTexture(glyph)
+        win.closeButton:SetDisabledTexture(glyph)
+
+        local n = win.closeButton:GetNormalTexture()
+        local tint = c.closeGlyphTint or { 1, 1, 1 }
+        if n then n:SetVertexColor(tint[1], tint[2], tint[3]) end
+
+        local pu = win.closeButton:GetPushedTexture()
+        if pu then pu:SetVertexColor(tint[1] * 0.8, tint[2] * 0.8, tint[3] * 0.8) end
+
+        local hl = win.closeButton:GetHighlightTexture()
+        local hot = c.closeGlyphTintHover or tint
+        if hl then
+            hl:SetVertexColor(hot[1], hot[2], hot[3])
+            hl:SetBlendMode("BLEND")
+        end
+
+        local dis = win.closeButton:GetDisabledTexture()
+        if dis then dis:SetVertexColor(0.4, 0.36, 0.48) end
+    end
 end
 
 -- opts:

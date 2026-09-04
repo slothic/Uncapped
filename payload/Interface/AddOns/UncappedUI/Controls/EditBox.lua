@@ -8,8 +8,34 @@
 local UncappedUIKit = _G.UncappedUIKit
 if not UncappedUIKit then return end
 
+-- ★ InputBoxTemplate draws its own gold-brown chrome as three textures
+--   (left/middle/right). On a violet panel that gold is the wrong temperature
+--   and it is the last stock-looking thing on a search field.
+--
+-- ⚠ Those textures are reached by walking GetRegions(), NOT by global name.
+--   Every edit box in this kit is created with a nil name, so the usual
+--   "<name>Left"/"<name>Middle"/"<name>Right" globals do not exist for them --
+--   which is exactly why this was never skinned before.
+--
+--   Textures the KIT itself adds (the magnifier) are tagged and skipped, or the
+--   chrome tint would repaint them too.
+local function TintInputChrome(box, theme)
+    local tint = theme.colors and theme.colors.editBoxTint
+    if not tint then return end
+    local n = select("#", box:GetRegions())
+    for i = 1, n do
+        local r = select(i, box:GetRegions())
+        if r and r.GetObjectType and r:GetObjectType() == "Texture" and not r.uncappedOwned then
+            r:SetVertexColor(tint[1], tint[2], tint[3])
+        end
+    end
+end
+
 local function ApplySearchSkin(box, theme)
     box.icon:SetTexture(theme.textures.searchIcon)
+    local ic = theme.colors and theme.colors.editBoxIconTint
+    if ic then box.icon:SetVertexColor(ic[1], ic[2], ic[3]) end
+    TintInputChrome(box, theme)
 end
 
 -- How long the box waits, after the last keystroke, before it runs the query.
@@ -40,6 +66,7 @@ function UncappedUIKit.CreateSearchBox(parent, width, height, placeholderText)
 
     box.placeholder = UncappedUIKit.CreateText(box, "disableSmall", "LEFT", box, "LEFT", 24, 1, placeholderText or "")
     box.icon = box:CreateTexture(nil, "OVERLAY")
+    box.icon.uncappedOwned = true   -- excluded from the chrome tint above
     box.icon:SetWidth(16); box.icon:SetHeight(16)
     box.icon:SetPoint("LEFT", 6, 0)
 
@@ -126,6 +153,11 @@ function UncappedUIKit.CreateValueBox(parent, width, height, placeholderText)
         refreshPlaceholder(self)
         self:ClearFocus()
     end)
+
+    -- This control was never registered with the theme at all, so it kept
+    -- Blizzard's gold chrome under every theme while the search box next to it
+    -- changed. Same widget, two different looks, on the same panel.
+    UncappedUIKit.Register(box, TintInputChrome)
 
     return box
 end

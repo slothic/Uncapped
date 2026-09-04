@@ -1833,6 +1833,11 @@ end
      custom_vault_item on the character DB, so this asks a fixed number of times
      and then gives up, rather than hammering on behalf of a client that is never
      going to answer. It stops the instant a snapshot lands. ]]
+-- "idle" before anything is asked for, "waiting" while a request is outstanding,
+-- "ready" once a snapshot has landed, "failed" once the retries are exhausted.
+-- The panel reads this to tell an empty vault apart from an unanswered one.
+Core.syncState = Core.syncState or "idle"
+
 local SNAPSHOT_RETRY_INTERVAL = 3
 local SNAPSHOT_RETRY_LIMIT    = 10
 
@@ -1847,6 +1852,14 @@ snapshotRetry:SetScript("OnUpdate", function(self, dt)
     self.tries = (self.tries or 0) + 1
     if self.tries > SNAPSHOT_RETRY_LIMIT then
         self:Hide()
+        -- ★ TELL SOMEBODY. This used to give up in total silence, and because the
+        --   panel had no empty state either, thirty seconds of failed retries and
+        --   a genuinely empty vault looked EXACTLY the same: a blank list and
+        --   "Page 1 of 1". The comment above this block already warned that a
+        --   permanently empty window "reads to them as the server lost my vault"
+        --   -- that is precisely what the give-up path produced.
+        Core.syncState = "failed"
+        Notify("sync")
         return
     end
     Core.Send("VLTGET")
@@ -1865,6 +1878,9 @@ function Core.RequestSnapshot(cleanCache)
     Core.Send("VLTGET")
     StopSnapshotRetry()
     snapshotRetry:Show()
+    -- Drives the panel's empty state: see Core.syncState.
+    Core.syncState = "waiting"
+    Notify("sync")
 end
 
 local recacheTicker = CreateFrame("Frame")
@@ -2221,6 +2237,7 @@ Core.PushVaultCountsToClient = PushVaultCountsToClient
 
 local function FinalizeSnapshot()
     StopSnapshotRetry()
+    Core.syncState = "ready"
     ClearItems()
     for idx, it in ipairs(staging) do
         it.added = #staging - idx
