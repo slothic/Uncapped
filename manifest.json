@@ -842,31 +842,31 @@
                   {
                       "path":  "Interface/AddOns/Moonforge/Moonforge.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Moonforge/Moonforge.lua",
-                      "sha256":  "201bbedb7af9e43a3307700647c1a38350760ee99b6d7ad02e8201a1f4f5d103",
+                      "sha256":  "ebe00987bd64fae732a7a9329a8b2499c386304f1ae5fe07c2195ee3cb576ae9",
                       "size":  87780
                   },
                   {
                       "path":  "Interface/AddOns/Moonforge/Moonforge.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Moonforge/Moonforge.toc",
-                      "sha256":  "4dd9ed404fcd557e5f96aaef11423f17e0a96acb70efb5cbc90873fed2b9a219",
+                      "sha256":  "95f5d9157e0bcdf173f61e668d90c645e860be53e7b76772b6535683a6688b66",
                       "size":  233
                   },
                   {
                       "path":  "Interface/AddOns/PicoID/PicoID.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/PicoID/PicoID.lua",
-                      "sha256":  "1de1ae029da05333f226c628894f94063e5b65b8b996d5e2f870f0c52e1a52c2",
+                      "sha256":  "15bef51a2b8c1f2ef7aadaa73ea92794626e070e2103c56f463629e2f4cd3b0d",
                       "size":  35991
                   },
                   {
                       "path":  "Interface/AddOns/PicoID/PicoID.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/PicoID/PicoID.toc",
-                      "sha256":  "43a1d1b5c8d8042b2b16a0cac308fcf67e54a2213182612236e987a336865af3",
+                      "sha256":  "c4cecda772fcf4829e12454d3583d40133f586ba487851742eb74dbf4b47f3e9",
                       "size":  661
                   },
                   {
                       "path":  "Interface/AddOns/PicoIDData/PicoIDData.toc",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/PicoIDData/PicoIDData.toc",
-                      "sha256":  "4fafcf5f6bdd168e19c546ab62b3c68524f6ddfa8e53ce2c4396b9a6e6849eb7",
+                      "sha256":  "11342933c7d701e1122ccc19e7ab9a9b9c43abdce9646757e00348b4c411ea14",
                       "size":  227
                   },
                   {

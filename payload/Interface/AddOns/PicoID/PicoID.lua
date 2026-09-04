@@ -4,7 +4,7 @@
 --   Item - Imprinted proc - Proc ID - Item of origin
 -- Duplicated procs are shown in red (they never fire twice).
 --
--- Originally by Michael (v1.13), shipped on Uncapped with realm-side fixes.
+-- Originally by Mhortai (v1.13), shipped on Uncapped with realm-side fixes.
 --
 -- ⚠ It does NOT only listen. It sends two verbs -- ICINV (COST_HEAVY, 6 tokens)
 --   and USPELLDMG (COST_MEDIUM, 2) -- into a per-player token bucket of 60 burst

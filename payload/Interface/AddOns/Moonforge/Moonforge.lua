@@ -4,7 +4,7 @@
 -- A ground-up recreation of the Uncapped Soulforge tab as a standalone
 -- addon, with the whitelist and consume workflows expanded.
 --
--- Originally by Michael (v1.4.0), shipped on Uncapped with realm-side fixes.
+-- Originally by Mhortai (v1.4.0), shipped on Uncapped with realm-side fixes.
 -- v1.4.1 changes, all in the gap between what the addon BELIEVED it sent and
 -- what the server actually accepted:
 --   * bulk whitelist queue repaced from 16/s to 1.33/s -- it was 8x over the

@@ -853,7 +853,7 @@ $manifest = [ordered]@{
     # hotzone marquee simply never loaded and never came back. Found by
     # tools\check-addon-lists.py on its first run — see LA-07.
     # ⚠ PicoIDData added 2026-09-04, and note what is NOT here with it. Moonforge and
-    # PicoID are adopted third-party addons (author: Michael) brought into
+    # PicoID are adopted third-party addons (author: Mhortai) brought into
     # client_addons because they needed realm-side fixes to be safe on the wire.
     # Owner ruling the same day: install both, force-enable neither -- they are
     # somebody else's addons, not features this realm decided everyone should have,

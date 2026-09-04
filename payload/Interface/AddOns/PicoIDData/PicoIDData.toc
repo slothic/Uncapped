@@ -1,7 +1,7 @@
 ## Interface: 30300
 ## Title: PicoID Data
 ## Notes: Proc and drop-source tables for PicoID. Loaded on demand.
-## Author: Michael
+## Author: Mhortai
 ## Version: 1.13
 ## LoadOnDemand: 1
 ## DefaultState: enabled
