@@ -1916,8 +1916,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedScrolls/UncappedScrolls.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedScrolls/UncappedScrolls.lua",
-                      "sha256":  "fa7cab4e065ea432feb844dbc3705ef38239baaa601b092c3f6fc6aaf2c497c6",
-                      "size":  38501
+                      "sha256":  "6360be035fc497f4dd55d1ea1e769c179ec59a4e9e2b463e2796baf433fc60be",
+                      "size":  38597
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedSoulForge/UncappedSoulForge.lua",
@@ -4046,7 +4046,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "81933eff066b2d21c0ab810f4626174e93477cc44f4087a68e7770b55c933670",
+                      "sha256":  "aaa315a0847d218a30b73911b8765475022537fb80697ebaf5f654393b6ed1ec",
                       "size":  3593
                   },
                   {
@@ -4729,9 +4729,9 @@
                   },
                   {
                       "path":  "Data/enUS/patch-enUS-U.MPQ",
-                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.09.04d.MPQ",
-                      "sha256":  "9a8408abb21ecb2c0f97c66daeea56c1dc4533f52cc7dd44257f2bf7470704d1",
-                      "size":  85631223
+                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.09.05a.MPQ",
+                      "sha256":  "6220e83b76266942d5798aefa68ac6085ade840047658bdab0182caa1216352b",
+                      "size":  90382177
                   },
                   {
                       "path":  "UncappedClient.dat",

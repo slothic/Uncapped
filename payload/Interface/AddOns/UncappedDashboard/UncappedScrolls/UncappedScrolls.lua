@@ -299,15 +299,16 @@ local function Render()
             state.petDelver, COLOR_DIM, state.petMult))
     end
 
+    -- ★ Quest bonus is account-wide again (2026-09-05) -- but by a DIFFERENT rule
+    -- from the pooled one retired on 2026-08-14. This is the MAXIMUM any single
+    -- character on the account has reached, never the sum, so a fresh alt can
+    -- never inflate it. Labelled with "best character" so the number cannot be
+    -- read as this character's own count.
+    Row("Quest bonus",      string.format("x%.1f Anima on every character  %s(best character: %d quests)|r",
+        state.questMult, COLOR_DIM, state.questCount))
+
     y = y - 6
     Head("This character")
-
-    -- Quest bonus moved down here from "Account-wide" (2026-08-14). It used to
-    -- pool every character on the account into one count, which paid an alt again
-    -- for quests the main had already done; it now counts only this character's
-    -- own completed quests, so it belongs under this heading.
-    Row("Quest bonus",      string.format("x%.1f Anima  %s(%d quests)|r",
-        state.questMult, COLOR_DIM, state.questCount))
 
     -- [#882] Contagion sits under "This character" because it is the one scroll
     -- spent per character rather than per account. Shown at zero on purpose --
