@@ -42,6 +42,33 @@ PAYLOAD = "C:/Wotlk/Launcher/payload/Interface/AddOns"
 SOURCES = "C:/Wotlk/Server/azerothcore-wotlk/client_addons"
 MANIFEST_PS1 = "C:/Wotlk/Launcher/tools/New-Manifest.ps1"
 
+# ---------------------------------------------------------------------------
+# Addons that live in client_addons/ but are deliberately NOT force-ticked.
+#
+# ⚠ THIS OPTS OUT OF forceEnableAddOns ONLY. ownedPaths is still required and
+#   still checked: we ship these, so we must be able to prune and rename under
+#   them. An entry here that is missing from ownedPaths still fails.
+#
+# The rule this bends -- "ours is anything in client_addons/, and ours must be in
+# both lists" -- assumed the two things move together, because until now they did.
+# These are adopted third-party addons: authored by someone else, brought into
+# client_addons/ because they needed realm-side fixes to be safe on the wire, but
+# not features this realm decided everyone should have. Force-ticking one would
+# override a player's own choice about somebody else's addon.
+#
+# ★ Before adding to this set, be sure the failure mode is "the player does not
+#   see an addon they never asked for". If the failure mode is "a feature of ours
+#   silently does nothing", it belongs in forceEnableAddOns instead -- that is the
+#   bug the four notes in New-Manifest.ps1 record, five times over.
+NOT_FORCE_ENABLED = {
+    # Owner ruling 2026-09-04: install both, force-enable neither. Moonforge is a
+    # second Soulforge UI beside the Dashboard's; PicoID is an optional viewer.
+    # PicoIDData is NOT here on purpose -- it is PicoID's LoadOnDemand data folder,
+    # not an addon anyone chooses, and it loads nothing unless PicoID asks for it.
+    "Moonforge",
+    "PicoID",
+}
+
 
 def ps_array(text, name):
     """Pull a PowerShell @('a', 'b', ...) literal, which may span many lines.
@@ -99,8 +126,19 @@ def main():
     owned_addons = {p.split("/")[-1] for p in owned if p.startswith("Interface/AddOns/")}
     shipping = sorted(payload & ours)          # ours AND actually staged
 
-    missing_force = [a for a in shipping if a not in force]
+    missing_force = [a for a in shipping
+                     if a not in force and a not in NOT_FORCE_ENABLED]
     missing_owned = [a for a in shipping if a not in owned_addons]
+
+    # Say the exemptions out loud every run. An exception nobody is reminded of is
+    # an exception that quietly becomes the rule.
+    for a in sorted(NOT_FORCE_ENABLED & set(shipping)):
+        print("  - %s ships un-ticked by choice (installed, not force-enabled)" % a)
+    # And catch the reverse mistake: exempted AND force-enabled is a contradiction,
+    # and the manifest would win silently.
+    for a in sorted(NOT_FORCE_ENABLED & force):
+        print("  ! %s is in NOT_FORCE_ENABLED but ALSO in forceEnableAddOns -- the "
+              "manifest wins and the addon IS force-ticked" % a)
 
     print("  staged addons          %d" % len(payload))
     print("  of those, ours         %d" % len(shipping))

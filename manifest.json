@@ -840,6 +840,48 @@
                       "size":  5244
                   },
                   {
+                      "path":  "Interface/AddOns/Moonforge/Moonforge.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Moonforge/Moonforge.lua",
+                      "sha256":  "5d27e96ef1768b2ad640d378f7044fc6250009e895d5a5e669b486ecf6c9b48c",
+                      "size":  85334
+                  },
+                  {
+                      "path":  "Interface/AddOns/Moonforge/Moonforge.toc",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Moonforge/Moonforge.toc",
+                      "sha256":  "4dd9ed404fcd557e5f96aaef11423f17e0a96acb70efb5cbc90873fed2b9a219",
+                      "size":  233
+                  },
+                  {
+                      "path":  "Interface/AddOns/PicoID/PicoID.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/PicoID/PicoID.lua",
+                      "sha256":  "1de1ae029da05333f226c628894f94063e5b65b8b996d5e2f870f0c52e1a52c2",
+                      "size":  35991
+                  },
+                  {
+                      "path":  "Interface/AddOns/PicoID/PicoID.toc",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/PicoID/PicoID.toc",
+                      "sha256":  "43a1d1b5c8d8042b2b16a0cac308fcf67e54a2213182612236e987a336865af3",
+                      "size":  661
+                  },
+                  {
+                      "path":  "Interface/AddOns/PicoIDData/PicoIDData.toc",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/PicoIDData/PicoIDData.toc",
+                      "sha256":  "4fafcf5f6bdd168e19c546ab62b3c68524f6ddfa8e53ce2c4396b9a6e6849eb7",
+                      "size":  227
+                  },
+                  {
+                      "path":  "Interface/AddOns/PicoIDData/PicoID_DropDB.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/PicoIDData/PicoID_DropDB.lua",
+                      "sha256":  "4ccbf35e0c2414cdbd8bf370188457be86d31818fe81f141495cf5c322d84c33",
+                      "size":  234752
+                  },
+                  {
+                      "path":  "Interface/AddOns/PicoIDData/PicoID_ProcDB.lua",
+                      "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/PicoIDData/PicoID_ProcDB.lua",
+                      "sha256":  "1d5d05d345a8150d99724aca307c1f50689f2573e495696e920032076990fe0f",
+                      "size":  575277
+                  },
+                  {
                       "path":  "Interface/AddOns/Postal/Changelog-Postal-v3.4.0.txt",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Postal/Changelog-Postal-v3.4.0.txt",
                       "sha256":  "821e010d662dba277cc857030d7a7f07e1e77fee09e9283bc4c65436c8abde78",
@@ -4749,7 +4791,8 @@
                               "UncappedHotzones",
                               "UncappedLootFeedSources",
                               "UncappedTransmogData",
-                              "UncappedQuestData"
+                              "UncappedQuestData",
+                              "PicoIDData"
                           ],
     "forceDisableAddOns":  [
                                "QuestHelper",
@@ -4759,6 +4802,9 @@
                            ],
     "ownedPaths":  [
                        "Data/enUS",
+                       "Interface/AddOns/Moonforge",
+                       "Interface/AddOns/PicoID",
+                       "Interface/AddOns/PicoIDData",
                        "Interface/AddOns/StatFeed",
                        "Interface/AddOns/ReagentBankCraft",
                        "Interface/AddOns/UncappedAlerts",

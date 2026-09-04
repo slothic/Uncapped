@@ -1,0 +1,7 @@
+## Interface: 30300
+## Title: Moonforge |cff7f9fffv1.4.1|r
+## Notes: The Soulforge, reforged. Forge bar, whitelist tools, bulk consume, soulbind duplicates. (Uncapped)
+## Author: Michael
+## SavedVariables: MoonforgeDB
+
+Moonforge.lua

@@ -1,0 +1,14 @@
+## Interface: 30300
+## Title: PicoID
+## Notes: Lists the procs imprinted on your equipped items with their IDs and item of origin. Companion to SchoolPop's InvID.
+## Author: Michael
+## Version: 1.14
+## SavedVariables: PicoIDDB, PicoIDExport
+## OptionalDeps: SchoolPop
+
+# ⚠ PicoID_ProcDB.lua and PicoID_DropDB.lua are NOT listed here on purpose. They
+# are 810 KB of table literals and now live in the PicoIDData addon, which is
+# ## LoadOnDemand and is pulled in by EnsureData() the first time anything reads
+# them. Adding them back here reinstates an 810 KB parse at every login for every
+# player, including everyone who never opens the window.
+PicoID.lua

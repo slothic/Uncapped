@@ -852,7 +852,22 @@ $manifest = [ordered]@{
     # standalone (no LoadOnDemand, no hard deps), so for anyone who ever unticked it the
     # hotzone marquee simply never loaded and never came back. Found by
     # tools\check-addon-lists.py on its first run — see LA-07.
-    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests', 'UncappedBugReporter', 'UncappedShieldBar', 'Uncapped64bitUI', 'UncappedPanel', 'UncappedLootFeed', 'UncappedBulkBuy', 'UncappedShards', 'UncappedHotzones', 'UncappedLootFeedSources', 'UncappedTransmogData', 'UncappedQuestData')
+    # ⚠ PicoIDData added 2026-09-04, and note what is NOT here with it. Moonforge and
+    # PicoID are adopted third-party addons (author: Michael) brought into
+    # client_addons because they needed realm-side fixes to be safe on the wire.
+    # Owner ruling the same day: install both, force-enable neither -- they are
+    # somebody else's addons, not features this realm decided everyone should have,
+    # and Moonforge duplicates a Dashboard tab we already ship. They are exempted in
+    # tools\check-addon-lists.py (NOT_FORCE_ENABLED), which still requires them in
+    # ownedPaths below.
+    # ★★ PicoIDData is different and IS force-ticked: it is not an addon anyone
+    # chooses, it is PicoID's ## LoadOnDemand data folder. Being LoadOnDemand it costs
+    # nothing when PicoID is off, and the force-tick is LOAD-BEARING in the same way
+    # UncappedTransmogData's is -- LoadAddOn() on a DISABLED addon returns nil,
+    # 'DISABLED', so a player who ticks PicoID on but left this off would get a
+    # permanently blank proc and origin column. PicoID's EnsureData() says so out
+    # loud rather than failing quietly, but it cannot fix it.
+    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests', 'UncappedBugReporter', 'UncappedShieldBar', 'Uncapped64bitUI', 'UncappedPanel', 'UncappedLootFeed', 'UncappedBulkBuy', 'UncappedShards', 'UncappedHotzones', 'UncappedLootFeedSources', 'UncappedTransmogData', 'UncappedQuestData', 'PicoIDData')
 
     # Switched off in AddOns.txt on clients that already have them. Needed because dropping
     # an addon from the payload does not uninstall it - the launcher never deletes
@@ -870,6 +885,13 @@ $manifest = [ordered]@{
     # affected. This is what claws back the retired camel test patch (patch-enUS-Y).
     ownedPaths = @(
         'Data/enUS',
+        # Adopted third-party addons, 2026-09-04. Listed from their FIRST release --
+        # PicoID in particular had 810 KB of tables moved out into PicoIDData, and
+        # without ownership here the old PicoID/PicoID_ProcDB.lua would sit on the
+        # disk of anyone who ever installed it by hand and load alongside the split.
+        'Interface/AddOns/Moonforge',
+        'Interface/AddOns/PicoID',
+        'Interface/AddOns/PicoIDData',
         'Interface/AddOns/StatFeed',
         'Interface/AddOns/ReagentBankCraft',
         'Interface/AddOns/UncappedAlerts',
