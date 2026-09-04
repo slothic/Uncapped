@@ -1910,8 +1910,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedProgress/UncappedProgress.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedDashboard/UncappedProgress/UncappedProgress.lua",
-                      "sha256":  "053ca09d1f4f739048a964b1867e21c13da6bc1e092b6b99d3a08d6a501c26e2",
-                      "size":  74698
+                      "sha256":  "a535fd1d5f51e0002bd905be4b0b0a9bd41fac447db03caa38eaa644a96e702b",
+                      "size":  75808
                   },
                   {
                       "path":  "Interface/AddOns/UncappedDashboard/UncappedScrolls/UncappedScrolls.lua",
@@ -4729,9 +4729,9 @@
                   },
                   {
                       "path":  "Data/enUS/patch-enUS-U.MPQ",
-                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.09.04c.MPQ",
-                      "sha256":  "15d3dcac8adfcaaa23ac746cd4bc5787f49014f15833afe0a94a5fd4109622f1",
-                      "size":  85628059
+                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.09.04d.MPQ",
+                      "sha256":  "9a8408abb21ecb2c0f97c66daeea56c1dc4533f52cc7dd44257f2bf7470704d1",
+                      "size":  85631223
                   },
                   {
                       "path":  "UncappedClient.dat",

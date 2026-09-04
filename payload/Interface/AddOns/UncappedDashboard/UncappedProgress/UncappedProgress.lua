@@ -955,7 +955,7 @@ function Render()
                 .. "shares below, at %d of the dumped stat for every 1 gained -- the same price "
                 .. "the conversion window charges. Only stats earned AFTER you switch this on "
                 .. "are converted; what you have already banked is left alone. Also available "
-                .. "as /dsauto.", (autoPlan.rate or 2)), 470)
+                .. "as .dsauto (with a dot, not a slash).", (autoPlan.rate or 2)), 470)
         end
 
         -- Pending is the remainder that has not reached a whole point yet. Shown
@@ -991,15 +991,27 @@ function Render()
         -- No DSP reply at all. Say nothing rather than claiming zero -- an older
         -- server simply has no DSPGET handler, and this section not existing is
         -- the honest rendering of that.
+        --[[ ★★ [#1299] DO NOT HIDE THE AUTO-SPEND UI FROM HERE.
+          These two branches are about the PET pool having nothing to show. They used
+          to call HideAutoUI() as well, which hid a completely different section --
+          the automatic stat spending editor, drawn immediately above by the block
+          that owns it. So on any character with no pet pool the editor was built,
+          shown, and then hidden again on the very same paint.
+          What the player saw was the heading "Automatic stat spending", 114px of
+          nothing where the checkboxes should be, and then the pet section. Reported
+          as "doesn't show up on new characters" -- but it was never about being new:
+          it is every petless character, which is most of the realm. The reporter's
+          own account proved it, the editor being visible on their hunter and not on
+          their priest.
+          The auto section hides itself correctly in exactly two places: the early
+          return when no state has arrived, and when there is no plan to draw. ]]
         HidePetUI()
-        HideAutoUI()
     elseif #pets == 0 then
         Head("Pet Dungeon Stats")
         Note("Your pet hasn't banked any stats yet. Every dungeon kill rolls for it, "
             .. "the same as it does for you -- and the pool follows the pet, so a "
             .. "stabled one keeps what it earned.", 470)
         HidePetUI()
-        HideAutoUI()
         y = y - 6
     else
         local sel = SelectedPet()
@@ -1030,7 +1042,7 @@ function Render()
             Warn(petError, 470)
         else
             Note(string.format("Costs %d of the source for every 1 gained. Also available as "
-                .. "/dspet -- this does exactly the same thing.", petState.rate or 2), 470)
+                .. ".dspet (with a dot, not a slash) -- this does exactly the same thing.", petState.rate or 2), 470)
         end
         y = y - 6
     end
@@ -1695,5 +1707,5 @@ if UncappedUI then
         .. "Also available with /progress.", 48)
     L:Note("Your pet's own banked stats are here too, one pool per pet -- including "
         .. "stabled ones you do not have out -- and you can convert between them from "
-        .. "the same row. The /dspet command does the same thing.", 48)
+        .. "the same row. The .dspet command does the same thing (a dot, not a slash).", 48)
 end
