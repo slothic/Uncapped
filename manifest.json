@@ -1808,8 +1808,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedBulkBuy/UncappedBulkBuy.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedBulkBuy/UncappedBulkBuy.lua",
-                      "sha256":  "8ffd5878bcac1a9d3df2320e8ffe22a9d2a1cfc12bfb8949097cd0d2ffbb8a10",
-                      "size":  39363
+                      "sha256":  "11b07e221c7bb362216ba86b24b1d2840dfb2a31a05a1f9f180f5ecf65c5cfc3",
+                      "size":  42842
                   },
                   {
                       "path":  "Interface/AddOns/UncappedBulkBuy/UncappedBulkBuy.toc",

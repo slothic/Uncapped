@@ -255,12 +255,16 @@ local function InvalidateQuotes()
     incoming = nil
 end
 
+-- [#1292] Returns TRUE only if a request actually went out. The caller must not
+-- discard its retry state on a false -- this used to return silently and the
+-- pendingRequote that drove it had already been cleared, so nothing ever asked
+-- again and the panel waited forever.
 local function AskForQuote(index)
     local entry = nil
     for _, row in ipairs(list) do
         if row.index == index then entry = row break end
     end
-    if not entry or not entry.itemId then return end
+    if not entry or not entry.itemId then return false end
 
     pending = index
     ArmDriverTimer()                        -- the quote-timeout watchdog
@@ -269,6 +273,7 @@ local function AskForQuote(index)
     quote[index].asked = GetTime()
 
     Send("BVQ:" .. index .. ":" .. entry.itemId)
+    return true
 end
 
 -- Has the answer for `index` gone missing?  A worldserver without this feature
@@ -407,8 +412,14 @@ local function RenderDetail()
     local q = quote[entry.index]
 
     if not q or not q.maxBuy then
+        --[[ [#1292] Do not accuse the realm of not having the feature.
+          The old text here read "This realm's server does not offer bulk buying",
+          which is a claim about the SERVER made from the absence of one reply. It
+          was wrong every time a player hit this after a successful purchase --
+          they had demonstrably just used the feature. Say what actually happened
+          and give them the way out, because Refresh does work. ]]
         local waiting = QuoteTimedOut(entry.index)
-            and (WARN .. "This realm's server does not offer bulk buying.|r")
+            and (WARN .. "The server did not answer. Press Refresh to try again.|r")
             or "|cff808080Asking the server...|r"
 
         ui.detailCost:SetText(waiting)
@@ -763,7 +774,13 @@ local function BuildFrame()
     refresh:SetScript("OnClick", function()
         if view.selected then
             quote[view.selected] = nil
-            AskForQuote(view.selected)
+            -- [#1292] If the row is not in `list` yet the ask does not go out, and
+            -- a Refresh that silently does nothing is worse than no button at all.
+            -- Fall back to the retry timer so the press still leads somewhere.
+            if not AskForQuote(view.selected) then
+                ui.pendingRequote = GetTime() + 1
+                ArmDriverTimer()
+            end
             Render()
         end
     end)
@@ -858,8 +875,24 @@ local function OnQuoteEnd(msg)
     if not index then return end
 
     index = tonumber(index)
-    if incoming and incoming.index == index then
+    --[[ ★★ [#1292] NEVER COMMIT AN INCOMPLETE QUOTE.
+      `incoming` is a stub -- { index, costs = {} } -- until the BVQ: line fills in
+      maxBuy. If any second AskForQuote runs between a burst's BVQ and its BVEND
+      (and after a purchase there are normally TWO asks in flight: MERCHANT_UPDATE
+      fires one immediately and OnResult schedules another 2.2s later), `incoming`
+      is replaced by a fresh stub and THAT is what gets committed here.
+      The result is a quote that exists, has no maxBuy, and -- because it was
+      committed -- has no `asked` timestamp either, so the timeout watchdog cannot
+      see it. Render then disables Buy forever and the panel sits on "Asking the
+      server..." with nothing running. Only /reload recovers it, which is exactly
+      what was reported.                                                          ]]
+    if incoming and incoming.index == index and incoming.maxBuy then
         quote[index] = incoming
+    elseif view.selected == index then
+        -- The burst was clobbered mid-flight. Ask again rather than committing a
+        -- stub; the server allows one quote per second, so this is safely spaced.
+        ui.pendingRequote = GetTime() + 1.5
+        ArmDriverTimer()
     end
 
     incoming = nil
@@ -944,6 +977,17 @@ local function OnError(msg)
     if view.selected then quote[view.selected] = nil end
 
     Print(WARN .. (ERROR_TEXT[why] or ("Refused: " .. why)) .. "|r")
+
+    --[[ [#1292] Ask again after a refusal instead of leaving the panel dead.
+      This branch used to clear the quote, print one chat line and arm NOTHING --
+      so `vendor`, `item` and `denied` each killed the window permanently even
+      though every one of them can be transient (the merchant list shifting under
+      us is the common case). A refusal is a reason to re-ask, not to give up. ]]
+    if view.selected and MerchantFrame and MerchantFrame:IsShown() then
+        ui.pendingRequote = GetTime() + 1.5
+        ArmDriverTimer()
+    end
+
     Render()
 end
 
@@ -1037,10 +1081,20 @@ local function DriverTick(self, elapsed)
     if elapsedSince < 0.2 then return end
     elapsedSince = 0
 
+    --[[ [#1292] Only stand the retry down once a request has ACTUALLY gone out.
+      This used to clear pendingRequote first and then call AskForQuote, which can
+      return without sending (the row is not in `list` yet -- MERCHANT_UPDATE wipes
+      and rebuilds it). That combination lost the only re-ask the panel had, and it
+      never asked again: Buy stayed grey until /reload. ]]
     if ui.pendingRequote and GetTime() >= ui.pendingRequote then
-        ui.pendingRequote = nil
         if view.selected and MerchantFrame and MerchantFrame:IsShown() then
-            AskForQuote(view.selected)
+            if AskForQuote(view.selected) then
+                ui.pendingRequote = nil
+            else
+                ui.pendingRequote = GetTime() + 1   -- the list was not ready; come back
+            end
+        else
+            ui.pendingRequote = nil                 -- window shut; nothing to refresh
         end
     end
 
