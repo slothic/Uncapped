@@ -181,8 +181,18 @@ public sealed class ClientAcquirer
             }
         }
 
+        // Which file IS the client depends on how this manifest ships it. With a clientPatch
+        // block the published artefact is the pristine base and the runnable client is derived
+        // from it locally, so the base is what a fresh install must download; without one, the
+        // runnable client is itself the published file. Getting this wrong does not fail
+        // loudly — it produces an install with no game executable, which Validate then rejects
+        // as an incomplete download.
+        var wanted = manifest.ClientPatch is { IsUsable: true } patch
+            ? patch.BasePath
+            : ClientExecutable.HiddenName;
+
         var exe = manifest.Files.FirstOrDefault(f =>
-            string.Equals(f.Path, ClientExecutable.HiddenName, StringComparison.OrdinalIgnoreCase));
+            string.Equals(f.Path, wanted, StringComparison.OrdinalIgnoreCase));
 
         if (exe is not null && !string.IsNullOrWhiteSpace(exe.Url) && !string.IsNullOrEmpty(exe.Sha256))
         {

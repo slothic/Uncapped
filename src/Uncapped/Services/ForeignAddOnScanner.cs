@@ -25,27 +25,14 @@ public static class ForeignAddOnScanner
         var dir = Path.Combine(installPath, "Interface", "AddOns");
         if (!Directory.Exists(dir)) return Array.Empty<string>();
 
-        var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var known = ShippedFolders(manifest);
 
-        // Folders we ship files into.
-        foreach (var file in manifest.Files)
-        {
-            var name = AddOnFolderFrom(file.Path);
-            if (name is not null) known.Add(name);
-        }
-
-        // Archives we install for the player, which land under Interface/AddOns but are not
-        // listed file-by-file in the manifest.
-        foreach (var archive in manifest.Archives)
-        {
-            if (!string.IsNullOrWhiteSpace(archive.Name)) known.Add(archive.Name);
-
-            var name = AddOnFolderFrom(archive.VerifyPath);
-            if (name is not null) known.Add(name);
-        }
-
-        foreach (var name in manifest.ForceEnableAddOns) known.Add(name);
+        // Addons we know about but do not install. Force-disabled ones are ours, retired;
+        // ones queued for removal are about to be deleted by AddOnRemover and would only be
+        // reported here at all if that deletion failed. Calling either "not ours" would send
+        // someone hunting a conflict in software we shipped them.
         foreach (var name in manifest.ForceDisableAddOns) known.Add(name);
+        foreach (var name in manifest.RemoveAddOns) known.Add(name);
 
         /*
          * Companion folders that ride along inside an archive.
@@ -94,6 +81,41 @@ public static class ForeignAddOnScanner
 
         foreign.Sort(StringComparer.OrdinalIgnoreCase);
         return foreign;
+    }
+
+    /// <summary>
+    /// Addon folders this manifest actively puts on disk: ones it ships files into, ones it
+    /// unpacks from an archive, and ones it force-enables.
+    ///
+    /// ⚠ Deliberately does NOT include forceDisableAddOns or removeAddOns. This set is the
+    /// guard <see cref="AddOnRemover"/> checks a deletion against, and an addon we are
+    /// retiring is exactly the thing that appears on those lists — including them would make
+    /// the removal mechanism refuse every job it has.
+    /// </summary>
+    public static HashSet<string> ShippedFolders(Manifest manifest)
+    {
+        var shipped = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Folders we ship files into.
+        foreach (var file in manifest.Files)
+        {
+            var name = AddOnFolderFrom(file.Path);
+            if (name is not null) shipped.Add(name);
+        }
+
+        // Archives we install for the player, which land under Interface/AddOns but are not
+        // listed file-by-file in the manifest.
+        foreach (var archive in manifest.Archives)
+        {
+            if (!string.IsNullOrWhiteSpace(archive.Name)) shipped.Add(archive.Name);
+
+            var name = AddOnFolderFrom(archive.VerifyPath);
+            if (name is not null) shipped.Add(name);
+        }
+
+        foreach (var name in manifest.ForceEnableAddOns) shipped.Add(name);
+
+        return shipped;
     }
 
     /// <summary>The addon folder name in a path like "Interface/AddOns/Foo/Foo.lua".</summary>

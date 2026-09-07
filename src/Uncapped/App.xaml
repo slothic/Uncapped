@@ -88,6 +88,46 @@
             </Setter>
         </Style>
 
+        <!-- ── CREATE AN ACCOUNT ───────────────────────────────────────────────────────
+             Louder than GhostButton, quieter than PLAY.
+
+             ★ THIS IS A FIX FOR A MEASURED PROBLEM, NOT A RESTYLE. Registration was a
+             10px grey "Create an account" in a run of four dot-separated links at the very
+             bottom of the window, in the same muted colour as "Open log". New players
+             routinely never found it: they installed, pressed PLAY, reached the login
+             screen with no account and asked in Discord.
+
+             Accent outline with an accent label reads as an action rather than a footnote,
+             and filling on hover makes it obviously clickable. It stays an outline rather
+             than a fill so PLAY is still the only solid element on the screen. -->
+        <Style x:Key="AccentGhostButton" TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource Accent}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Face" CornerRadius="7" Background="#1AE87A55"
+                                BorderThickness="1" BorderBrush="#8CE87A55">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Face" Property="Background" Value="{StaticResource Accent}" />
+                                <Setter TargetName="Face" Property="BorderBrush" Value="{StaticResource AccentHover}" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Face" Property="Background" Value="#C9603F" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Window controls: invisible until hovered, so they never compete with the art. -->
         <Style x:Key="ChromeButton" TargetType="Button">
             <Setter Property="Width" Value="34" />

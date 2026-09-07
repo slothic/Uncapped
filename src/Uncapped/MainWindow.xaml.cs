@@ -104,7 +104,7 @@ public partial class MainWindow : Window
 
         try
         {
-            SetStatus("Checking for updates…");
+            BeginStep(WorkStep.Updates);
             var fetched = await new ManifestService(_http).FetchAsync(_config.ManifestUrl, _cts.Token);
             _manifest = fetched.Manifest;
             _manifestHash = fetched.Hash;
@@ -136,11 +136,7 @@ public partial class MainWindow : Window
         _ = LoadNewsAsync(_manifest);
         _ = RefreshRealmStatusAsync(_manifest);
 
-        if (!string.IsNullOrWhiteSpace(_manifest.Realm.RegisterUrl))
-        {
-            RegisterLink.Visibility = Visibility.Visible;
-            LinkSeparator.Visibility = Visibility.Visible;
-        }
+        ShowRegistration(!string.IsNullOrWhiteSpace(_manifest.Realm.RegisterUrl));
 
         if (!string.IsNullOrWhiteSpace(_manifest.DonateUrl))
             DonatePanel.Visibility = Visibility.Visible;
@@ -382,7 +378,8 @@ public partial class MainWindow : Window
             var acquirer = new ClientAcquirer(_http, _config.TorrentAllowInbound);
             var reporter = new Progress<AcquireProgress>(p =>
             {
-                SetStatus($"{p.Status} — {p.Detail}");
+                SetStatus(p.Status);
+                SetDetail(p.Detail);
                 SetProgress(p.Fraction);
             });
 
@@ -470,7 +467,7 @@ public partial class MainWindow : Window
 
         _repairRequested = false;
 
-        // One automatic go. If the client is still broken afterwards the REPAIR CLIENT button
+        // One automatic go. If the client is still broken afterwards the REPAIR & RESET button
         // is on screen and says so; retrying forever would just hammer the patch host.
         if (_autoRepairUsed)
         {
@@ -556,11 +553,8 @@ public partial class MainWindow : Window
             {
                 try
                 {
-                    var reporter = new Progress<SyncProgress>(p =>
-                    {
-                        SetStatus($"{p.Status}  ({p.Completed}/{p.Total})");
-                        SetProgress(p.Total == 0 ? 1 : (double)p.Completed / p.Total);
-                    });
+                    BeginStep(WorkStep.Files);
+                    var reporter = new Progress<SyncProgress>(p => StepProgress(p.Fraction, Describe(p)));
 
                     outcome = await new SyncService(_http)
                         .SyncAsync(installPath, manifest, _state, locale, reporter, _cts.Token);
@@ -589,12 +583,34 @@ public partial class MainWindow : Window
                 if (!await WaitForHostAsync(outcome.Mismatched)) break;
             }
 
-            SetProgress(1);
+            BeginStep(WorkStep.Client);
 
+            SetDetail("Pointing the client at the realm");
             var realm = ClientConfigWriter.WriteRealmlist(
                 installPath, manifest.Realm.Address, manifest.Realm.Name, locale);
             foreach (var failure in realm.Failed) Log.Write($"realmlist: {failure}");
 
+            /*
+             * Uninstall retired addons before the addon list is written.
+             *
+             * Order matters both ways round it is looked at. After the sync, because the sync
+             * is what would put a still-shipped addon back and this must not race it. Before
+             * AddOnsTxtEnforcer, because the enforcer only writes a "disabled" line for an
+             * addon whose folder exists -- run the other way round it would carefully disable
+             * an addon that had just been deleted, leaving a stale entry behind forever.
+             *
+             * This is the launcher's one standing exception to "never delete software we did
+             * not write". See AddOnRemover for what earns it.
+             */
+            var removal = AddOnRemover.Apply(installPath, manifest);
+            foreach (var error in removal.Errors) Log.Write($"addons: {error}");
+            if (removal.Removed.Count > 0)
+            {
+                StepProgress(0.2, $"Removed {string.Join(", ", removal.Removed)}");
+                Log.Write($"addons: removed {removal.Removed.Count} retired addon(s)");
+            }
+
+            StepProgress(0.3, "Setting which addons load");
             AddOnsTxtEnforcer.Apply(installPath, manifest.ForceEnableAddOns, manifest.ForceDisableAddOns);
 
             // After the sync, so the folder is in its final state: warning about an addon we
@@ -607,7 +623,32 @@ public partial class MainWindow : Window
                 foreach (var note in hardened.Notes) Log.Write($"hardening: {note}");
             }
 
-            if (manifest.LargeAddressAware)
+            StepProgress(0.45, "Building the game client");
+
+            // Build the runnable client from the base file the sync just verified. After
+            // hardening, so a restored Wow.exe has already been dealt with and we are writing
+            // over the name the game is actually started from.
+            var patched = await ClientPatcher.ApplyAsync(installPath, manifest, _cts.Token);
+            Log.Write($"client patch: {patched.Outcome} — {patched.Detail}");
+
+            if (patched.Blocks)
+            {
+                // Same reasoning as the failed-sync path below: a client we could not build
+                // and verify is not a client we are willing to launch. Letting the player
+                // through with an unpatched or half-known executable is how a fault here
+                // becomes an unexplained in-game problem days later.
+                BlockPlay("The game client could not be prepared.");
+                SetSummary("PLAY is off until the client is rebuilt. Press CHECK FOR UPDATES " +
+                           "to try again — launcher.log says exactly what failed.");
+                ShowRepair(true);
+                return;
+            }
+
+            // Skipped outright when the client is derived. The flag is already set in the base,
+            // so this would find nothing to do anyway — but if it ever DID edit the file, it
+            // would invalidate the hash ClientPatcher just checked, and the next launch would
+            // rebuild the client and undo it, every launch, forever.
+            if (manifest.LargeAddressAware && manifest.ClientPatch is null)
             {
                 var laa = Services.LargeAddressAware.Apply(installPath);
                 if (laa.Changed) Log.Write($"large address aware: {laa.Detail}");
@@ -624,6 +665,7 @@ public partial class MainWindow : Window
             // reason. itemcache.wdb we now generate server-side and install, keyed on an epoch
             // token rather than a hash — see WdbCache. Never throws; every failure ends in the
             // old wipe.
+            StepProgress(0.7, "Refreshing the game's cached data");
             var wdb = await new WdbCache(_http).SyncAsync(installPath, manifest, locale, _cts.Token);
             Log.Write($"wdb: {wdb.Detail}; removed {wdb.Deleted} cached file(s)");
 
@@ -708,6 +750,12 @@ public partial class MainWindow : Window
         _manifest = cached.Manifest;
         _manifestHash = cached.Hash;
 
+        // Being offline is not a reason to hide registration. The URL comes from the manifest,
+        // and we are holding a cached one — a player who cannot reach GitHub can very often
+        // still reach the registration site, and this is the one screen that tells them it
+        // exists at all.
+        ShowRegistration(!string.IsNullOrWhiteSpace(cached.Manifest.Realm.RegisterUrl));
+
         var locale = ClientLocale.Detect(_installPath);
         if (locale is null)
         {
@@ -751,19 +799,16 @@ public partial class MainWindow : Window
             _state.LastManifestHash = _manifestHash;
             _state.Save();
             ShowRepair(false);
-            EnablePlay(summary);
-            SetStatus("Ready.");
+            SetReady(summary);
             return;
         }
 
         IntegrityReport report;
         try
         {
+            BeginStep(WorkStep.Checking);
             var reporter = new Progress<SyncProgress>(p =>
-            {
-                SetStatus($"{p.Status}  ({p.Completed}/{p.Total})");
-                SetProgress(p.Total == 0 ? 1 : (double)p.Completed / p.Total);
-            });
+                StepProgress(p.Total <= 0 ? 0 : (double)p.Completed / p.Total, Describe(p)));
 
             report = await new IntegrityVerifier(installPath, manifest, _baseline, locale, _state)
                 .VerifyAsync(reporter, _cts.Token);
@@ -816,8 +861,7 @@ public partial class MainWindow : Window
             _ = Task.Run(() => ResilientDownload.SweepOrphans(installPath, downloadDir));
 
             ShowRepair(false);
-            EnablePlay(summary);
-            SetStatus("Ready.");
+            SetReady(summary);
             return;
         }
 
@@ -827,7 +871,7 @@ public partial class MainWindow : Window
         {
             var n = report.Blocking.Count();
             BlockPlay($"{n} game file(s) are missing or altered.");
-            SetSummary("PLAY is off until this is fixed. Press REPAIR CLIENT to download clean copies.");
+            SetSummary("PLAY is off until this is fixed. Press REPAIR & RESET to download clean copies.");
 
             ShowIntegrityWarning(report);
             return;
@@ -838,8 +882,7 @@ public partial class MainWindow : Window
         _state.Save();
 
         var foreignCount = report.Foreign.Count();
-        EnablePlay($"{summary} {foreignCount} file(s) in your game folder are not ours — press REPAIR CLIENT.".Trim());
-        SetStatus("Ready.");
+        SetReady($"{summary} {foreignCount} file(s) in your game folder are not ours — press REPAIR & RESET.".Trim());
 
         ShowIntegrityWarning(report);
     }
@@ -874,12 +917,32 @@ public partial class MainWindow : Window
         await RepairAsync();
     }
 
+    /// <summary>What the player chose when asked how far the repair should go.</summary>
+    private enum RepairChoice
+    {
+        Cancel,
+
+        /// <summary>Re-download broken game files and nothing else — what REPAIR always did.</summary>
+        FilesOnly,
+
+        /// <summary>That, plus put settings and addons back to stock. See <see cref="FactoryReset"/>.</summary>
+        FullReset,
+    }
+
     /// <summary>
     /// Puts the client back to what a release actually is, then re-verifies.
     ///
     /// Re-verification is not optional: repair is only worth anything if the result is checked,
     /// and a download that silently failed would otherwise leave PLAY enabled on the strength
     /// of having tried.
+    ///
+    /// ★★ THE ORDER OF THE STEPS BELOW IS LOAD-BEARING.
+    ///
+    /// Restoring runs BEFORE the factory reset, and the reset's own repairs are left to the
+    /// sync that follows it. That looks backwards and is not: the reset deletes every one of
+    /// our ~720 payload files, RepairService restores files ONE AT A TIME (it is built for
+    /// multi-gigabyte MPQs, where sequential is right), and SyncService fetches six at a time.
+    /// The other order works and takes over five minutes to do what the sync does in one.
     /// </summary>
     private async Task RepairAsync()
     {
@@ -897,6 +960,17 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Worked out before anything is touched, because the dialog names the folders. See
+        // FactoryReset.Plan.
+        var plan = FactoryReset.Plan(installPath, manifest);
+
+        var choice = AskHowFarToGo(plan);
+        if (choice == RepairChoice.Cancel)
+        {
+            Log.Write("repair: cancelled at the confirmation");
+            return;
+        }
+
         // Re-verify first when we have nothing to go on. Pressing REPAIR after a launcher
         // restart should not be a no-op just because the report lives in memory.
         var report = _report;
@@ -907,8 +981,8 @@ public partial class MainWindow : Window
             var locale = ClientLocale.Detect(installPath);
             var reporter = new Progress<SyncProgress>(p =>
             {
-                SetStatus($"{p.Status}  ({p.Completed}/{p.Total})");
-                SetProgress(p.Total == 0 ? 1 : (double)p.Completed / p.Total);
+                SetDetail(Describe(p));
+                SetProgress(p.Total <= 0 ? 0 : (double)p.Completed / p.Total);
             });
 
             if (report is null && _baseline is not null)
@@ -922,6 +996,7 @@ public partial class MainWindow : Window
             var restored = 0;
             var quarantined = 0;
             var errors = new List<string>();
+            FactoryResetOutcome? reset = null;
 
             if (report is not null)
             {
@@ -931,17 +1006,25 @@ public partial class MainWindow : Window
 
                 if (broken.Count > 0)
                 {
-                    SetStatus($"Restoring {broken.Count} file(s)…");
+                    SetStatus($"Restoring {broken.Count} game file(s)…");
                     var outcome = await repair.RestoreAsync(installPath, broken, _state, reporter, _cts.Token);
                     restored = outcome.Restored;
                     errors.AddRange(outcome.Errors);
                 }
 
-                // Moving someone's file is asked for separately and by name, even though they
-                // already pressed a button called Repair. "Repair" does not obviously mean
-                // "take this away", and the file may be the only copy they have.
+                /*
+                 * Foreign archives are MOVED to Data\_disabled, never deleted — unchanged, and
+                 * deliberately not folded into the factory reset's deletions. An unknown addon
+                 * folder is a few hundred KB of Lua that can be downloaded again; an unknown
+                 * MPQ may be the only copy of somebody's work in existence.
+                 *
+                 * The prompt is skipped for a full reset only because the dialog that authorised
+                 * that already said this would happen, in the same list. On a files-only repair
+                 * it is still asked separately, because nothing has said it yet.
+                 */
                 var archives = report.Problems.Where(p => p.IsForeignArchive).ToList();
-                if (archives.Count > 0 && ConfirmQuarantine(archives))
+                if (archives.Count > 0 &&
+                    (choice == RepairChoice.FullReset || ConfirmQuarantine(archives)))
                 {
                     var outcome = repair.Quarantine(installPath, archives, _state);
                     quarantined = outcome.Quarantined;
@@ -949,21 +1032,52 @@ public partial class MainWindow : Window
                 }
             }
 
+            if (choice == RepairChoice.FullReset)
+            {
+                SetStatus("Putting your settings and addons back to stock…");
+                SetProgress(0);
+
+                reset = FactoryReset.Apply(installPath, manifest, plan, _state);
+                errors.AddRange(reset.Errors);
+
+                // Every addon file the report described has just been deleted, so the report is
+                // now a statement about an install that no longer exists. The sync below is
+                // what makes it true again.
+                report = null;
+            }
+
+            _report = null;
+
             foreach (var error in errors) Log.Write($"repair: {error}");
 
             Log.Write($"repair: restored {restored}, quarantined {quarantined}, {errors.Count} error(s)");
 
             // Whatever happened, the answer now comes from re-reading the disk rather than
-            // from what we intended to do to it.
-            SetStatus("Re-checking your game files…");
+            // from what we intended to do to it. This is also what re-downloads everything the
+            // factory reset deleted, six files at a time.
+            SetStatus("Rebuilding and re-checking your client…");
             await SyncAndPrepareAsync();
 
-            if (restored > 0 || quarantined > 0)
+            var parts = new List<string>();
+            if (restored > 0) parts.Add($"restored {restored} game file(s)");
+            if (quarantined > 0) parts.Add($"moved {quarantined} file(s) to Data\\_disabled");
+            if (reset is not null)
             {
-                var parts = new List<string>();
-                if (restored > 0) parts.Add($"restored {restored} file(s)");
-                if (quarantined > 0) parts.Add($"moved {quarantined} file(s) to Data\\_disabled");
-                SetSummary($"Repair {string.Join(" and ", parts)}.");
+                parts.Add("reset your settings");
+                if (reset.OurAddOnsCleared > 0) parts.Add($"reinstalled {reset.OurAddOnsCleared} addon(s)");
+                if (reset.ForeignAddOnsRemoved > 0) parts.Add($"deleted {reset.ForeignAddOnsRemoved} unknown addon(s)");
+            }
+
+            if (parts.Count > 0)
+            {
+                // Sentence case with the last item joined by "and", because this line is read
+                // by a person who has just been made to authorise something destructive and is
+                // entitled to a plain account of what actually happened.
+                var text = parts.Count == 1
+                    ? parts[0]
+                    : string.Join(", ", parts.Take(parts.Count - 1)) + " and " + parts[^1];
+
+                SetSummary($"Repair {text}.");
             }
         }
         catch (OperationCanceledException) { }
@@ -975,6 +1089,66 @@ public partial class MainWindow : Window
                 MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally { SetBusy(false); }
+    }
+
+    /// <summary>
+    /// Asks whether to do the full reset or only re-download broken game files.
+    ///
+    /// ★★ THIS DIALOG IS THE ENTIRE AUTHORISATION FOR DELETING SOMEONE'S ADDONS, so it names
+    /// them, one per line, and says outright that they are deleted rather than moved. Nothing
+    /// in <see cref="FactoryReset"/> runs without a Yes here — including on the ONE automatic
+    /// repair the launcher gives itself after a failed verification, which is exactly the path
+    /// where a silent deletion would be discovered days later by somebody who never pressed
+    /// anything.
+    ///
+    /// Three answers rather than two. A player whose client is broken and who wants their
+    /// addons kept is a completely reasonable person to be, and the old button already served
+    /// them; taking that away to make the new behaviour tidier would be a downgrade wearing a
+    /// feature's clothes.
+    /// </summary>
+    private RepairChoice AskHowFarToGo(FactoryResetPlan plan)
+    {
+        var text = new System.Text.StringBuilder();
+
+        text.AppendLine("A full reset puts this client back to how a fresh install would be:");
+        text.AppendLine();
+        text.AppendLine("    •  re-downloads any game file that is missing or damaged");
+        text.AppendLine("    •  resets your game settings to ours (windowed, view distance, terms)");
+        text.AppendLine("    •  resets which addons are switched on");
+        text.AppendLine("    •  reinstalls our addons, clearing their saved settings");
+        text.AppendLine("    •  moves any Data files that are not ours into Data\\_disabled");
+
+        if (plan.ForeignAddOns.Count > 0)
+        {
+            text.AppendLine();
+            text.AppendLine("It will also DELETE these addons, which we did not install:");
+            text.AppendLine();
+
+            foreach (var name in plan.ForeignAddOns.Take(14))
+                text.AppendLine("        " + name);
+
+            if (plan.ForeignAddOns.Count > 14)
+                text.AppendLine($"        … and {plan.ForeignAddOns.Count - 14} more");
+
+            text.AppendLine();
+            text.AppendLine("Those are deleted, not moved. They cannot be recovered from here.");
+        }
+
+        text.AppendLine();
+        text.AppendLine("Your characters, keybindings and macros are not touched.");
+        text.AppendLine();
+        text.AppendLine("Yes  —  full reset");
+        text.AppendLine("No   —  only re-download damaged game files, change nothing else");
+
+        var answer = MessageBox.Show(
+            text.ToString(), "Repair and reset", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+
+        return answer switch
+        {
+            MessageBoxResult.Yes => RepairChoice.FullReset,
+            MessageBoxResult.No => RepairChoice.FilesOnly,
+            _ => RepairChoice.Cancel,
+        };
     }
 
     private bool ConfirmQuarantine(IReadOnlyList<IntegrityProblem> archives)
@@ -1048,8 +1222,11 @@ public partial class MainWindow : Window
 
         var waited = new Progress<TimeSpan>(elapsed =>
         {
+            // SetDetail, not SetStatus: BlockPlay above has already put the reason on the
+            // headline line, and overwriting it once a second with a clock would throw away
+            // the only text on screen that says why PLAY is off.
             if (elapsed > TimeSpan.FromSeconds(20))
-                SetStatus($"Waiting for {target} to publish ({elapsed:m\\:ss})…");
+                SetDetail($"waiting {elapsed:m\\:ss}");
 
             // The bar becomes a timer against the give-up point, so a long wait still looks
             // like something in progress rather than a frozen window.
@@ -1111,7 +1288,7 @@ public partial class MainWindow : Window
         ManifestFetch fetched;
         try
         {
-            SetStatus("Checking for updates…");
+            BeginStep(WorkStep.Updates);
             fetched = await new ManifestService(_http).FetchAsync(_config.ManifestUrl, _cts.Token);
         }
         catch (OperationCanceledException) { return; }
@@ -1158,7 +1335,7 @@ public partial class MainWindow : Window
         ManifestFetch fetched;
         try
         {
-            SetStatus("Checking for updates…");
+            BeginStep(WorkStep.Updates);
             fetched = await new ManifestService(_http).FetchAsync(_config.ManifestUrl, _cts.Token);
         }
         catch (OperationCanceledException) { throw; }
@@ -1362,8 +1539,39 @@ public partial class MainWindow : Window
         }
     }
 
-    private void RefreshLoginLink() =>
+    private void RefreshLoginLink()
+    {
         LoginLink.Content = _credentials.HasPassword ? "Saved login ✓" : "Saved login";
+        RefreshRegisterHint();
+    }
+
+    /// <summary>
+    /// Shows or hides the registration button and its caption together. Driven by the
+    /// manifest's registerUrl, so a realm that does not publish one has no registration UI at
+    /// all rather than a button that opens nothing.
+    /// </summary>
+    private void ShowRegistration(bool visible) => Dispatcher.Invoke(() =>
+    {
+        var state = visible ? Visibility.Visible : Visibility.Collapsed;
+        RegisterButton.Visibility = state;
+        RegisterHint.Visibility = state;
+        RefreshRegisterHint();
+    });
+
+    /// <summary>
+    /// The line under CREATE AN ACCOUNT.
+    ///
+    /// It says two different things, because two different people read it. Someone with no
+    /// saved login is almost certainly new and about to press PLAY without an account, which
+    /// is the exact problem this whole element exists to head off — they get told, plainly,
+    /// that the account is a separate thing and comes first. Someone who already has a saved
+    /// login knows all that, so for them the button is just a way to make a second account and
+    /// the caption stops nagging.
+    /// </summary>
+    private void RefreshRegisterHint() =>
+        RegisterHint.Text = _credentials.HasAccountName
+            ? "Need another account? Make one here."
+            : "New here? You need one before you can log in.";
 
     // ---------- helpers ----------
 
@@ -1451,8 +1659,87 @@ public partial class MainWindow : Window
         Dispatcher.Invoke(() => VersionText.Text = versions.Describe());
     }
 
-    /// <summary>What the launcher is doing right now. Overwritten constantly.</summary>
-    private void SetStatus(string text) => Dispatcher.Invoke(() => StatusText.Text = text);
+    // ---------- what it is doing, and how far along ----------
+
+    /*
+     * ★★ THE STATUS LINE USED TO BE ONE TEXTBLOCK AND A BAR THAT MEANT NOTHING.
+     *
+     * Every pass drove the same bar from empty to full and handed it to the next pass, which
+     * started again at empty -- so during one launch a player watched it fill and reset four
+     * or five times, and the bar reaching the right-hand end never once meant "nearly done".
+     * The line under it carried both the headline and the churning per-file detail in a single
+     * 300px column with character ellipsis on, so the interesting half was regularly cut off.
+     *
+     * Three things now, and they answer three different questions:
+     *
+     *   StageText    which of a known number of steps this is  -> "Step 2 of 4 - Updating your files"
+     *   DetailText   what is happening inside it right now     -> "Downloading UncappedMythic.lua - 412 of 718"
+     *   PercentText  how much of the WHOLE launch is left      -> "43%"
+     *
+     * The percentage is one scale across all four steps (see WorkPlan), which is the only
+     * reason it is worth showing at all.
+     */
+
+    /// <summary>The step whose slice of the bar is currently being filled.</summary>
+    private WorkStep _step = WorkStep.Updates;
+
+    /// <summary>
+    /// Enters a step of the normal launch sequence. Puts the bar at that step's floor, so
+    /// progress never jumps backwards when one pass hands over to the next.
+    /// </summary>
+    private void BeginStep(WorkStep step)
+    {
+        _step = step;
+        var headline = $"Step {WorkPlan.Number(step)} of {WorkPlan.Count} — {WorkPlan.Headline(step)}";
+
+        Dispatcher.Invoke(() =>
+        {
+            StageText.Text = headline;
+            DetailText.Text = "";
+        });
+
+        SetProgress(WorkPlan.Overall(step, 0));
+    }
+
+    /// <summary>Moves the bar inside the current step, and says what is happening in it.</summary>
+    private void StepProgress(double fraction, string detail)
+    {
+        Dispatcher.Invoke(() => DetailText.Text = detail);
+        SetProgress(WorkPlan.Overall(_step, fraction));
+    }
+
+    /// <summary>
+    /// A headline outside the step sequence: an error, a wait, a launch. Clears the detail
+    /// line, because whatever was under the old headline no longer describes anything.
+    /// </summary>
+    private void SetStatus(string text) => Dispatcher.Invoke(() =>
+    {
+        StageText.Text = text;
+        DetailText.Text = "";
+    });
+
+    /// <summary>Adds a second line under whatever headline is showing.</summary>
+    private void SetDetail(string text) => Dispatcher.Invoke(() => DetailText.Text = text);
+
+    /// <summary>
+    /// One progress report as a detail line: what is happening, and how many of how many.
+    ///
+    /// The count is dropped when there is nothing to count rather than rendered as "0 of 0",
+    /// which reads as a stall to anyone watching it.
+    /// </summary>
+    private static string Describe(SyncProgress p)
+    {
+        var counted = WorkPlan.Counted(p.Completed, p.Total);
+        return counted.Length == 0 ? p.Status : $"{p.Status} — {counted}";
+    }
+
+    /// <summary>Everything finished and PLAY is live. The bar is full and stays full.</summary>
+    private void SetReady(string summary)
+    {
+        SetProgress(1);
+        SetStatus("Ready to play.");
+        EnablePlay(summary);
+    }
 
     /// <summary>
     /// What the last update actually did. Deliberately a separate line from the status: it has
@@ -1461,8 +1748,24 @@ public partial class MainWindow : Window
     /// </summary>
     private void SetSummary(string text) => Dispatcher.Invoke(() => SummaryText.Text = text);
 
-    private void SetProgress(double fraction) =>
-        Dispatcher.Invoke(() => Progress.Value = Math.Clamp(fraction * 1000, 0, 1000));
+    /// <summary>
+    /// Sets the bar and the number beside it from an OVERALL fraction — never a per-step one.
+    /// <see cref="StepProgress"/> is what converts a step's own 0..1 into this.
+    ///
+    /// The percentage is hidden at 0 rather than shown as "0%": before the first step reports
+    /// anything there is nothing to be nought percent of, and a launcher that opens saying 0%
+    /// looks stuck before it has done anything wrong.
+    /// </summary>
+    private void SetProgress(double fraction)
+    {
+        var clamped = double.IsFinite(fraction) ? Math.Clamp(fraction, 0, 1) : 0;
+
+        Dispatcher.Invoke(() =>
+        {
+            Progress.Value = clamped * 1000;
+            PercentText.Text = clamped <= 0 ? "" : $"{clamped * 100:0}%";
+        });
+    }
 
     private static void OpenUrl(string? url)
     {

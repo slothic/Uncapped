@@ -1,0 +1,53 @@
+{
+  "clientPatch": {
+    "basePath": "UncappedBase.dat",
+    "outputPath": "UncappedClient.dat",
+    "baseSha256": "eabd235bd8fab5dbdeb75f20e7d3466b091c79484f825990d2c1cac5399f7a78",
+    "resultSha256": "42f31c66ad42981023fd75e41b4ced1b5d43bc68b73a8883b651aa731cbada9e",
+    "size": 7705088,
+    "patches": [
+      {
+        "id": "zdata-noexecute",
+        "offset": "0x0002A7",
+        "expect": "E0",
+        "write": "C0"
+      },
+      {
+        "id": "mousecam-clamp-cave",
+        "offset": "0x469183",
+        "expect": "CCCCCCCCCCCCCCCCCCCCCCCCCC",
+        "write": "83F8327D0383C00183F932EB31"
+      },
+      {
+        "id": "mousecam-recenter",
+        "offset": "0x4691B1",
+        "expect": "8BEC83EC108D45F0506A00E8DF28000083C40450FF150CF69D008B45F8992BC28BC88B45FC992BC2D1F8D1F95051890DEC13D400A3F013D400E881EEFFFF83C4088BE55DC3CCCCCCCCCCCCCCCCCCCC",
+        "write": "89E58B05FC13D4008B0DF813D400EBC27D0383C10183C03283C1323B0DECBCCA007E0383E9013B05F0BCCA007E0383E80183E93283E832890DF813D4008905FC13D40089EC5DE9B4F7FFFFEC5DC3C3"
+      },
+      {
+        "id": "mousecam-compare",
+        "offset": "0x469A2C",
+        "expect": "8B45F08B15EC13D4008B1DF0",
+        "write": "E971F00B00F813D4008B1DFC"
+      },
+      {
+        "id": "mousecam-screentoclient",
+        "offset": "0x528AA2",
+        "expect": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+        "write": "8D4DF05157FF15DCF59D008B45F08B15F813D400E97A0FF4FF"
+      },
+      {
+        "id": "pe-checksum",
+        "offset": "0x000168",
+        "expect": "C54E7600",
+        "write": "E2087600"
+      }
+    ]
+  },
+  "baseFile": {
+    "path": "UncappedBase.dat",
+    "url": "http://152.53.115.249/patches/UncappedClient-2026.08.05a.dat",
+    "sha256": "eabd235bd8fab5dbdeb75f20e7d3466b091c79484f825990d2c1cac5399f7a78",
+    "size": 7705088
+  }
+}

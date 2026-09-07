@@ -57,6 +57,21 @@ public sealed class Manifest
     [JsonPropertyName("largeAddressAware")] public bool LargeAddressAware { get; set; }
 
     /// <summary>
+    /// The base client and the byte patches that turn it into the runnable one. See
+    /// <see cref="Services.ClientPatcher"/> for why the client is built on the player's
+    /// machine rather than published whole.
+    ///
+    /// Null is the off switch and the rollback: with no block the launcher patches nothing and
+    /// runs whatever <see cref="ClientExecutable.HiddenName"/> it finds, which is the
+    /// behaviour every release before this one had.
+    ///
+    /// ⚠ When this is set, the derived client MUST NOT also be listed in <see cref="Files"/>.
+    /// The sync would re-hash it against a pin it deliberately no longer matches and download
+    /// it again on every launch.
+    /// </summary>
+    [JsonPropertyName("clientPatch")] public ClientPatchSpec? ClientPatch { get; set; }
+
+    /// <summary>
     /// Optional URL for a standalone news file. When set it takes precedence over
     /// <see cref="News"/>, letting news be updated by editing one file on the realm box
     /// rather than pushing a manifest. Falls back to <see cref="News"/> if unreachable.
@@ -117,6 +132,30 @@ public sealed class Manifest
     [JsonPropertyName("forceDisableAddOns")] public List<string> ForceDisableAddOns { get; set; } = new();
 
     /// <summary>
+    /// Addon folders DELETED from Interface\AddOns on every sync, along with their saved
+    /// settings.
+    ///
+    /// ★★ THIS IS THE ONE PLACE THE LAUNCHER REMOVES SOFTWARE IT DID NOT WRITE, AND IT IS A
+    /// DELIBERATE EXCEPTION TO THE STANDING RULE.
+    ///
+    /// <see cref="ForceDisableAddOns"/> was the whole answer for two years and it is not
+    /// enough. Unticking an addon leaves it on disk, which means: it comes back the moment a
+    /// player ticks it out of curiosity or a third-party addon manager re-enables it, its
+    /// folder keeps being reported as foreign by the integrity check, and its saved variables
+    /// keep loading. QuestHelper is why this exists — pulled from the payload on 2026-07-20,
+    /// force-disabled ever since, and still installed and still complained about on
+    /// 2026-09-06.
+    ///
+    /// Use it only for an addon we shipped ourselves and have retired. It is not a way to
+    /// police what players install: an addon the player chose is removed only by a REPAIR they
+    /// pressed and confirmed (see <see cref="Services.FactoryReset"/>), never by a sync.
+    ///
+    /// <see cref="Services.AddOnRemover"/> refuses any name that the manifest also ships,
+    /// force-enables or installs as an archive, so a typo cannot delete a live addon.
+    /// </summary>
+    [JsonPropertyName("removeAddOns")] public List<string> RemoveAddOns { get; set; } = new();
+
+    /// <summary>
     /// Path prefixes (install-root-relative) the launcher owns outright. Only files under
     /// these prefixes are pruned when they drop out of the manifest. Anything else we
     /// install — the third-party addons — is install-only and never deleted, per the
@@ -138,6 +177,68 @@ public sealed class Manifest
     /// wipes Cache\WDB and installs nothing, which is what it did before this existed.
     /// </summary>
     [JsonPropertyName("itemCache")] public ItemCacheSpec? ItemCache { get; set; }
+}
+
+/// <summary>
+/// How to build the runnable client out of the base one.
+///
+/// Two hashes, for the same reason <see cref="ItemCacheSpec"/> carries two: <see
+/// cref="BaseSha256"/> pins the input we published, <see cref="ResultSha256"/> pins what must
+/// come out. The second is the real guarantee — it is computed by Build-ClientPatch.py from
+/// this exact patch list, so a list that is wrong in any way simply never installs.
+/// </summary>
+public sealed class ClientPatchSpec
+{
+    /// <summary>Install-root-relative pristine client. A normal pinned entry in <see cref="Manifest.Files"/>.</summary>
+    [JsonPropertyName("basePath")] public string BasePath { get; set; } = "";
+
+    /// <summary>
+    /// Install-root-relative client to produce. Deliberately NOT a manifest file: it is
+    /// derived locally and its hash is not the pin of anything downloaded.
+    /// </summary>
+    [JsonPropertyName("outputPath")] public string OutputPath { get; set; } = "";
+
+    [JsonPropertyName("baseSha256")] public string BaseSha256 { get; set; } = "";
+    [JsonPropertyName("resultSha256")] public string ResultSha256 { get; set; } = "";
+
+    /// <summary>
+    /// Size of the finished client.
+    ///
+    /// Nothing reads it — <see cref="ResultSha256"/> is what accepts or rejects the build, and
+    /// a length is not evidence about content. Published because a human reading the manifest
+    /// wants it. Do not add a check that leans on it without saying so here.
+    /// </summary>
+    [JsonPropertyName("size")] public long Size { get; set; }
+
+    [JsonPropertyName("patches")] public List<ClientBytePatch> Patches { get; set; } = new();
+
+    /// <summary>Enough of a block to act on. Anything less is treated as absent, not as broken.</summary>
+    public bool IsUsable =>
+        !string.IsNullOrWhiteSpace(BasePath) &&
+        !string.IsNullOrWhiteSpace(OutputPath) &&
+        !string.IsNullOrWhiteSpace(BaseSha256) &&
+        !string.IsNullOrWhiteSpace(ResultSha256) &&
+        Patches.Count > 0;
+}
+
+/// <summary>
+/// One length-preserving poke. <see cref="Expect"/> is not redundant with the base hash: it is
+/// what lets a patch refuse to apply to a build it was not cut for, and it makes a failure say
+/// which patch and what it found rather than only that the result was wrong.
+/// </summary>
+public sealed class ClientBytePatch
+{
+    /// <summary>Short name, used only in logs and error messages.</summary>
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+
+    /// <summary>File offset into the base. "0x1234" or plain decimal.</summary>
+    [JsonPropertyName("offset")] public string Offset { get; set; } = "";
+
+    /// <summary>Hex bytes that must already be there.</summary>
+    [JsonPropertyName("expect")] public string Expect { get; set; } = "";
+
+    /// <summary>Hex bytes to write. Must be the same length as <see cref="Expect"/>.</summary>
+    [JsonPropertyName("write")] public string Write { get; set; } = "";
 }
 
 /// <summary>

@@ -135,7 +135,8 @@ foreach ($f in $manifest.files) {
 
 # Also managed: anything the launcher itself creates or renames into place.
 $launcherArtefacts = @(
-    'UncappedClient.dat',   # manifest ships the patched client under this name
+    'UncappedClient.dat',   # BUILT here by ClientPatcher, from the base below
+    'UncappedBase.dat',     # manifest ships the pristine client under this name
     'UncappedCT.dll',       # manifest ships the runtime DLL
     'Uncapped.exe',         # the launcher, when installed into the game folder
     'uncapped.config.json',

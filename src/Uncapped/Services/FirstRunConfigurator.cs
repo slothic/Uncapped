@@ -44,8 +44,37 @@ public static class FirstRunConfigurator
         ct.ThrowIfCancellationRequested();
 
         var (width, height) = DesktopResolution();
+        var values = StockSettings(installPath);
 
-        var values = new Dictionary<string, string>
+        try
+        {
+            var written = ConfigWtf.Update(installPath, values, createIfMissing: true);
+            var detail = $"windowed at {width}x{height}, terms pre-accepted";
+            log.Report($"Game settings written — {detail}.");
+            return Task.FromResult(new Result(written, detail));
+        }
+        catch (Exception ex)
+        {
+            // Never fatal. Worst case the client writes its own config on first run and the
+            // player gets its defaults instead of ours.
+            Log.Write($"first-run config: {ex}");
+            return Task.FromResult(new Result(false, ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// The settings a client of ours is supposed to have.
+    ///
+    /// ★ ONE DEFINITION, TWO CALLERS. A fresh install gets these, and so does a client put
+    /// back to stock by <see cref="FactoryReset"/>. They were the same values written from two
+    /// places for about four hours during the 2026-09-06 work, which is exactly long enough
+    /// for them to start disagreeing.
+    /// </summary>
+    public static Dictionary<string, string> StockSettings(string installPath)
+    {
+        var (width, height) = DesktopResolution();
+
+        return new Dictionary<string, string>
         {
             // Terms screens, pre-dismissed.
             ["readTOS"] = "1",
@@ -70,21 +99,6 @@ public static class FirstRunConfigurator
             // client and an error message that blames the network for it.
             ["locale"] = ClientLocale.Detect(installPath)?.Code ?? "enUS",
         };
-
-        try
-        {
-            var written = ConfigWtf.Update(installPath, values, createIfMissing: true);
-            var detail = $"windowed at {width}x{height}, terms pre-accepted";
-            log.Report($"Game settings written — {detail}.");
-            return Task.FromResult(new Result(written, detail));
-        }
-        catch (Exception ex)
-        {
-            // Never fatal. Worst case the client writes its own config on first run and the
-            // player gets its defaults instead of ours.
-            Log.Write($"first-run config: {ex}");
-            return Task.FromResult(new Result(false, ex.Message));
-        }
     }
 
     private static (int Width, int Height) DesktopResolution()

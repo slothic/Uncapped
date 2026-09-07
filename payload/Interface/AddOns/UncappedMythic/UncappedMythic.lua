@@ -465,6 +465,12 @@ local function StartRun(remaining, level, trashNeeded, token)
     run.level = level
     run.token = token
     run.trashNeeded = trashNeeded
+    -- [2026-09-07] Remember WHERE this run is. PLAYER_ENTERING_WORLD uses it to
+    -- drop a run whose instance we are no longer standing in: the old test was
+    -- `not IsInInstance()`, and a Descent floor change is instance -> instance,
+    -- so nothing cleared the previous floor's clock. GetRealZoneText rather than
+    -- a map id because 3.3.5a's GetInstanceInfo does not return one.
+    run.zone = GetRealZoneText()
 
     if not sameRun then
         run.trashKilled = 0
@@ -723,6 +729,12 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
                 -- not a DEFAULTS key, so the merge above would drop it and the
                 -- reload it exists to survive would still blank the HUD (#433).
                 if type(s.runCache) == "table" then db.runCache = s.runCache end
+                -- Same reason again, for the map-draw panel's dragged position. Not a
+                -- DEFAULTS key, so without this line the frame jumps back to centre
+                -- screen on every login. ⚠ Only the POSITION is carried -- the draw
+                -- itself is deliberately never saved (see the KEYSTONE MAP DRAW
+                -- section: a stale draw would send a player to the wrong dungeon).
+                if type(s.drawPos) == "table" then db.drawPos = s.drawPos end
             end
             -- Report #207: one-time migration off the old fixed 6.
             --
@@ -754,7 +766,17 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
 
     if event == "PLAYER_ENTERING_WORLD" then
         -- Left the instance -> the run is over for this client; put the HUD away.
-        if run.active and not IsInInstance() then
+        --
+        -- [2026-09-07] ...and so is arriving in a DIFFERENT instance. The Descent
+        -- moves the group instance -> instance, so IsInInstance() stays true and
+        -- this branch used to be skipped entirely -- which is how Stratholme's
+        -- clock followed a player into Dire Maul. The zone test is guarded on a
+        -- non-empty string because the zone can read blank for a moment right on
+        -- the loading screen, and a false clear here would hide a live run; if
+        -- that ever happens the server's SendRunHud on entry puts it straight back.
+        local here = GetRealZoneText()
+        if run.active and (not IsInInstance()
+                or (run.zone and here and here ~= "" and here ~= run.zone)) then
             run.active = false
             frame:Hide()
         elseif not run.active then
@@ -830,6 +852,22 @@ listener:SetScript("OnEvent", function(self, event, a1, a2)
         frame.title:SetText("|cffff4040" .. endReason .. "|r")
         frame.hideAt = GetTime() + 8             -- honoured at the top of OnUpdate
         frame:Show()                             -- make sure the reason is actually seen
+        return
+    end
+
+    -- UMZ -- the SILENT clear. "There is no run here."
+    --
+    -- Sent on entering any map that is not a live keystone. UMX announces an
+    -- outcome and holds the frame up for eight seconds; this one just takes the
+    -- HUD down, because "you walked into a dungeon" is not news. It is the
+    -- client's recovery from a run that ended without ever telling us -- the
+    -- state this whole pass exists to make unreachable.
+    if msg == "UMZ" then
+        run.active = false
+        run.timed  = false
+        run.zone   = nil
+        frame.hideAt = nil
+        frame:Hide()
         return
     end
 
@@ -1000,10 +1038,122 @@ local HUD = frame   -- the HUD frame created at the top of this file
 local SOUND_DIR = "Interface\\AddOns\\UncappedMythic\\Sounds\\"
 local ICON_DIR  = "Interface\\Icons\\"
 
--- Animation beats, seconds. HOLD is sized to the longest voice line (~2.6s) so a
--- clip is never cut off by the card leaving; the shortest ("Vengeance!", 1.07s)
--- simply finishes early and the card sits a moment longer. Driving the card off a
--- fixed beat rather than clip length keeps every affix feeling the same weight.
+-- ---------------------------------------------------------------------------
+-- Voice keys for generated affixes  (UMV:<wireKey>:<voKey>)
+-- ---------------------------------------------------------------------------
+-- wireKey -> voKey, learned from the server at run start. The 15 bespoke affixes
+-- are NOT in here: they carry their own `sound` in the catalogue below and keep it.
+--
+-- ★ THE voKey IS THE FILENAME STEM. There is deliberately no voKey -> clip lookup
+--   table on this side. The server's `mythic_plus_affix_def.vo` names the file
+--   directly, so `vo_ground_burn` plays Sounds\vo_ground_burn.wav.
+--
+--   That is not laziness, it removes a whole class of bug: a client-side mapping
+--   keyed on server-side values is a drift machine, and this realm has been bitten
+--   by that shape repeatedly. With the identity mapping there is nothing to drift.
+--   Two affixes share a clip by sharing a `vo` value, which is exactly how the
+--   behaviour pools are meant to work, and adding a clip is a .wav plus an UPDATE
+--   with no addon code change at all.
+--
+--   ⟹ CONTRACT FOR WHOEVER POPULATES `vo`: the value must be a bare filename stem
+--     -- letters, digits and underscores only, no extension, no path. Anything
+--     else is rejected by the sanitiser in PlayAffixVoice and plays nothing.
+--
+-- ⚠⚠ NEVER PERSIST THIS TABLE. wireKey for a generated affix is "g" + the
+--    positional affix_id, so it is re-minted every time the catalogue is
+--    regenerated and a key saved today can name a different affix tomorrow. It is
+--    valid only for the lifetime of the run that sent it, which is all it is used
+--    for. It is a plain local for that reason -- it must never reach db /
+--    UncappedMythicDB, and it is deliberately NOT carried across a reload (the
+--    server re-sends the whole preamble on rejoin).
+local VO = {}
+
+-- ---------------------------------------------------------------------------
+-- Per-effect icon override  (voKey -> bare texture name under Interface\Icons\)
+-- ---------------------------------------------------------------------------
+-- ★ THE STABLE HOME FOR THE 33 PER-EFFECT ICONS, and the repair route for the 52
+--   affixes whose minted SpellIconID does not exist in this client (see AffixTexture).
+--
+--   Empty on purpose. Populating it is a pure ADDON change -- no DBC row, no patch
+--   rebuild, no server change, no config -- and every entry takes effect the moment
+--   the payload ships.
+--
+-- ⚠ KEYED ON THE voKey (the EFFECT), NOT ON THE wireKey. That is the point of putting
+--   it here rather than in the card handler:
+--
+--     · the effect key is stable -- 33 of them, and `eff_shred_armour` still means
+--       shred-armour after the catalogue is re-minted;
+--     · a wireKey is "g" + a positional affix_id and is re-minted with the catalogue,
+--       so a table keyed on it would silently repoint icons at the wrong affixes;
+--     · 426 rows collapse to 33 entries, which is a table a person can read.
+--
+-- ⚠ IT IS INERT UNTIL `mythic_plus_affix_def.vo` IS POPULATED, because that is what
+--   fills VO and there is no other way for this client to learn an affix's effect.
+--   Icons and voice lines therefore land together. If icons are wanted FIRST, the
+--   honest options are to populate `vo` alone (it drives both and costs nothing while
+--   no .wav files are shipped) or to give the card its own texture-name field -- NOT
+--   to key this table on the wireKey.
+--
+-- Values are bare names: "Spell_Shadow_DeathAndDecay", not a full path and no
+-- extension. AffixTexture prefixes ICON_DIR.
+local ICON_BY_VO = {}
+
+-- Animation beats, seconds. Driving the card off a fixed beat rather than clip
+-- length keeps every affix feeling the same weight; the shortest ("Vengeance!",
+-- 1.07s) simply finishes early and the card sits a moment longer.
+--
+-- ⚠ [2026-09-05] THE OLD COMMENT HERE WAS WRONG IN BOTH HALVES, AND THE WRONG
+--   MENTAL MODEL IS WHY THE BUDGET WAS NEVER CHECKED. It said "HOLD is sized to
+--   the longest voice line (~2.6s) so a clip is never cut off by the card
+--   leaving".
+--
+--   1. A clip is NEVER cut off by the card leaving. PlaySoundFile hands the file
+--      to the sound engine and it plays to completion; it has no relationship to
+--      the frame at all. Hiding the card cannot stop it.
+--   2. The number that actually matters is therefore not HOLD but the WHOLE card
+--      cycle, because that is when the NEXT clip starts on top of this one:
+--
+--          GROW + HOLD + FLY + LAND  =  0.25 + 1.70 + 0.55 + 0.35  =  2.85s
+--
+--      (LAND is declared with the flyer further down, which is part of why the
+--      four beats were never added up in one place.)
+--
+-- ★ MEASURED AGAINST THE DELIVERED CLIP SET, not estimated. 42 files (15 bespoke
+--   names + 27 eff_* behaviour keys), 3.05 MB, 22,050 Hz 16-bit mono:
+--
+--       longest    eff_ctl_pacify   2.529s
+--       next       hubris           2.449s   endlesstide 2.449s   thecycle 2.44s
+--       median     decay            1.661s
+--
+--   ⟹ NOTHING IN THE SET EXCEEDS THE 2.85s CYCLE, and nothing exceeds even the
+--     2.6s authoring gate below. Verified three independent ways so the number is
+--     not taken from one field: the packer's own `trimmed_s`, its `over_budget`
+--     flag (false on all 42), and duration recomputed from each file's byte count
+--     as (bytes - 44) / 44100. All three agree.
+--
+--   ⚠ THE BUDGET STAYS AT 2.85s and needs no headroom added. There is no longer a
+--     single exception anywhere in the set: the one clip that used to overrun was
+--     `duplicate` at 3.94s, and the affix has been repointed to a shorter line that
+--     is also a better semantic match. THE GRANDFATHERED EXCEPTION IS RETIRED -- a
+--     gate with no exceptions is worth more than a wider budget, because an
+--     exception is a thing every future reader has to be told about.
+--
+-- ⟹ ACCEPTANCE GATE FOR EVERY NEW CLIP: mono, 22,050 Hz, 16-bit, **<= 2.6s**.
+--   ★ THIS IS THE ONLY NUMBER AN AUTHOR NEEDS. 2.85s is the mechanical ceiling at
+--     which clips begin to overlap; 2.6s is the standard, and it sits below the
+--     ceiling on purpose so a re-cut has margin. Do not introduce a third number
+--     between them -- two numbers that must be kept in sync is how the wrong one
+--     gets quoted.
+--
+-- ⚠⚠ AUDIO PLACEMENT IS ALL-OR-NOTHING, AND IS NOT DONE FROM HERE. The 15 clips in
+--    Sounds/ today are 44,100 Hz -- twice the rate this comment documents -- and
+--    they already disagree with each other by 4.78 dB, with an old-vs-new worst
+--    case of 8.45 dB (roughly a doubling in perceived loudness). So the requalified
+--    set must land for all 15 together or not at all: a half-replaced set sounds
+--    broken in a way that reads as a bug rather than a mix.
+--    The 42-file set is staged at tools/casc/bark_wav/ (15 overwrite, 27 add, 0
+--    delete) and is placed by the release step, deliberately NOT by whoever is
+--    editing this file.
 local GROW, HOLD, FLY = 0.25, 1.70, 0.55
 
 -- ---------------------------------------------------------------------------
@@ -1061,14 +1211,21 @@ local AFFIX = {
         name = "Vengeance",
         tag  = "Vengeance!",
         desc = "Each slain enemy has a 12% chance to send a fast shade after one\nplayer. It cannot be tanked, and it leaves after twelve seconds.",
-        counter = "Kite it, root it, or burst it down. It leaves on its own.",
+        -- [2026-09-05] WAS "Kite it, root it, or burst it down." KITING IS IMPOSSIBLE:
+        -- creature_template 200009 has speed_run 1.35 against the player's 1.0, so it is
+        -- strictly faster than you and running only delays the hit. Root and burst are
+        -- both real -- the shade has no immunities at all (CreatureImmunitiesId 0,
+        -- flags_extra 0) and is excluded from keystone HP scaling at
+        -- mythic_plus.cpp:257, so it dies at ordinary health. Saying so also teaches
+        -- why the obvious answer fails, which the old line did not.
+        counter = "Root it or burst it down -- it is faster than you, so running only\ndelays it. Left alone, it leaves on its own.",
         icon = "Ability_Warrior_Revenge", sound = "vengeance",
         color = { 0.95, 0.80, 0.25 },
     },
     weakenedflesh = {
         name = "Weakened Flesh",
         tag  = "Your flesh is weak!",
-        desc = "Taking damage sears the wound shut. For 4 seconds afterwards you\nreceive 90% less healing from every source.",
+        desc = "Taking damage sears the wound shut. For 2 seconds afterwards you\nreceive 50% less healing from every source.",
         counter = "You will not be healed through this -- break contact, or\nmitigate instead of leaning on the healer.",
         icon = "Spell_Shadow_UnholyFrenzy", sound = "weakenedflesh",
         color = { 0.70, 0.75, 0.55 },
@@ -1152,7 +1309,61 @@ local AFFIX = {
 -- generated card carries the minted SPELL ID instead and the client resolves the
 -- art itself -- which is why a card costs no bytes for artwork and cannot ship a
 -- path to a file the player does not have.
-local function AffixTexture(a)
+-- ⚠ EVERY EXIT RETURNS A USABLE PATH. This runs inside BeginNext, i.e. during the
+--   server's opening freeze, and a Lua error there does not just lose an icon -- it
+--   aborts the announcement and takes out the intro for the REST OF THE RUN.
+--
+--   The old form ended `return ICON_DIR .. a.icon` with no guard, so any AFFIX
+--   entry carrying neither `iconID` nor `icon` threw. Nothing produced such an
+--   entry at the time -- generated cards always set `iconID`, all 15 bespoke
+--   entries set `icon` -- but "no current producer does this" is a property of the
+--   producers, not of this function, and a new producer is exactly the case that
+--   breaks it. One is arriving now (fixed per-effect icons replacing the
+--   modulo-indexed palette).
+--
+--   A blank square is the correct failure here: 3.3.5a renders a missing texture as
+--   nothing rather than erroring, so a wrong path costs an empty icon and the run
+--   continues.
+-- ★★ AN EXPLICIT TEXTURE NAME BEATS A SPELL ID, AND THIS ORDER IS THE WHOLE FIX
+--    FOR 52 AFFIXES THAT CURRENTLY RENDER A BROKEN ICON.
+--
+--   `iconID` does not name a texture. It names a SPELL, whose Spell.dbc row carries a
+--   SpellIconID, which indexes SpellIcon.dbc, which finally names a file. The mint fed
+--   that chain SpellIconIDs from a table LARGER than 3.3.5a ships: the client's highest
+--   valid id is 4038 and ten minted rows exceed it, so GetSpellInfo returns no texture
+--   and those affixes fall through to the question mark. One bad id accounts for 18 of
+--   the 52.
+--
+-- ★ THE ART IS NOT MISSING. Every one of those textures exists as a FILE in the
+--   client; only the SpellIcon.dbc row that would let an *id* reach it is absent. And
+--   it is systemic rather than a mint slip -- the client ships 6,308 icon files of
+--   which only 3,061 are addressable by id at all, so the id scheme can name barely
+--   half the art that is installed. A texture NAME reaches all of it.
+--
+-- ⚠ WHY THIS IS NOT FIXED IN THE DBC INSTEAD. `iconID` is the affix's minted
+--   visImpact, and that one field also drives the impact effect and the combat-log
+--   name. Repointing it to a spell with a valid icon would silently change both --
+--   three changes to fix one, and two of them player-visible in ways nobody asked for.
+--   Preferring a name here changes only the picture.
+--
+-- Resolution ladder, first hit wins:
+--   1. `a.icon`         -- an explicit texture name on the entry (the bespoke 15).
+--   2. ICON_BY_VO[voKey]-- the per-effect override table; see its declaration.
+--   3. `a.iconID`       -- the minted spell id. Correct for most rows, broken for 52.
+--   4. the question mark.
+local function AffixTexture(a, key)
+    local fallback = ICON_DIR .. "INV_Misc_QuestionMark"
+    if not a then return fallback end
+
+    if type(a.icon) == "string" and a.icon ~= "" then
+        return ICON_DIR .. a.icon
+    end
+
+    local byVo = key and VO[key] and ICON_BY_VO[VO[key]]
+    if type(byVo) == "string" and byVo ~= "" then
+        return ICON_DIR .. byVo
+    end
+
     if a.iconID then
         -- ⚠⚠ GetSpellInfo, NOT GetSpellTexture. On 3.3.5a GetSpellTexture(n)
         --    treats n as a SPELLBOOK INDEX, not a spell id -- so every minted
@@ -1161,9 +1372,9 @@ local function AffixTexture(a)
         --    and returns the icon path as its third value, which is how every
         --    other addon here does it (UncappedAnima.lua:245, UncappedForge:479).
         local _, _, tex = GetSpellInfo(a.iconID)
-        return tex or "Interface\\Icons\\INV_Misc_QuestionMark"
+        return tex or fallback
     end
-    return ICON_DIR .. a.icon
+    return fallback
 end
 
 -- Fixed display order, so the strip never reshuffles between runs. Roughly grouped:
@@ -1191,7 +1402,7 @@ end
 local COUNTERPLAY_COPY = {
     ctr_break_cc       = "Break free of it.",
     ctr_break_los      = "Put something solid between you and it.",
-    ctr_burst_deadline = "Break it before the timer runs out.",
+    ctr_burst_deadline = "Beat the clock. It only gets worse, and deaths make it worse faster.",
     ctr_cleanse        = "Cleanse the poison or disease.",
     ctr_communicate    = "Call it out -- someone else has to act on it.",
     ctr_decurse        = "Remove the curse.",
@@ -1202,7 +1413,7 @@ local COUNTERPLAY_COPY = {
     ctr_instant_heal   = "Heal it off, fast.",
     ctr_interrupt      = "Interrupt the cast.",
     ctr_kill_object    = "Destroy it.",
-    ctr_kite           = "Keep away from it.",
+    ctr_kite           = "Play through it -- nothing is chasing you, nothing removes it, and it drops on its own.",
     ctr_move_out       = "Move out of it.",
     ctr_outrange       = "Get out of range.",
     ctr_pre_position   = "Be somewhere else before it happens.",
@@ -1234,6 +1445,48 @@ local function GeneratedColour(key)
     return GENERATED_PALETTE[(h % #GENERATED_PALETTE) + 1]
 end
 
+-- ★★★ A LIVE AFFIX MUST NEVER BE INVISIBLE. This is the fallback the server has
+--     always believed this addon had, and never did.
+--
+--   WireCard() refuses to send a card once it passes 240 bytes, and its comment
+--   justified that as "better than the addon's own 'unknown affix' fallback".
+--   THERE WAS NO SUCH FALLBACK. A key with no card was dropped by SetActive, so a
+--   refused card did not downgrade the affix's presentation -- it removed the affix
+--   from the UI completely: no strip icon, no card, no voice, nothing logged, while
+--   the affix was live and damaging the player. The trade-off that comment weighed,
+--   "empty explanation vs fallback", was never the one on offer. The real one was
+--   "empty explanation vs INVISIBLE", and refusing chose invisible.
+--
+-- ⟹ An ugly entry is strictly better than an affix a player cannot know about. The
+--   name is the wire key, because that is genuinely all we were told; the icon is
+--   the question mark, and the description says why it is blank rather than being
+--   blank.
+--
+-- ★ This is safe only because AffixTexture now returns a usable path when an entry
+--   carries neither `icon` nor `iconID` -- which is exactly this entry. That guard
+--   was added an hour before this function needed it.
+--
+-- ⚠ `generated = true` IS LOAD-BEARING: the UMG handler overwrites an entry only
+--   when it is absent or generated, so a real card arriving later still replaces
+--   this. Deliberately NOT added to ORDER -- it is a runtime rescue for one run, not
+--   a catalogue entry to be auditioned by the preview commands.
+local function EnsurePlaceholderAffix(key)
+    if AFFIX[key] then return AFFIX[key] end
+    if type(key) ~= "string" or key == "" then return nil end
+
+    AFFIX[key] = {
+        name    = key,
+        tag     = "",
+        desc    = "This affix is running, but its description was too long to send.\nWhat it does to you is real; only the text is missing.",
+        counter = "Unknown -- watch what it does and react to that.",
+        color   = GeneratedColour(key),
+        -- No `icon` and no `iconID`, so AffixTexture yields the question mark.
+        generated   = true,
+        placeholder = true,
+    }
+    return AFFIX[key]
+end
+
 local ORDER = {
     "endlesstide", "storm", "wardingorbs",
     "sundered", "weakenedflesh", "cursed",
@@ -1251,7 +1504,148 @@ local MAX_ACTIVE = 3
 -- ---------------------------------------------------------------------------
 -- Settings
 -- ---------------------------------------------------------------------------
-local cfg = { sound = true, animate = true, strip = true }
+-- `draw` gates the keystone map-draw panel. It rides this table rather than getting
+-- its own SavedVariable because db.affix is already carried across the login merge
+-- correctly, and that merge is the part of this addon most easily got wrong.
+local cfg = { sound = true, animate = true, strip = true, draw = true }
+
+-- Resolve and play one affix's voice line.
+--
+-- ★ SILENCE IS THE NORMAL OUTCOME AND MUST NEVER BE AN ERROR. `vo` is empty on all
+--   2,715 rows until the assignment is approved and the SQL applied by hand, so
+--   the server sends no UMV, `VO` stays empty, and every generated affix takes the
+--   `return` below. That is today's behaviour exactly, and it is the state the
+--   realm will be in on the day this ships -- so it is the path that matters most.
+--
+-- Every failure here is a quiet return rather than a message. The one thing that
+-- could genuinely break a player's run is an error thrown inside the announcement,
+-- because the announcement runs during the server's opening freeze -- which is why
+-- the original `a.sound` guard existed at all, and why nothing below concatenates
+-- a value it has not just tested.
+--
+-- A missing .wav is NOT an error: PlaySoundFile on a path that does not exist
+-- simply does not play. So a voKey whose clip has not shipped yet degrades to
+-- silence on its own, with no version check and no manifest coupling.
+-- ★★ THE IDENTITY MAPPING HAS NO FAILURE SIGNAL OF ITS OWN, SO THIS SUPPLIES ONE.
+--
+--   Because the voKey IS the filename, a value that is WRONG but WELL-FORMED is
+--   indistinguishable from one that is absent: both pass the sanitiser, both find
+--   no file, and a missing file is silent BY DESIGN. That is correct for players
+--   and useless for whoever is debugging.
+--
+--   This nearly shipped broken exactly that way: the first assignment SQL set `vo`
+--   to the D3 *sound name* while the files were named by *key*. Every value was
+--   valid `[A-Za-z0-9_]`, every lookup missed, and the symptom was silence --
+--   identical to the not-yet-populated state the feature is designed to sit in.
+--
+--   So every call records what it attempted and why it stopped. Silent for players,
+--   one `/mpa vo` (or `/dump UncappedMythicVODebug`) for anyone diagnosing.
+--
+-- ⚠ A PLAIN GLOBAL, NEVER A SAVED VARIABLE. It is keyed by wireKey, which is
+--   positional and does not survive a catalogue regeneration -- persisting it would
+--   eventually describe the wrong affix. It is not in the .toc SavedVariables list
+--   and must not be added to it.
+UncappedMythicVODebug = { last = nil, byKey = {} }
+
+local function VONote(key, outcome, stem)
+    local rec = {
+        key     = key,
+        outcome = outcome,
+        stem    = stem,
+        path    = stem and (SOUND_DIR .. stem .. ".wav") or nil,
+    }
+    UncappedMythicVODebug.last = rec
+    UncappedMythicVODebug.byKey[key] = rec
+    return rec
+end
+
+-- The single definition of "what would this affix say". PlayAffixVoice plays it and
+-- `/mpa vo` reports it, and they MUST agree -- a diagnostic that resolves the stem
+-- by its own copy of the rule will confidently report the wrong answer the first
+-- time the rule changes, which is worse than having no diagnostic.
+--
+-- ⚠ This function existed for about ten minutes as two copies before that was
+--   noticed. It is the same two-copies-of-one-rule shape as the original
+--   PlaySoundFile pair, reintroduced by the tool built to diagnose it.
+--
+-- Returns the stem (or nil) and the AFFIX entry (or nil) so callers can tell the
+-- two nil cases apart without repeating the lookup.
+local function ResolveVoiceStem(key)
+    local a = AFFIX[key]
+    return (a and a.sound) or VO[key], a
+end
+
+local function PlayAffixVoice(key)
+    if not cfg.sound then
+        VONote(key, "muted -- 'Play voice lines' is off")
+        return
+    end
+
+    -- ⚠ NO EARLY RETURN ON `not a`, AND DO NOT ADD ONE BACK.
+    --
+    --   The voice must not be coupled to the CARD. `AFFIX[key]` exists for a
+    --   generated affix only because a UMG card arrived, and WireCard() REFUSES to
+    --   send a card at all above 240 bytes -- so gating the voice on `a` re-imports
+    --   the exact card-size dependency that UMV was given its own verb to escape.
+    --
+    -- ★★ THE GENERAL SHAPE, WHICH IS WHY THIS COMMENT IS LONGER THAN THE FIX:
+    --    a mitigation verified at the layer it was designed for, defeated one layer
+    --    up. The isolation is real ON THE WIRE -- a UMV line genuinely cannot push a
+    --    card over its budget -- and the server comment says exactly that, truthfully.
+    --    It is lost HERE, in the consumer, where both values are read through one
+    --    presence check. Neither layer is wrong on its own; the guarantee dies in the
+    --    join between them.
+    --
+    -- ⚠ HONESTY ABOUT WHAT THIS FIXES: NOTHING, TODAY. It is defence in depth, not a
+    --   live repair, and the reason matters. Every caller that can reach this
+    --   function has ALREADY gated on AFFIX[key] -- SetActive drops a cardless key
+    --   from `active`, Announce returns on `not AFFIX[key]`, and BeginNext returns on
+    --   `not a`. So a card-refused affix never gets this far to be rescued.
+    --
+    --   ⟹ The real defect is one level further out and is NOT fixed here: a refused
+    --     card makes the whole affix invisible -- no strip icon, no announcement, no
+    --     voice -- while it is still damaging the player. See the note left on
+    --     WireCard() in mythic_affix_grammar.cpp.
+    -- Explicit clip wins. The 15 bespoke affixes carry a hand-picked line that
+    -- nothing derivable improves on, and their `sound` is already a filename stem
+    -- ("decay" -> decay.wav), so both paths resolve identically from here.
+    -- Generated affixes have sound = nil and fall through to the server's voKey.
+    local stem, a = ResolveVoiceStem(key)
+    if not stem then
+        -- Both are the normal state until `vo` is populated. NEITHER is an error.
+        if a then
+            VONote(key, "no voice key (server sent no UMV for it)")
+        else
+            VONote(key, "no card and no voice key for this affix")
+        end
+        return
+    end
+
+    -- ⚠ `stem` is free text out of a database column and is about to become a file
+    --   path, so it is checked rather than trusted. Anything but letters, digits
+    --   and underscores is refused: it cannot escape the Sounds folder, and a
+    --   typo'd or malformed `vo` value plays nothing instead of building a garbage
+    --   path. find() returns nil when the pattern does not match.
+    if type(stem) ~= "string" or stem == "" or stem:find("[^%w_]") then
+        VONote(key, "voice key rejected by the sanitiser", tostring(stem))
+        return
+    end
+
+    local rec = VONote(key, "played", stem)
+    local ok = PlaySoundFile(rec.path)
+    -- ★ THE ONE REAL FAILURE SIGNAL THIS CLIENT OFFERS. 3.3.5a's PlaySoundFile
+    --   returns false when it could not play the file; there is no other way to
+    --   tell a wrong stem from a right one (UncappedSoundLab.lua:63-67 records the
+    --   same limitation). Anything but an explicit false is treated as success,
+    --   because the return is not documented to be meaningful otherwise.
+    --
+    --   `outcome = "no file at that path"` is THE diagnostic: it means the voKey
+    --   was well-formed and the .wav it names is not shipped -- i.e. `vo` and the
+    --   clip filenames disagree, which is the mismatch described above.
+    if ok == false then
+        rec.outcome = "no file at that path"
+    end
+end
 
 -- ---------------------------------------------------------------------------
 -- The strip
@@ -1336,7 +1730,7 @@ local function LayoutStrip()
             b = EnsureSlot(i)
             local a = AFFIX[active[i]]
             b.affixKey = active[i]
-            b.icon:SetTexture(AffixTexture(a))
+            b.icon:SetTexture(AffixTexture(a, active[i]))
             -- Reset alpha explicitly: an announcement dims its destination icon and
             -- only restores it on landing, so an interrupted one must not leave the
             -- slot permanently dimmed.
@@ -1487,7 +1881,7 @@ local function BeginNext()
     local a = AFFIX[key]
     if not a then return end
 
-    card.icon:SetTexture(AffixTexture(a))
+    card.icon:SetTexture(AffixTexture(a, key))
     card.name:SetText(a.name)
     card.name:SetTextColor(a.color[1], a.color[2], a.color[3])
     card.tag:SetText((a.tag and a.tag ~= "") and ('"' .. a.tag .. '"') or "")
@@ -1511,11 +1905,11 @@ local function BeginNext()
     PlaceCard(0.7)
     card:Show()
 
-    -- ⚠ a.sound is nil for a generated affix: there are over two thousand of them
-    --   and no voice line was recorded for any. Concatenating nil here would throw
-    --   inside the announcement, which runs during the opening freeze -- so the
-    --   whole intro would die on the first generated affix of the run.
-    if cfg.sound and a.sound then PlaySoundFile(SOUND_DIR .. a.sound .. ".wav") end
+    -- Every guard that used to live here is now inside PlayAffixVoice, which both
+    -- announcement paths share. ⚠ The reason it is guarded at all has not changed:
+    -- this runs during the server's opening freeze, so an error thrown here kills
+    -- the whole intro for the rest of the run.
+    PlayAffixVoice(key)
 end
 
 -- The animation is driven by its own always-shown, contentless frame, NOT by the
@@ -1644,35 +2038,167 @@ end)
 -- ---------------------------------------------------------------------------
 -- Public API
 -- ---------------------------------------------------------------------------
+-- ★★ SHAPE DEDUPE. Is this affix's SOUND already about to be heard?
+--
+--   The catalogue is 426 drawable rows over **33 distinct shapes** (confirmed twice
+--   tonight by two independent methods), so a floor that opens with several affixes
+--   will routinely draw two that share an `eff`. They have different names and
+--   different cards, but they resolve to the SAME clip -- and two identical clips
+--   two seconds apart do not read as "this is happening twice", they read as a
+--   stuttering, broken audio file.
+--
+-- ★ The voKey IS the shape key, so this needs no new data. Two rows sharing an
+--   `eff` share a `vo` value and therefore a stem; ResolveVoiceStem already answers
+--   the question.
+--
+-- ⚠ DO NOT "FIX" A REPEAT BY PLAYING A DIFFERENT CLIP. Explicitly ruled against, and
+--   the reasoning is the whole design in one line: if two affixes both shred armour,
+--   the player's armour IS being shredded twice. A second, different sound would
+--   imply two mechanics where the engine runs one -- the exact failure this
+--   catalogue keeps producing, a surface claiming more than the system does.
+--   A repeat within a floor is TRUE; variety would be a LIE. The answer is to
+--   collapse it, never to disguise it.
+--
+-- ⟹ It also shortens the opening burst, which is the binding constraint at depth:
+--   thirteen affixes are only ever ~8 distinct sounds, so the intro gets shorter
+--   exactly when it most needs to.
+--
+-- Window is "already in flight" -- queued, or currently animating -- NOT "heard this
+-- run". A later floor drawing the same shape again is a new event and must announce.
+--
+-- ⚠⚠ READ THIS BEFORE BUILDING THE CLASS-BADGE STRIP. THIS DEDUPES ON **SHAPE**
+--    (`eff`, via the voKey), NOT ON **ANSWER CLASS**. The two are different axes and
+--    must not be conflated:
+--
+--      · SHAPE (`eff`) is what the engine actually runs. Two rows sharing it really
+--        do the same thing to the player, which is why collapsing their sound is
+--        true. 426 drawable rows over 33 shapes.
+--      · ANSWER CLASS is derived from `ctr`, which has no executor at all, and is
+--        assigned by an `affix_id` MODULO across 95.7% of draw weight -- so four
+--        identical stuns can carry four different classes. It is not a valid
+--        grouping key for anything the player is told.
+--
+--    ⟹ If a future strip groups icons by answer class, that grouping is NOT this
+--      one and must not be wired to it. Grouping the AUDIO by class would collapse
+--      sounds that differ and separate sounds that are identical -- the exact
+--      inversion of what this function is for.
+local function ShapeAlreadyAnnouncing(stem)
+    -- No clip resolved means no shape to collide with. Two affixes that are both
+    -- silent must both still get their card.
+    if not stem then return false end
+    if anim and anim.key and ResolveVoiceStem(anim.key) == stem then return true end
+    for _, queued in ipairs(queue) do
+        if ResolveVoiceStem(queued) == stem then return true end
+    end
+    return false
+end
+
 -- Queue one affix's announcement. `force` skips the animation setting so the
 -- preview button and icon clicks always do something visible.
 function UncappedMythicAffix_Announce(key, force)
     if not AFFIX[key] then return end
+
+    -- ⚠ `force` means a person asked for this one specifically -- an icon click, a
+    --   /mpa audition. Never dedupe those: the whole point of clicking an icon is to
+    --   hear THAT affix, and /mpa all exists to audition every line in turn.
+    if not force and ShapeAlreadyAnnouncing((ResolveVoiceStem(key))) then
+        VONote(key, "collapsed -- another affix of this shape is already announcing")
+        return
+    end
+
     if not cfg.animate and not force then
-        -- nil for generated affixes; see the same guard in the animated path.
-        if cfg.sound and AFFIX[key].sound then
-            PlaySoundFile(SOUND_DIR .. AFFIX[key].sound .. ".wav")
-        end
+        -- Animation off: play the line on its own so the announcement is not
+        -- silently nothing. Same resolver as the animated path, so the two cannot
+        -- drift apart -- they used to be two copies of the same concatenation.
+        PlayAffixVoice(key)
         return
     end
     queue[#queue + 1] = key
     BeginNext()
 end
 
--- Replace the run's affix set. Announces only what is NEW, so a mid-run resync
--- (reconnect, death, worldserver restart) re-sends the same list without
--- replaying nine voice lines at someone.
+-- Replace the run's affix set.
+--
+-- ⚠⚠⚠ [2026-09-05] THE `was` DELTA GUARD BELOW DOES NOT PROTECT A RECONNECT, AND
+--   THE COMMENT THAT SAID IT DID IS WHY THE BUG SURVIVED. It used to read:
+--
+--     "Announces only what is NEW, so a mid-run resync (reconnect, death,
+--      worldserver restart) re-sends the same list without replaying nine voice
+--      lines at someone."
+--
+--   `was` is built from `active`, and `active` is a plain local that starts EMPTY
+--   on every fresh load of this file. So after the exact events the comment
+--   names -- a reconnect, a /reload, a worldserver restart -- nothing is in
+--   `was`, EVERY affix reads as new, and the guard fires the whole set. It works
+--   only in the one case it was never needed for: a resync inside a session that
+--   never dropped.
+--
+--   Measured cost: at today's server cap of 3 that is 3 cards and 3 voice lines,
+--   8.55s, on every reconnect. Under the Descent's affix curve
+--   (docs/design/MYTHIC_DEPTH.md 5.2, active = base + floor - 1) a floor-11 run
+--   carries 13, which is 13 barks back to back and **37 seconds** of opaque
+--   centre-screen card at somebody who has just finished loading back in.
+--
+-- ⟹ THE FIX IS AT THE CALL SITE, NOT HERE: the `UMA:` handler no longer asks for
+--   an announcement at all (see the note there). This function is left intact --
+--   including the delta guard -- because the Descent's per-floor draw is the case
+--   it was actually written for, and it is correct for that: a floor transition
+--   happens INSIDE a live session, so `active` genuinely holds the previous
+--   floor's set and the delta is genuinely one affix.
+--
+-- ★ `announce` therefore has NO caller passing true as of this edit. That is
+--   deliberate, not dead code awaiting deletion. Before wiring it back up to
+--   anything, be sure the path you are wiring cannot be reached after a reload
+--   with an empty `active`, or you will re-create exactly the bug above.
 function UncappedMythicAffix_SetActive(keys, announce)
     local was = {}
     for _, k in ipairs(active) do was[k] = true end
 
     active = {}
-    local want = {}
+    -- ✅ [2026-09-05] SELECTION NOW FOLLOWS THE SERVER'S DRAW ORDER, NOT `ORDER`.
+    --
+    --   This used to build a `want` set and then walk ORDER, taking the first
+    --   MAX_ACTIVE it found. ORDER is SESSION-LOCAL -- the 14 bespoke keys followed
+    --   by generated keys appended in the order THIS client first saw them (see the
+    --   UMG handler) -- so once more keys arrive than MAX_ACTIVE, WHICH ONES SURVIVE
+    --   depended on what that player happened to meet in earlier runs. Two players
+    --   in one group could hold two different subsets of the same run, silently,
+    --   with no error on either side.
+    --
+    -- ⚠ FIXED WHILE IT IS STILL A NO-OP, DELIBERATELY. The server caps the draw at
+    --   3 (mythic_plus.h:713 MAX_ACTIVE_AFFIXES) and MAX_ACTIVE is 3, so nothing is
+    --   dropped today and this changes no selection. It stops being a no-op the
+    --   moment that constant moves for the Descent -- at which point affixes would
+    --   start vanishing from the strip with nothing logged, which is the same
+    --   silent-nothing failure this catalogue has already produced three times and
+    --   found by accident every time. Shipping the fix uncoupled from the cap change
+    --   means only one thing is being debugged when the cap does move.
+    --
+    -- ★ WHAT IS AND IS NOT A NO-OP -- established, not assumed:
+    --     · THE SET is identical at n <= 3. Both forms admit exactly the keys
+    --       present in AFFIX, and neither can reach the cap.
+    --     · THE ORDER can differ, so this IS mildly player-visible. ORDER floats
+    --       bespoke affixes ahead of generated ones and floats any generated affix
+    --       seen in an earlier run ahead of a new one; the draw order does neither.
+    --       On a fresh session drawing three generated affixes the two agree exactly,
+    --       because ORDER's tail is appended in preamble order, which IS draw order.
+    --     · ONE SET DIFFERENCE IS POSSIBLE AND IT IS A FIX, NOT A REGRESSION:
+    --       `finecorpse` is in AFFIX but deliberately absent from ORDER, so the old
+    --       walk would have DROPPED it if it were ever drawn. Its pool row is
+    --       disabled so it never is, but a keys-walk would render it correctly.
+    --
+    --   ⟹ Group members now agree on both the set and the order, and neither
+    --     depends on what any individual client has seen before.
+    -- ⚠ NO LONGER `if AFFIX[k]`. A key with no card used to be silently dropped
+    --   here, which is what made a refused card remove a live affix from the UI
+    --   entirely. EnsurePlaceholderAffix admits it with a degraded entry instead and
+    --   returns nil only for a genuinely unusable key.
+    local seen = {}
     for _, k in ipairs(keys) do
-        if AFFIX[k] then want[k] = true end
-    end
-    for _, k in ipairs(ORDER) do
-        if want[k] and #active < MAX_ACTIVE then active[#active + 1] = k end
+        if not seen[k] and #active < MAX_ACTIVE and EnsurePlaceholderAffix(k) then
+            seen[k] = true
+            active[#active + 1] = k
+        end
     end
     LayoutStrip()
 
@@ -1774,6 +2300,27 @@ affixListener:SetScript("OnEvent", function(self, event, a1, a2)
     local msg = a2
     if not msg then return end
 
+    -- UMV:<wireKey>:<voKey> -- this affix's voice line.
+    --
+    -- Rides its own message rather than a sixth UMG field because the card is
+    -- REFUSED whole above 240 bytes (mythic_affix_grammar.cpp WireCard), so
+    -- widening it would have silently dropped the most verbose affixes off the
+    -- strip. Sent in the same preamble as the cards, before UMI/UMA, so the key is
+    -- known by the time the announcement fires.
+    --
+    -- ⚠ Stored in the session-local VO table and nowhere else -- see the warning at
+    --   its declaration. The wireKey is positional and does not survive a catalogue
+    --   regeneration, so persisting this pairing would eventually play the wrong
+    --   line for the wrong affix.
+    --
+    -- Unmatched (empty vo, old server, or a server that never sends it) simply
+    -- means no entry, and PlayAffixVoice returns silently.
+    local vkey, vpool = msg:match("^UMV:([^:]+):([^:]+)$")
+    if vkey then
+        VO[vkey] = vpool
+        return
+    end
+
     -- UMG:<key>:<spellId>:<ctrKey>:<name>:<description> -- a SELF-DESCRIBING affix.
     --
     -- ★★ WITHOUT THIS THE GENERATED AFFIXES ARE INVISIBLE. UncappedMythicAffix_SetActive
@@ -1818,9 +2365,15 @@ affixListener:SetScript("OnEvent", function(self, event, a1, a2)
                 color   = GeneratedColour(gkey),
                 generated = true,
             }
-            -- ⚠ Only once. ORDER is walked on every SetActive, and re-appending a
-            --   key on every refresh would grow it without bound and let one affix
-            --   claim several slots on the strip.
+            -- ⚠ Only once, or ORDER grows without bound across a session.
+            --
+            --   [2026-09-05] The ORIGINAL reason given here -- "ORDER is walked on
+            --   every SetActive ... and would let one affix claim several slots on
+            --   the strip" -- IS NO LONGER TRUE: SetActive selects from the server's
+            --   key list now, not from ORDER. The guard still matters, because ORDER
+            --   is the catalogue the preview paths enumerate (`SetActive(ORDER, ...)`
+            --   and the /mpa listings), and a duplicate there would show the same
+            --   affix twice in a preview and re-announce it.
             if isNew then ORDER[#ORDER + 1] = gkey end
         end
         return
@@ -1836,11 +2389,43 @@ affixListener:SetScript("OnEvent", function(self, event, a1, a2)
         return
     end
 
+    -- UMA:<key>,<key>,... -- set the run's affix list WITHOUT announcing anything.
+    --
+    -- ★★★ [2026-09-05] THIS USED TO PASS `true` AND IT WAS THE RECONNECT BARK
+    --   STORM. The delta guard inside SetActive compares against `active`, which
+    --   is empty on a fresh load, so every affix read as new and the client
+    --   replayed the ENTIRE set: 3 voice lines today, and 13 back-to-back barks
+    --   over 37 seconds on a floor-11 Descent run, every time somebody's
+    --   connection dropped. Full working in SetActive's own comment above.
+    --
+    -- ⚠ THIS IS NOT A JUDGEMENT CALL -- IT IS THE CONTRACT THE SERVER ALREADY
+    --   STATES. UMA is the freezeSeconds == 0 form (mythic_plus.h:1870-1871) and
+    --   its only emitter is the join/resume path, whose own comment at
+    --   mythic_plus_all_mapscript.cpp:898-900 reads:
+    --
+    --       "Joining an in-progress run: populate the strip but do NOT freeze or
+    --        replay the intro -- the run is already under way."
+    --
+    --   The server has always meant "populate, do not announce". The client was
+    --   simply not honouring it. Verified 2026-09-05: SendRunAffixes has exactly
+    --   three call sites and UMA has exactly one emitter -- the join path -- so
+    --   nothing that is a genuinely NEW draw arrives here.
+    --
+    -- ★ Nothing is lost by the silence. The strip is still populated, so a player
+    --   who joins or reconnects mid-run gets every icon and every tooltip, and
+    --   clicking an icon replays that affix's announcement on demand -- which the
+    --   settings page already tells them ("Click one to replay its announcement").
+    --
+    -- ⟹ A run START still announces: that is UMI, which routes to
+    --   UncappedMythicAffix_RunIntro and is untouched. If a future depth
+    --   transition needs to announce a newly-added floor affix, send it as UMI
+    --   (it has a freeze to play into anyway). Do NOT re-arm the announcement
+    --   here -- see the `announce` note on SetActive.
     local list = msg:match("^UMA:(.*)$")
     if list then
         local keys = {}
         for k in list:gmatch("[^,]+") do keys[#keys + 1] = k end
-        UncappedMythicAffix_SetActive(keys, true)
+        UncappedMythicAffix_SetActive(keys, false)
         return
     end
 end)
@@ -1932,12 +2517,221 @@ SlashCmdList["UNCAPPEDMYTHICAFFIX"] = function(arg)
         end
         return
     end
+    -- Voice-line diagnostics. The whole point is that a wrong-but-well-formed voKey
+    -- is SILENT and therefore invisible; this is what makes it visible. Prints what
+    -- each active affix would play and what the last attempt actually did.
+    if arg == "vo" then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffffcc00Uncapped Mythic+ voice lines|r:")
+
+        local n = 0
+        for k in pairs(VO) do n = n + 1 end
+        DEFAULT_CHAT_FRAME:AddMessage(string.format(
+            "  voice keys received this session: |cffffffff%d|r%s", n,
+            n == 0 and "  |cff808080(none -- server sent no UMV; `vo` is probably still empty)|r" or ""))
+
+        if #active == 0 then
+            DEFAULT_CHAT_FRAME:AddMessage("  |cff808080no active affixes -- try /mpa intro first|r")
+        end
+        for _, k in ipairs(active) do
+            local stem = ResolveVoiceStem(k)
+            local rec = UncappedMythicVODebug.byKey[k]
+            DEFAULT_CHAT_FRAME:AddMessage(string.format(
+                "  |cffffffff%s|r  stem=|cff80ff80%s|r  last=|cff808080%s|r",
+                k, tostring(stem), rec and rec.outcome or "not attempted yet"))
+        end
+
+        local last = UncappedMythicVODebug.last
+        if last then
+            DEFAULT_CHAT_FRAME:AddMessage(string.format(
+                "  last attempt: %s -> %s (%s)",
+                tostring(last.key), tostring(last.path), tostring(last.outcome)))
+        end
+        DEFAULT_CHAT_FRAME:AddMessage("  |cff808080\"no file at that path\" means `vo` and the shipped .wav names disagree.|r")
+        return
+    end
+
     if AFFIX[arg] then
         ShowHudForDemo()
         UncappedMythicAffix_Announce(arg, true)
         return
     end
 
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffcc00Uncapped Mythic+|r: /mpa [intro | all | strip | clear | list | <affix key>]")
-    DEFAULT_CHAT_FRAME:AddMessage("  |cff808080intro|r = simulate a run start (3 random affixes + freeze countdown), |cff808080all|r = hear every line")
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffcc00Uncapped Mythic+|r: /mpa [intro | all | strip | clear | list | vo | <affix key>]")
+    DEFAULT_CHAT_FRAME:AddMessage("  |cff808080intro|r = simulate a run start (3 random affixes + freeze countdown), |cff808080all|r = hear every line, |cff808080vo|r = voice-line diagnostics")
+end
+
+-- ===========================================================================
+-- KEYSTONE MAP DRAW  (UMKD:)
+-- ===========================================================================
+--
+-- The keystone binds you to ONE dungeon, drawn when you take the key. This shows
+-- which one, BEFORE you travel -- which is the whole point of drawing at acquire
+-- rather than at run start.
+--
+-- ★★ THIS IS A DIFFERENT SURFACE FROM THE AFFIX STRIP AND IS DELIBERATELY NOT ON IT.
+--    The strip is run state: it lives under the keystone HUD, appears when a run
+--    starts and describes what is happening to you right now. A held draw is
+--    PRE-travel state -- you read it in a city, deciding whether to go -- and the HUD
+--    it would have hung from is not even shown then. Its own small frame is the
+--    honest shape.
+--
+-- ⚠⚠ THE FAILURE MODE IS THE DESIGN. There are THREE server states and they are not
+--    two, so read this before changing anything here:
+--
+--      1. FEATURE OFF   -> the server sends NOTHING, ever. This frame is created
+--                          hidden and nothing shows it, so the player sees no panel
+--                          at all. Correct: MythicMapDraw is gated off and DrawAllows
+--                          FAILS OPEN while it is, so there is no binding to describe
+--                          and an empty "no map drawn" panel would announce a mechanic
+--                          this realm does not currently have.
+--      2. NO DRAW HELD  -> "UMKD:0". Hides the frame. This one has to be a message,
+--                          because "send nothing" cannot take down a panel a previous
+--                          draw put up.
+--      3. DRAW HELD     -> the full form; show it.
+--
+--    ⟹ ABSENT, NEVER EMPTY. The frame must never render with a blank or placeholder
+--      map, because DrawAllows fails open in states 1 and 2 -- so a visible-but-empty
+--      panel would imply a binding the server is not enforcing, which is worse than
+--      showing nothing.
+--
+-- ⚠ NOT PERSISTED, for the same reason the voice-key table is not: this is server
+--   state with a server lifetime. It is re-sent on login, and a saved copy could
+--   outlive the draw it describes and send a player confidently to a dungeon they are
+--   no longer bound to.
+local draw = { mapId = 0, wingKnown = true, secs = 0, label = "" }
+
+local drawFrame = CreateFrame("Frame", "UncappedMythicDrawFrame", UIParent)
+drawFrame:SetSize(230, 62)
+drawFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 180)
+drawFrame:SetBackdrop({
+    bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border",
+    tile = true, tileSize = 32, edgeSize = 16,
+    insets = { left = 4, right = 4, top = 4, bottom = 4 },
+})
+drawFrame:SetMovable(true)
+drawFrame:EnableMouse(true)
+drawFrame:RegisterForDrag("LeftButton")
+drawFrame:SetScript("OnDragStart", drawFrame.StartMoving)
+drawFrame:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    local _, _, _, x, y = self:GetPoint()
+    db.drawPos = { x = x, y = y }
+end)
+-- ★ Created hidden and left that way. State 1 above depends on nothing ever showing
+--   it, so there is no :Show() anywhere except RefreshDraw, which requires a mapId.
+drawFrame:Hide()
+
+drawFrame.title = drawFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+drawFrame.title:SetPoint("TOP", drawFrame, "TOP", 0, -8)
+drawFrame.title:SetText("Your keystone is bound to")
+drawFrame.title:SetTextColor(0.70, 0.65, 0.55)
+
+drawFrame.where = drawFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+drawFrame.where:SetPoint("TOP", drawFrame.title, "BOTTOM", 0, -3)
+drawFrame.where:SetTextColor(1.0, 0.82, 0.0)
+
+drawFrame.note = drawFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+drawFrame.note:SetPoint("TOP", drawFrame.where, "BOTTOM", 0, -3)
+
+local function RefreshDraw()
+    if db.drawPos then
+        drawFrame:ClearAllPoints()
+        drawFrame:SetPoint("CENTER", UIParent, "CENTER", db.drawPos.x or 0, db.drawPos.y or 180)
+    end
+
+    -- States 1 and 2 both land here. Hiding is the whole behaviour; nothing is drawn
+    -- and no placeholder text is left behind.
+    if draw.mapId == 0 or not cfg.draw then
+        drawFrame:Hide()
+        return
+    end
+
+    drawFrame.where:SetText(draw.label)
+
+    -- ★ SAY WHEN THE ANSWER IS INCOMPLETE RATHER THAN SHOWING TWO THIRDS OF ONE.
+    --   Five maps are split into wings (Scarlet Monastery, Dire Maul, Maraudon,
+    --   Stratholme, Blackrock Spire) and their wing names are bare -- "Graveyard",
+    --   "Library", "Armory", "Cathedral". A player told only "Library" has not been
+    --   told which building, and one told a map name with no wing has been given an
+    --   answer that is missing the half that decides where they walk.
+    --
+    --   The server sets wingKnown = 0 for exactly that case, and this is the line
+    --   that refuses to pretend otherwise.
+    if not draw.wingKnown then
+        drawFrame.note:SetText("|cffff8040Wing not yet fixed -- choose it on the keystone.|r")
+    elseif draw.secs and draw.secs > 0 then
+        drawFrame.note:SetText(string.format("|cff808080Complete it to draw another, or wait %d min.|r",
+            math.ceil(draw.secs / 60)))
+    else
+        drawFrame.note:SetText("|cff808080Complete it to draw another.|r")
+    end
+
+    drawFrame:Show()
+end
+
+local drawListener = CreateFrame("Frame")
+drawListener:RegisterEvent("CHAT_MSG_ADDON")
+drawListener:SetScript("OnEvent", function(self, event, a1, a2)
+    if a1 ~= ADDON_PIPE_PREFIX then return end
+    local msg = a2
+    if not msg then return end
+
+    -- UMKD:0 -- the character holds no draw. Take the panel down.
+    if msg == "UMKD:0" then
+        draw.mapId, draw.wingKnown, draw.secs, draw.label = 0, true, 0, ""
+        RefreshDraw()
+        return
+    end
+
+    -- UMKD:<mapId>:<wingKnown>:<secondsUntilRedraw>:<label>
+    -- The label is the tail: it is a DBC map name in the player's own locale and may
+    -- contain spaces, hyphens and punctuation.
+    local mid, known, secs, label = msg:match("^UMKD:(%d+):([01]):(%d+):(.+)$")
+    if mid then
+        draw.mapId     = tonumber(mid) or 0
+        draw.wingKnown = (known == "1")
+        draw.secs      = tonumber(secs) or 0
+        draw.label     = label
+        RefreshDraw()
+        return
+    end
+end)
+
+-- Its own settings page rather than a line on the affix page, for the same reason it
+-- is its own frame: this is not affix state. ⚠ It also HAS to be declared here rather
+-- than with the other two panels -- RefreshDraw is a local defined above, and a
+-- callback written earlier in the file would capture nil.
+if UncappedUI then
+    local panel, L = UncappedUI.CreatePanel("Mythic+ Keystone Draw",
+        "The dungeon your keystone is bound to, shown before you travel to it.")
+
+    L:Header("Display")
+    L:Check("Show the keystone draw panel", function() return cfg.draw end,
+        function(v) cfg.draw = v; RefreshDraw() end)
+    L:Note("|cff808080Drag the panel to move it. It appears only while you actually hold a draw, and stays hidden on realms where keystones are not bound to a dungeon.|r", 44)
+
+    L:Gap(6)
+    L:Button("Reset panel position", function()
+        db.drawPos = nil
+        drawFrame:ClearAllPoints()
+        drawFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 180)
+    end, 200)
+
+    UncappedMythicDrawPanel = panel
+end
+
+SLASH_UNCAPPEDMYTHICDRAW1 = "/mpdraw"
+SlashCmdList["UNCAPPEDMYTHICDRAW"] = function()
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffcc00Uncapped Mythic+ keystone draw|r:")
+    if draw.mapId == 0 then
+        -- ⚠ Deliberately does NOT say "you hold no draw" -- states 1 and 2 are
+        --   indistinguishable from here, and claiming the second would be a claim
+        --   about a feature that may not be running at all.
+        DEFAULT_CHAT_FRAME:AddMessage("  |cff808080no draw known -- either you hold none, or map draw is off on this realm.|r")
+        return
+    end
+    DEFAULT_CHAT_FRAME:AddMessage(string.format("  map |cffffffff%d|r  %s", draw.mapId, draw.label))
+    DEFAULT_CHAT_FRAME:AddMessage(string.format("  wing resolved: %s   redraw in: %d min",
+        draw.wingKnown and "yes" or "|cffff8040NO|r", math.ceil((draw.secs or 0) / 60)))
 end

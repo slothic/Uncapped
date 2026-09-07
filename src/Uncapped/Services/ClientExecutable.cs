@@ -53,5 +53,26 @@ public static class ClientExecutable
         return File.Exists(original) ? original : null;
     }
 
-    public static bool Exists(string installPath) => Find(installPath) is not null;
+    /// <summary>
+    /// The pristine client <see cref="ClientPatcher"/> derives <see cref="HiddenName"/> from.
+    ///
+    /// Hardcoded here for the same reason the two names above are, and kept in step with the
+    /// manifest's clientPatch.basePath by hand. It is used ONLY as evidence that a folder
+    /// holds our client — never as something to run, which is why <see cref="Find"/> does not
+    /// know about it.
+    /// </summary>
+    public const string BaseName = "UncappedBase.dat";
+
+    /// <summary>
+    /// Whether this folder holds a game client, INCLUDING one that has been acquired but not
+    /// yet built.
+    ///
+    /// The distinction matters exactly once, and getting it wrong breaks first installs: a
+    /// fresh acquisition lands the base file, and <see cref="InstallLocator.Validate"/> runs
+    /// the moment acquisition returns — before the client has been derived. Judging that
+    /// folder by <see cref="Find"/> alone would reject a perfectly good download with "There
+    /// is no game executable in that folder."
+    /// </summary>
+    public static bool Exists(string installPath) =>
+        Find(installPath) is not null || File.Exists(Path.Combine(installPath, BaseName));
 }

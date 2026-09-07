@@ -53,16 +53,21 @@ $licenceExcluded = @{
 # since the launcher never deletes third-party addons.
 # To re-enable: remove from here AND from -ForceDisableAddOns in New-Manifest.ps1.
 $temporarilyDisabled = @{
-    'QuestHelper' = 'throws Lua errors in-game (2026-07-20); may be fixed upstream later'
 }
 
 # Addons retired from the realm for good. Same mechanism as $temporarilyDisabled, kept
 # separate because these are not coming back and the reason is not "broken upstream".
 # They must ALSO appear in forceDisableAddOns in the manifest: dropping an addon from the
 # payload never uninstalls it from a client that already has it.
+#
+# ** And since 1.14.0 there is a stronger option: -RemoveAddOns in New-Manifest.ps1 makes the
+# launcher DELETE the folder and its saved variables on the next sync. Use that when the addon
+# is actively harmful rather than merely redundant; forceDisableAddOns alone leaves it on disk
+# and one tick away from loading again. QuestHelper is the worked example of the delete path.
 $retired = @{
-    '!Astrolabe' = 'redundant - WDM embeds its own Astrolabe under libs\Astrolabe (2026-07-31)'
-    'Recount'    = 'pruned to cut the shipped addon footprint (2026-07-31)'
+    '!Astrolabe'  = 'redundant - WDM embeds its own Astrolabe under libs\Astrolabe (2026-07-31)'
+    'Recount'     = 'pruned to cut the shipped addon footprint (2026-07-31)'
+    'QuestHelper' = 'Lua errors and constant in-game noise; UncappedQuests replaces it (retired 2026-09-06, DELETED from clients via -RemoveAddOns)'
 }
 
 # Development-only addons that live in client_addons but must never reach players. Unlike
@@ -77,6 +82,7 @@ $devOnly = @{
     'UncappedSoundLab'     = 'dev tool for auditioning sound kits, not player-facing'
     'UncappedRouteBuilder' = 'dev tool for authoring rocket paths in-game, not player-facing'
     'UncappedCookFire'     = 'GM tool: spawns cooking-fire gameobjects via .gobject, useless without GM rights'
+    'UncappedVisualAudit'  = 'GM tool: auditions the 169 ground-patch arts, needs SEC_GAMEMASTER; hand-installed'
 }
 
 function Add-AddonFolder {

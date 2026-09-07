@@ -1,0 +1,68 @@
+{
+  "_comment": [
+    "Byte patches the launcher applies to the base client to produce the runnable",
+    "one. Every entry is LENGTH-PRESERVING and EXPECT-CHECKED: the launcher writes",
+    "nothing unless the bytes already there are exactly what 'expect' says, which is",
+    "what makes a build-locked patch safe to apply on a player's machine.",
+    "",
+    "Offsets are FILE offsets into the base, not virtual addresses. 'va' is recorded",
+    "for cross-referencing a disassembler only; nothing reads it.",
+    "",
+    "See Extract-ClientPatches.py for why base and patch list are split the way they",
+    "are, and Build-ClientPatch.py for how this becomes a manifest block.",
+    "",
+    "The PE checksum is NOT listed here. Build-ClientPatch.py computes it over the",
+    "finished file and appends it as a final entry, so that every scrap of PE",
+    "knowledge stays in the toolchain and the launcher only ever copies, pokes and",
+    "hashes."
+  ],
+  "basePath": "UncappedBase.dat",
+  "outputPath": "UncappedClient.dat",
+  "patches": [
+    {
+      "id": "zdata-noexecute",
+      "note": "Drops IMAGE_SCN_MEM_EXECUTE from .zdata (0xE0000040 -> 0xC0000040). .zdata is a 4 KB zero-filled RWX page at a fixed address (0xDD1000; relocs are stripped and there is no ASLR), which is the landing pad the known 3.3.5a client RCE writes shellcode into. NX_COMPAT is set, so clearing the bit makes exploitation a crash instead. Verified unreferenced: a whole-file scan for absolute pointers into 0xDD1000-0xDD2000 found only misaligned false positives inside instruction encodings, and our own caves are in .text. Equivalent to stoneharry/RCEPatcher, which pokes the same byte.",
+      "offset": "0x0002A7",
+      "section": "section table (.zdata characteristics)",
+      "va": "-",
+      "expect": "E0",
+      "write": "C0"
+    },
+    {
+      "id": "mousecam-clamp-cave",
+      "note": "Mouse-cam 1/4. Border-clamp helper written into a dead int3 run. Part of the windowed-mode mouselook fix shipped 2026-08-28.",
+      "offset": "0x469183",
+      "section": ".text",
+      "va": "0x00869D83",
+      "expect": "CCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "write": "83F8327D0383C00183F932EB31"
+    },
+    {
+      "id": "mousecam-recenter",
+      "note": "Mouse-cam 2/4. Replaces the broken mouselook recenter, which computed the window centre from GetWindowRect().right/2 and .bottom/2 - screen coordinates, and right/2 rather than (left+right)/2, so the centre was wrong whenever the window was not at the screen origin. Drops recentering entirely and nudges the tracked cursor 1px per call off a 50px border.",
+      "offset": "0x4691B1",
+      "section": ".text",
+      "va": "0x00869DB1",
+      "expect": "8BEC83EC108D45F0506A00E8DF28000083C40450FF150CF69D008B45F8992BC28BC88B45FC992BC2D1F8D1F95051890DEC13D400A3F013D400E881EEFFFF83C4088BE55DC3CCCCCCCCCCCCCCCCCCCC",
+      "write": "89E58B05FC13D4008B0DF813D400EBC27D0383C10183C03283C1323B0DECBCCA007E0383E9013B05F0BCCA007E0383E80183E93283E832890DF813D4008905FC13D40089EC5DE9B4F7FFFFEC5DC3C3"
+    },
+    {
+      "id": "mousecam-compare",
+      "note": "Mouse-cam 3/4. At the compare site, jumps out to the ScreenToClient thunk so the polled cursor is compared in client space against the real tracked pair, rather than against the bogus centre pair.",
+      "offset": "0x469A2C",
+      "section": ".text",
+      "va": "0x0086A62C",
+      "expect": "8B45F08B15EC13D4008B1DF0",
+      "write": "E971F00B00F813D4008B1DFC"
+    },
+    {
+      "id": "mousecam-screentoclient",
+      "note": "Mouse-cam 4/4. The ScreenToClient thunk itself, in a second dead int3 run. Reuses the existing USER32 import; adds none.",
+      "offset": "0x528AA2",
+      "section": ".text",
+      "va": "0x009296A2",
+      "expect": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "write": "8D4DF05157FF15DCF59D008B45F08B15F813D400E97A0FF4FF"
+    }
+  ]
+}

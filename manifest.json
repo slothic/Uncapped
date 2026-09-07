@@ -1,8 +1,8 @@
 {
     "manifestVersion":  1,
-    "launcherVersion":  "1.13.1",
-    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.13.1/Uncapped.exe",
-    "launcherSha256":  "548a8d5e0f763064d60c2d5e0e5d6dac630db1f1e65dcf900ffd84eab2299453",
+    "launcherVersion":  "1.14.0",
+    "launcherUrl":  "https://github.com/slothic/Uncapped/releases/download/v1.14.0/Uncapped.exe",
+    "launcherSha256":  "a905bac2852a01094427b0479166e3acc2df8c933c15ca3453c12501054b23e1",
     "realm":  {
                   "name":  "Uncapped",
                   "address":  "152.53.115.249",
@@ -28,6 +28,51 @@
     "fpsReportWebhook":  "https://discord.com/api/webhooks/1537273806928875563/RFh2lGOqov2X_IF9-49YVkW6EeXURSvEAN4sxxMBF64Ce61h-7Zd9SDUBDoA-Y7qvb6p",
     "hardenClient":  true,
     "largeAddressAware":  true,
+    "clientPatch":  {
+                        "basePath":  "UncappedBase.dat",
+                        "outputPath":  "UncappedClient.dat",
+                        "baseSha256":  "eabd235bd8fab5dbdeb75f20e7d3466b091c79484f825990d2c1cac5399f7a78",
+                        "resultSha256":  "42f31c66ad42981023fd75e41b4ced1b5d43bc68b73a8883b651aa731cbada9e",
+                        "size":  7705088,
+                        "patches":  [
+                                        {
+                                            "id":  "zdata-noexecute",
+                                            "offset":  "0x0002A7",
+                                            "expect":  "E0",
+                                            "write":  "C0"
+                                        },
+                                        {
+                                            "id":  "mousecam-clamp-cave",
+                                            "offset":  "0x469183",
+                                            "expect":  "CCCCCCCCCCCCCCCCCCCCCCCCCC",
+                                            "write":  "83F8327D0383C00183F932EB31"
+                                        },
+                                        {
+                                            "id":  "mousecam-recenter",
+                                            "offset":  "0x4691B1",
+                                            "expect":  "8BEC83EC108D45F0506A00E8DF28000083C40450FF150CF69D008B45F8992BC28BC88B45FC992BC2D1F8D1F95051890DEC13D400A3F013D400E881EEFFFF83C4088BE55DC3CCCCCCCCCCCCCCCCCCCC",
+                                            "write":  "89E58B05FC13D4008B0DF813D400EBC27D0383C10183C03283C1323B0DECBCCA007E0383E9013B05F0BCCA007E0383E80183E93283E832890DF813D4008905FC13D40089EC5DE9B4F7FFFFEC5DC3C3"
+                                        },
+                                        {
+                                            "id":  "mousecam-compare",
+                                            "offset":  "0x469A2C",
+                                            "expect":  "8B45F08B15EC13D4008B1DF0",
+                                            "write":  "E971F00B00F813D4008B1DFC"
+                                        },
+                                        {
+                                            "id":  "mousecam-screentoclient",
+                                            "offset":  "0x528AA2",
+                                            "expect":  "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+                                            "write":  "8D4DF05157FF15DCF59D008B45F08B15F813D400E97A0FF4FF"
+                                        },
+                                        {
+                                            "id":  "pe-checksum",
+                                            "offset":  "0x000168",
+                                            "expect":  "C54E7600",
+                                            "write":  "E2087600"
+                                        }
+                                    ]
+                    },
     "baselineUrl":  "http://152.53.115.249/baseline.json",
     "newsUrl":  "http://152.53.115.249:8080/news.json",
     "donateUrl":  "https://ko-fi.com/uncapped",
@@ -2036,8 +2081,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedMythic/UncappedMythic.lua",
-                      "sha256":  "c6952b017c830d842eb46c08d5337863f3cc6961894181c6de034bb1945bf2ef",
-                      "size":  88562
+                      "sha256":  "72bc76d08b3e8eb322053539322396d1ebf0a22bbb5c64d02629d5b25f2fe4d0",
+                      "size":  132327
                   },
                   {
                       "path":  "Interface/AddOns/UncappedMythic/UncappedMythic.toc",
@@ -4046,7 +4091,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "aaa315a0847d218a30b73911b8765475022537fb80697ebaf5f654393b6ed1ec",
+                      "sha256":  "560410b936d5e04328922bb2b5426eda99acf2667f7ca4242b48024de64a478b",
                       "size":  3593
                   },
                   {
@@ -4729,14 +4774,14 @@
                   },
                   {
                       "path":  "Data/enUS/patch-enUS-U.MPQ",
-                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.09.05a.MPQ",
-                      "sha256":  "6220e83b76266942d5798aefa68ac6085ade840047658bdab0182caa1216352b",
-                      "size":  90382177
+                      "url":  "http://152.53.115.249/patches/patch-enUS-U-2026.09.05b.MPQ",
+                      "sha256":  "f97628998e0f9525d0c0645ee07df2c363fea31828ea0be1690c8a9ea17bfeb8",
+                      "size":  95126467
                   },
                   {
-                      "path":  "UncappedClient.dat",
-                      "url":  "http://152.53.115.249/patches/UncappedClient-2026.08.28a.dat",
-                      "sha256":  "3267734673b634027fd6aaa75bcbfc7d0a51544acce9a27d86d98cdcf9cfaae3",
+                      "path":  "UncappedBase.dat",
+                      "url":  "http://152.53.115.249/patches/UncappedClient-2026.08.05a.dat",
+                      "sha256":  "eabd235bd8fab5dbdeb75f20e7d3466b091c79484f825990d2c1cac5399f7a78",
                       "size":  7705088
                   },
                   {
@@ -4800,6 +4845,9 @@
                                "AckisRecipeList",
                                "Recount"
                            ],
+    "removeAddOns":  [
+                         "QuestHelper"
+                     ],
     "ownedPaths":  [
                        "Data/enUS",
                        "Interface/AddOns/Moonforge",

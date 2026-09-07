@@ -4,7 +4,52 @@ using Uncapped.Model;
 
 namespace Uncapped.Services;
 
-public sealed record SyncProgress(string Status, int Completed, int Total);
+/// <summary>Which pass of a sync a progress report came from. See <see cref="SyncProgress.Fraction"/>.</summary>
+public enum SyncPhase
+{
+    Checking,
+    Downloading,
+    Extras,
+    Tidying,
+}
+
+/// <param name="Phase">
+/// Defaulted so that every existing caller — and every caller outside SyncService, notably
+/// <see cref="RepairService"/> and <see cref="IntegrityVerifier"/> — keeps compiling and keeps
+/// meaning what it did. Only the sync itself has four passes to distinguish.
+/// </param>
+public sealed record SyncProgress(
+    string Status, int Completed, int Total, SyncPhase Phase = SyncPhase.Checking)
+{
+    /// <summary>
+    /// How far through the WHOLE sync this report is, not how far through its own pass.
+    ///
+    /// ★ Each pass owns a slice, and its own 0..N counter moves the bar only inside that
+    /// slice. Without this the bar filled and reset once per pass, so a player watched it
+    /// reach the end four times per launch and it never once meant "nearly done".
+    ///
+    /// The slices are share-of-time, not share-of-work: hashing ~720 files is quick and
+    /// downloading the ones that changed is not, so downloading gets the bulk. An up-to-date
+    /// launch skips from 0.30 straight to 0.92 with nothing to fetch, which is correct — there
+    /// genuinely was nothing left to do.
+    /// </summary>
+    public double Fraction
+    {
+        get
+        {
+            var (start, span) = Phase switch
+            {
+                SyncPhase.Checking    => (0.00, 0.30),
+                SyncPhase.Downloading => (0.30, 0.62),
+                SyncPhase.Extras      => (0.92, 0.07),
+                _                     => (0.99, 0.01),
+            };
+
+            if (Total <= 0) return start + span;
+            return start + span * Math.Clamp((double)Completed / Total, 0, 1);
+        }
+    }
+}
 
 public sealed record SyncOutcome(
     int Downloaded, int UpToDate, int Removed, List<string> Errors, List<ManifestFile> Mismatched,
@@ -110,7 +155,7 @@ public sealed class SyncService
                 }
 
                 var done = Interlocked.Increment(ref checkedCount);
-                progress.Report(new SyncProgress("Checking your files", done, total));
+                progress.Report(new SyncProgress("Checking what has changed", done, total, SyncPhase.Checking));
             });
 
         // ---- Phase 2: download what is missing or changed, several at a time. ----
@@ -147,7 +192,8 @@ public sealed class SyncService
 
                     var done = Interlocked.Increment(ref completed);
                     progress.Report(new SyncProgress(
-                        $"Downloading {Path.GetFileName(item.Relative)}", done, work.Length));
+                        $"Downloading {Path.GetFileName(item.Relative)}", done, work.Length,
+                        SyncPhase.Downloading));
                 });
         }
 
@@ -211,11 +257,11 @@ public sealed class SyncService
 
             if (IsArchiveCurrent(installPath, archive, state))
             {
-                progress.Report(new SyncProgress($"{label} is up to date", ++done, manifest.Archives.Count));
+                progress.Report(new SyncProgress($"{label} is up to date", ++done, manifest.Archives.Count, SyncPhase.Extras));
                 continue;
             }
 
-            progress.Report(new SyncProgress($"Downloading {label}", done, manifest.Archives.Count));
+            progress.Report(new SyncProgress($"Downloading {label}", done, manifest.Archives.Count, SyncPhase.Extras));
 
             var temp = Path.Combine(Path.GetTempPath(), $"uncapped-{Guid.NewGuid():N}.zip");
             try
@@ -240,7 +286,7 @@ public sealed class SyncService
                     continue;
                 }
 
-                progress.Report(new SyncProgress($"Installing {label}", done, manifest.Archives.Count));
+                progress.Report(new SyncProgress($"Installing {label}", done, manifest.Archives.Count, SyncPhase.Extras));
 
                 ExtractInto(temp, Path.Combine(installPath, target), ct);
 
@@ -257,7 +303,7 @@ public sealed class SyncService
                 if (File.Exists(temp)) { try { File.Delete(temp); } catch { /* best effort */ } }
             }
 
-            progress.Report(new SyncProgress($"Installed {label}", ++done, manifest.Archives.Count));
+            progress.Report(new SyncProgress($"Installed {label}", ++done, manifest.Archives.Count, SyncPhase.Extras));
         }
 
         return installedCount;

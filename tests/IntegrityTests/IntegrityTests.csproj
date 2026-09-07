@@ -59,10 +59,34 @@
          path is asserted to fall back to the old wipe, which is the safety net the owner
          chose in place of a server-side client-load gate. -->
     <Compile Include="..\..\src\Uncapped\Services\WdbCache.cs" />
+    <!-- The client builder. Tested against the REAL base file and the REAL published patch
+         list, because the failure it guards against is not a logic bug but a stale block:
+         a patch list cut from a different base refuses on every player's machine at once. -->
+    <Compile Include="..\..\src\Uncapped\Services\ClientPatcher.cs" />
+    <Compile Include="..\..\src\Uncapped\Services\ClientExecutable.cs" />
     <Compile Include="..\..\src\Uncapped\Services\ConfigWtf.cs" />
+    <!-- Uninstalling a retired addon, and the full factory reset behind REPAIR. These delete
+         files a player did not ask us to touch, which is why they are tested here and not
+         only exercised by hand: the guards are the feature. FirstRunConfigurator comes with
+         them because it owns the one definition of "our stock settings", and ViewDistance
+         because that definition reads its constant. -->
+    <Compile Include="..\..\src\Uncapped\Services\AddOnRemover.cs" />
+    <Compile Include="..\..\src\Uncapped\Services\FactoryReset.cs" />
+    <Compile Include="..\..\src\Uncapped\Services\ForeignAddOnScanner.cs" />
+    <Compile Include="..\..\src\Uncapped\Services\FirstRunConfigurator.cs" />
+    <Compile Include="..\..\src\Uncapped\Services\ViewDistance.cs" />
+    <!-- The weighted step plan behind the progress bar. Pure arithmetic, and the property
+         worth pinning (it never goes backwards) is not one you can see by looking. -->
+    <Compile Include="..\..\src\Uncapped\Services\WorkPlan.cs" />
     <Compile Include="..\..\src\Uncapped\Services\Hashing.cs" />
     <Compile Include="..\..\src\Uncapped\Logging.cs" />
     <Compile Include="..\..\src\Uncapped\AppPaths.cs" />
+    <!-- Both were added to the launcher after this list was last touched, which broke the
+         harness build: LauncherState.Save uses AtomicFile and SyncService uses SafePath.
+         The closure has to be maintained by hand, so a missing entry shows up as CS0103
+         rather than as a test failure. -->
+    <Compile Include="..\..\src\Uncapped\AtomicFile.cs" />
+    <Compile Include="..\..\src\Uncapped\Services\SafePath.cs" />
   </ItemGroup>
 
 </Project>

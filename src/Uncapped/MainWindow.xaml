@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Uncapped Launcher"
-        Width="1160" Height="660"
+        Width="1160" Height="700"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         AllowsTransparency="True"
@@ -74,7 +74,7 @@
                      way to launching the game.
 
                      Hidden unless the manifest carries a donateUrl — same pattern as
-                     RegisterLink further down. That also keeps the address out of the
+                     RegisterButton further down. That also keeps the address out of the
                      binary: it has already moved once (PayPal to Ko-fi), and a URL
                      compiled in would have made that a launcher release.
 
@@ -83,7 +83,7 @@
                      page, and a button in the launcher is the single most likely place for
                      a player to assume the opposite. -->
                 <StackPanel x:Name="DonatePanel" HorizontalAlignment="Right" VerticalAlignment="Top"
-                            Margin="0,116,44,0" Width="300" Visibility="Collapsed">
+                            Margin="0,104,44,0" Width="340" Visibility="Collapsed">
                     <Button x:Name="DonateButton" Style="{StaticResource GhostButton}"
                             Content="SUPPORT THE SERVER" Height="34" Click="OnDonate" />
                     <!-- Brighter than the build stamp it was first matched to. That one sits
@@ -171,9 +171,14 @@
                     </Grid>
                 </Border>
 
-                <!-- ── Status and PLAY ─────────────────────────────────────────── -->
+                <!-- ── Status and PLAY ─────────────────────────────────────────────
+                     340 wide rather than 300. The old column could not fit a sentence, so
+                     the status line had TextTrimming on and cut its own explanations in
+                     half; the extra 40px plus wrapping is what lets it say something
+                     useful. There is 88px of clear space left between this and the news
+                     frame, so nothing collides. -->
                 <StackPanel HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                            Margin="0,0,44,44" Width="300">
+                            Margin="0,0,44,40" Width="340">
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" IsHitTestVisible="False">
                         <Ellipse x:Name="RealmDot" Width="7" Height="7" Fill="{StaticResource Muted}"
@@ -196,24 +201,72 @@
                         </TextBlock.Effect>
                     </TextBlock>
 
-                    <!-- Transient: whatever the launcher is doing this second. -->
-                    <TextBlock x:Name="StatusText" Text="Starting…" FontSize="11.5" Margin="0,9,0,0"
-                               HorizontalAlignment="Right" TextAlignment="Right" Foreground="#BCB0BE"
-                               TextTrimming="CharacterEllipsis" IsHitTestVisible="False">
+                    <!-- ── What it is doing, in two lines ──────────────────────────
+                         StageText is the headline and carries the step number, so a
+                         player can see there are four of these and which one they are
+                         on. DetailText is the specifics under it — the file, the count,
+                         the megabytes. Splitting them is what allows the headline to stay
+                         still while the detail churns twenty times a second, instead of
+                         one line flickering between two different kinds of information.
+
+                         Both WRAP. The old single line had TextTrimming="CharacterEllipsis"
+                         in a 300px column, which meant every message longer than about
+                         forty characters had its ending cut off — including all of the ones
+                         that explained why PLAY was disabled. -->
+                    <!-- ⚠ MaxHeight on all three of these, and on the register caption below.
+                         The column is anchored to the BOTTOM of the window and grows upward,
+                         so an unbounded wrapping block does not overflow — it pushes the
+                         whole stack up into the donate panel. Two lines here, two of detail,
+                         three of summary is the budget that keeps the top of the stack clear
+                         of it in every case. Ellipsis rather than a clip, so a truncated
+                         sentence looks truncated. -->
+                    <TextBlock x:Name="StageText" Text="Starting…" FontSize="12.5" FontWeight="SemiBold"
+                               Margin="0,11,0,0" HorizontalAlignment="Right" TextAlignment="Right"
+                               Foreground="{StaticResource Ink}" TextWrapping="Wrap"
+                               MaxHeight="36" TextTrimming="CharacterEllipsis" IsHitTestVisible="False">
                         <TextBlock.Effect>
                             <DropShadowEffect BlurRadius="10" ShadowDepth="0" Opacity="0.9" Color="#1A0A14" />
                         </TextBlock.Effect>
                     </TextBlock>
 
-                    <ProgressBar x:Name="Progress" Style="{StaticResource SlimProgress}"
-                                 Minimum="0" Maximum="1000" Value="0" Margin="0,10,0,0" />
+                    <TextBlock x:Name="DetailText" FontSize="11" Margin="0,3,0,0"
+                               HorizontalAlignment="Right" TextAlignment="Right" Foreground="#A99DAC"
+                               TextWrapping="Wrap" MaxHeight="32" TextTrimming="CharacterEllipsis"
+                               IsHitTestVisible="False">
+                        <TextBlock.Effect>
+                            <DropShadowEffect BlurRadius="10" ShadowDepth="0" Opacity="0.9" Color="#1A0A14" />
+                        </TextBlock.Effect>
+                    </TextBlock>
+
+                    <!-- The bar and the number that says what the bar means. A percentage
+                         is the part people actually read off a progress bar, and this one
+                         is a single scale across the whole launch rather than per-phase —
+                         see WorkPlan. -->
+                    <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <ProgressBar x:Name="Progress" Grid.Column="0" Style="{StaticResource SlimProgress}"
+                                     Minimum="0" Maximum="1000" Value="0" VerticalAlignment="Center" />
+
+                        <TextBlock x:Name="PercentText" Grid.Column="1" FontSize="10.5" Margin="10,0,0,0"
+                                   MinWidth="30" TextAlignment="Right" VerticalAlignment="Center"
+                                   Foreground="#A99DAC" IsHitTestVisible="False">
+                            <TextBlock.Effect>
+                                <DropShadowEffect BlurRadius="10" ShadowDepth="0" Opacity="0.9" Color="#1A0A14" />
+                            </TextBlock.Effect>
+                        </TextBlock>
+                    </Grid>
 
                     <!-- Sticky: what the last update actually did. Kept separate from the line
                          above so that launching the game — "Running." — does not wipe out the
                          one piece of text that says what changed. -->
                     <TextBlock x:Name="SummaryText" FontSize="11.5" Margin="0,9,0,0"
                                HorizontalAlignment="Right" TextAlignment="Right" Foreground="#D8CFDA"
-                               TextWrapping="Wrap" IsHitTestVisible="False">
+                               TextWrapping="Wrap" MaxHeight="54" TextTrimming="CharacterEllipsis"
+                               IsHitTestVisible="False">
                         <TextBlock.Effect>
                             <DropShadowEffect BlurRadius="10" ShadowDepth="0" Opacity="0.9" Color="#1A0A14" />
                         </TextBlock.Effect>
@@ -223,25 +276,53 @@
                             Content="PLAY" Height="66" Margin="0,14,0,0"
                             IsEnabled="False" Click="OnPlay" />
 
+                    <!-- ── Create an account ───────────────────────────────────────
+                         Directly under PLAY, because that is the moment it matters:
+                         pressing PLAY takes you to a login screen, and a new player has
+                         nothing to type into it.
+
+                         It used to be the first of four grey dot-separated links at the
+                         very bottom of the window, styled exactly like "Open log", and
+                         people kept missing it entirely — installing, launching, and only
+                         then finding out an account was a separate thing that existed
+                         somewhere else. That is the whole reason this is a button now.
+
+                         Hidden when the manifest carries no registerUrl, same as before,
+                         so a manifest without one simply has no registration UI. The
+                         caption underneath is set in code: it says something different to
+                         someone who has never saved a login than to someone who has. -->
+                    <Button x:Name="RegisterButton" Style="{StaticResource AccentGhostButton}"
+                            Content="CREATE AN ACCOUNT" Height="38" Margin="0,10,0,0"
+                            Visibility="Collapsed" Click="OnRegister" />
+
+                    <TextBlock x:Name="RegisterHint" FontSize="10.5" Margin="0,6,0,0"
+                               HorizontalAlignment="Right" TextAlignment="Right"
+                               Foreground="#CFC5D2" TextWrapping="Wrap" MaxHeight="30"
+                               Visibility="Collapsed" IsHitTestVisible="False">
+                        <TextBlock.Effect>
+                            <DropShadowEffect BlurRadius="10" ShadowDepth="0" Opacity="0.9" Color="#1A0A14" />
+                        </TextBlock.Effect>
+                    </TextBlock>
+
                     <Button x:Name="CheckButton" Style="{StaticResource GhostButton}"
-                            Content="CHECK FOR UPDATES" Height="32" Margin="0,8,0,0"
+                            Content="CHECK FOR UPDATES" Height="32" Margin="0,10,0,0"
                             IsEnabled="False" Click="OnCheckForUpdates" />
 
                     <!-- Only shown when the client actually needs it. A permanently visible
-                         REPAIR button invites people to press it on a healthy install and
-                         re-download 4 GB for nothing. -->
+                         repair button invites people to press it on a healthy install — and
+                         since 2026-09-06 pressing it deletes addons, so an idle press is a
+                         good deal more expensive than the 4 GB it used to cost.
+
+                         Named REPAIR & RESET because that is now what it does. "Repair"
+                         alone promised a fix and implied nothing would be taken away. -->
                     <Button x:Name="RepairButton" Style="{StaticResource GhostButton}"
-                            Content="REPAIR CLIENT" Height="32" Margin="0,8,0,0"
+                            Content="REPAIR &amp; RESET" Height="32" Margin="0,8,0,0"
                             Visibility="Collapsed" Click="OnRepair" />
 
-                    <!-- A WrapPanel rather than a StackPanel: four links do not fit on one
-                         300px line, and a horizontal StackPanel would silently clip the last
-                         one instead of moving it down. -->
+                    <!-- A WrapPanel rather than a StackPanel: a horizontal StackPanel would
+                         silently clip the last link instead of moving it down. Registration
+                         has left this row for a button of its own above. -->
                     <WrapPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
-                        <Button x:Name="RegisterLink" Style="{StaticResource QuietLink}"
-                                Content="Create an account" Visibility="Collapsed" Click="OnRegister" />
-                        <TextBlock x:Name="LinkSeparator" Text="  ·  " Foreground="#5A5060" FontSize="11"
-                                   Visibility="Collapsed" />
                         <Button x:Name="LoginLink" Style="{StaticResource QuietLink}"
                                 Content="Saved login" Click="OnSavedLogin" />
                         <TextBlock Text="  ·  " Foreground="#5A5060" FontSize="11" />

@@ -20,6 +20,7 @@
                   ],
     "toleratedNames":  [
                            "UncappedClient.dat",
+                           "UncappedBase.dat",
                            "UncappedCT.dll",
                            "Uncapped.exe",
                            "uncapped.config.json",

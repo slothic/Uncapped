@@ -180,27 +180,84 @@ reaching for `forceEnableAddOns`.
 
 ## Retiring a broken addon
 
-Removing it from the payload is **not** enough — the launcher never deletes third-party
-addons, so anyone who already has it keeps loading the broken copy. Do both:
+Removing it from the payload is **not** enough — anyone who already has it keeps loading the
+broken copy. There are three levels, and you almost always want all three.
 
-1. Add it to `$temporarilyDisabled` in `tools\Build-Payload.ps1` (stops shipping it).
-2. Add it to `-ForceDisableAddOns` in `tools\New-Manifest.ps1` (unticks it in `AddOns.txt` on
-   clients that already have it, without deleting anything).
+1. **Stop shipping it.** Add it to `$temporarilyDisabled` (broken upstream, may come back) or
+   `$retired` (gone for good) in `tools\Build-Payload.ps1`.
+2. **Untick it.** Add it to `-ForceDisableAddOns` in `tools\New-Manifest.ps1`. This rewrites
+   `AddOns.txt` on clients that already have it, and deletes nothing.
+3. **Delete it.** Add it to `-RemoveAddOns` in `tools\New-Manifest.ps1`. The launcher removes
+   the folder *and its saved variables* on the next sync.
 
-`QuestHelper` is the worked example of this, in both files.
+`QuestHelper` is the worked example, and it is also the reason step 3 exists. It was pulled
+from the payload on 2026-07-20 and force-disabled the same day — and on 2026-09-06 it was
+still installed on every client that ever had it, still being complained about. Step 2 alone
+leaves the folder on disk: one tick of a checkbox, or any third-party addon manager that
+rewrites `AddOns.txt`, brings the whole thing back.
+
+> **⚠ Keep the name in BOTH lists.** A player on a launcher older than **1.14.0** ignores
+> `removeAddOns` entirely, so on their client the tick from step 2 is the only thing holding
+> the addon back. Dropping it from `-ForceDisableAddOns` once step 3 is in place would quietly
+> re-enable it for everyone who has not updated.
+
+> **⚠ Never name an addon you also ship.** `New-Manifest.ps1` refuses a manifest where a
+> `removeAddOns` entry also appears in the payload, in `archives.json` or in
+> `forceEnableAddOns`, and `AddOnRemover` refuses it again at runtime — a manifest that both
+> installs and deletes the same addon would fight itself on every launch, forever, on every
+> client at once.
+
+Removing a name from `-RemoveAddOns` is the rollback, and it is not a restore: the addon is
+gone from anyone who has already synced. Ship it in the payload again if it needs to come
+back.
 
 ---
 
 ## Posting news about the change
 
+**News is GENERATED from the `#patch-notes-tldr` channel. Do not hand-write it.**
+
+**A cron entry on the realm box does this every 15 minutes**, so posting the patch notes *is*
+publishing the news — there is no step to remember:
+
+```
+*/15 * * * * /usr/bin/python3 /opt/uncapped/news-from-discord.py --host \
+             --write /opt/azerothcore-wotlk/webregistration/news.json \
+             >> /var/log/uncapped-news.log 2>&1
+```
+
+To run it by hand, or to change it:
+
+```
+python C:\Wotlk\tools\news-from-discord.py --dry-run    # see what it would publish
+python C:\Wotlk\tools\news-from-discord.py --publish    # build here and push the result
+python C:\Wotlk\tools\news-from-discord.py --deploy     # update the copy cron runs, + the entry
+```
+
+⚠ `--deploy` copies **that same script** to `/opt/uncapped/`; the box does not have a
+separate implementation. Re-run it after editing the tool, or the box keeps the old parser.
+
+The feed is rewritten only when the content actually changed, and an empty parse is refused
+outright — a Discord outage or a heading style nothing matches leaves the last good feed in
+place rather than blanking the news panel. `/var/log/uncapped-news.log` gets one line per run
+and can be truncated whenever.
+
+It exists because the mechanism was fine and nobody ever used it: on 2026-09-06 the live feed
+still opened with "New launcher look", dated 20 July, while forty-odd releases had shipped
+behind it. A player's first impression of the realm was a seven-week-old changelog. The TL;DR
+voice is the source because it is already written for someone skimming, and because the
+channel — not `docs\changelogs\` — is what players were actually told.
+
 News is a separate file, not part of the manifest:
 
 ```
 C:\Wotlk\Server\azerothcore-wotlk\webregistration\news.json
+  -> root@152.53.115.249:/opt/azerothcore-wotlk/webregistration/news.json
 ```
 
 That folder is bind-mounted as Apache's document root, so **saving the file publishes it** —
-no rebuild, no restart, no push. Newest entry first:
+no rebuild, no restart, no push. The launcher re-fetches it every launch, cache-busted, and
+falls back to the manifest's own `news` array if the box is unreachable. Newest entry first:
 
 ```json
 [
@@ -208,7 +265,12 @@ no rebuild, no restart, no push. Newest entry first:
 ]
 ```
 
-Limits: 40 entries, 90-char titles, 1200-char bodies. Check it with:
+Limits: 40 entries, 90-char titles, 6000-char bodies over at most 80 lines. Bodies keep their
+line breaks — the detail pane is a wrapping TextBlock in a ScrollViewer — so a bullet list
+renders as a bullet list. ⚠ Launcher 1.13.1 and earlier flatten bodies to one paragraph and
+clip them at 1200 characters, so a long entry reads as a run-on until players update.
+
+Check it with:
 
 ```powershell
 (Invoke-RestMethod "http://152.53.115.249:8080/news.json").Count

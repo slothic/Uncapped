@@ -143,6 +143,598 @@ public static class Program
         await StalePartialDoesNotWedgeOnA416();
         await WrongLengthIsClassifiedAsAMismatch();
         await StalePartialRecoversOnceTheHostCatchesUp();
+
+        await ClientIsBuiltFromTheBase();
+        await BuiltClientIsNotRebuilt();
+        await WrongBaseIsRefused();
+        await WrongExpectedBytesAreRefused();
+        await MissingBaseIsReported();
+        await NoPatchBlockDoesNothing();
+
+        RetiredAddOnIsDeleted();
+        RemovalRefusesAnAddOnWeAlsoShip();
+        RemovalOfSomethingAbsentIsNotAnError();
+        RemovalRefusesToEscapeTheAddOnsFolder();
+
+        FactoryResetClearsOursAndDeletesTheirs();
+        FactoryResetKeepsCharactersAndKeybindings();
+        FactoryResetRestoresStockSettings();
+        FactoryResetForgetsWhatWasOnDisk();
+
+        ProgressNeverGoesBackwards();
+        SyncPhasesShareOneScale();
+    }
+
+    // ---- Removing a retired addon --------------------------------------------------------
+    //
+    // The mechanism that finally uninstalls QuestHelper, seven weeks after it was pulled from
+    // the payload and force-disabled. It is the only code in the launcher that deletes
+    // somebody else's software without a dialog in front of it, so the cases below are mostly
+    // about what it REFUSES to do.
+
+    /// <summary>An install tree with an addon folder, a .toc inside it, and saved variables.</summary>
+    private sealed class AddOnFixture : IDisposable
+    {
+        public string Dir { get; }
+
+        public AddOnFixture()
+        {
+            Dir = Path.Combine(Path.GetTempPath(), "uncapped-addons-" + Guid.NewGuid().ToString("N")[..8]);
+            Directory.CreateDirectory(Dir);
+        }
+
+        public string AddOns => Path.Combine(Dir, "Interface", "AddOns");
+
+        public void Install(string name)
+        {
+            var folder = Path.Combine(AddOns, name);
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, name + ".toc"), "## Interface: 30300\n");
+            File.WriteAllText(Path.Combine(folder, name + ".lua"), "-- code\n");
+        }
+
+        /// <summary>Saved variables at both levels the client writes them.</summary>
+        public void SaveVariables(string name)
+        {
+            var account = Path.Combine(Dir, "WTF", "Account", "TESTER", "SavedVariables");
+            var character = Path.Combine(Dir, "WTF", "Account", "TESTER", "Uncapped", "Alt", "SavedVariables");
+
+            Directory.CreateDirectory(account);
+            Directory.CreateDirectory(character);
+            File.WriteAllText(Path.Combine(account, name + ".lua"), "-- settings\n");
+            File.WriteAllText(Path.Combine(character, name + ".lua"), "-- settings\n");
+        }
+
+        public void AddOnList(params string[] lines)
+        {
+            var dir = Path.Combine(Dir, "WTF", "Account", "TESTER");
+            Directory.CreateDirectory(dir);
+            File.WriteAllLines(Path.Combine(dir, "AddOns.txt"), lines);
+        }
+
+        public bool Has(string name) => Directory.Exists(Path.Combine(AddOns, name));
+
+        public IReadOnlyList<string> SavedVariablesFor(string name) =>
+            Directory.Exists(Path.Combine(Dir, "WTF"))
+                ? Directory.GetFiles(Path.Combine(Dir, "WTF"), name + ".lua", SearchOption.AllDirectories)
+                : Array.Empty<string>();
+
+        public void Dispose()
+        {
+            try { Directory.Delete(Dir, true); } catch { /* a temp dir, best effort */ }
+        }
+    }
+
+    private static void RetiredAddOnIsDeleted()
+    {
+        using var fx = new AddOnFixture();
+        fx.Install("QuestHelper");
+        fx.SaveVariables("QuestHelper");
+        fx.Install("UncappedQuests");
+        fx.SaveVariables("UncappedQuests");
+
+        var manifest = new Manifest
+        {
+            RemoveAddOns = { "QuestHelper" },
+            Files = { new ManifestFile { Path = "Interface/AddOns/UncappedQuests/UncappedQuests.lua" } },
+        };
+
+        var outcome = AddOnRemover.Apply(fx.Dir, manifest);
+
+        Check("remove: reported", outcome.Removed.Contains("QuestHelper"), string.Join(",", outcome.Removed));
+        Check("remove: no errors", outcome.Errors.Count == 0, string.Join("; ", outcome.Errors));
+        Check("remove: folder gone", !fx.Has("QuestHelper"));
+
+        // The half force-disabling never did. A retired addon's saved variables outlive the
+        // addon, and are what restores its settings if it is ever reinstalled.
+        Check("remove: saved settings gone", fx.SavedVariablesFor("QuestHelper").Count == 0);
+
+        Check("remove: shipped addon untouched", fx.Has("UncappedQuests"));
+        Check("remove: shipped addon keeps its settings", fx.SavedVariablesFor("UncappedQuests").Count == 2);
+    }
+
+    /// <summary>
+    /// The guard that matters most. A manifest naming the same addon in files[] and
+    /// removeAddOns[] is self-contradictory, and the safe reading of a contradiction is to do
+    /// nothing — the alternative is a sync that downloads an addon and deletes it in the same
+    /// pass, forever.
+    /// </summary>
+    private static void RemovalRefusesAnAddOnWeAlsoShip()
+    {
+        using var fx = new AddOnFixture();
+        fx.Install("UncappedMythic");
+
+        var manifest = new Manifest
+        {
+            RemoveAddOns = { "UncappedMythic" },
+            Files = { new ManifestFile { Path = "Interface/AddOns/UncappedMythic/UncappedMythic.lua" } },
+        };
+
+        var outcome = AddOnRemover.Apply(fx.Dir, manifest);
+
+        Check("remove: contradiction refused", fx.Has("UncappedMythic"));
+        Check("remove: contradiction reported", outcome.Errors.Count == 1, string.Join("; ", outcome.Errors));
+        Check("remove: nothing counted as removed", outcome.Removed.Count == 0);
+
+        // Same guard, reached the other way: an archive we install for the player.
+        using var arch = new AddOnFixture();
+        arch.Install("ArkInventory");
+
+        var archiveManifest = new Manifest
+        {
+            RemoveAddOns = { "ArkInventory" },
+            Archives = { new ManifestArchive { Name = "ArkInventory" } },
+        };
+
+        AddOnRemover.Apply(arch.Dir, archiveManifest);
+        Check("remove: installed archive refused", arch.Has("ArkInventory"));
+    }
+
+    private static void RemovalOfSomethingAbsentIsNotAnError()
+    {
+        using var fx = new AddOnFixture();
+
+        var manifest = new Manifest { RemoveAddOns = { "QuestHelper" } };
+        var outcome = AddOnRemover.Apply(fx.Dir, manifest);
+
+        // Silence is the point: this runs on every launch, and an addon that was already gone
+        // must not produce a log line or a status message on any of them.
+        Check("remove: absent addon not reported", outcome.Removed.Count == 0);
+        Check("remove: absent addon is not an error", outcome.Errors.Count == 0);
+    }
+
+    /// <summary>
+    /// The list arrives over the network like the rest of the manifest, so a name is not
+    /// trusted to be a name. Blizzard_* is refused on its own account: the stock UI is not
+    /// ours to retire.
+    /// </summary>
+    private static void RemovalRefusesToEscapeTheAddOnsFolder()
+    {
+        using var fx = new AddOnFixture();
+        fx.Install("Blizzard_AuctionUI");
+        Directory.CreateDirectory(Path.Combine(fx.Dir, "WTF", "Account"));
+
+        var manifest = new Manifest
+        {
+            RemoveAddOns = { "Blizzard_AuctionUI", @"..\..\WTF", "../Interface" },
+        };
+
+        var outcome = AddOnRemover.Apply(fx.Dir, manifest);
+
+        Check("remove: Blizzard addon refused", fx.Has("Blizzard_AuctionUI"));
+        Check("remove: traversal refused", Directory.Exists(Path.Combine(fx.Dir, "WTF", "Account")));
+        Check("remove: Interface still there", Directory.Exists(Path.Combine(fx.Dir, "Interface")));
+        Check("remove: all three refused", outcome.Errors.Count == 3, string.Join("; ", outcome.Errors));
+        Check("remove: nothing removed", outcome.Removed.Count == 0);
+    }
+
+    // ---- The factory reset ---------------------------------------------------------------
+    //
+    // What REPAIR does once the player has confirmed it. Destructive by design and by
+    // instruction, so what these assert is mostly the boundary: exactly which things go, and
+    // exactly which things a player would never forgive us for taking.
+
+    private static Manifest ResetManifest() => new()
+    {
+        OwnedPaths =
+        {
+            "Data/enUS",
+            "Interface/AddOns/UncappedMythic",
+            "Interface/AddOns/StatFeed",
+        },
+        Files = { new ManifestFile { Path = "Interface/AddOns/UncappedMythic/UncappedMythic.lua" } },
+        Archives = { new ManifestArchive { Name = "ArkInventory", VerifyPath = "Interface/AddOns/ArkInventory/ArkInventory.toc" } },
+        ForceEnableAddOns = { "UncappedMythic", "StatFeed" },
+    };
+
+    private static void FactoryResetClearsOursAndDeletesTheirs()
+    {
+        using var fx = new AddOnFixture();
+        fx.Install("UncappedMythic");
+        fx.Install("StatFeed");
+        fx.Install("ArkInventory");
+        fx.Install("QuestHelper");        // theirs, as far as the scanner is concerned
+        fx.Install("DBM-Core");           // genuinely theirs
+        fx.Install("Blizzard_AuctionUI"); // stock UI
+
+        var manifest = ResetManifest();
+        var plan = FactoryReset.Plan(fx.Dir, manifest);
+
+        Check("reset plan: ours listed", plan.OurAddOns.Contains("UncappedMythic") &&
+                                         plan.OurAddOns.Contains("StatFeed") &&
+                                         plan.OurAddOns.Contains("ArkInventory"),
+              string.Join(",", plan.OurAddOns));
+
+        Check("reset plan: theirs listed", plan.ForeignAddOns.Contains("DBM-Core") &&
+                                           plan.ForeignAddOns.Contains("QuestHelper"),
+              string.Join(",", plan.ForeignAddOns));
+
+        // ★ The plan is what the confirmation dialog reads out. Blizzard's own addons appearing
+        // in it would tell a player we are about to delete their user interface.
+        Check("reset plan: Blizzard not listed", !plan.ForeignAddOns.Contains("Blizzard_AuctionUI"),
+              string.Join(",", plan.ForeignAddOns));
+
+        // Data/enUS is in ownedPaths and is not an addon. Deleting it here would throw away
+        // gigabytes of MPQs that repair then has to fetch again one at a time.
+        Check("reset plan: Data/ not treated as an addon",
+              !plan.OurAddOns.Any(n => n.Contains("enUS", StringComparison.OrdinalIgnoreCase)),
+              string.Join(",", plan.OurAddOns));
+
+        var state = new LauncherState();
+        var outcome = FactoryReset.Apply(fx.Dir, manifest, plan, state);
+
+        Check("reset: ours cleared", !fx.Has("UncappedMythic") && !fx.Has("StatFeed"));
+        Check("reset: theirs deleted", !fx.Has("DBM-Core") && !fx.Has("QuestHelper"));
+        Check("reset: Blizzard kept", fx.Has("Blizzard_AuctionUI"));
+        Check("reset: counts reported", outcome.OurAddOnsCleared == 3 && outcome.ForeignAddOnsRemoved == 2,
+              $"ours={outcome.OurAddOnsCleared} theirs={outcome.ForeignAddOnsRemoved}");
+        Check("reset: no errors", outcome.Errors.Count == 0, string.Join("; ", outcome.Errors));
+    }
+
+    /// <summary>
+    /// ★★ THE ONE THAT MUST NEVER GO RED.
+    ///
+    /// A repair that silently ate somebody's keybindings and macros would be a far worse bug
+    /// than anything it was pressed to fix, and there is no stock version of either to put
+    /// back. They live in WTF beside the settings this deliberately does reset, so nothing
+    /// about the folder layout protects them — only this.
+    /// </summary>
+    private static void FactoryResetKeepsCharactersAndKeybindings()
+    {
+        using var fx = new AddOnFixture();
+        fx.Install("UncappedMythic");
+
+        var chr = Path.Combine(fx.Dir, "WTF", "Account", "TESTER", "Uncapped", "Alt");
+        Directory.CreateDirectory(chr);
+        File.WriteAllText(Path.Combine(chr, "bindings-cache.wtf"), "bind W MOVEFORWARD\n");
+        File.WriteAllText(Path.Combine(chr, "macros-cache.txt"), "/say hello\n");
+        File.WriteAllText(Path.Combine(chr, "layout-cache.txt"), "frames\n");
+        File.WriteAllText(Path.Combine(chr, "config-cache.wtf"), "SET x 1\n");
+        fx.AddOnList("UncappedMythic: enabled", "DBM-Core: enabled");
+
+        var manifest = ResetManifest();
+        FactoryReset.Apply(fx.Dir, manifest, FactoryReset.Plan(fx.Dir, manifest), new LauncherState());
+
+        Check("reset: keybindings kept", File.Exists(Path.Combine(chr, "bindings-cache.wtf")));
+        Check("reset: macros kept", File.Exists(Path.Combine(chr, "macros-cache.txt")));
+        Check("reset: frame layout kept", File.Exists(Path.Combine(chr, "layout-cache.txt")));
+        Check("reset: per-character config kept", File.Exists(Path.Combine(chr, "config-cache.wtf")));
+
+        // The addon list IS reset — the client treats an absent addon as enabled, so deleting
+        // it is the only way to be sure a retired one is not left ticked.
+        Check("reset: addon list cleared",
+              !File.Exists(Path.Combine(fx.Dir, "WTF", "Account", "TESTER", "AddOns.txt")));
+    }
+
+    private static void FactoryResetRestoresStockSettings()
+    {
+        using var fx = new AddOnFixture();
+        Directory.CreateDirectory(Path.Combine(fx.Dir, "WTF"));
+
+        File.WriteAllLines(Path.Combine(fx.Dir, "WTF", "Config.wtf"), new[]
+        {
+            "SET gxWindow \"0\"",              // exclusive fullscreen: the setting that crashes
+            "SET farclip \"177\"",
+            "SET accountName \"KIREI\"",
+            "SET gxApi \"opengl\"",           // junk we do not write, and must not leave behind
+            "SET readTOS \"0\"",
+        });
+
+        var manifest = ResetManifest();
+        var outcome = FactoryReset.Apply(fx.Dir, manifest, FactoryReset.Plan(fx.Dir, manifest), new LauncherState());
+
+        Check("reset: settings reported reset", outcome.SettingsReset);
+        Check("reset: windowed restored", ConfigWtf.Read(fx.Dir, "gxWindow") == "1");
+        Check("reset: view distance restored", ConfigWtf.Read(fx.Dir, "farclip") == ViewDistance.Max.ToString());
+        Check("reset: terms pre-accepted", ConfigWtf.Read(fx.Dir, "readTOS") == "1");
+
+        // ★ The file is rewritten, not edited key by key. A leftover graphics setting from
+        // whatever went wrong is exactly the thing that survives a repair and keeps the client
+        // broken, so keys we do not write have to disappear too.
+        Check("reset: unknown keys dropped", ConfigWtf.Read(fx.Dir, "gxApi") is null,
+              ConfigWtf.Read(fx.Dir, "gxApi"));
+
+        // The one exception, and it is not a setting: it is the thing they typed once so they
+        // would not have to type it again.
+        Check("reset: account name kept", ConfigWtf.Read(fx.Dir, "accountName") == "KIREI");
+    }
+
+    /// <summary>
+    /// After a reset the launcher's memory of the install describes something that no longer
+    /// exists. InstalledArchives matters most: SyncService checks it BEFORE it checks the
+    /// disk, so an archive deleted here and still recorded there would never come back.
+    /// </summary>
+    private static void FactoryResetForgetsWhatWasOnDisk()
+    {
+        using var fx = new AddOnFixture();
+        fx.Install("UncappedMythic");
+        fx.Install("ArkInventory");
+
+        var state = new LauncherState
+        {
+            LastManifestHash = "deadbeef",
+            InstalledFiles = { "Interface/AddOns/UncappedMythic/UncappedMythic.lua" },
+        };
+        state.InstalledArchives["ArkInventory"] = "abc123";
+        state.VerifiedFiles[@"Interface\AddOns\UncappedMythic\UncappedMythic.lua"] = new VerifiedFile { Sha256 = "x" };
+
+        // A real file the reset does not touch. Its cache entry must SURVIVE: clearing the
+        // whole cache would cost a full re-hash of every MPQ on the next pass, minutes of it
+        // on a spinning disk, to re-learn hashes for files nothing went near.
+        var mpq = Path.Combine(fx.Dir, "Data", "enUS");
+        Directory.CreateDirectory(mpq);
+        File.WriteAllText(Path.Combine(mpq, "patch-enUS-Q.MPQ"), "mpq");
+        state.VerifiedFiles[@"Data\enUS\patch-enUS-Q.MPQ"] = new VerifiedFile { Sha256 = "y" };
+
+        var manifest = ResetManifest();
+        FactoryReset.Apply(fx.Dir, manifest, FactoryReset.Plan(fx.Dir, manifest), state);
+
+        Check("reset: archive record cleared", state.InstalledArchives.Count == 0);
+        Check("reset: hash of a deleted file forgotten",
+              !state.VerifiedFiles.ContainsKey(@"Interface\AddOns\UncappedMythic\UncappedMythic.lua"));
+        Check("reset: hash of an untouched file kept",
+              state.VerifiedFiles.ContainsKey(@"Data\enUS\patch-enUS-Q.MPQ"));
+        Check("reset: deleted files forgotten", state.InstalledFiles.Count == 0,
+              string.Join(",", state.InstalledFiles));
+
+        // Otherwise PLAY would compare the manifest hash, find it unchanged, and skip the sync
+        // that is supposed to put all of this back.
+        Check("reset: manifest hash forgotten", state.LastManifestHash is null);
+    }
+
+    // ---- Progress ------------------------------------------------------------------------
+
+    /// <summary>
+    /// The bug this replaced: every pass drove the bar 0 to 100 and handed it to the next,
+    /// which started at 0 again. Whatever else the weights are, the number on screen must
+    /// only ever go up.
+    /// </summary>
+    private static void ProgressNeverGoesBackwards()
+    {
+        var last = -1.0;
+        var monotonic = true;
+
+        foreach (WorkStep step in Enum.GetValues<WorkStep>())
+        {
+            for (var i = 0; i <= 10; i++)
+            {
+                var value = WorkPlan.Overall(step, i / 10.0);
+                if (value < last) monotonic = false;
+                last = value;
+            }
+        }
+
+        Check("progress: never goes backwards", monotonic);
+        Check("progress: starts at zero", Math.Abs(WorkPlan.Overall(WorkStep.Updates, 0)) < 1e-9);
+        Check("progress: ends at one", Math.Abs(last - 1.0) < 1e-9, last.ToString("0.0000"));
+
+        // A step reporting more than it has must not spill into the next step's slice, and a
+        // count of 0 of 0 arrives as NaN.
+        Check("progress: overshoot clamped",
+              WorkPlan.Overall(WorkStep.Files, 5.0) <= WorkPlan.Overall(WorkStep.Client, 0) + 1e-9);
+        Check("progress: NaN is not a percentage", WorkPlan.Overall(WorkStep.Files, double.NaN) >= 0);
+    }
+
+    /// <summary>
+    /// The sync's four internal passes have to share one 0..1 too, or step 2 alone shows the
+    /// old fill-and-reset four more times inside itself.
+    /// </summary>
+    private static void SyncPhasesShareOneScale()
+    {
+        double At(SyncPhase phase, int done, int total) =>
+            new SyncProgress("x", done, total, phase).Fraction;
+
+        var ordered =
+            At(SyncPhase.Checking, 0, 100) <= At(SyncPhase.Checking, 100, 100) &&
+            At(SyncPhase.Checking, 100, 100) <= At(SyncPhase.Downloading, 0, 100) &&
+            At(SyncPhase.Downloading, 100, 100) <= At(SyncPhase.Extras, 0, 100) &&
+            At(SyncPhase.Extras, 100, 100) <= At(SyncPhase.Tidying, 0, 100);
+
+        Check("sync progress: phases are in order", ordered);
+        Check("sync progress: ends at one", Math.Abs(At(SyncPhase.Tidying, 1, 1) - 1.0) < 1e-9);
+
+        // Nothing to do is finished, not stalled at zero. An up-to-date launch has no
+        // downloads at all and used to sit at 0/0 while it decided that.
+        Check("sync progress: an empty pass is complete",
+              At(SyncPhase.Downloading, 0, 0) > At(SyncPhase.Downloading, 99, 100));
+    }
+
+    // ---- The derived client -------------------------------------------------------------
+    //
+    // These run against the REAL base file and the REAL published patch list rather than
+    // synthetic bytes, because the failure worth catching is not a logic bug. It is a stale
+    // block: a patch list cut from one base and published against another refuses at the
+    // first expect check, on every player's machine, at the same moment — and there is no
+    // partial version of that. Either the list matches the base or the realm cannot launch.
+
+    private const string RealBase = @"C:\Wotlk\backups\clientpatch\UncappedBase-2026.09.06a.dat";
+    private const string RealBlock = @"C:\Wotlk\Launcher\tools\client-patch-block.json";
+
+    /// <summary>
+    /// The published patch block, or null when the artefacts are not on this machine — the
+    /// harness must stay runnable on a box that has never built a client.
+    /// </summary>
+    private static ClientPatchSpec? RealPatchSpec()
+    {
+        if (!File.Exists(RealBlock) || !File.Exists(RealBase)) return null;
+
+        using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(RealBlock));
+        var raw = doc.RootElement.GetProperty("clientPatch").GetRawText();
+        return System.Text.Json.JsonSerializer.Deserialize<ClientPatchSpec>(raw);
+    }
+
+    private sealed class PatchFixture : IDisposable
+    {
+        public string Dir { get; }
+        public Manifest Manifest { get; }
+        public ClientPatchSpec Spec { get; }
+
+        public PatchFixture(ClientPatchSpec spec, bool withBase = true)
+        {
+            Spec = spec;
+            Dir = Path.Combine(Path.GetTempPath(), "uncapped-patch-" + Guid.NewGuid().ToString("N")[..8]);
+            Directory.CreateDirectory(Dir);
+
+            if (withBase) File.Copy(RealBase, Path.Combine(Dir, spec.BasePath));
+            Manifest = new Manifest { ClientPatch = spec };
+        }
+
+        public string Output => Path.Combine(Dir, Spec.OutputPath);
+        public string Base => Path.Combine(Dir, Spec.BasePath);
+
+        public void Dispose()
+        {
+            try { Directory.Delete(Dir, true); } catch { /* a temp dir, best effort */ }
+        }
+    }
+
+    private static async Task ClientIsBuiltFromTheBase()
+    {
+        Console.WriteLine("\nclient patch: builds from the base");
+        var spec = RealPatchSpec();
+        if (spec is null) { Console.WriteLine("  SKIP  no built client artefacts on this machine"); return; }
+
+        using var fx = new PatchFixture(spec);
+        var result = await ClientPatcher.ApplyAsync(fx.Dir, fx.Manifest, CancellationToken.None);
+
+        Check("build: reported as rebuilt", result.Outcome == ClientPatcher.Outcome.Rebuilt, result.Detail);
+        Check("build: does not block", !result.Blocks, result.Detail);
+        Check("build: output written", File.Exists(fx.Output));
+
+        var hash = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(fx.Output))).ToLowerInvariant();
+        Check("build: output matches the published hash", hash == spec.ResultSha256.ToLowerInvariant(), hash);
+
+        // The base is the input and must survive untouched — it is what every future patch
+        // set is replayed onto, and a build that consumed it would work exactly once.
+        var baseHash = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(fx.Base))).ToLowerInvariant();
+        Check("build: base left untouched", baseHash == spec.BaseSha256.ToLowerInvariant());
+
+        Check("build: no temp file left behind",
+            Directory.GetFiles(fx.Dir, "*.tmp").Length == 0);
+    }
+
+    private static async Task BuiltClientIsNotRebuilt()
+    {
+        Console.WriteLine("\nclient patch: an up-to-date client is left alone");
+        var spec = RealPatchSpec();
+        if (spec is null) { Console.WriteLine("  SKIP  no built client artefacts on this machine"); return; }
+
+        using var fx = new PatchFixture(spec);
+        await ClientPatcher.ApplyAsync(fx.Dir, fx.Manifest, CancellationToken.None);
+        var written = File.GetLastWriteTimeUtc(fx.Output);
+
+        var again = await ClientPatcher.ApplyAsync(fx.Dir, fx.Manifest, CancellationToken.None);
+
+        Check("warm: reported as already current", again.Outcome == ClientPatcher.Outcome.AlreadyCurrent, again.Detail);
+        Check("warm: file not rewritten", File.GetLastWriteTimeUtc(fx.Output) == written);
+    }
+
+    private static async Task WrongBaseIsRefused()
+    {
+        Console.WriteLine("\nclient patch: a base that is not ours is refused");
+        var spec = RealPatchSpec();
+        if (spec is null) { Console.WriteLine("  SKIP  no built client artefacts on this machine"); return; }
+
+        using var fx = new PatchFixture(spec);
+
+        // One byte, in a region no patch touches: enough to change the hash and nothing else.
+        var bytes = File.ReadAllBytes(fx.Base);
+        bytes[^1] ^= 0xFF;
+        File.WriteAllBytes(fx.Base, bytes);
+
+        var result = await ClientPatcher.ApplyAsync(fx.Dir, fx.Manifest, CancellationToken.None);
+
+        Check("wrong base: refused", result.Outcome == ClientPatcher.Outcome.BaseMismatch, result.Detail);
+        Check("wrong base: blocks PLAY", result.Blocks);
+        Check("wrong base: nothing written", !File.Exists(fx.Output));
+    }
+
+    private static async Task WrongExpectedBytesAreRefused()
+    {
+        Console.WriteLine("\nclient patch: a patch cut for another build is refused");
+        var spec = RealPatchSpec();
+        if (spec is null) { Console.WriteLine("  SKIP  no built client artefacts on this machine"); return; }
+
+        // The build-locked case, which is the whole reason every patch carries its expected
+        // bytes: same base, but a list that describes a different binary.
+        var tampered = new ClientPatchSpec
+        {
+            BasePath = spec.BasePath,
+            OutputPath = spec.OutputPath,
+            BaseSha256 = spec.BaseSha256,
+            ResultSha256 = spec.ResultSha256,
+            Patches = spec.Patches
+                .Select(p => new ClientBytePatch
+                {
+                    Id = p.Id,
+                    Offset = p.Offset,
+                    Expect = p.Id == "zdata-noexecute" ? "AA" : p.Expect,
+                    Write = p.Write,
+                })
+                .ToList(),
+        };
+
+        using var fx = new PatchFixture(tampered);
+        var result = await ClientPatcher.ApplyAsync(fx.Dir, fx.Manifest, CancellationToken.None);
+
+        Check("bad expect: refused", result.Outcome == ClientPatcher.Outcome.PatchRefused, result.Detail);
+        Check("bad expect: names the patch", result.Detail.Contains("zdata-noexecute"), result.Detail);
+        Check("bad expect: nothing written", !File.Exists(fx.Output));
+    }
+
+    private static async Task MissingBaseIsReported()
+    {
+        Console.WriteLine("\nclient patch: a missing base is reported, not crashed on");
+        var spec = RealPatchSpec();
+        if (spec is null) { Console.WriteLine("  SKIP  no built client artefacts on this machine"); return; }
+
+        using var fx = new PatchFixture(spec, withBase: false);
+        var result = await ClientPatcher.ApplyAsync(fx.Dir, fx.Manifest, CancellationToken.None);
+
+        Check("no base: reported", result.Outcome == ClientPatcher.Outcome.BaseMissing, result.Detail);
+        Check("no base: blocks PLAY", result.Blocks);
+    }
+
+    private static async Task NoPatchBlockDoesNothing()
+    {
+        Console.WriteLine("\nclient patch: a manifest without a block is not broken");
+
+        var dir = Path.Combine(Path.GetTempPath(), "uncapped-patch-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var result = await ClientPatcher.ApplyAsync(dir, new Manifest(), CancellationToken.None);
+
+            // The rollback path. An older manifest must run exactly as it always did.
+            Check("no block: not configured", result.Outcome == ClientPatcher.Outcome.NotConfigured, result.Detail);
+            Check("no block: does not block PLAY", !result.Blocks);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch { /* best effort */ }
+        }
     }
 
     // ---------- dialog rendering ----------

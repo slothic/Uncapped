@@ -60,6 +60,10 @@ C:\Wotlk\Server\azerothcore-wotlk\webregistration\news.json
 (`./webregistration:/var/www/html` in `docker-compose.override.yml`), so **editing that file
 updates the news immediately** — no rebuild, no container restart, no launcher release.
 
+It is **generated**, not written by hand — `python C:\Wotlk\tools\news-from-discord.py
+--publish` rebuilds it from the `#patch-notes-tldr` channel. Run it after posting patch
+notes. See PUBLISHING-ADDONS.md.
+
 ```json
 [
   { "date": "2026-07-20", "title": "StatFeed is live", "body": "Stat gains now show in chat." }
@@ -173,10 +177,14 @@ To switch back to a no-prerequisite build, set `<SelfContained>true</SelfContain
    unexplained kick from the realm.
 7a. Verifies the whole client against `baseline.json` — all 16 GB, cached by
    `(size, last-write-time)` so it costs ~10 s once and ~0.01 s thereafter. Missing or altered
-   required files switch `PLAY` off and offer **REPAIR CLIENT**; files that belong to no
+   required files switch `PLAY` off and offer **REPAIR &amp; RESET**; files that belong to no
    Uncapped release are reported as unrecognised but do **not** block launching. See
    [`PUBLISHING-BASELINE.md`](PUBLISHING-BASELINE.md).
 8. Writes `realmlist.wtf` (root **and** `Data\enUS\`) and fixes `realmList` in `WTF\Config.wtf`.
+8a. **Deletes any addon named in `removeAddOns`**, folder and saved variables both. The one
+   standing exception to "never delete an addon we did not write" — see
+   [`PUBLISHING-ADDONS.md`](PUBLISHING-ADDONS.md). It refuses any name the manifest also
+   ships, force-enables or installs as an archive, at generation time *and* at runtime.
 9. Force-enables StatFeed and ReagentBankCraft in every `AddOns.txt`.
 10. Clears `Cache\WDB` if anything changed.
 11. Stays open with news, realm status and the installed client version; **Check for updates**
@@ -261,7 +269,35 @@ lines, preserving resolution, volumes, and account name.
 
 ### On deleting addons
 
-The launcher prunes only paths listed in the manifest's `ownedPaths` — currently just
-`StatFeed` and `ReagentBankCraft`. Third-party addons are install-only: once placed, they are
-never deleted, even if they drop out of the manifest. This is verified behaviour, not just
-intent.
+The launcher prunes only paths listed in the manifest's `ownedPaths`. Third-party addons are
+install-only: once placed, they are never deleted, even if they drop out of the manifest.
+
+**Two deliberate exceptions were added in 1.14.0**, and nothing else changed:
+
+| | What goes | What authorises it |
+|---|---|---|
+| `removeAddOns` | One named addon we shipped and have retired | The manifest, on every sync, with no dialog. Guarded so it can never name an addon the same manifest installs — see `AddOnRemover`. |
+| **REPAIR & RESET** | Every addon the player installed themselves | A button press *and* a confirmation that lists the folders by name and says they are deleted, not moved. |
+
+Everything else still holds. Foreign **MPQs** are still *moved* to `Data\_disabled` rather
+than deleted — an unknown addon folder is a few hundred KB that can be downloaded again, an
+unknown MPQ may be the only copy of somebody's work in existence. Characters, keybindings,
+macros and frame layouts are never touched by any of it.
+
+### On what REPAIR & RESET actually does
+
+Three answers, because "my client is broken but leave my addons alone" is a reasonable thing
+to want and the old button already served it:
+
+* **Yes — full reset.** Re-downloads damaged game files, rewrites `Config.wtf` from our stock
+  settings (keeping only `accountName`), deletes every `AddOns.txt` so the client rebuilds
+  them, deletes and reinstalls our own addons including their saved variables, deletes addons
+  we did not install, and moves foreign MPQs to `Data\_disabled`.
+* **No — files only.** Exactly what REPAIR did before: re-download what is missing or
+  corrupt, and ask separately before moving any foreign MPQ.
+* **Cancel.** Nothing at all.
+
+The order inside a full reset is load-bearing: game files are restored *before* the reset, and
+the reset's own damage is healed by the sync that follows it. `RepairService` fetches one file
+at a time (it is built for multi-gigabyte MPQs), `SyncService` fetches six — and a reset
+deletes all ~720 payload files. The other order works and takes five minutes longer.
