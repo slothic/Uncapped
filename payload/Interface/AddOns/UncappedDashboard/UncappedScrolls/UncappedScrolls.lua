@@ -146,6 +146,11 @@ local BULK_SCROLLS = {
     { entry = 500206, name = "Scroll of Fortune" },
     { entry = 500207, name = "Scroll of the Delver" },
     { entry = 500211, name = "Scroll of Contagion" },
+    -- [#1350] Not one of "the scrolls" -- it is a mod-transmog item that unlocks an
+    -- appearance rather than setting a bonus -- but it stacks up in exactly the same
+    -- way and clicking a thousand of them is exactly as much of an evening.
+    -- Last, so the rows players already know do not shift under them.
+    { entry = 500201, name = "Wildcard Transmog Scroll" },
 }
 local bulkRows = {}
 

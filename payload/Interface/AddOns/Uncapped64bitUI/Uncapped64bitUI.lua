@@ -292,34 +292,37 @@ local function NativeMaxIfExact(unit)
     return nil
 end
 
+-- Returns realMax, realCur, visMax. realCur is nil when the server has not sent one
+-- (an older worldserver pinned the field to 0) -- RealHealthPair falls back to the
+-- ratio reconstruction in that case, so an old server and a new addon still agree.
 local function HpInfoFor(unit)
     if unit == "player" then
-        if selfData then return selfData.max, 0, nil end
+        if selfData then return selfData.max, selfData.cur, nil end
         local vmax = NativeMaxIfExact(unit)
-        if vmax then return vmax, 0, nil end
+        if vmax then return vmax, nil, nil end
     elseif unit == "target" then
         -- [#998] targetData.stacks is gone (the slot carries a guid now); the middle
-        -- return stays 0, which is what the retired field always evaluated to anyway.
-        if targetData then return targetData.max, 0, targetData.visMax end
+        -- return now carries the real current health instead. [#1387]
+        if targetData then return targetData.max, targetData.cur, targetData.visMax end
         -- Fallback: a group member we already have HP for (UHP:T can lag by a
         -- tick, and a far player only resolves once the server catches up).
         local low = GuidLow(unit)
         if low then
             local d = byGuid[low]
-            if d then return d.max, 0, nil end
+            if d then return d.max, d.cur, nil end
         end
 
         local vmax = NativeMaxIfExact(unit)
-        if vmax then return vmax, 0, nil end
+        if vmax then return vmax, nil, nil end
     else
         local low = GuidLow(unit)
         if low then
             local d = byGuid[low]
-            if d then return d.max, 0, nil end
+            if d then return d.max, d.cur, nil end
         end
 
         local vmax = NativeMaxIfExact(unit)
-        if vmax then return vmax, 0, nil end
+        if vmax then return vmax, nil, nil end
     end
     return nil
 end
@@ -337,8 +340,26 @@ local function RealHealthPair(unit)
     -- means by "retired". The field is still parsed and still ignored, so a line
     -- from an older worldserver is accepted rather than rejected; only /dev64's
     -- smoke line ever put a non-zero value in it.
-    local rmax = HpInfoFor(unit)
+    local rmax, rcur = HpInfoFor(unit)
     if not rmax then return nil end
+
+    --[[
+      ★★★ [#1387] PREFER THE SERVER'S REAL CURRENT HEALTH OVER THE RATIO.
+
+      The reconstruction below is exact in PERCENT and coarse in ABSOLUTE terms: it
+      can only resolve realMax/2e9 real health per displayed point, and the proxy
+      floors at 1, so the bottom bucket covers [0, realMax/2e9). On a keystone boss
+      that is tens of millions of health rendered as "1" -- Baltharus was measured
+      sitting at a displayed 1% with 33.6 BILLION health left. That is this report:
+      "HP shows as either 1 or 100%", and "can be hit at 1 HP and not die".
+
+      The ratio is KEPT as the fallback, and deliberately: a worldserver that still
+      pins <realCur> to 0 sends nothing to prefer, and this addon must keep working
+      against it rather than start showing zero health to everybody.
+    ]]
+    if rcur and rcur > 0 then
+        return rcur, rmax
+    end
 
     local nmax = UnitHealthMax(unit)
     local frac = (nmax > 0) and (UnitHealth(unit) / nmax) or 0
@@ -574,7 +595,13 @@ local function OnLine(msg)
 
     local sCur, sMax, sExp = msg:match("^UHP:S:(%d+):(%d+):?(%d*)$")
     if sMax then
-        selfData = { max = ApplyHpExponent(tonumber(sMax), sExp) }
+        -- [#1387] cur is kept now. The server used to pin it to 0 and we rebuilt it
+        -- from the native bar ratio; that reconstruction resolves to realMax/2e9 real
+        -- HP per point, which on a scaled pool is millions.
+        selfData = {
+            max = ApplyHpExponent(tonumber(sMax), sExp),
+            cur = ApplyHpExponent(tonumber(sCur), sExp),
+        }
         RefreshUnitBars("player")
         return
     end
@@ -658,7 +685,9 @@ local function OnLine(msg)
             return
         end
 
-        targetData = { max = ApplyHpExponent(tonumber(tMax), tExp), visMax = tonumber(tVis), guid = low }
+        -- [#1387] cur kept -- see the note on the UHP:S branch above.
+        targetData = { max = ApplyHpExponent(tonumber(tMax), tExp), visMax = tonumber(tVis),
+                       guid = low, cur = ApplyHpExponent(tonumber(tCur), tExp) }
         RememberTargetHp(targetData)
         RefreshUnitBars("target")
         return
@@ -667,7 +696,9 @@ local function OnLine(msg)
     local uLow, uCur, uMax, uExp = msg:match("^UHP:U:(%d+):(%d+):(%d+):?(%d*)$")
     if uMax then
         local low = tonumber(uLow)
-        byGuid[low] = { max = ApplyHpExponent(tonumber(uMax), uExp) }
+        -- [#1387] cur kept -- see the note on the UHP:S branch above.
+        byGuid[low] = { max = ApplyHpExponent(tonumber(uMax), uExp),
+                        cur = ApplyHpExponent(tonumber(uCur), uExp) }
 
         -- Repaint whichever frames currently show that player. The feed is keyed
         -- by GUID, not by unit token, and the same character can be on several
