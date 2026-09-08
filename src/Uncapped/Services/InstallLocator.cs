@@ -104,11 +104,41 @@ public static class InstallLocator
     }
 
     /// <summary>
-    /// True if the install sits under Program Files, where writing addons and MPQs needs
-    /// elevation. The launcher reports this rather than silently failing halfway through a
+    /// True when the launcher cannot write into the install folder, whatever the reason.
+    /// Reported up front rather than silently failing halfway through a
     /// sync — a partial write into Data\ is worse than a clean refusal.
     /// </summary>
-    public static bool NeedsElevation(string installPath)
+    /// <remarks>
+    /// ★★★ [2026-09-08] THIS NOW PROBES ALWAYS. It used to return false unless the
+    /// install sat under Program Files, which meant <see cref="CanWrite"/> -- the only
+    /// thing that actually answers the question -- never ran for the overwhelming
+    /// majority of installs.
+    ///
+    /// What that cost, from one player's launcher.log covering 2026-08-17 to 08-22: an
+    /// install at F:\...\World of Warcraft - Copia sailed past this check on every
+    /// single run and then failed every write. Hardening could not rename Wow.exe. It
+    /// could not delete Repair.exe. Repair downloaded four files correctly and was denied
+    /// on the File.Move into place -- five attempts each, four files, twice over -- and
+    /// the only trace was a raw .NET stack trace in the log. Nothing on screen ever named
+    /// the cause, because the one dialog that would have named it was gated behind a
+    /// LOCATION test rather than a PERMISSION one.
+    ///
+    /// Program Files is a REASON a folder is unwritable, not the definition of one. A
+    /// folder copied from another machine, a second drive with inherited ACLs, an
+    /// antivirus holding the directory, a folder owned by a different Windows account and
+    /// a failing disk all raise the identical UnauthorizedAccessException, and none of
+    /// them are under Program Files.
+    ///
+    /// The probe is one create-write-delete of an empty file, so running it
+    /// unconditionally costs nothing next to the hashing pass that follows it.
+    /// </remarks>
+    public static bool NeedsElevation(string installPath) => !CanWrite(installPath);
+
+    /// <summary>
+    /// True if the install sits under Program Files. Shapes the ADVICE only -- whether
+    /// the folder is writable is <see cref="CanWrite"/>'s answer, never this one's.
+    /// </summary>
+    public static bool IsUnderProgramFiles(string installPath)
     {
         var pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
         var pf86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
@@ -118,8 +148,7 @@ public static class InstallLocator
             !string.IsNullOrEmpty(root) &&
             full.StartsWith(Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase);
 
-        if (!Under(pf) && !Under(pf86)) return false;
-        return !CanWrite(installPath);
+        return Under(pf) || Under(pf86);
     }
 
     /// <summary>Probes writability directly — the only answer that actually matters.</summary>

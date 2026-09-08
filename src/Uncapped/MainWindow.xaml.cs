@@ -498,16 +498,43 @@ public partial class MainWindow : Window
             return;
         }
 
+        /*
+         * ★★★ [2026-09-08] THE REFUSAL THAT NEVER FIRED.
+         *
+         * NeedsElevation used to answer "is this under Program Files", so this dialog
+         * was unreachable for every install that was not -- and an unwritable folder
+         * anywhere else produced twenty silent download failures instead of one
+         * sentence. It now answers "can we write here", which is the question.
+         *
+         * ⚠ LOG IT TOO. A player's launcher.log is the only thing we get to read after
+         *   the fact, and the old one recorded four files failing five times each with a
+         *   .NET stack trace and never once named the cause.
+         */
         if (InstallLocator.NeedsElevation(_installPath))
         {
+            var inProgramFiles = InstallLocator.IsUnderProgramFiles(_installPath);
+            Log.Write($"install: NOT WRITABLE -- {_installPath} " +
+                $"(under Program Files: {inProgramFiles}). Refusing to sync.");
+
             SetStatus("Cannot write to the game folder.");
+
+            var advice = inProgramFiles
+                ? "The game is inside Program Files, which Windows protects.\n\n" +
+                  "Either move it somewhere like C:\\Games\\WoW335, or right-click the " +
+                  "launcher and choose \"Run as administrator\"."
+                : "Try these, in order:\n\n" +
+                  "1.  Right-click the launcher and choose \"Run as administrator\".\n" +
+                  "2.  Right-click the game folder, choose Properties, and clear \"Read-only\".\n" +
+                  "3.  Check that your antivirus is not blocking the folder.\n" +
+                  "4.  If this folder was copied from another PC or another drive, Windows may " +
+                  "still think it belongs to a different account. Move the game into a new " +
+                  "folder you create yourself, such as C:\\Games\\WoW335.";
+
             MessageBox.Show(
-                $"The game is installed at:\n{_installPath}\n\n" +
-                "That location needs administrator rights to change, so addons and patches " +
-                "cannot be installed there.\n\n" +
-                "Either move the game somewhere like C:\\Games\\WoW335, or right-click the " +
-                "launcher and choose \"Run as administrator\".",
-                "Permission needed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                $"Uncapped cannot save files into:\n{_installPath}\n\n" +
+                "Nothing can be updated until that is fixed, so the launcher has stopped here " +
+                "rather than half-install and leave the client broken.\n\n" + advice,
+                "Cannot write to the game folder", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
