@@ -2042,11 +2042,33 @@ function Core.DepositCursor()
     ClearCursor()
 end
 
+--[[ ★★ [#1318] ALT, NOT SHIFT OR CTRL. SHIFT *IS* THE CHAT-LINK MODIFIER.
+
+     This used to fire on `IsControlKeyDown() or IsShiftKeyDown()`, and
+     HandleModifiedItemClick is precisely Blizzard's shift-click-to-link and
+     ctrl-click-to-dress-up path. So with the Vault window open, shift-clicking an
+     item to LINK IT IN CHAT deposited it instead -- silently, with nothing in the UI
+     ever having advertised modifier-click as a deposit gesture. Reported as
+     "Crafty's Pole -- took it from vault, linked it in chat, it disappeared".
+
+     Worse, the loop matches by LINK, so shift-clicking someone else's link in the
+     chat log found the reporter's own copy in their bags and banked that.
+
+     The guard could never be made to work as written: IsModifiedClick("CHATLINK")
+     is shift, so "was this a link click or a deposit click" has no answer. Alt is
+     not bound to an item-click action in the default UI, so it can be asked
+     unambiguously. If alt-click turns out never to reach this hook on 3.3.5, the
+     gesture simply stops existing -- which is the outcome we want anyway, since
+     nothing documents it.
+
+     The supported ways to deposit are unchanged and are the ones the UI actually
+     shows: drag-and-drop onto the window, and the "Deposit all" button. ]]
 if hooksecurefunc then
     hooksecurefunc("HandleModifiedItemClick", function(link)
         if not link then return end
         if not (Core.UI and Core.UI.IsShown and Core.UI.IsShown()) then return end
-        if not (IsControlKeyDown() or IsShiftKeyDown()) then return end
+        if not IsAltKeyDown() then return end
+        if IsControlKeyDown() or IsShiftKeyDown() then return end
         for bag = 0, 4 do
             for slot = 1, GetContainerNumSlots(bag) do
                 if GetContainerItemLink(bag, slot) == link then

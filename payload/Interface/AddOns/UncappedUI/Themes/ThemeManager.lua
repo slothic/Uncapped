@@ -357,3 +357,41 @@ SlashCmdList["UNCAPPEDUITHEME"] = function(msg)
     end
     PrintLine("|cff40c0ff[UI]|r unknown theme '" .. msg .. "'. Available: " .. tconcat(names, ", "))
 end
+
+--[[ ★★★ [#1335] RE-READ THE SAVED THEME ONCE SAVEDVARIABLES ARE ACTUALLY LOADED.
+
+     This file had NO RegisterEvent anywhere in it, and that was the whole bug.
+
+     SavedVariables are assigned AFTER an addon's Lua runs. UncappedTheme.lua calls
+     RegisterTheme("Uncapped") at file scope; RegisterTheme calls GetThemeName(),
+     which calls GetDB(), which -- this early -- creates a THROWAWAY UncappedUIDB
+     because the real one does not exist yet. Because the registered name matches the
+     (defaulted) selection, it then calls ApplyAll(), and GetActiveTheme() populates
+     `customCache` from that throwaway table, i.e. with NO db.custom in it.
+
+     The client then assigns the real UncappedUIDB from disk -- and nothing ever
+     called InvalidateCustom(), so the stale cache built from the empty table stayed
+     authoritative for the whole session.
+
+     The colours were therefore saved correctly all along and simply never applied on
+     login, which is exactly the reported "requiring to select some colors every
+     reload/relog": touching any colour calls SetCustomBatch -> InvalidateCustom +
+     ApplyAll, and the whole set snaps back at once.
+
+     ⚠ It hit db.theme the same way, so anyone who ran `/uitheme default` got Uncapped
+       back on every login.
+
+     PLAYER_LOGIN as well as ADDON_LOADED, because widgets built at another addon's
+     file scope are not registered yet at ADDON_LOADED time -- the same reasoning
+     UncappedScale.lua's loader gives next door, whose shape this deliberately
+     mirrors. ]]
+local themeLoader = CreateFrame("Frame")
+themeLoader:RegisterEvent("ADDON_LOADED")
+themeLoader:RegisterEvent("PLAYER_LOGIN")
+themeLoader:SetScript("OnEvent", function(self, event, name)
+    if event == "ADDON_LOADED" and name ~= UncappedUIKit.ADDON then return end
+
+    UncappedUIKit.GetDB()
+    InvalidateCustom()
+    UncappedUIKit.ApplyAll()
+end)

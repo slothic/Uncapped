@@ -521,7 +521,12 @@ local function BuildFrame(parent)
                 1, 0.5, 0.4, true)
             -- Said plainly, because the obvious question on seeing this button is
             -- "why is there no such button for my Scrolls of Transmog?".
-            GameTooltip:AddLine("Scrolls that open a window when used -- Transmog, Extraction, "
+            -- ★ [#1360] Transmog was named here and does NOT open a window. The
+            --   Wildcard Transmog Scroll rolls an appearance, unlocks it and consumes
+            --   itself in the same use (mod-transmog/src/transmog_scroll.cpp), so the
+            --   stated reason did not apply to it and the line was simply untrue.
+            --   Only Extraction and Socket open a picker.
+            GameTooltip:AddLine("Scrolls that open a window when used -- Extraction and "
                 .. "Socket -- have no bulk button: they consume nothing until you pick "
                 .. "something in that window.", 0.6, 0.6, 0.7, true)
             GameTooltip:Show()

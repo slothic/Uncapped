@@ -557,6 +557,28 @@ local function Redraw()
 
     if not (showMom or showFal or showMae) then hf:Hide() return end
 
+    --[[ ★★ [#1359] SAY WHAT THIS IS, ONCE, THE FIRST TIME IT EVER APPEARS.
+
+         The HUD is mouse-disabled while locked -- which is the default -- so the
+         OnEnter tooltip that names it and mentions /shardhud can never fire. Out in
+         the world the Momentum and Falsehoods rows are hidden too, so a Maerith
+         bearer standing in a city saw a small black box containing an icon and a
+         bare percentage, with nothing anywhere telling them what it was or how to
+         move it. Reported verbatim as "some window on my screen with a blood drop
+         symbol and 53% that I didn't open and don't know how to move".
+
+         Labelling the row (below) fixes the "what is it"; this fixes the "how do I
+         get rid of it", which no amount of labelling can. Once per character, stored
+         in the same saved table as the rest of the HUD settings. ]]
+    if db and not db.introShown then
+        db.introShown = true
+        if DEFAULT_CHAT_FRAME then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff40c0ff[Shards]|r That small readout is your "
+                .. "shard HUD -- it shows what your equipped shards are doing right now. "
+                .. "Type |cffffd100/shardhud|r to move, unlock or hide it.")
+        end
+    end
+
     Shown(hf.momIcon, showMom)
     Shown(hf.momBar,  showMom)
     Shown(hf.momTime, showMom)
@@ -587,7 +609,15 @@ local function Redraw()
     Shown(hf.maeText, showMae)
     if showMae then
         -- The reflected share only. The WARD is UncappedShieldBar's to draw.
-        hf.maeText:SetText(string.format("%.0f%%", hud.reflect))
+        --
+        -- ★ [#1359] LABELLED, like the two rows above it. This drew a bare "53%"
+        --   against an unexplained icon, and out in the world the MOMENTUM and
+        --   FALSEHOODS rows are hidden -- so a Maerith bearer standing in a city saw
+        --   a small black window containing an icon and a naked percentage, with no
+        --   way to tell what it was. Reported verbatim as "some window on my screen
+        --   with a blood drop symbol and 53% that I didn't open and don't know how
+        --   to move". The number was always correct; nothing ever said what it was.
+        hf.maeText:SetText(string.format("REFLECT   %.0f%%", hud.reflect))
     end
 
     hf:Show()

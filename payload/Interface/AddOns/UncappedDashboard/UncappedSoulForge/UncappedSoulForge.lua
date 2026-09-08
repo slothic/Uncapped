@@ -4362,7 +4362,23 @@ local function buildSbTip()
     insets = { left = 4, right = 4, top = 4, bottom = 4 } })
   f:SetBackdropColor(0.03, 0.02, 0.05, 0.95)
   f:SetBackdropBorderColor(0.55, 0.4, 0.9, 0.9)
-  f:SetClampedToScreen(true); f:EnableMouse(true); f:Hide()
+  --[[ ★★ [#1324] EnableMouse(false) -- THIS PANEL WAS EATING BAG CLICKS.
+
+       This is a 288x264 frame at strata TOOLTIP, level 100, anchored to the RIGHT of
+       GameTooltip. The default UI anchors a bag item's tooltip to the LEFT of the bag
+       button, so "tooltip's right edge + 6" lands the panel squarely on top of the bag
+       grid -- and with mouse enabled it swallowed the click on the item underneath.
+
+       It only appears once a tooltip spills past TIP_MAX_INLINE (12) injected lines,
+       which is exactly the reported "too many vestiges and a long on-hit effect": the
+       item became impossible to equip from the inventory because you could no longer
+       click it.
+
+       Nothing needs the mouse here. The hide logic uses MouseIsOver(sbTip), which is
+       geometric and works fine on a mouse-disabled frame, and wheel scrolling comes
+       from the separate full-screen sbWheel catcher. The one thing lost is DRAGGING
+       the scrollbar; the wheel still scrolls. ]]
+  f:SetClampedToScreen(true); f:EnableMouse(false); f:Hide()
 
   local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   title:SetPoint("TOPLEFT", 12, -10); title:SetText(SB_MARK)
@@ -4424,7 +4440,18 @@ local function showSbTip(lines, key)
     f.curKey = key
   end
   f:ClearAllPoints()
-  f:SetPoint("TOPLEFT", GameTooltip, "TOPRIGHT", 6, 0)
+  -- ★ [#1324] Open AWAY from the screen edge instead of always to the right.
+  --   A bag tooltip is anchored to the LEFT of the bag button, i.e. over on the right
+  --   of the screen, so a panel pinned to its right edge was drawn straight across the
+  --   bag grid. Mouse is now disabled above so it no longer STEALS the click, but it
+  --   should not be sitting on top of the bags either. GetRight() can be nil for an
+  --   unanchored tooltip, hence the fallback to the old side.
+  local tipRight = GameTooltip:GetRight()
+  if tipRight and tipRight > (UIParent:GetWidth() * 0.6) then
+    f:SetPoint("TOPRIGHT", GameTooltip, "TOPLEFT", -6, 0)
+  else
+    f:SetPoint("TOPLEFT", GameTooltip, "TOPRIGHT", 6, 0)
+  end
   f:Show(); f:Fill()
   sbWheel:Show()
   cancelSbTipHide()
