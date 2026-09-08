@@ -2467,8 +2467,27 @@ local function BuildExtractor(parent)
            one of the two terms at any instant -- never both.
     ]]
     local scrolls = (state.scrolls or 0) + (GetItemCount(SCROLL_EXTRACTION) or 0)
-    self.sub:SetText("Unlock an effect once, then stamp it on anything.  "
-      .. "|cffffd100" .. scrolls .. "|r scroll" .. (scrolls == 1 and "" or "s") .. " held")
+
+    --[[ [2026-09-08] WHAT AN EXTRACTION COSTS, from the server (ICSCROLLCOST).
+
+         The owner retired the scroll cost, so this is 0 and every gate below is
+         open. It stays a number rather than a boolean because restoring the cost
+         is a config flip, and 1 is what an addon assumes when it has never been
+         told -- which keeps an out-of-date client conservative instead of
+         offering a button the server refuses.
+
+         The balance is still shown when it is free: scrolls are not destroyed,
+         they are simply no longer spent, and "where did my 40 scrolls go" is the
+         first thing anyone will ask. ]]
+    local cost = state.scrollCost or 1
+    if cost == 0 then
+      self.sub:SetText("Unlock an effect once, then stamp it on anything.  "
+        .. "|cff40ff40Free|r - no scroll needed"
+        .. (scrolls > 0 and ("  |cff808080(" .. scrolls .. " banked)|r") or ""))
+    else
+      self.sub:SetText("Unlock an effect once, then stamp it on anything.  "
+        .. "|cffffd100" .. scrolls .. "|r scroll" .. (scrolls == 1 and "" or "s") .. " held")
+    end
 
     -- Tab highlight: the active one is disabled, which is the cheapest honest
     -- "you are here" this template gives us.
@@ -2566,15 +2585,15 @@ local function BuildExtractor(parent)
         end
       end
 
-      self.actBtn:SetText("Apply  (1 scroll)")
+      self.actBtn:SetText(cost == 0 and "Apply" or "Apply  (1 scroll)")
       self.wlBtn:Hide()
-      if c and state.exSelTgt and scrolls > 0 then
+      if c and state.exSelTgt and (cost == 0 or scrolls >= cost) then
         self.actBtn:Enable()
         self.summary:SetText(string.format("Stamp |cffb384ff%s|r onto |cffffffff%s|r.",
           procDisplayName({ spellId = c.spell }) or "?", (itemDisplay(state.exSelTgt.entry))))
       else
         self.actBtn:Disable()
-        if scrolls == 0 then
+        if cost > 0 and scrolls < cost then
           self.summary:SetText("|cffff8040You have no Scrolls of Extraction.|r")
         elseif not c then
           self.summary:SetText("Choose an unlocked effect, then the piece to stamp it on.")
@@ -2648,13 +2667,13 @@ local function BuildExtractor(parent)
       local wl, wlExact = nil, false
       if s then wl, wlExact = wlProtectedBy((itemDisplay(s.entry))) end
 
-      if s and scrolls > 0 and not known and not wl then
+      if s and (cost == 0 or scrolls >= cost) and not known and not wl then
         self.actBtn:Enable()
         self.summary:SetText(string.format("Destroy |cffffffff%s|r to learn |cffb384ff%s|r forever.",
           (itemDisplay(s.entry)), procLabel(s.spell)))
       else
         self.actBtn:Disable()
-        if scrolls == 0 then
+        if cost > 0 and scrolls < cost then
           self.summary:SetText("|cffff8040You have no Scrolls of Extraction.|r")
         elseif not s then
           self.summary:SetText("Choose a piece of gear to pull an effect from.")
@@ -3938,6 +3957,11 @@ local function OnLine(body)
     state.exDone = state.exDoneStaging or {}
     state.exDoneStaging = nil
     commitExtractItems()
+  elseif cmd == "ICSCROLLCOST" then     -- <n>  scrolls one extraction costs; 0 = free
+    -- [2026-09-08] Owner ruling: extraction is free. Sent alongside ICSCROLLS.
+    -- nil (never told) must read as 1, the old behaviour, NOT as 0 -- guessing
+    -- "free" from silence would offer a button the server then refuses.
+    state.scrollCost = tonumber(rest) or 1
   elseif cmd == "ICSCROLLS" then        -- <balance>  scrolls held as currency
     state.scrolls = tonumber(rest) or 0
     if EXT and EXT:IsShown() then EXT:Refresh() end

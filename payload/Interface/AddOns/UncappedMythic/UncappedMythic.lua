@@ -1407,7 +1407,13 @@ local COUNTERPLAY_COPY = {
     ctr_communicate    = "Call it out -- someone else has to act on it.",
     ctr_decurse        = "Remove the curse.",
     ctr_dispel_magic   = "Dispel it.",
-    ctr_endure         = "Just take it. It is survivable.",
+    -- [#1336] Do NOT promise survivability here. This one string serves every
+    -- control family, including stun, fear and disorient -- and those strip your
+    -- dodge, parry and block while they hold you, so "it is survivable" is a claim
+    -- the game cannot keep. The honest advice is that there is no REACTIVE answer
+    -- (no control effect lasts the ~4500ms a dispel or defensive needs to be worth
+    -- pressing), so the play is to already have mitigation up when it lands.
+    ctr_endure         = "Nothing to press -- mitigate before it lands.",
     ctr_face_away      = "Look away from it.",
     ctr_hold_still     = "Stand perfectly still.",
     ctr_instant_heal   = "Heal it off, fast.",
