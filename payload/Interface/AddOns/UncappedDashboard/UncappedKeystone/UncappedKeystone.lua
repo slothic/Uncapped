@@ -369,6 +369,28 @@ local function KeyBonus(lvl)
     return linear ^ keyExponent
 end
 
+--[[ ------------------------------------------------------------------------
+     [2026-09-08] THE GEAR CURVE. Anima keeps KeyBonus above.
+
+     Sacks and Anima used to ride one term, so flattening it for Anima cut gear by
+     the same factor and nobody meant that. Gear now sits on its own divisor
+     (5 -- one shallow key's worth of loot per 5 keystone levels); Anima stays on
+     the slow one, because Anima is the nine-month progression axis and gear is a
+     horizontal sink.
+
+     Mirrors MythicPlus::KeyBonusGear exactly, including the shared exponent. If
+     the server's shape changes, this changes with it -- quoting a curve the payout
+     does not honour is the whole of #910 and #1057.
+  -------------------------------------------------------------------------- ]]
+local function GearKeyBonus(lvl)
+    if not tuning then return 1 end
+    local per = tuning.gearPer or tuning.doubleEvery
+    if not per or per <= 0 then per = 5 end
+    local linear = 1 + (math.max(lvl, 1) - 1) / per
+    if keyExponent <= 1 or linear <= 1 then return linear end
+    return linear ^ keyExponent
+end
+
 local function FilteredMaps()
     if filter == "all" then return maps end
     local out = {}
@@ -416,7 +438,13 @@ local function HandleMessage(msg)
 
     local head = string.match(msg, "^MRWH:(.+)$")
     if head then
-        local a, r, d, h = string.match(head, "^([%d%.%-]+):([%d%.%-]+):([%d%.%-]+):([%d%.%-]+)$")
+        -- [2026-09-08] Five fields now: the fifth is the GEAR divisor, because gear
+        -- and Anima stopped sharing a curve. Appended to MRWH rather than given its
+        -- own message id (the MRWK/MRWL convention) because the version gate forces
+        -- every client onto the matching payload -- there is no older client left to
+        -- degrade gracefully for, and one message beats two.
+        local a, r, d, h, g = string.match(head,
+            "^([%d%.%-]+):([%d%.%-]+):([%d%.%-]+):([%d%.%-]+):([%d%.%-]+)$")
         if a then
             tuning = {
                 anchor      = tonumber(a) or 24,
@@ -426,6 +454,9 @@ local function HandleMessage(msg)
                 animaRate   = tonumber(r) or 87.5,
                 doubleEvery = tonumber(d) or 5,
                 hotzone     = tonumber(h) or 5,
+                -- Levels per +1.0x of GEAR. Falls back to the Anima divisor, which is
+                -- exactly what this panel did before the split.
+                gearPer     = tonumber(g) or tonumber(d) or 5,
             }
             -- A fresh header means a fresh table; without this a second sync
             -- would append every map a second time.
@@ -641,7 +672,8 @@ function Keystone.Render()
         return
     end
 
-    local bonus = KeyBonus(level)
+    local bonus = KeyBonus(level)          -- Anima's curve
+    local gearBonus = GearKeyBonus(level)  -- gear's, which is steeper since 2026-09-08
     --[[ [#942] The hotzone multiplies the SAME base the payout multiplies
          (mult.base = size x key x hotzone), so it belongs inside these two
          numbers rather than printed alongside them as an afterthought. The
@@ -649,7 +681,7 @@ function Keystone.Render()
          whose every SSC run recorded hotzone = 1 -- the buff applied, this
          panel just quoted a figure with no hotzone in it and was believed. ]]
     local hotMult = (m.id and hotMaps[m.id]) and (tuning.hotzone or 1) or 1
-    local sacks = math.max(1, math.floor(tuning.anchor * m.size * bonus * hotMult + 0.5))
+    local sacks = math.max(1, math.floor(tuning.anchor * m.size * gearBonus * hotMult + 0.5))
     local anima = math.max(1, math.floor(tuning.animaRate * m.size * bonus * hotMult + 0.5))
 
     SetLine("map", string.format("%s%s|r  %s", COLOR_HEAD, m.name,
@@ -662,8 +694,12 @@ function Keystone.Render()
     -- deeper instead of restating its shape in prose: read from KeyBonus itself, so
     -- there is nothing here to keep in step by hand. Same fix as the keystone NPC page,
     -- which had been describing a curve retired eleven days earlier.
-    SetLine("bonus", string.format("%sKey bonus|r     %sx%.1f|r  %s(x%.1f at +%d)|r",
-        COLOR_LABEL, COLOR_VALUE, bonus, COLOR_DIM, KeyBonus(level + 5), level + 5))
+    -- [2026-09-08] BOTH multipliers, because there are now two. Printing one would
+    -- leave the other line unexplained, and this panel has twice shipped a number the
+    -- payout did not honour. Gear first: it is the one that moves when you push.
+    SetLine("bonus", string.format("%sKey bonus|r     %sgear x%.1f|r %s(x%.1f at +%d)|r  %s|  anima x%.1f|r",
+        COLOR_LABEL, COLOR_VALUE, gearBonus, COLOR_DIM, GearKeyBonus(level + 5), level + 5,
+        COLOR_DIM, bonus))
 
     -- Says "already counted" out loud. A multiplier printed next to a total is
     -- ambiguous about whether the total includes it, and guessing wrong in
@@ -713,9 +749,12 @@ function Keystone.Render()
     -- whether pushing is worth it; "x4.0 what a +10 pays" does.
     local ref = 10
     if level ~= ref then
-        local refBonus = KeyBonus(ref)
-        SetLine("compare", string.format("%sThat is x%.1f what a +%d on this map pays.|r",
-            COLOR_HEAD, bonus / refBonus, ref))
+        -- [2026-09-08] Compares GEAR. "What it pays" reads as loot, and gear is the
+        -- curve that actually rewards pushing now; comparing on Anima's flat curve
+        -- would understate the answer to the question this line exists to ask.
+        local refBonus = GearKeyBonus(ref)
+        SetLine("compare", string.format("%sThat is x%.1f the gear a +%d on this map pays.|r",
+            COLOR_HEAD, gearBonus / refBonus, ref))
     else
         SetLine("compare", COLOR_DIM .. "Move the key up and down to compare.|r")
     end
