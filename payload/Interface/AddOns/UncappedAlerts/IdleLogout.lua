@@ -25,6 +25,14 @@
 
 local IDLE_POPUP = "IDLE_MESSAGE"
 
+-- #1395: stock FrameXML initializes both visible countdowns from timeout=20.
+-- Match this realm's approved Logout.Delay=5 without replacing cancel/quit handlers.
+for _, which in ipairs({ "CAMP", "QUIT" }) do
+    if StaticPopupDialogs[which] then
+        StaticPopupDialogs[which].timeout = 5
+    end
+end
+
 -- How long after an idle warning we treat a logout-refusal as belonging to it.
 -- Short on purpose: see the note on the UIErrorsFrame hook below.
 local ERROR_GRACE = 3.0

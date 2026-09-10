@@ -1815,8 +1815,8 @@
     {
       "path": "Interface/AddOns/UncappedAlerts/IdleLogout.lua",
       "url": "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedAlerts/IdleLogout.lua",
-      "sha256": "9f03f7b30121e86181c58ef5e9396783daba74676f961f9cb44f59dd834c75bb",
-      "size": 3886
+      "sha256": "84fd475a07b8f4c82d8a643e34677bba7dd8e33d6e4d0fb7ff8aab9a0946f096",
+      "size": 4193
     },
     {
       "path": "Interface/AddOns/UncappedAlerts/TaxiCancel.lua",
@@ -4095,8 +4095,8 @@
     {
       "path": "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
       "url": "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-      "sha256": "94eaa057dd176ca50fe1615acca92617be49c6608b59cdf506d7855a3a9c3dfa",
-      "size": 3593
+      "sha256": "89511adcb002844605bf5739c713dc37963adbaeccc0c5fb4da5fe6e70a6f88a",
+      "size": 3695
     },
     {
       "path": "Interface/AddOns/UncappedVersion/UncappedVersion.toc",
@@ -4778,9 +4778,9 @@
     },
     {
       "path": "Data/enUS/patch-enUS-U.MPQ",
-      "url": "http://152.53.115.249/patches/patch-enUS-U-2026.09.10a.MPQ",
-      "sha256": "b48e37afaa438ac606a2502b46818a48564b9957e02dbd2924f604812918c9a4",
-      "size": 100078967
+      "url": "http://152.53.115.249/patches/patch-enUS-U-2026.09.10b.MPQ",
+      "sha256": "e00ba40e7f87847185da9c72d0979ab826c434a500f019d273e8fd7a5f7bbae9",
+      "size": 104822746
     },
     {
       "path": "UncappedBase.dat",
