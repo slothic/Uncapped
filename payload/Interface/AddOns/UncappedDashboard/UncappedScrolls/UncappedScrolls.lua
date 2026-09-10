@@ -151,6 +151,8 @@ local BULK_SCROLLS = {
     -- way and clicking a thousand of them is exactly as much of an evening.
     -- Last, so the rows players already know do not shift under them.
     { entry = 500201, name = "Wildcard Transmog Scroll" },
+    -- #1350: completed routes only; up to 500 independent socket rolls per press.
+    { entry = 500200, name = "Sealed Traveler's Map" },
 }
 local bulkRows = {}
 
@@ -209,6 +211,13 @@ StaticPopupDialogs["UNCAPPED_SCROLLS_USE_ALL"] = {
         -- transport, whispered to yourself.
         SendAddonMessage(TRANSPORT_PREFIX, "SCRALL:" .. d.entry, "WHISPER", UnitName("player"))
     end,
+    timeout = 0, whileDead = 1, hideOnEscape = 1, showAlert = 1,
+}
+
+StaticPopupDialogs["UNCAPPED_MAPS_USE_ALL"] = {
+    text = "Use up to |cffffffff%d|r %s from your bags?\n\nRequires every eligible flight path. Each map keeps its normal socket-scroll chance and is consumed even when it awards nothing.",
+    button1 = ACCEPT, button2 = CANCEL,
+    OnAccept = StaticPopupDialogs["UNCAPPED_SCROLLS_USE_ALL"].OnAccept,
     timeout = 0, whileDead = 1, hideOnEscape = 1, showAlert = 1,
 }
 
@@ -514,13 +523,17 @@ local function BuildFrame(parent)
             -- moved in between, the SERVER uses whatever is actually there -- the
             -- number in the dialog is a description, never an instruction.
             if not self.entry or (self.count or 0) <= 0 then return end
-            StaticPopup_Show("UNCAPPED_SCROLLS_USE_ALL",
-                self.count, self.scrollName or "scrolls", { entry = self.entry })
+            local isMap = self.entry == 500200
+            StaticPopup_Show(isMap and "UNCAPPED_MAPS_USE_ALL" or "UNCAPPED_SCROLLS_USE_ALL",
+                isMap and math.min(self.count, 500) or self.count,
+                self.scrollName or "scrolls", { entry = self.entry })
         end)
         btn:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetText(self.scrollName or "Use all", 1, 1, 1)
-            GameTooltip:AddLine("Uses every one of these in your bags, in one go.",
+            GameTooltip:AddLine(self.entry == 500200 and
+                "Uses up to 500 maps from your bags after every eligible flight path is known. Each keeps its normal socket-scroll chance. Maps are consumed even when they award nothing." or
+                "Uses every one of these in your bags, in one go.",
                 0.8, 0.8, 0.8, true)
             GameTooltip:AddLine("They are destroyed. You are asked to confirm first.",
                 1, 0.5, 0.4, true)

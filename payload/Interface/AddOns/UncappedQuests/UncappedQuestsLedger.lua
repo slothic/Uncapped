@@ -390,6 +390,7 @@ end
 -- ---------------------------------------------------------------------------
 
 local function ObjectiveSummary(q)
+    if q.failed then return "|cffff6060Failed|r" end
     if q.complete then return "|cff40ff40Ready to turn in|r" end
     if #q.objectives == 0 then return "|cff808080No tracked objectives|r" end
 
@@ -461,14 +462,16 @@ local function RenderDetail()
     end
 
     local lines = {}
-    if q.complete then
+    if q.failed then
+        lines[#lines + 1] = "|cffff6060Failed.|r Move this quest into the standard quest log to abandon it and try again."
+    elseif q.complete then
         lines[#lines + 1] = "|cff40ff40Ready to turn in.|r"
     end
     for _, o in ipairs(q.objectives) do
         local colour = (o.have >= o.need) and "40ff40" or "ffffff"
         lines[#lines + 1] = string.format("|cff%s%s: %d / %d|r", colour, o.label, o.have, o.need)
     end
-    if #q.objectives == 0 and not q.complete then
+    if #q.objectives == 0 and not q.complete and not q.failed then
         lines[#lines + 1] = "|cff808080No tracked objectives.|r"
     end
 
@@ -1333,6 +1336,7 @@ local function OnLine(body)
         pending.ledger[id] = {
             id = id, level = tonumber(lvl), slotted = slotted == "1",
             complete = complete == "1", zone = tonumber(zone), title = title,
+            failed = complete == "2",
             objectives = {}, poi = {},
         }
         pending.order[#pending.order + 1] = id

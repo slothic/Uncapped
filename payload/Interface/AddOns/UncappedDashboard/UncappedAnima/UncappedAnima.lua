@@ -441,6 +441,14 @@ local function BuildCard(parent, def)
             end
             GameTooltip:AddLine(" ")
             GameTooltip:AddLine(def.help, 0.8, 0.8, 0.8, true)
+            local sharedState = state[def.index]
+            if sharedState and sharedState.shared then
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddLine(string.format("Personal rank: %s. Account checkpoint: %s.",
+                    Comma(sharedState.purchased), Comma(sharedState.shared)), 0.8, 0.9, 1, true)
+                GameTooltip:AddLine("Every 100 ranks unlocks an account checkpoint. Your rank is the higher of your personal rank and the checkpoint. Purchases start above that rank.",
+                    0.8, 0.8, 0.8, true)
+            end
             GameTooltip:Show()
         end)
         btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -467,6 +475,10 @@ local function RefreshCard(card)
 
     card.value:SetText(FormatPct(s.pct))
     card.rankText:SetText(string.format("rank %s / %s", Comma(s.rank), Comma(s.maxRank)))
+    if s.shared and s.shared > 0 then
+        card.rankText:SetText(string.format("rank %s / %s | account %s",
+            Comma(s.rank), Comma(s.maxRank), Comma(s.shared)))
+    end
 
     card.bar:SetMinMaxValues(0, s.maxRank > 0 and s.maxRank or 1)
     card.bar:SetValue(s.rank)
@@ -871,6 +883,7 @@ local function CommitDefinitions()
 end
 
 local ERRORS = {
+    storage_error   = "The upgrade could not be saved. No ranks were granted and no Anima was spent. Please try again.",
     disabled         = "These stats are currently disabled on this realm.",
     bad_stat         = "That stat does not exist.",
     max_rank         = "You are already at maximum rank in that stat.",
@@ -894,6 +907,18 @@ local function Print(msg)
 end
 
 local function HandleMessage(body)
+    local shareIndex, purchased, shared, interval =
+        body:match("^ANIMASHARE:(%d+):(%d+):(%d+):(%d+)$")
+    if shareIndex then
+        local s = state[tonumber(shareIndex)]
+        if s then
+            s.purchased = tonumber(purchased)
+            s.shared = tonumber(shared)
+            s.interval = tonumber(interval)
+        end
+        return
+    end
+
     if string.sub(body, 1, 9) == "ANIMASTAT" then
         HandleStat(body)
         return

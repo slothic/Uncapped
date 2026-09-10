@@ -8,3 +8,4 @@
 
 Uncapped64bitUI.lua
 UncappedPerf.lua
+UncappedDruidResources.lua

@@ -233,7 +233,8 @@ local function ShardTip(owner, shardId, anchor)
     else
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("Not held.", DIM[1], DIM[2], DIM[3])
-        GameTooltip:AddLine("Shards drop from kills inside a hotzone and nowhere else. "
+        -- #1428: shard drops follow active keystones, not the retired hotzone rule.
+        GameTooltip:AddLine("Shards can drop from kills during an active keystone run. "
             .. "A repeat always rerolls into one you do not have, so nothing is ever wasted.",
             0.62, 0.62, 0.68, true)
     end

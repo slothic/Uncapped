@@ -197,6 +197,7 @@ local KIND_MILL       = 1
 local KIND_PROSPECT   = 2
 local KIND_DISENCHANT = 4
 local KIND_RENDER     = 8
+local KIND_OPENCLAM   = 16
 
 --[[
     The bulk-processing VIEWS.
@@ -238,7 +239,7 @@ local PROC_VIEWS = {
     },
     render = {
         label = "Rendering",
-        mask  = KIND_RENDER,
+        mask  = bit.bor(KIND_RENDER, KIND_OPENCLAM),
         hint  = "Search things to render...",
         --[[
             ⚠ [#812] THE THIRD LINE IS A SIGNPOST, NOT FILLER.
@@ -1639,6 +1640,8 @@ comms:SetScript("OnEvent", function(_, _, prefix, body)
             busy      = "a craft is already running",
             missing   = "you're missing materials it can't make or buy",
             outofmats = "not enough of that material left",
+            partialloot = "finish looting any partly opened clams in your bags or bank first",
+            questheld = "that item is needed by a quest in your log",
             -- Report #467: this line exists so "bags are full" stops being the
             -- server's catch-all guess. A conversion can only cast from a plain
             -- Vault stack, so material sitting in your BANK -- or still loading
@@ -2185,6 +2188,10 @@ function RefreshDetail()
             if bit.band(selKinds, KIND_MILL) ~= 0 then AddLine("Millable (5 per operation)", 0.6, 1, 0.6) end
             if bit.band(selKinds, KIND_PROSPECT) ~= 0 then AddLine("Prospectable (5 per operation)", 0.6, 1, 0.6) end
             if bit.band(selKinds, KIND_DISENCHANT) ~= 0 then AddLine("Disenchantable", 0.6, 1, 0.6) end
+            if bit.band(selKinds, KIND_OPENCLAM) ~= 0 then
+                AddLine("Open clams (1 per operation)", 0.6, 1, 0.6)
+                AddLine("Each clam keeps its normal meat and pearl rolls.", 0.8, 0.8, 0.8)
+            end
             if bit.band(selKinds, KIND_RENDER) ~= 0 then
                 -- The rate is per source and worth stating plainly: it is the
                 -- difference between 15 and 100 of the same-looking pile.
@@ -2246,7 +2253,7 @@ function RefreshDetail()
             local per
             if kindBit == KIND_RENDER then
                 per = entry.perOp or 1
-            elseif kindBit == KIND_DISENCHANT then
+            elseif kindBit == KIND_DISENCHANT or kindBit == KIND_OPENCLAM then
                 per = 1
             else
                 per = 5     -- mill and prospect
@@ -2280,6 +2287,7 @@ function RefreshDetail()
         GateButton(detail.prospect,   KIND_PROSPECT)
         GateButton(detail.disenchant, KIND_DISENCHANT)
         GateButton(detail.render,     KIND_RENDER)
+        GateButton(detail.openClam,   KIND_OPENCLAM)
         return
     end
 
@@ -2287,6 +2295,7 @@ function RefreshDetail()
     detail.prospect:Hide()
     detail.disenchant:Hide()
     detail.render:Hide()
+    detail.openClam:Hide()
     if frame.amount then frame.amount:Show() end
     if frame.amountLabel then frame.amountLabel:Show() end
     detail.craft:Show()
@@ -3296,6 +3305,12 @@ local function BuildFrame(parent)
     detail.render:SetText("Render All")
     detail.render:SetScript("OnClick", function() StartProcess(3) end)
     detail.render:Hide()
+
+    detail.openClam = KitButton(frame, "", 100, 22)
+    detail.openClam:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 400, 60)
+    detail.openClam:SetText("Open All")
+    detail.openClam:SetScript("OnClick", function() StartProcess(4) end)
+    detail.openClam:Hide()
 
     -- Output destination: there is no longer a choice. Owner ruling 2026-08-12 --
     -- the Forge always banks to the Vault and players withdraw what they need.

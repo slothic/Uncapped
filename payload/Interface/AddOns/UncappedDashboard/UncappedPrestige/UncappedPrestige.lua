@@ -859,8 +859,9 @@ function Render()
     -- sentence instead of leaving it advertising a ladder the server stopped
     -- honouring.
     if state.craftsPerLevel > 0 then
-        Note(string.format("Prestige 1 costs %s crafts. Every level after that costs double the one before, "
-            .. "so the ladder never ends -- it just slows down.", Comma(state.craftsPerLevel)), CARD_W)
+        -- #1416: server thresholds are cumulative, starting at twice the base.
+        Note(string.format("Prestige 1 requires %s total crafts. The total doubles for each later level, "
+            .. "so the ladder never ends -- it just slows down.", Comma(state.craftsPerLevel * 2)), CARD_W)
     end
     Note("It is account-wide: every craft, on every character you play, feeds the same ladder. "
         .. "Gathering counts too.", CARD_W)
@@ -1044,8 +1045,8 @@ if UncappedUI then
     L:Header("Prestige")
     L:Button("Open Prestige", OpenInDashboard, 180)
     L:Note("Every craft you make -- on any character on this account -- counts toward that "
-        .. "profession's prestige. Prestige 1 costs a fixed number of crafts and every level after "
-        .. "costs double the last, so the ladder never ends.", 48)
+        .. "profession's prestige. The total crafts required doubles at each later prestige "
+        .. "level, so the ladder never ends.", 48)
     L:Note("What a level pays depends on the profession: enchanters and the four professions with "
         .. "their own enchants get stronger enchants, crafters get a chance at Soulforge food, and gatherers get "
         .. "bigger hauls and better odds on rare materials. The panel says which, per profession. "
