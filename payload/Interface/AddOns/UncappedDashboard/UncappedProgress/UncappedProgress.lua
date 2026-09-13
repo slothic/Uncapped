@@ -606,10 +606,21 @@ local function HandleMessage(text)
     local s1, s2, s3, s4, s5, s6, s7, s8 =
         string.match(text, "^PRGESS:(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+):(%d+)$")
     if s1 then
-        Staging().essence = {
+        local essence = {
             tonumber(s1), tonumber(s2), tonumber(s3), tonumber(s4),
             tonumber(s5), tonumber(s6), tonumber(s7), tonumber(s8),
         }
+        -- [#1409] PRGESS is ASYNC on the server (a DB read) and routinely lands AFTER
+        -- PRGEND has already committed the burst. Staging it then opened a fresh,
+        -- orphaned accumulator nothing ever committed, and the tab said "No banked
+        -- stats yet" to people with banked stats. Mid-burst it is staged as before;
+        -- after the burst it goes straight onto the live state and repaints.
+        if pending then
+            pending.essence = essence
+        else
+            state.essence = essence
+            if frame and frame:IsShown() then Render() end
+        end
         return
     end
 
@@ -621,6 +632,9 @@ local function HandleMessage(text)
         local p = Staging()
         p.dungeonsAll = tonumber(total) or #p.dungeons
         p.received    = true
+        -- [#1409] Keep the last known banked stats until this burst's PRGESS lands,
+        -- so a refresh does not flash "No banked stats" for a beat.
+        if not p.essence and state then p.essence = state.essence end
         state     = p
         pending   = nil
         requested = false
