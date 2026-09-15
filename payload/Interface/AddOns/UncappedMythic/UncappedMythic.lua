@@ -2741,3 +2741,177 @@ SlashCmdList["UNCAPPEDMYTHICDRAW"] = function()
     DEFAULT_CHAT_FRAME:AddMessage(string.format("  wing resolved: %s   redraw in: %d min",
         draw.wingKnown and "yes" or "|cffff8040NO|r", math.ceil((draw.secs or 0) / 60)))
 end
+
+-- ===========================================================================
+-- [Custom][2026-09-15] Descent Bans.
+--
+-- kirei: "people are complaining about ulduar and other raids in descent. We are in
+-- maintenance mode. So let people ban 3 dungeon or raids they don't want to run."
+--
+-- Server side is MythicMapDraw::BanMapForAccount/UnbanMapForAccount (see
+-- mythic_mapdraw.h in mod-mythic-plus) -- this page only shows the 74 capable maps
+-- with a checkbox each and talks the "MPB" wire protocol documented at the top of
+-- mythic_plus_ban_comms.cpp. .mythic ban/unban/bans is the same feature with no
+-- addon required.
+--
+-- ⚠ ACCOUNT-WIDE, and for a GROUP the account that matters is the LEADER's (owner
+--   ruling) -- so a character's own ticks here can go dark mid-run if they are not
+--   leading. That is server-side behaviour this page cannot see or change; it only
+--   shows and edits the bans of the account it is running under.
+--
+-- Rows are built ONCE from the first reply and then only their checked state and
+-- label are touched -- rebuilding 74 checkboxes from scratch on every toggle (the
+-- naive mirror of the auto-sell list's pattern) would be needless churn for a list
+-- that is static between restarts. Never patched locally beyond the click itself:
+-- every accepted edit is answered with a fresh full list, exactly like auto-sell,
+-- so a rejected ban (MPBERR:FULL) resyncs the checkbox back to what the server has.
+-- ===========================================================================
+if UncappedUI then
+    local BAN_TRANSPORT = "REAGENTBANK"   -- client -> server (shared addon transport)
+    local BAN_MAX = 3
+    local BAN_ROW_H = 22
+
+    local function BanSend(body)
+        if SendAddonMessage then
+            SendAddonMessage(BAN_TRANSPORT, body, "WHISPER", UnitName("player"))
+        end
+    end
+
+    local ban = {
+        entries = {},    -- ordered {mapId, isRaid, banned, name}
+        pending = nil,   -- burst accumulator between MPBBEG and MPBEND
+        rows = {},       -- reusable row frames, index 1..n
+    }
+
+    local panel, L = UncappedUI.CreatePanel("Descent Bans",
+        "Stop up to " .. BAN_MAX .. " dungeons or raids from ever being drawn for a keystone or a "
+        .. "Descent floor -- on every character on this account. |cff3ce7ffCyan|r are dungeons, "
+        .. "|cffff4040red|r are raids.")
+
+    L:Header("Banned maps")
+    local countFS = L:Note("|cff808080Loading...|r", 16)
+    L:Gap(6)
+    local listTop = L.y
+
+    local function BanGrow(rowCount)
+        local host = panel.uncappedContent
+        if not (host and host.uncappedIsScrollContent) then return end
+        host:SetHeight(-listTop + (rowCount * BAN_ROW_H) + 24)
+    end
+
+    local function UsedCount()
+        local used = 0
+        for _, e in ipairs(ban.entries) do
+            if e.banned then used = used + 1 end
+        end
+        return used
+    end
+
+    local function BanRow(i)
+        local row = ban.rows[i]
+        if row then return row end
+
+        row = CreateFrame("CheckButton", nil, panel.uncappedContent, "UICheckButtonTemplate")
+        row:SetPoint("TOPLEFT", panel.uncappedContent, "TOPLEFT", 16, listTop - (i - 1) * BAN_ROW_H)
+        row:SetWidth(20)
+        row:SetHeight(20)
+
+        row.label = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        row.label:SetPoint("LEFT", row, "RIGHT", 2, 0)
+        row.label:SetJustifyH("LEFT")
+
+        row:SetScript("OnClick", function(self)
+            local entry = ban.entries[i]
+            if not entry then return end
+
+            if self:GetChecked() then
+                if UsedCount() >= BAN_MAX then
+                    self:SetChecked(false)
+                    DEFAULT_CHAT_FRAME:AddMessage("|cffff4040[Descent Bans]|r You already have "
+                        .. BAN_MAX .. " maps banned. Unban one first.")
+                    return
+                end
+                BanSend("MPBBAN:" .. entry.mapId)
+            else
+                BanSend("MPBUNBAN:" .. entry.mapId)
+            end
+        end)
+
+        ban.rows[i] = row
+        return row
+    end
+
+    local function BanRedraw()
+        local n = #ban.entries
+
+        for i = 1, n do
+            local entry = ban.entries[i]
+            local row = BanRow(i)
+            row.label:SetText((entry.isRaid and "|cffff4040" or "|cff3ce7ff") .. entry.name .. "|r")
+            row:SetChecked(entry.banned)
+            row:Show()
+        end
+
+        for i = n + 1, #ban.rows do
+            ban.rows[i]:Hide()
+        end
+
+        countFS:SetText("|cffffd100Banned maps: " .. UsedCount() .. " of " .. BAN_MAX .. "|r")
+        BanGrow(n)
+    end
+
+    local banComms = CreateFrame("Frame")
+    banComms:RegisterEvent("CHAT_MSG_ADDON")
+    banComms:SetScript("OnEvent", function(_, _, prefix, text)
+        if prefix ~= ADDON_PIPE_PREFIX or not text then return end
+        if text:sub(1, 3) ~= "MPB" then return end
+
+        if text:sub(1, 6) == "MPBBEG" then
+            ban.pending = {}
+            return
+        end
+
+        if text == "MPBEND" then
+            ban.entries = ban.pending or {}
+            ban.pending = nil
+            table.sort(ban.entries, function(a, b) return a.name < b.name end)
+            BanRedraw()
+            return
+        end
+
+        local mapId, isRaid, isBanned, name = text:match("^MPBROW:(%d+):([01]):([01]):(.+)$")
+        if mapId then
+            if not ban.pending then ban.pending = {} end
+            table.insert(ban.pending, {
+                mapId = tonumber(mapId), isRaid = (isRaid == "1"), banned = (isBanned == "1"), name = name,
+            })
+            return
+        end
+
+        local errMap, code = text:match("^MPBERR:(%d+):(%a+)$")
+        if errMap then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff4040[Descent Bans]|r " .. (code == "FULL"
+                and ("You already have " .. BAN_MAX .. " maps banned.") or "That map could not be banned.")
+                .. " Resyncing...")
+            BanSend("MPBGET")   -- the click that caused this was optimistic; pull the true state back
+            return
+        end
+    end)
+
+    -- Ask on login and every time the page is opened -- the same reasoning the
+    -- auto-sell list gives: it is the only thing that keeps this honest when the
+    -- account's bans were edited with .mythic ban/unban, or by another character.
+    local banWaker = CreateFrame("Frame")
+    banWaker:RegisterEvent("PLAYER_LOGIN")
+    banWaker:SetScript("OnEvent", function() BanSend("MPBGET") end)
+    panel:HookScript("OnShow", function() BanSend("MPBGET") end)
+
+    UncappedMythicBanPanel = panel
+end
+
+SLASH_UNCAPPEDMYTHICBANS1 = "/mpbans"
+SlashCmdList["UNCAPPEDMYTHICBANS"] = function()
+    if UncappedMythicBanPanel and UncappedUI then
+        UncappedUI.Open(UncappedMythicBanPanel)
+    end
+end
