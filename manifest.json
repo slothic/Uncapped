@@ -1841,8 +1841,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedBugReporter/UncappedBugReporter.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedBugReporter/UncappedBugReporter.lua",
-                      "sha256":  "3a375720ee4ab1eabf9671cc342f69130ba9204289feff9c0c9c490300c26289",
-                      "size":  10650
+                      "sha256":  "ab3c379d51dc0812557cbac6854779e391751c4ee597df5d79635f27d28a724a",
+                      "size":  13885
                   },
                   {
                       "path":  "Interface/AddOns/UncappedBugReporter/UncappedBugReporter.toc",
@@ -1853,8 +1853,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedBugReporter/UncappedBugReporter_UI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedBugReporter/UncappedBugReporter_UI.lua",
-                      "sha256":  "f5faf56edda912d6d2fa8f46cc6ac42cc7e9eaee34b1e7bb877dc83d52718f8c",
-                      "size":  10783
+                      "sha256":  "d7ff830349422552faaaccb9d67317184ce5f61650ccac903b4fad5855e6dcf0",
+                      "size":  11116
                   },
                   {
                       "path":  "Interface/AddOns/UncappedBulkBuy/UncappedBulkBuy.lua",
@@ -4097,7 +4097,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "aed7b8b5462d90d373b8eb2cb16e4d69342959e7448d29a4f1acd774f1efac81",
+                      "sha256":  "e4eb3f270b827ee09d720964df5c44e15325fcd23ac9c82609bf83e5c96d5ebd",
                       "size":  3695
                   },
                   {

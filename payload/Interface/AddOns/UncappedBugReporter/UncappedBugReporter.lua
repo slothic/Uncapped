@@ -53,9 +53,55 @@ local MAX_TITLE = 80    -- keeps "[title]" from eating the whole message budget
 -- carries its own index, the total and the kind, so order does not matter and a
 -- lost chunk means the report never completes rather than arriving truncated.
 local TRANSPORT_PREFIX = "REAGENTBANK"   -- shared client->server transport
+local REPLY_PREFIX = "UNC"               -- shared server->client pipe
 local MAX_CHUNKS = 10                    -- must match MAX_CHUNKS server-side
 local CHUNK_BODY = 180                   -- leaves room for "UBUGC:10/10:s:" and the prefix
 local MAX_LONG_REPORT = 1500             -- under the server's 1800 commit trim
+
+-- ---------------------------------------------------------------------------
+-- [Custom][2026-09-15] Maintenance mode.
+--
+-- kirei: "close all bug reports and deny new ones with a message that the
+-- realm is in maintenance mode... so people cannot open bug reports or
+-- suggestions and they get told why."
+--
+-- The SERVER already refuses every submission path while maintenance is on
+-- (WorldSession::HandleBugOpcode, bug_report_chunked.cpp, and the Discord
+-- bridge's intake() all check the same uncapped_discord.report_maintenance
+-- row) -- that enforcement holds even with this addon absent or stale. This
+-- is the friendlier half: telling the player BEFORE they type anything,
+-- instead of after a report they believed was sent gets silently refused.
+--
+-- Learned once per login via a request/reply over the shared pipe (same
+-- shape as UncappedOptions' auto-sell list ASLGET) rather than a server
+-- push, so it needs no new hook ordering to get right. A maintenance
+-- window toggled mid-session will not update an already-logged-in client
+-- until their next login -- acceptable, since the server-side refusal is
+-- what actually matters and never goes stale.
+-- ---------------------------------------------------------------------------
+local maint = { on = false, message = "" }
+
+StaticPopupDialogs["UNCAPPED_REPORTS_CLOSED"] = {
+    text = "%s",
+    button1 = OKAY,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+    showAlert = 1,
+}
+
+local function ShowClosedPopup(kind)
+    local headline = (kind == "suggestion") and "Suggestions are closed" or "Bug reports are closed"
+    local detail = maint.message ~= "" and maint.message
+        or "The realm is in maintenance mode right now. Try again once maintenance is over."
+    StaticPopup_Show("UNCAPPED_REPORTS_CLOSED", headline .. "\n\n" .. detail)
+end
+
+local function RequestMaintenanceState()
+    if SendAddonMessage then
+        SendAddonMessage(TRANSPORT_PREFIX, "RPTGET", "WHISPER", UnitName("player"))
+    end
+end
 
 UncappedBugReporter = UncappedBugReporter or {}
 local BR = UncappedBugReporter
@@ -134,6 +180,11 @@ end
 function BR.Send(title, message, asSuggestion)
     local label = asSuggestion and "[Suggestion]" or "[Bug Report]"
 
+    if maint.on then
+        ShowClosedPopup(asSuggestion and "suggestion" or "bug")
+        return false
+    end
+
     message = (message or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if message == "" then
         DEFAULT_CHAT_FRAME:AddMessage(asSuggestion
@@ -190,6 +241,16 @@ function BR.Send(title, message, asSuggestion)
     return true
 end
 
+-- The UI file checks this before opening the window at all -- a player should
+-- never get as far as typing a report only to have it refused on Send.
+function BR.IsClosed()
+    return maint.on
+end
+
+function BR.ShowClosedPopup(kind)
+    ShowClosedPopup(kind)
+end
+
 -- ---------------------------------------------------------------------------
 -- Slash commands
 -- ---------------------------------------------------------------------------
@@ -198,6 +259,10 @@ SLASH_UNCAPPEDBUGREPORTER2 = "/bugreport"
 SlashCmdList["UNCAPPEDBUGREPORTER"] = function(msg)
     msg = (msg or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if msg == "" then
+        if maint.on then
+            ShowClosedPopup("bug")
+            return
+        end
         if BR.UI and BR.UI.Open then BR.UI.Open() end
         return
     end
@@ -219,6 +284,10 @@ end
 SLASH_UNCAPPEDSUGGESTION1 = "/suggestion"
 SLASH_UNCAPPEDSUGGESTION2 = "/suggest"
 SlashCmdList["UNCAPPEDSUGGESTION"] = function(msg)
+    if maint.on then
+        ShowClosedPopup("suggestion")
+        return
+    end
     msg = (msg or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if msg == "" then
         DEFAULT_CHAT_FRAME:AddMessage(
@@ -232,11 +301,30 @@ end
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-frame:SetScript("OnEvent", function(self, event, name)
+frame:RegisterEvent("CHAT_MSG_ADDON")
+frame:SetScript("OnEvent", function(self, event, a1, a2)
     if event == "ADDON_LOADED" then
-        if name == ADDON then InitDB() end
+        if a1 == ADDON then InitDB() end
         return
     end
-    -- PLAYER_ENTERING_WORLD
-    EnsureWorldChannel()
+    if event == "PLAYER_ENTERING_WORLD" then
+        EnsureWorldChannel()
+        RequestMaintenanceState()
+        return
+    end
+
+    -- CHAT_MSG_ADDON: a1 = prefix, a2 = message.
+    if event == "CHAT_MSG_ADDON" then
+        if a1 ~= REPLY_PREFIX or not a2 then return end
+
+        if a2 == "RPTMAINT:0" then
+            maint.on, maint.message = false, ""
+            return
+        end
+
+        local rest = a2:match("^RPTMAINT:1:(.*)$")
+        if rest then
+            maint.on, maint.message = true, rest
+        end
+    end
 end)

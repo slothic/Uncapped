@@ -239,7 +239,15 @@ local function BuildFrame()
     cancel:SetScript("OnClick", function() frame:Hide() end)
 end
 
+-- [Custom][2026-09-15] Maintenance mode: refuse to even open the window, and
+-- say why, instead of letting the player type a report that Send() would only
+-- refuse afterward. See BR.IsClosed()/BR.ShowClosedPopup in the main file.
 function UI.Open()
+    if BR.IsClosed and BR.IsClosed() then
+        BR.ShowClosedPopup("bug")
+        return
+    end
+
     BuildFrame()
     frame:Show()
     titleBox:SetFocus()
