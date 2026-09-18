@@ -986,7 +986,7 @@ $manifest = [ordered]@{
     # 'DISABLED', so a player who ticks PicoID on but left this off would get a
     # permanently blank proc and origin column. PicoID's EnsureData() says so out
     # loud rather than failing quietly, but it cannot fix it.
-    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests', 'UncappedBugReporter', 'UncappedShieldBar', 'Uncapped64bitUI', 'UncappedPanel', 'UncappedLootFeed', 'UncappedBulkBuy', 'UncappedShards', 'UncappedHotzones', 'UncappedLootFeedSources', 'UncappedTransmogData', 'UncappedQuestData', 'PicoIDData')
+    forceEnableAddOns = @('StatFeed', 'ReagentBankCraft', 'UncappedMythic', 'UncappedRewards', 'UncappedAlerts', 'UncappedVersion', 'UncappedGCD', 'UncappedOptions', 'UncappedUI', 'UncappedDashboard', 'UncappedChat', 'UncappedQuests', 'UncappedBugReporter', 'UncappedShieldBar', 'Uncapped64bitUI', 'UncappedPanel', 'UncappedLootFeed', 'UncappedBulkBuy', 'UncappedShards', 'UncappedHotzones', 'UncappedLootFeedSources', 'UncappedTransmogData', 'UncappedQuestData', 'PicoIDData', 'UncappedHPTrace')
 
     # Switched off in AddOns.txt on clients that already have them. Needed because dropping
     # an addon from the payload does not uninstall it - the launcher never deletes
@@ -1045,6 +1045,11 @@ $manifest = [ordered]@{
         # [#522] Shield bar. Listed from its FIRST release, so it never joins the
         # group above that shipped unlisted and became impossible to prune.
         'Interface/AddOns/UncappedShieldBar',
+        # HP trace, 2026-09-18. Listed from its FIRST release for the same reason.
+        # Diagnostic for the bouncing health bar; also reports the player's installed
+        # addons, which is how we find out whether a THIRD-PARTY unit frame is the
+        # thing bouncing rather than ours.
+        'Interface/AddOns/UncappedHPTrace',
         # ⚠ Added 2026-08-16 -- UncappedLootFeed was the FOURTH addon to ship without
         # being listed here, the same drift the three-addon note above records. It was
         # in the payload and installing correctly, but nothing under its folder could

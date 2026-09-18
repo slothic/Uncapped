@@ -1,0 +1,6 @@
+## Interface: 30300
+## Title: Uncapped HP Trace
+## Notes: Records your own health bar and what moved it, so a bouncing bar can be caught. Diagnostic -- safe to leave enabled.
+## Author: Uncapped
+
+UncappedHPTrace.lua
