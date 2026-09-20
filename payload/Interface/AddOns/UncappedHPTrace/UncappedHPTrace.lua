@@ -52,6 +52,13 @@ local FLIP_WINDOW     = 3     -- seconds within which a big move must be undone 
 local FLIP_RETURN     = 0.15  -- how close to the starting fraction the undo must land
 local MISMATCH_SECONDS = 1.5  -- how long native and bar must disagree before we report it
 local flipFrom, flipAt, flipDir, mismatchSince = nil, 0, 0, nil
+local fullAt, zeroAt = nil, nil   -- last time at >=90% / at <=3%, for the zero-flip test
+
+local STREAM_STEP   = 0.10   -- send when health moved this fraction of max since the last line
+local STREAM_BEAT   = 10     -- ...or at least this often, seconds
+local STREAM_RATE   = 3      -- token bucket refill, lines per second
+local STREAM_BUCKET = 6      -- burst allowance
+local streamFrac, streamAt, streamTokens, streamClock = nil, 0, STREAM_BUCKET, 0
 
 local ring, ringPos, ringCount = {}, 0, 0
 local lastFrac, lastHP, lastMax = nil, nil, nil
@@ -203,6 +210,28 @@ local function Sample(tag)
     Push(line)
     WriteLocal(line)
 
+    -- ★ CONTINUOUS FEED. Nobody has to notice a bounce and type anything: the client
+    -- tells the server what its health field says, and addon_pipe.log keeps it.
+    -- Sent when health has moved >= STREAM_STEP of max since the last line we sent, or
+    -- as a heartbeat every STREAM_BEAT seconds, and through a token bucket so a
+    -- flapping bar cannot flood the throttled addon channel -- which would cost us the
+    -- very samples we want. A full->0->full swing is two 100% moves, so it always
+    -- qualifies. Line: HPT:S:<hp>:<max>:<pct>:<barpct|->:<barage|->:<clock>:<reason>
+    local now = Now()
+    streamTokens = math.min(STREAM_BUCKET, streamTokens + (now - streamClock) * STREAM_RATE)
+    streamClock = now
+    if streamTokens >= 1
+       and (not streamFrac or math.abs(frac - streamFrac) >= STREAM_STEP
+            or now - streamAt >= STREAM_BEAT) then
+        streamTokens = streamTokens - 1
+        streamFrac, streamAt = frac, now
+        SendAddonMessage(ADDON_PREFIX, string.format("HPT:S:%d:%d:%.1f:%s:%s:%.1f:%s",
+            hp, max, frac * 100,
+            barFrac and string.format("%.1f", barFrac * 100) or "-",
+            barAge and string.format("%.1f", barAge) or "-",
+            now, string.sub(reason, 1, 60)), "WHISPER", UnitName("player"))
+    end
+
     -- ★ A bounce is a FLIP: an unexplained big move that is undone within FLIP_WINDOW.
     -- A single big unexplained move is an ordinary heal, a death, a revive or a
     -- percent-health boss mechanic -- 09-19 traced 129 bursts from 34 players and every
@@ -221,6 +250,24 @@ local function Sample(tag)
                 flipFrom, flipAt, flipDir = lastFrac, t, delta
             end
         end
+    end
+
+    -- ★ FULL -> ~0 -> FULL, whatever the combat log says. The flip test above only counts
+    -- moves with NO combat-log reason, so a swing to zero that arrives with a damage event
+    -- attached was classed as explained and ignored -- which is precisely the reported
+    -- symptom ("full hp to 0"). A real death is excluded: a corpse does not climb back to
+    -- full inside FLIP_WINDOW without a resurrect, and UnitIsDeadOrGhost covers that.
+    if frac >= 0.9 then
+        fullAt = t
+    end
+    if frac <= 0.03 and fullAt and (t - fullAt) <= FLIP_WINDOW
+       and not (UnitIsDeadOrGhost and UnitIsDeadOrGhost("player")) then
+        zeroAt = t
+    end
+    if frac >= 0.9 and zeroAt and (t - zeroAt) <= FLIP_WINDOW then
+        WriteLocal(string.format("BOUNCE zero-flip full->0->full in %.1fs", t - zeroAt))
+        Burst(string.format("zero:%.2f", frac))
+        zeroAt = nil
     end
 
     -- ★ The other failure: the native field and our bar disagree and stay that way.
