@@ -1715,8 +1715,8 @@
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.lua",
-                      "sha256":  "2ea94a20a4e0c40f72d87a48af162e64776f9045684abd9b1ea0869b0a6439c4",
-                      "size":  113405
+                      "sha256":  "d69ce3305d255b71f70f17aa1c11c14ab573df418b634b8ef4a5631e6dda6852",
+                      "size":  113828
                   },
                   {
                       "path":  "Interface/AddOns/Uncapped64bitUI/Uncapped64bitUI.toc",
@@ -2027,8 +2027,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedHPTrace/UncappedHPTrace.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedHPTrace/UncappedHPTrace.lua",
-                      "sha256":  "a348b010372c1b63a2f93cbbde2bb4c9146b7f8988d87bb29761d78795ee55c1",
-                      "size":  10911
+                      "sha256":  "d03ec7ad480b65ea203e4f10161c3388d10ecea958b9b22a132404b0c623c02c",
+                      "size":  12954
                   },
                   {
                       "path":  "Interface/AddOns/UncappedHPTrace/UncappedHPTrace.toc",
@@ -4109,7 +4109,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "11d00a0622b8af5763b252e2a437eed1e0ca1b27e056d700aa4a4cfef95370cc",
+                      "sha256":  "9fab4b7b60acfe28c077b0e05495ea8c1043a29f44222fdb7abe9f708aa83c4b",
                       "size":  3695
                   },
                   {

@@ -175,6 +175,14 @@ end
 -- State fed by the server.
 -- ---------------------------------------------------------------------------
 local selfData   = nil   -- { max }
+local selfDataAt = 0     -- GetTime() of the last UHP:S, for UncappedHPTrace
+
+-- Read-only view for UncappedHPTrace: what this addon's own bar is drawing from, and how
+-- stale it is. Lets a bounce report say whether the BAR or the SERVER moved.
+function Uncapped64bitUI_SelfHealth()
+    if not selfData then return nil end
+    return selfData.cur, selfData.max, (GetTime() - selfDataAt)
+end
 local targetData = nil   -- { max, visMax, guid }   [#998] guid replaced the retired stacks
 local byGuid     = {}    -- [guidLow] = { max }   (group members)
 
@@ -602,6 +610,7 @@ local function OnLine(msg)
             max = ApplyHpExponent(tonumber(sMax), sExp),
             cur = ApplyHpExponent(tonumber(sCur), sExp),
         }
+        selfDataAt = GetTime()
         RefreshUnitBars("player")
         return
     end

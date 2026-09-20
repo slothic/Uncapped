@@ -48,6 +48,11 @@ local BURST_LINES    = 8               -- lines sent per burst, newest last
 -- big hits at this realm's scale.
 local BOUNCE_FRACTION = 0.35
 
+local FLIP_WINDOW     = 3     -- seconds within which a big move must be undone to be a flip
+local FLIP_RETURN     = 0.15  -- how close to the starting fraction the undo must land
+local MISMATCH_SECONDS = 1.5  -- how long native and bar must disagree before we report it
+local flipFrom, flipAt, flipDir, mismatchSince = nil, 0, 0, nil
+
 local ring, ringPos, ringCount = {}, 0, 0
 local lastFrac, lastHP, lastMax = nil, nil, nil
 local lastBurst = 0
@@ -183,19 +188,52 @@ local function Sample(tag)
     local reason = pendingReason or tag or "-"
     pendingReason = nil
 
-    local line = string.format("hp=%d max=%d pct=%.3f %s", hp, max, frac * 100, reason)
+    -- What the interface addon's own bar is drawing from (the last UHP:S), so a burst can
+    -- say whether the BAR or the SERVER moved. Absent when that addon is not loaded.
+    local barFrac, barAge, barTxt = nil, nil, ""
+    if type(Uncapped64bitUI_SelfHealth) == "function" then
+        local bcur, bmax, age = Uncapped64bitUI_SelfHealth()
+        if bcur and bmax and bmax > 0 then
+            barFrac, barAge = bcur / bmax, age
+            barTxt = string.format(" bar=%.3f age=%.1f", barFrac * 100, age)
+        end
+    end
+
+    local line = string.format("hp=%d max=%d pct=%.3f %s%s", hp, max, frac * 100, reason, barTxt)
     Push(line)
     WriteLocal(line)
 
-    -- A bounce is a big move with nothing in the combat log to account for it.
+    -- ★ A bounce is a FLIP: an unexplained big move that is undone within FLIP_WINDOW.
+    -- A single big unexplained move is an ordinary heal, a death, a revive or a
+    -- percent-health boss mechanic -- 09-19 traced 129 bursts from 34 players and every
+    -- one read was one of those, so the old "any big move" trigger only buried the signal.
+    local t = Now()
     if lastFrac and reason == "-" then
         local delta = frac - lastFrac
         if delta > BOUNCE_FRACTION or delta < -BOUNCE_FRACTION then
-            local why = string.format("delta=%.3f from=%.3f to=%.3f unexplained",
-                                      delta, lastFrac, frac)
-            WriteLocal("BOUNCE " .. why)
-            Burst(string.format("%.2f:%.2f", lastFrac, frac))
+            if flipFrom and (t - flipAt) <= FLIP_WINDOW and math.abs(frac - flipFrom) <= FLIP_RETURN
+               and (delta > 0) ~= (flipDir > 0) then
+                local why = string.format("flip from=%.3f to=%.3f back=%.3f", flipFrom, lastFrac, frac)
+                WriteLocal("BOUNCE " .. why)
+                Burst(string.format("%.2f:%.2f:%.2f", flipFrom, lastFrac, frac))
+                flipFrom = nil
+            else
+                flipFrom, flipAt, flipDir = lastFrac, t, delta
+            end
         end
+    end
+
+    -- ★ The other failure: the native field and our bar disagree and stay that way.
+    -- Sustained, because the two feeds legitimately differ for a frame or two.
+    if barFrac and math.abs(barFrac - frac) > BOUNCE_FRACTION then
+        mismatchSince = mismatchSince or t
+        if t - mismatchSince >= MISMATCH_SECONDS then
+            WriteLocal(string.format("BAR-MISMATCH native=%.3f bar=%.3f age=%.1f", frac, barFrac, barAge))
+            Burst(string.format("bar:%.2f:%.2f:%.0f", frac, barFrac, barAge))
+            mismatchSince = nil
+        end
+    else
+        mismatchSince = nil
     end
 
     lastFrac, lastHP, lastMax = frac, hp, max
