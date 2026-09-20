@@ -352,6 +352,34 @@ local function RealHealthPair(unit)
     if not rmax then return nil end
 
     --[[
+      ★★★ A SUBSTITUTED NUMBER MUST NOT OUTLIVE ITS FEED.
+
+      `selfData` is written only when a UHP:S arrives, and that feed is a 1 Hz sweep
+      behind a send-on-change dedup with a multi-second heartbeat. Blizzard, meanwhile,
+      repaints this bar on every UNIT_HEALTH -- which is every time health actually
+      moves. So between two feed lines the fill is LIVE and the text we write over it is
+      FROZEN, and in a fight where health swings full -> low -> full faster than the feed
+      samples, that frozen text reads as the health flicking between two unrelated
+      numbers. Measured on the realm 2026-09-20: `bar=100.0 age=8.5` -- an eight-second-old
+      value presented as current health.
+
+      Past the freshness window we therefore stop trusting the cached CURRENT value and
+      rebuild it from the client's own live ratio below. `rmax` is kept either way: the
+      maximum moves slowly and is the one figure the native field genuinely cannot
+      express once the pool is past the proxy budget.
+
+      ⚠ This is a fallback, NOT a replacement for [#1387]. The ratio resolves only
+        realMax/2e9 of real health per displayed point, which is why the fresh feed value
+        is preferred while it IS fresh. Staleness is the only thing that overrides it.
+
+      ⚠ The window has to be longer than the 1 Hz sweep or a healthy feed would be
+        declared stale on nearly every frame; 1.5s is one sweep plus margin.
+    ]]
+    if unit == "player" and rcur and (GetTime() - selfDataAt) > 1.5 then
+        rcur = nil
+    end
+
+    --[[
       ★★★ [#1387] PREFER THE SERVER'S REAL CURRENT HEALTH OVER THE RATIO.
 
       The reconstruction below is exact in PERCENT and coarse in ABSOLUTE terms: it
