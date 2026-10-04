@@ -292,6 +292,19 @@ local function Sample(tag)
 end
 
 local f = CreateFrame("Frame")
+local lastPredictionReport = -30
+local function ReportPrediction()
+    local ok, prediction = pcall(GetCVar, "predictedHealth")
+    if not ok or prediction == nil then return end
+    local native = "absent"
+    if type(UncappedHealthPrediction) == "function" then
+        local good, status = pcall(UncappedHealthPrediction)
+        if good and type(status) == "string" then native = status end
+    end
+    SendAddonMessage(ADDON_PREFIX, "HPT:P:" .. tostring(prediction) .. ":native=" .. native,
+        "WHISPER", UnitName("player"))
+    lastPredictionReport = Now()
+end
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:RegisterEvent("UNIT_HEALTH")
 f:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
@@ -302,6 +315,9 @@ f:SetScript("OnEvent", function(self, event, ...)
     if e == "PLAYER_ENTERING_WORLD" then
         lastFrac = nil
         WriteLocal("---- entering world ----")
+        -- Record the actual client policy separately from sampled health. The
+        -- native predictor can repaint between UNIT_HEALTH events.
+        ReportPrediction()
         Sample("enter")
         ScheduleAddOnReport()
         return
@@ -349,6 +365,7 @@ end)
 -- event-driven. Detached from the event frame so a stuck handler cannot stop it.
 local driver = CreateFrame("Frame")
 driver:SetScript("OnUpdate", function()
+    if Now() - lastPredictionReport >= 30 then ReportPrediction() end
     if reportAt and Now() >= reportAt then
         reportAt = nil
         ReportAddOns()

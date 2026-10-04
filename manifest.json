@@ -2027,8 +2027,8 @@
                   {
                       "path":  "Interface/AddOns/UncappedHPTrace/UncappedHPTrace.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedHPTrace/UncappedHPTrace.lua",
-                      "sha256":  "aa87f236bcbb3be0a1cc384dd026e53fd22fbffc52926d72746c01913c67f7e7",
-                      "size":  15880
+                      "sha256":  "85cd557d4cca95e578bba71b25fe8f2ad1c1a45d61019dcd73745207bae5c751",
+                      "size":  16696
                   },
                   {
                       "path":  "Interface/AddOns/UncappedHPTrace/UncappedHPTrace.toc",
@@ -4109,7 +4109,7 @@
                   {
                       "path":  "Interface/AddOns/UncappedVersion/UncappedVersion.lua",
                       "url":  "https://raw.githubusercontent.com/slothic/Uncapped/main/payload/Interface/AddOns/UncappedVersion/UncappedVersion.lua",
-                      "sha256":  "9fab4b7b60acfe28c077b0e05495ea8c1043a29f44222fdb7abe9f708aa83c4b",
+                      "sha256":  "169342627ff7b9bacd7669a6e845c098cd4d809592a1a6575a4555b401c27faf",
                       "size":  3695
                   },
                   {
@@ -4804,9 +4804,9 @@
                   },
                   {
                       "path":  "UncappedCT.dll",
-                      "url":  "http://152.53.115.249/patches/UncappedCT-2026.09.18a.dll",
-                      "sha256":  "93e560ac56bebd68e9f956ecfe34c6f83076807b76234421982b81edf7ea53ec",
-                      "size":  458240
+                      "url":  "http://152.53.115.249/patches/UncappedCT-2026.10.04b.dll",
+                      "sha256":  "43054af7d681950a248bb5a7b4e08b8fec7f0e4a1e0658f36e0aea862b30ac10",
+                      "size":  474624
                   }
               ],
     "archives":  [
