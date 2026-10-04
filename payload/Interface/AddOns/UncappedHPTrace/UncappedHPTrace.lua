@@ -195,18 +195,23 @@ local function Sample(tag)
     local reason = pendingReason or tag or "-"
     pendingReason = nil
 
-    -- What the interface addon's own bar is drawing from (the last UHP:S), so a burst can
-    -- say whether the BAR or the SERVER moved. Absent when that addon is not loaded.
+    -- Selected display value and raw server feed are distinct. The formatter may
+    -- reject a stale UHP:S; calling that cache the bar produced false mismatches.
     local barFrac, barAge, barTxt = nil, nil, ""
+    local feedTxt = ""
     if type(Uncapped64bitUI_SelfHealth) == "function" then
-        local bcur, bmax, age = Uncapped64bitUI_SelfHealth()
+        local bcur, bmax, age, fcur, fmax = Uncapped64bitUI_SelfHealth()
         if bcur and bmax and bmax > 0 then
             barFrac, barAge = bcur / bmax, age
             barTxt = string.format(" bar=%.3f age=%.1f", barFrac * 100, age)
         end
+        if fcur and fmax and fmax > 0 then
+            feedTxt = string.format(" feed=%.3f", fcur / fmax * 100)
+        end
     end
 
-    local line = string.format("hp=%d max=%d pct=%.3f %s%s", hp, max, frac * 100, reason, barTxt)
+    local life = (UnitIsDeadOrGhost and UnitIsDeadOrGhost("player")) and "dead" or "alive"
+    local line = string.format("hp=%d max=%d pct=%.3f%s%s %s %s", hp, max, frac * 100, barTxt, feedTxt, life, reason)
     Push(line)
     WriteLocal(line)
 
@@ -225,11 +230,11 @@ local function Sample(tag)
             or now - streamAt >= STREAM_BEAT) then
         streamTokens = streamTokens - 1
         streamFrac, streamAt = frac, now
-        SendAddonMessage(ADDON_PREFIX, string.format("HPT:S:%d:%d:%.1f:%s:%s:%.1f:%s",
+        SendAddonMessage(ADDON_PREFIX, string.format("HPT:S:%d:%d:%.1f:%s:%s:%.1f:%s%s %s",
             hp, max, frac * 100,
             barFrac and string.format("%.1f", barFrac * 100) or "-",
             barAge and string.format("%.1f", barAge) or "-",
-            now, string.sub(reason, 1, 60)), "WHISPER", UnitName("player"))
+            now, string.sub(reason, 1, 60), feedTxt, life), "WHISPER", UnitName("player"))
     end
 
     -- ★ A bounce is a FLIP: an unexplained big move that is undone within FLIP_WINDOW.

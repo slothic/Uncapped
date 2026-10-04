@@ -177,12 +177,6 @@ end
 local selfData   = nil   -- { max }
 local selfDataAt = 0     -- GetTime() of the last UHP:S, for UncappedHPTrace
 
--- Read-only view for UncappedHPTrace: what this addon's own bar is drawing from, and how
--- stale it is. Lets a bounce report say whether the BAR or the SERVER moved.
-function Uncapped64bitUI_SelfHealth()
-    if not selfData then return nil end
-    return selfData.cur, selfData.max, (GetTime() - selfDataAt)
-end
 local targetData = nil   -- { max, visMax, guid }   [#998] guid replaced the retired stacks
 local byGuid     = {}    -- [guidLow] = { max }   (group members)
 
@@ -305,9 +299,9 @@ end
 -- ratio reconstruction in that case, so an old server and a new addon still agree.
 local function HpInfoFor(unit)
     if unit == "player" then
-        if selfData then return selfData.max, selfData.cur, nil end
         local vmax = NativeMaxIfExact(unit)
         if vmax then return vmax, nil, nil end
+        if selfData then return selfData.max, selfData.cur, nil end
     elseif unit == "target" then
         -- [#998] targetData.stacks is gone (the slot carries a guid now); the middle
         -- return now carries the real current health instead. [#1387]
@@ -351,32 +345,23 @@ local function RealHealthPair(unit)
     local rmax, rcur = HpInfoFor(unit)
     if not rmax then return nil end
 
-    --[[
-      ★★★ A SUBSTITUTED NUMBER MUST NOT OUTLIVE ITS FEED.
-
-      `selfData` is written only when a UHP:S arrives, and that feed is a 1 Hz sweep
-      behind a send-on-change dedup with a multi-second heartbeat. Blizzard, meanwhile,
-      repaints this bar on every UNIT_HEALTH -- which is every time health actually
-      moves. So between two feed lines the fill is LIVE and the text we write over it is
-      FROZEN, and in a fight where health swings full -> low -> full faster than the feed
-      samples, that frozen text reads as the health flicking between two unrelated
-      numbers. Measured on the realm 2026-09-20: `bar=100.0 age=8.5` -- an eight-second-old
-      value presented as current health.
-
-      Past the freshness window we therefore stop trusting the cached CURRENT value and
-      rebuild it from the client's own live ratio below. `rmax` is kept either way: the
-      maximum moves slowly and is the one figure the native field genuinely cannot
-      express once the pool is past the proxy budget.
-
-      ⚠ This is a fallback, NOT a replacement for [#1387]. The ratio resolves only
-        realMax/2e9 of real health per displayed point, which is why the fresh feed value
-        is preferred while it IS fresh. Staleness is the only thing that overrides it.
-
-      ⚠ The window has to be longer than the 1 Hz sweep or a healthy feed would be
-        declared stale on nearly every frame; 1.5s is one sweep plus margin.
-    ]]
-    if unit == "player" and rcur and (GetTime() - selfDataAt) > 1.5 then
-        rcur = nil
+    -- [HP bounce 2026-10-04] Fresh does not mean current: Indeity healed from
+    -- 31% to full while a UHP:S only 0.2s old still said 31%. The former 1.5s
+    -- timeout let that old number replace the live one on every repaint.
+    -- Match the server sample to the live proxy before using its extra precision.
+    -- This also rejects a delayed UHP:S immediately, regardless of arrival order.
+    if unit == "player" then
+        local nmax = UnitHealthMax(unit) or 0
+        local ncur = UnitHealth(unit) or 0
+        if nmax <= 0 then return nil end
+        if nmax < HEALTH_PROXY_BUDGET then return ncur, nmax end
+        if ncur <= 0 then return 0, rmax end
+        if rcur and rcur > 0 and rmax >= HEALTH_PROXY_BUDGET then
+            -- Same rounding and living-at-least-one clamp as HealthProxyOf.
+            local proxy = math.max(1, math.min(nmax, math.floor(rcur / rmax * nmax + 0.5)))
+            if proxy == ncur then return rcur, rmax end
+        end
+        return math.min(1, ncur / nmax) * rmax, rmax
     end
 
     --[[
@@ -400,6 +385,16 @@ local function RealHealthPair(unit)
     local nmax = UnitHealthMax(unit)
     local frac = (nmax > 0) and (UnitHealth(unit) / nmax) or 0
     return frac * rmax, rmax
+end
+
+-- Read-only diagnostic view of the SAME selection used by the text formatter.
+-- The old accessor returned raw selfData even when the formatter rejected it,
+-- so HPT called a stale cache a stale display. Keep raw feed values separately.
+function Uncapped64bitUI_SelfHealth()
+    local cur, max = RealHealthPair("player")
+    if not cur then return nil end
+    return cur, max, selfData and (GetTime() - selfDataAt) or 0,
+        selfData and selfData.cur, selfData and selfData.max
 end
 
 -- Bars we have seen Blizzard paint, grouped by unit token, so a feed update can
